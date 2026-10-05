@@ -36,6 +36,12 @@ async def _apply_terminal_status_from_control(db, req, control, terminal, status
         body back over its call without substituting arguments, so it refuses a call whose argument
         name differs from the parameter it fills.
         """
+        # Output can report an exit before the host acknowledges start. That late
+        # acknowledgment is not evidence of a second process on this terminal ID.
+        if control["action"] == "start" and status == "completed" and (
+            terminal["exit_code"] is not None or terminal["exit_signal"]
+        ):
+            return ""
         terminal_status = str(req.terminalStatus or "").strip()
         if status == "failed":
             terminal_status = terminal_status or "failed"

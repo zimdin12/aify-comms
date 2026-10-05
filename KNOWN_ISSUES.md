@@ -5,6 +5,9 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+- Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.
+- Deferred diagnostic privacy: fatal-line forwarding to spawn_requests.error is bounded but does not redact secrets or distinguish conversation text; inherited behavior, not a privacy guarantee.
+
 ## A bare model on a hermes spawn can select a different provider (found 2026-10-05)
 
 A hermes spawn with a bare model can switch away from the configured provider. In Hermes

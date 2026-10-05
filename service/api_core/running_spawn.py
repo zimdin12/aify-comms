@@ -40,6 +40,7 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
+from service.reconcilers.stuck_controls import _UNSETTLED_CONTROL_STATUSES
 
 #: DELIBERATELY the ROUTER'S logger name, not this module's. The one warning in this block records an
 #: eager-PTY failure that must never be silent -- a bare `pass` there once hid an AttributeError for
@@ -223,7 +224,7 @@ async def _settle_running_spawn(
             # until the PTY launches).
             _wrapper_backed = _managed_via_wrapper_for_runtime(settings_for_pty, row["runtime"] or "")
             if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper or _wrapper_backed):
-                await _ensure_pty_for_settled_spawn(db, row, settings_for_pty)
+                await _ensure_pty_for_settled_spawn(db, row, settings_for_pty, session_id=session_id)
         return session_id
 
 
@@ -241,12 +242,19 @@ async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bri
                       AND bridge_id = ?
                       AND id NOT LIKE 'vterm_%'
                       AND status IN {TERMINAL_LIVE_FILTER_SQL}
+                      -- A STOP names the outgoing backing even when timestamps tie.
+                      AND NOT EXISTS (
+                          SELECT 1 FROM terminal_controls outgoing_stop
+                          WHERE outgoing_stop.terminal_id = terminal_sessions.id
+                            AND outgoing_stop.action = 'stop'
+                            AND outgoing_stop.status IN ({','.join('?' for _ in _UNSETTLED_CONTROL_STATUSES)})
+                      )
                       AND datetime(COALESCE(NULLIF(created_at, ''), '1970-01-01'))
                           >= datetime(COALESCE(NULLIF(?, ''), '1970-01-01'))
                     ORDER BY datetime(COALESCE(updated_at, created_at, '1970-01-01')) DESC, rowid DESC
                     LIMIT 1
                     """,
-                    (row["agent_id"], migrate_bridge_id, row["created_at"]),
+                    (row["agent_id"], migrate_bridge_id, *_UNSETTLED_CONTROL_STATUSES, row["created_at"]),
                 )).fetchone()
                 if live_terminal and str(live_terminal["session_id"] or "") != session_id:
                     await db.execute(
@@ -341,7 +349,7 @@ async def _hand_settled_spawn_to_dispatch(db, row):
                 await _apply_channel_routing_to_claude_runs(db, runs, settings_for_runs)
 
 
-async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):
+async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty, *, session_id: str):
                 """Give a settled spawn its managed PTY, best-effort.
 
                 Extracted from `_settle_running_spawn` in v0.5.4. Best-effort by design: the spawn is already
@@ -358,7 +366,8 @@ async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):
                         # Scope adoption to THIS spawn's session. Without it a restart adopts the
                         # outgoing worker's terminal — which is killed two seconds later — and the
                         # agent ends up `running` with no worker at all. Reproduced live.
-                        for_session_id=str(row["session_id"] or ""),
+                        # `row` predates settlement; its session_id is still empty.
+                        for_session_id=session_id,
                         # The one terminal this request brings up, so the only one carrying its intent.
                         start_intent=row["start_intent"] if "start_intent" in row.keys() else "",
                     )

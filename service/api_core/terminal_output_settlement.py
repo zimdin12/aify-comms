@@ -19,7 +19,7 @@ from service.api_core.events import _append_terminal_event
 from service.api_core.terminal_controls_io import _clear_console_terminal_binding
 from service.clock import now as _now
 from service.reconcilers.terminal_runs import _close_active_terminal_runs_for_terminal
-from service.terminal_diagnostics import terminal_end_summary
+from service.terminal_diagnostics import meaningful_failure_line, terminal_end_summary
 
 
 async def _settle_bridge_takeover_for_output(db, terminal, terminal_id: str, new_bridge_id: str,
@@ -88,7 +88,7 @@ async def _settle_bridge_takeover_for_output(db, terminal, terminal_id: str, new
 
 
 async def _close_out_terminal_on_end_status(db, terminal, terminal_id: str, status: str,
-                                            _TERMINAL_END_STATUSES) -> None:
+                                            _TERMINAL_END_STATUSES, *, ending_output: str = "") -> None:
         """A terminal-ending status arrived with the output. Close what it invalidates.
 
         The set is PASSED IN rather than imported, so the caller keeps ownership of which statuses end
@@ -127,6 +127,27 @@ async def _close_out_terminal_on_end_status(db, terminal, terminal_id: str, stat
                 str((exit_row["exit_signal"] if exit_row is not None else "") or ""),
             )
             await _close_active_terminal_runs_for_terminal(db, terminal, status, now=now, reason=summary)
+            # A reported process exit, unlike an optimistic stop-row write, is
+            # authoritative. Settle only this session's spawn, never a successor.
+            if exit_row is not None and (exit_row["exit_code"] is not None or exit_row["exit_signal"]):
+                # The validated ending request owns these bytes. A queue flush
+                # can await an older batch without persisting the ending chunk.
+                fatal_line = meaningful_failure_line(ending_output)
+                reason = f"{summary} {fatal_line}".strip() if fatal_line else summary
+                placeholders = ",".join("?" for _ in _TERMINAL_END_STATUSES)
+                await db.execute(
+                    f"""
+                    UPDATE spawn_requests
+                    SET status = 'failed', finished_at = COALESCE(finished_at, ?), updated_at = ?, error = ?
+                    WHERE session_id = ? AND status = 'running'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM terminal_sessions sibling
+                          WHERE sibling.session_id = ? AND sibling.id != ?
+                            AND LOWER(TRIM(COALESCE(sibling.status, ''))) NOT IN ({placeholders}, '')
+                      )
+                    """,
+                    (now, now, reason, terminal["session_id"], terminal["session_id"], terminal_id, *_TERMINAL_END_STATUSES),
+                )
             await db.execute(
                 """
                 UPDATE terminal_sessions

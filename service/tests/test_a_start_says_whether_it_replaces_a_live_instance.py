@@ -153,6 +153,132 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
                 self.assertEqual(newest[0]["start_intent"], REPLACE, newest)
                 self.assertEqual(newest[0]["status"], "queued", "control: the restart queued a new request")
 
+    def test_a_self_restart_creates_its_own_terminal_before_the_old_stop_lands(self):
+        agent_id = "self-restarting"
+        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        old = self._terminals(agent_id)[0]["id"]
+        self._rows("UPDATE terminal_sessions SET status = 'attached', created_at = '2026-01-01T00:00:00Z' WHERE id = ?", (old,))
+        old_session = self._rows("SELECT id FROM agent_sessions WHERE agent_id = ?", (agent_id,))[0]["id"]
+        restart = self.client.post(f"/api/v1/sessions/{old_session}/control", json={"action": "restart", "from_agent": agent_id})
+        self.assertEqual(restart.status_code, 200, restart.text)
+        spawn_id = restart.json()["spawnRequest"]["id"]
+        self.assertEqual(self._rows("SELECT status FROM terminal_sessions WHERE id = ?", (old,))[0]["status"], "attached", "the old stop has not landed")
+        self._bring_up(spawn_id)
+        session_id = self._rows("SELECT session_id FROM spawn_requests WHERE id = ?", (spawn_id,))[0]["session_id"]
+        new = self._rows("SELECT id, start_intent FROM terminal_sessions WHERE session_id = ?", (session_id,))
+        self.assertEqual(len(new), 1, "the replacement must own a terminal, not adopt the outgoing worker")
+        self.assertNotEqual(new[0]["id"], old)
+        self.assertEqual(new[0]["start_intent"], REPLACE)
+        self.assertEqual(self._launch_intent(new[0]["id"]), REPLACE)
+        old_exit = self.client.post(f"/api/v1/terminals/{old}/output", json={"bridgeId": self.BRIDGE, "status": "stopped", "exitCode": 0, "output": "[terminal exited]\n"})
+        self.assertEqual(old_exit.status_code, 200, old_exit.text)
+        self.assertEqual(self._rows("SELECT status FROM spawn_requests WHERE id = ?", (spawn_id,))[0]["status"], "running", "an outgoing worker's exit cannot fail its replacement")
+
+    def test_a_worker_exit_settles_its_spawn_immediately_with_the_exit_reason(self):
+        agent_id = "early-exit"
+        spawn_id = self._spawn(agent_id, createdBy="dashboard")
+        self._bring_up(spawn_id)
+        terminal_id = self._terminals(agent_id)[0]["id"]
+        ended = self.client.post(f"/api/v1/terminals/{terminal_id}/output", json={
+            "bridgeId": self.BRIDGE, "status": "stopped", "exitCode": 75,
+            "output": "[aify] a live instance already holds this agent lease\n[terminal exited]\n"})
+        self.assertEqual(ended.status_code, 200, ended.text)
+        spawn = self._rows("SELECT status, finished_at, error FROM spawn_requests WHERE id = ?", (spawn_id,))[0]
+        self.assertEqual(spawn["status"], "failed", "do not wait for a reconciler after the host reported an exit")
+        self.assertTrue(spawn["finished_at"])
+        self.assertIn("75", spawn["error"])
+        self.assertIn("live instance", spawn["error"])
+
+    def test_a_late_start_completion_cannot_resurrect_an_exited_worker(self):
+        agent_id = "exit-before-completion"
+        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        terminal_id = self._terminals(agent_id)[0]["id"]
+        claimed = self.client.post("/api/v1/terminals/controls/claim", json={"environmentId": self.ENV, "bridgeId": self.BRIDGE})
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        control_id = next(c["id"] for c in claimed.json()["controls"] if c["terminalId"] == terminal_id and c["action"] == "start")
+        ended = self.client.post(f"/api/v1/terminals/{terminal_id}/output", json={"bridgeId": self.BRIDGE, "status": "stopped", "exitCode": 75, "output": "[terminal exited]\n"})
+        self.assertEqual(ended.status_code, 200, ended.text)
+        completed = self.client.patch(f"/api/v1/terminals/controls/{control_id}", json={"status": "completed", "terminalStatus": "attached", "processId": "12345"})
+        self.assertEqual(completed.status_code, 200, completed.text)
+        self.assertEqual(self._rows("SELECT status, exit_code FROM terminal_sessions WHERE id = ?", (terminal_id,)), [{"status": "stopped", "exit_code": 75}])
+
+    def test_a_restart_never_migrates_a_terminal_with_an_outgoing_stop(self):
+        for stop_status in ("pending", "claimed"):
+            with self.subTest(stop_status=stop_status):
+                agent_id = f"same-second-{stop_status}"
+                self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+                old = self._terminals(agent_id)[0]["id"]
+                self._rows("UPDATE terminal_sessions SET status = 'attached' WHERE id = ?", (old,))
+                old_session = self._rows("SELECT session_id FROM terminal_sessions WHERE id = ?", (old,))[0]["session_id"]
+                response = self.client.post(f"/api/v1/sessions/{old_session}/control", json={"action": "restart", "from_agent": agent_id})
+                self.assertEqual(response.status_code, 200, response.text)
+                spawn_id = response.json()["spawnRequest"]["id"]
+                self._rows("UPDATE terminal_sessions SET created_at = (SELECT created_at FROM spawn_requests WHERE id = ?) WHERE id = ?", (spawn_id, old))
+                self._rows("UPDATE terminal_controls SET status = ? WHERE terminal_id = ? AND action = 'stop'", (stop_status, old))
+                self.assertEqual(self._rows("SELECT status FROM terminal_controls WHERE terminal_id = ? AND action = 'stop'", (old,)), [{"status": stop_status}])
+                self._bring_up(spawn_id)
+                new_session = self._rows("SELECT session_id FROM spawn_requests WHERE id = ?", (spawn_id,))[0]["session_id"]
+                self.assertEqual(self._rows("SELECT session_id FROM terminal_sessions WHERE id = ?", (old,))[0]["session_id"], old_session, "the outgoing terminal must not cross the handoff")
+                new = self._rows("SELECT id FROM terminal_sessions WHERE session_id = ?", (new_session,))
+                self.assertEqual(len(new), 1)
+                self.assertNotEqual(new[0]["id"], old)
+                self.assertEqual(self._launch_intent(new[0]["id"]), REPLACE)
+
+    def test_the_ending_fatal_line_survives_an_earlier_in_flight_output_batch(self):
+        import httpx
+        from unittest.mock import patch
+        from service.db import get_db
+        from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES as queue
+
+        spawn_id = self._spawn("in-flight-exit", createdBy="dashboard")
+        self._bring_up(spawn_id)
+        terminal_id = self._terminals("in-flight-exit")[0]["id"]
+
+        async def exercise():
+            earlier_entered, release_earlier, ending_enqueued = asyncio.Event(), asyncio.Event(), asyncio.Event()
+            write, enqueue = queue._write_terminal_output, queue.enqueue
+
+            async def held_write(*args, **kwargs):
+                earlier_entered.set()
+                await release_earlier.wait()
+                return await write(*args, **kwargs)
+
+            async def witnessed_enqueue(*args, **kwargs):
+                result = await enqueue(*args, **kwargs)
+                if kwargs.get("status") == "stopped":
+                    ending_enqueued.set()
+                return result
+
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self._app), base_url="http://test") as client:
+                with patch.object(queue, "_write_terminal_output", held_write), patch.object(queue, "enqueue", witnessed_enqueue):
+                    await queue.enqueue(terminal_id, "earlier startup output\n", autoschedule=False)
+                    earlier = asyncio.create_task(queue.flush_terminal(terminal_id))
+                    queue._track_flush_task(terminal_id, earlier)
+                    await earlier_entered.wait()
+                    ending = asyncio.create_task(client.post(f"/api/v1/terminals/{terminal_id}/output", json={"bridgeId": self.BRIDGE, "status": "stopped", "exitCode": 75, "output": "fatal: ending-batch-only lease refusal\n[terminal exited]\n"}))
+                    try:
+                        await asyncio.wait_for(ending_enqueued.wait(), 5)
+                        self.assertIn("ending-batch-only", "".join(queue._pending[terminal_id]["chunks"]))
+                        release_earlier.set()
+                        response = await ending
+                        self.assertEqual(response.status_code, 200, response.text)
+                        db = await get_db()
+                        try:
+                            spawn = await (await db.execute("SELECT status, error FROM spawn_requests WHERE id = ?", (spawn_id,))).fetchone()
+                            observed = dict(spawn)
+                        finally:
+                            await db.close()
+                    finally:
+                        release_earlier.set()
+                        await asyncio.gather(earlier, ending, return_exceptions=True)
+                await queue.flush_all()
+                return observed
+
+        observed = asyncio.run(exercise())
+        self.assertEqual(observed["status"], "failed")
+        self.assertIn("75", observed["error"])
+        self.assertIn("ending-batch-only", observed["error"])
+
     def test_a_RESTART_of_a_session_with_no_spawn_spec_replaces_too(self):
         """A resident-origin session has no spawn spec, so its restart cold-starts through the dispatch
         path -- whose default is START. The restart must still say REPLACE."""

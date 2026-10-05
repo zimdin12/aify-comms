@@ -660,6 +660,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         )
         await _close_out_terminal_on_end_status(
             db, terminal, terminal_id, status, _TERMINAL_END_STATUSES,
+            ending_output=chunk_text,
         )
         if status in _TERMINAL_END_STATUSES:
             _forget_answered_prompts(terminal_id)
