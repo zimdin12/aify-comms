@@ -356,6 +356,8 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         now = _now()
         spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        # No prior row means a new lifetime, even when this ID has old host markers.
+        existing_agent = await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (req.agentId,))).fetchone()
         await db.execute(
             """
             INSERT INTO spawn_specs (
@@ -402,7 +404,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
             "priority": req.priority or "normal",
             "subject": req.subject or "",
             "mode": mode,
-            "resume_policy": req.resumePolicy or "native_first",
+            "resume_policy": (req.resumePolicy or "native_first") if existing_agent else "fresh_context",
             "status": "queued",
             "created_at": now,
             "updated_at": now,

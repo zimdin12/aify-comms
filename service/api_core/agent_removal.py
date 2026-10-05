@@ -52,6 +52,8 @@ async def _remove_agent_record(
     # send INSERTs an undeliverable inbox row for the deleted agent (unbounded per-post
     # growth). Clean them up here.
     await db.execute("DELETE FROM channel_members WHERE agent_id = ?", (agent_id,))
+    # Receipts have no agent FK. A reused ID must not inherit the removed identity's read history.
+    await db.execute("DELETE FROM read_receipts WHERE agent_id = ?", (agent_id,))
     cursor = await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
     # Evict the in-memory derived-status entry too (audit 2026-06-28): SQLite per-agent rows
     # cascade-delete, but _LIVE_STATE_CACHE is a process-global dict and would otherwise keep a
