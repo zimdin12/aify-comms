@@ -220,14 +220,15 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 continue
         if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
             continue  # too fresh, or age undeterminable → leave it (conservative)
-        await db.execute(
+        settled = await db.execute(
             """
             UPDATE spawn_requests
             SET status = 'failed',
                 error = COALESCE(NULLIF(error, ''), ?),
                 finished_at = COALESCE(finished_at, ?),
                 updated_at = ?
-            WHERE id = ? AND status = ?
+            WHERE id = ? AND status = ? AND COALESCE(claimed_by_bridge_id, '') = ?
+              AND COALESCE(finished_at, '') = ''
             """,
             (
                 # NAME THE RULE THAT FIRED. The old text said the claiming bridge was no longer live,
@@ -254,9 +255,15 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 now,
                 now,
                 row["id"],
-                stuck_status,
+                # THE ROW AS IT WAS JUDGED, compared again at the write: a late `running` report, a settlement
+                # or a new claimer landing between the read above and this write leaves it alone, since what
+                # was judged abandoned is no longer what is there (review of 0.8.6's reconciler delta).
+                str(row["status"] or ""),
+                bid,
             ),
         )
+        if not settled.rowcount:
+            continue
         failed += 1
     if failed:
         await db.commit()
