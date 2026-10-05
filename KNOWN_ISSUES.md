@@ -5,6 +5,17 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+## A hermes gateway port beside a wildcard listener reads as free (found 2026-10-05)
+
+`isPortFree` in `mcp/stdio/hermes-endpoint.js` binds 127.0.0.1 only. On Windows that bind succeeds while another
+process holds the same port on 0.0.0.0, so `resolveGatewayPort` chose and persisted 8811 for `sc-tester-gpt`, the
+port Docker publishes for Dashboard Next (0.0.0.0:8811->8801). The gateway's readiness probe then got that
+dashboard's 401, and the spawn failed "did not become ready within 60000ms ... returned 401". A retry reuses the
+persisted port, so it fails the same way. `RESERVED_PORTS` lists only 8800-8802, while compose now publishes 8811
+and 8820-8821 too. Worked around by rewriting the agent's `%TEMP%\aify-hermes-port-<id>` to a port that netstat
+shows free. Fix owed: test the wildcard addresses (0.0.0.0 and ::) as well, and drop the hand-written reserved
+list once the probe sees every listener.
+
 ## A bridge process whose key lookup fails once stays keyless until relaunched (found 2026-10-05)
 
 `aify-service-endpoint.mjs` resolves the API key once, at module load (`const API_KEY = keyForUrl(SERVER_URL)`),
