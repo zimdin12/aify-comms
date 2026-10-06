@@ -71,7 +71,10 @@ const api = new CommsApi({
   },
 });
 const ALLOWED = ['#!/bin/bash', 'HARNESS_WRAPPER_VERSION="0.6.0"', ''].join('\n');
-const processes = new PluginProcesses(new Runner({ openTerminal: () => terminal }));
+const processes = new PluginProcesses(new Runner({ openTerminal: () => terminal,
+  managedHost: () => ({ instance: 'default', url: 'http://127.0.0.1:1',
+    host: { startManaged() {}, endManaged: () => ({ problem: '' }) } }),
+}));
 const handles = createHandleBook();
 const started = await runOneControl({
   control: { id: 'ctl-1', terminalId: 'term-from-env', action: 'start', cols: 80, rows: 16 },
