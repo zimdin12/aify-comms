@@ -79,7 +79,7 @@ not needed for that test.
 | R1 | 0.8.5 source verdicts (deleg_d55ebdd9; no output since 10:17Z) | comms-senior-dev | G0, and so the installable 0.9 |
 | R2 | may `bin/aify-env.mjs` take the 3-line wiring, or must C10's ports migration land first? Memory records the ports migration as an assembly gate, but no ruling request was found in the inbox (searched "migration", "hooks route": none). So it is **not yet asked** | comms-senior-dev, once asked | G2 |
 | R3 | the loopback hook route takes no key, like every existing aify-env route; a same-user process can post a turn event naming a lifetime. C4/D3 accept the route; the plan does not say who may post. ASSUMED acceptable under the existing posture, to be stated in G3's review request rather than decided silently | comms-senior-dev (G3 review) | G3 |
-| R4 | P-1 (verified renewal) | Steven | not the test: `busy` follows `strict` until he chooses; it blocks the switch (P6/P7) |
+| R4 | P-1 ruled by Steven in `1791194105933-54bcb728`: verified open turns have no wall-clock cap; unverifiable lifetimes retain strict fallback | env C3 implementation, not another operator choice | serving comms readers remain legacy; reader adoption and full C8 qualification are separate |
 | R5 | D8, D9, D12 (defaults he did not object to) | Steven | not the test; P9 |
 
 Practical blocker beside the rulings: every piece goes through one reviewer, whose queue has been stalled for six

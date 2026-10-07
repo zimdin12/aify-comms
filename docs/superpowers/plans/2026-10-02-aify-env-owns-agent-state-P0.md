@@ -132,16 +132,19 @@ time, with no stored turn, is `unknown` until its next hook (C4).
 **Controls (P2):** a restart with an unknown probe (the turn is retained, strict, and expires at 1800 s from its
 original start), a restart after a proved exit (closed), and a restart with `yes` (restored, same anchor).
 
-**Busy** is an **open** turn for which `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)` holds,
-ported unchanged, under two rules that are published side by side (`turn.busyIf`). Open first: a closed turn keeps
-its last event to order the next one, and the law, given that event and no start, would hold it for the whole window.
-The turn record is in microseconds and the law in milliseconds; aify-env converts in one place (`turnIsBusy`).
+**Busy.** Steven's P-1 ruling `1791194105933-54bcb728` supersedes the pending timer-law choice here. An accepted
+**open** turn holds without a wall-clock cap when its selected lifetime's process is `running` and `verified: yes`.
+No fresh hook or renewal is required. A closed or absent turn never holds. If the lifetime cannot be verified,
+`busy` uses the strict legacy timer from the original start, without renewal or a new anchor.
 
-- `strict`, today's rule for a hook-owned turn: `renewable` is false, so the turn holds for 1800 s from its start.
-- `verifiedRenewal`, P-1: `renewable` is true when the last event came from the agent's current lifetime, and that
-  lifetime's process is `running` and `verified: yes`.
+The pure `turn_is_still_live` port and its shared Python-parity cases remain the legacy timer law. The env host
+selects P-1 in `turnIsBusy`, separately from that port, and uses the same answer for its state word and `busy`.
+`turn.busyIf.strict` retains the legacy diagnostic. The existing wire name `turn.busyIf.verifiedRenewal` now reports
+the verified-lifetime hold when verification is available and the strict fallback otherwise. It is not hook-age renewal.
 
-`busy` follows `strict` until the operator chooses.
+Ordinary sends steer. Queued messages wait for an actual turn-end hook, lifetime end, or managed idle prompt.
+This C3 delta does not switch serving comms queue/status readers to env publications and does not introduce a new
+idle-prompt producer. Those current readers remain on the legacy policy; env publication remains shadow-only.
 
 **The word.** First match wins. The screen is fresh while it is within 75 s on aify-env's clock.
 
