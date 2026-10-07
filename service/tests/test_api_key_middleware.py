@@ -66,6 +66,21 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
 
+    def test_agent_state_key_is_scoped_to_the_exact_post_only(self):
+        app = _app_with_key()
+        for route in ("/api/v1/agent-state", "/api/v1/agent-state/other", "/api/v1/other"):
+            app.add_api_route(route, lambda: {"ok": True}, methods=["GET", "POST"])
+        with TestClient(app) as client:
+            header = {"x-aify-agent-state-key": API_KEY}
+            self.assertEqual(client.post("/api/v1/agent-state", headers=header).status_code, 200)
+            for method, route in (("GET", "/api/v1/agent-state"),
+                                  ("POST", "/api/v1/agent-state/other"),
+                                  ("POST", "/api/v1/other")):
+                self.assertEqual(client.request(method, route, headers=header).status_code, 401)
+            for key in ("", "wrong"):
+                self.assertEqual(client.post("/api/v1/agent-state", headers={
+                    "x-aify-agent-state-key": key}).status_code, 401)
+
     # ── the key itself ───────────────────────────────────────────────────────────────────────
 
     def test_the_right_key_in_the_QUERY_STRING_is_admitted(self):

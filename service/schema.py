@@ -570,6 +570,36 @@ CREATE TABLE IF NOT EXISTS definition_requests (
 CREATE INDEX IF NOT EXISTS idx_definition_requests_agent ON definition_requests(agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_definition_requests_machine ON definition_requests(machine_id, status);
 
+-- G8a shadow ingest only. No FK to authoritative agents or status tables.
+CREATE TABLE IF NOT EXISTS agent_state_shadow_publishers (
+    machine_id TEXT NOT NULL,
+    instance TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    incarnation_id TEXT NOT NULL,
+    publication INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    inputs TEXT NOT NULL,
+    reason TEXT,
+    data_generation INTEGER,
+    data_incarnation_id TEXT,
+    data_publication INTEGER,
+    data_applied_at TEXT,
+    data_inputs TEXT,
+    PRIMARY KEY (machine_id, instance)
+);
+CREATE TABLE IF NOT EXISTS agent_state_shadow_rows (
+    machine_id TEXT NOT NULL,
+    instance TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    lifetime TEXT,
+    record_json TEXT NOT NULL,
+    row_applied_at TEXT NOT NULL,
+    PRIMARY KEY (machine_id, instance, agent_id),
+    FOREIGN KEY (machine_id, instance)
+        REFERENCES agent_state_shadow_publishers(machine_id, instance) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,
     working_at TEXT NOT NULL,

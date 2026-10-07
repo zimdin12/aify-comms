@@ -49,6 +49,7 @@ test("a host with no registry gets one, directory and all", () => {
     assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
     const parsed = JSON.parse(fs.readFileSync(registry, "utf8"));
     assert.deepEqual(Object.keys(parsed.services), ["aify-comms"]);
+    assert.deepEqual(parsed.services["aify-comms"].agentState, { path: "/api/v1/agent-state" });
   });
 });
 

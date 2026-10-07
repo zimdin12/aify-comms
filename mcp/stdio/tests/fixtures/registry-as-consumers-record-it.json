@@ -1,6 +1,9 @@
 {
   "services": {
     "aify-comms": {
+      "agentState": {
+        "path": "/api/v1/agent-state"
+      },
       "endpoint": "http://127.0.0.2:1",
       "endpointEnv": [
         "CLAUDE_MCP_SERVER_URL",

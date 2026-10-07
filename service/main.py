@@ -203,6 +203,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         from_query = request.query_params.get("api_key")
         provided_key = (
             request.headers.get("X-API-Key")
+            # C5 uses the ordinary service key, but this carrier grants only ingest access.
+            or (request.headers.get("x-aify-agent-state-key")
+                if request.method == "POST" and request.url.path == "/api/v1/agent-state" else None)
             or from_query
             or request.cookies.get(self.COOKIE)
         )

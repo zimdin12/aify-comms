@@ -50,6 +50,7 @@ const result = upsertService(existing, SERVICE_NAME, {
   // INHERITED from whatever launched the runtime -- one service's credential reaching another
   // service's bridge, accepted or refused for reasons visible from neither side.
   keyEnv: API_KEY_ENV_NAMES,
+  agentState: { path: "/api/v1/agent-state" },
   // WHERE THE KEY FILE IS, when the installer stored one. `keyEnv` only reaches a process somebody
   // exported a variable into, and nothing on this host does that for aify-env -- which is why
   // enabling API_KEY made every advertisement 401 in silence. This is the other half: one basename
