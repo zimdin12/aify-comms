@@ -4,8 +4,14 @@ from fastapi import HTTPException, Request, Response
 from service.api_core.agent_state_shadow import AgentStateShadowStore, InvalidPublication
 from service.api_core.routing import domain_router
 from service import clock
+from service.api_core import partial_status_shadow as shadow
 
 router = domain_router()
+
+
+@router.get('/agent-state/shadow-report')
+async def shadow_report():
+    return shadow.recorder.report()
 
 
 @router.post('/agent-state')

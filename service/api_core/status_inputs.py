@@ -24,6 +24,8 @@ and it is pure; this module's job is to gather the inputs honestly.
 
 from __future__ import annotations
 
+from service.api_core import partial_status_shadow as shadow
+
 from datetime import datetime, timezone
 
 from typing import Any, Optional
@@ -295,7 +297,16 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
     """status v2: serve one of VALID_STATUSES from the pure engine."""
-    return derive(await _gather_status_inputs(db, agent_row, settings=settings))
+    shadow_binding = shadow.bind()
+    shadow_identity = shadow.association(agent_row)
+    inputs = await _gather_status_inputs(db, agent_row, settings=settings)
+    try:
+        status = derive(inputs)
+    except Exception:
+        shadow.observe(shadow_binding, shadow_identity, inputs, None, "engine-status")
+        raise
+    shadow.observe(shadow_binding, shadow_identity, inputs, status, "engine-status")
+    return status
 
 
 # Poll-load fix (2026-06-18): a settled `offline` agent's cached status only changes via an

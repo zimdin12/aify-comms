@@ -1,6 +1,11 @@
 """Bounded G6/G7 publication ingest. These tables confer no current-state authority."""
 from dataclasses import dataclass
 import hashlib
+import asyncio
+
+from service.api_core import partial_status_shadow as shadow
+
+_INGEST_LOCK = asyncio.Lock()
 import json
 
 from service.db import get_db
@@ -155,25 +160,42 @@ class AgentStateShadowStore:
     async def apply(self, document: bytes, applied_at: str) -> ApplyResult:
         body = _decode(document)
         _validate(body)
+        try:
+            projection = shadow.prepare(body, applied_at)
+        except Exception:
+            projection = None
         digest = hashlib.sha256(document).hexdigest()
+        async with _INGEST_LOCK:
+            return await self._apply(body, digest, projection, applied_at)
+
+    async def _apply(self, body, digest, projection, applied_at):
         db = await self._connect()
         try:
-            await db.execute('BEGIN IMMEDIATE')
-            key = (body['machineId'], body['instance'])
-            previous = await (await db.execute(
-                'SELECT * FROM agent_state_shadow_publishers WHERE machine_id=? AND instance=?', key)).fetchone()
-            refusal = _order(previous, body, digest)
-            if refusal:
+            try:
+                await db.execute('BEGIN IMMEDIATE')
+                key = (body['machineId'], body['instance'])
+                previous = await (await db.execute(
+                    'SELECT * FROM agent_state_shadow_publishers WHERE machine_id=? AND instance=?', key)).fetchone()
+                refusal = _order(previous, body, digest)
+                if refusal:
+                    await db.rollback()
+                    return ApplyResult(False, refusal)
+                await self._write_cursor(db, key, body, digest)
+                if body['kind'] != 'unavailable':
+                    await self._write_data(db, key, body, previous, applied_at)
+                await db.commit()
+            except BaseException:
                 await db.rollback()
-                return ApplyResult(False, refusal)
-            await self._write_cursor(db, key, body, digest)
-            if body['kind'] != 'unavailable':
-                await self._write_data(db, key, body, previous, applied_at)
-            await db.commit()
+                raise
+            # Outside transaction rollback handling, before the next await including close.
+            try:
+                if projection is None:
+                    shadow.invalidate_safe(key)
+                else:
+                    shadow.mirror.feed(projection)
+            except Exception:
+                shadow.invalidate_safe(key)
             return ApplyResult(True)
-        except BaseException:
-            await db.rollback()
-            raise
         finally:
             await db.close()
 

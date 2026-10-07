@@ -66,6 +66,8 @@ G6's read contract supplies `stoppedByOperator:false` with visible `inputs: { op
 
 G8a adds receiver/storage source only. It accepts the ordinary comms key in `x-aify-agent-state-key` on `POST /api/v1/agent-state` only, validates exact wire bytes, and keeps unavailable ordering separate from data application time. G8b's same-evaluation comparisons and doctor remain separate; neither C8 nor the switch is closed. The bounded G6 publication still supplies no `turn.ageMs` or running-code provenance for all three repositories. Those missing producers must be reported as unavailable, not synthesized into stale anchors or shadow agreements. Source publication is not installation or isolated end-to-end evidence.
 
+G8b-1 instruments only partial freshness/base-word status comparisons; the other nine C8 owners remain uninstrumented post-0.9 work, and there is no switch in 0.9.
+
 The **first point Steven can test** is after G0-G6: aify-env shows a live derived state per agent. The comms
 side-by-side needs G7-G8 as well. herdr forwarding (D10), the docs (P2 item) and the C2 ledger's unmapped rows are
 not needed for that test.

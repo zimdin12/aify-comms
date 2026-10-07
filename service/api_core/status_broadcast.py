@@ -22,6 +22,8 @@ triggered it -- the state change already happened, and the next poll will show i
 """
 from __future__ import annotations
 
+from service.api_core import partial_status_shadow as shadow
+
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _row_status_note
 from service.api_core.settings import _load_settings
@@ -35,6 +37,7 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
     reconcile sweep or a full client refetch. Best-effort: never raise into the
     caller. Mirrors the single-agent GET status compute (_compute_live_status_cache).
     """
+    shadow_binding = shadow.bind()
     if ws is None:
         return
     try:
@@ -43,7 +46,9 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
             return
         row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not row:
+            shadow.observe(shadow_binding, None, None, None, "cache-broadcast")
             return
+        shadow_identity = shadow.association(row)
         settings = await _load_settings(db)
         cache = await _compute_live_status_cache(db, row, settings=settings)
         status = cache.get("status") or ""
@@ -62,6 +67,7 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
                 status = _derived
             except Exception:
                 pass
+        shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), status, "cache-broadcast")
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
             "status": status,
@@ -86,6 +92,7 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
             return
         row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not row:
+            shadow.observe(None, None, None, None, "engine-status")
             return
         settings = settings or await _load_settings(db)
         # Manual statuses (stop/disable) are operator overrides both paths honor
@@ -94,6 +101,7 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
         if manual in _MANUAL_STATUSES:
             status = manual
             note = _row_status_note(row)
+            shadow.observe(None, None, None, status, "engine-status")
         else:
             status = await engine_status(db, row, settings=settings)
             note = ""

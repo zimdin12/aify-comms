@@ -24,6 +24,8 @@ lookalike. Renaming it is a separate, operator-visible decision.
 
 from __future__ import annotations
 
+from service.api_core import partial_status_shadow as shadow
+
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -47,6 +49,7 @@ logger = logging.getLogger("aify_comms.api_v2")
 
 
 async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None, agent_row=None, status_signals=None):
+    shadow_binding = shadow.bind()
     # `agent_row` is the row the CALLER already holds, the same move `5c45ab44` made on the roster.
     # The batch caller below reads every agent row to decide who is stale; re-selecting each one here
     # is 1.0N round-trips for rows it is holding. Optional and falling back, because this function is
@@ -65,7 +68,9 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
         await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
     ).fetchone()
     if not row:
+        shadow.observe(shadow_binding, None, None, None, "refresh")
         return None
+    shadow_identity = shadow.association(row)
     settings = settings or await _load_settings(db)
     cache = await _compute_live_status_cache(db, row, settings=settings, now=now,
                                             status_signals=status_signals,
@@ -98,6 +103,7 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
             cache["status"] = _derived
         except Exception:
             logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)
+    shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), cache["status"], "refresh")
     # Store in the in-memory cache — NOT the DB (was the write-storm source). No lock possible.
     _live_state_set(agent_id, cache)
     return cache
