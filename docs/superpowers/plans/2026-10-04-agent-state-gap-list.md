@@ -62,6 +62,7 @@ Sizes are ASSUMED estimates (production lines + test lines), not measured.
 | G8 | P4: comms ingest and the shadow comparison | comms: receiver route (C5 table, own transaction), stored records, the C8 recorder computing today's answer and `commsView` on the same evaluation, a doctor row | ~400 + ~500 | C5 receiver table cases; for each C8 decision, both answers recorded with inputs; nothing reads the new answer | G7, G0 |
 
 managed codex turn events: from the app-server's own turn notifications, later slice
+G6's read contract supplies `stoppedByOperator:false` with visible `inputs: { operatorStop: "not-tracked" }`; D9 adds the real producer and removes that marker.
 
 The **first point Steven can test** is after G0-G6: aify-env shows a live derived state per agent. The comms
 side-by-side needs G7-G8 as well. herdr forwarding (D10), the docs (P2 item) and the C2 ledger's unmapped rows are
