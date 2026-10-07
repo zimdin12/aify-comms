@@ -1505,7 +1505,7 @@ agent_state_hook_command() {
   # One resident state change, posted with the key the bridge resolves; the guard keeps plain sessions
   # from starting node, and the fired time orders the background hooks (api_core/hook_event_order.py).
   local script="$AIFY_BRIDGE_DIR/agent-state-event.mjs"
-  printf '%s' 'if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-$(date +%s.%N 2>/dev/null)}" node "'"$script"'" '"$1"' >/dev/null 2>&1 || true; fi'
+  printf '%s' 'if [ -n "${AIFY_AGENT_ID:-}" ] && { [ -n "${AIFY_COMMS_URL:-}" ] || { [ -n "${AIFY_ENV_INSTANCE:-}" ] && [ -n "${AIFY_LIFETIME:-}" ]; }; }; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-$(date +%s.%N 2>/dev/null)}" node "'"$script"'" '"$1"' >/dev/null 2>&1 || true; fi'
 }
 
 install_codex_turn_hooks() {
@@ -1580,7 +1580,7 @@ install_hermes_turn_hooks() {
     IFS=: read -r event script state <<<"$spec"
     cat > "$hook_dir/$script" <<EOF
 #!/usr/bin/env bash
-if [ -n "\${AIFY_AGENT_ID:-}" ] && [ -n "\${AIFY_COMMS_URL:-}" ]; then
+if [ -n "\${AIFY_AGENT_ID:-}" ] && { [ -n "\${AIFY_COMMS_URL:-}" ] || { [ -n "\${AIFY_ENV_INSTANCE:-}" ] && [ -n "\${AIFY_LIFETIME:-}" ]; }; }; then
   AIFY_HOOK_FIRED_AT="\${EPOCHREALTIME:-}" node $(shell_quote "$node_state_script") $state </dev/null >/dev/null 2>&1 &
 fi
 EOF
@@ -1737,7 +1737,7 @@ install_claude_turn_end_hook() {
   # agent-state-event.mjs, so it carries the key.
   local gate_path="$AIFY_BRIDGE_DIR/claude-stop-gate.js"
   local gate_command
-  gate_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-$(date +%s.%N 2>/dev/null)}" node "'"$gate_path"'" >/dev/null 2>&1 || true; fi'
+  gate_command='if [ -n "${AIFY_AGENT_ID:-}" ] && { [ -n "${AIFY_COMMS_URL:-}" ] || { [ -n "${AIFY_ENV_INSTANCE:-}" ] && [ -n "${AIFY_LIFETIME:-}" ]; }; }; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-$(date +%s.%N 2>/dev/null)}" node "'"$gate_path"'" >/dev/null 2>&1 || true; fi'
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
     const [settingsPath, gateCommand, endCommand, blockedCommand] = process.argv.slice(1);
@@ -1902,65 +1902,7 @@ install_codex_mcp_env_vars() {
   [ -f "$config_file" ] || return 0
   node_config_file="$(path_for_node "$config_file")"
 
-  MSYS_NO_PATHCONV=1 node -e '
-    const fs = require("fs");
-    const file = process.argv[1];
-    // Names of env vars the wrapper exports that the inner aify-comms MCP
-    // server child needs to register correctly. Kept in sync with the
-    // codex-aify wrapper exports (install.sh:186-237) + the bridge spawn
-    // env in mcp/stdio/terminal-env.js (AIFY_MANAGED_VIA_WRAPPER, etc.).
-    // PATH/HOME are forwarded by codex by default (DEFAULT_ENV_VARS in
-    // codex-rs/rmcp-client/src/utils.rs), so we do not list them here.
-    const desired = [
-      "AIFY_AGENT_ID",
-      "AIFY_AGENT_ROLE",
-      "AIFY_AGENT_CWD",
-      "AIFY_SESSION_MODE",
-      "AIFY_SESSION_HANDLE",
-      "AIFY_RUNTIME",
-      "AIFY_TERMINAL_ID",
-      "AIFY_MANAGED_VIA_WRAPPER",
-      "AIFY_COMMS_AGENT_ID",
-      "AIFY_COMMS_URL",
-      "AIFY_API_KEY",
-      "CODEX_THREAD_ID",
-      "AIFY_CODEX_APP_SERVER_URL",
-    ];
-    let text = "";
-    try { text = fs.readFileSync(file, "utf8"); } catch (_) { process.exit(0); }
-    const lines = text.split(/\r?\n/);
-    const headerRe = /^\[mcp_servers\.aify-comms\]\s*$/;
-    let headerIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (headerRe.test(lines[i])) { headerIdx = i; break; }
-    }
-    if (headerIdx < 0) process.exit(0);
-    // section end = next "[..." section OR EOF
-    let endIdx = lines.length;
-    for (let i = headerIdx + 1; i < lines.length; i++) {
-      if (/^\[/.test(lines[i])) { endIdx = i; break; }
-    }
-    // Remove any existing env_vars line (handles multi-line inline arrays too)
-    for (let i = headerIdx + 1; i < endIdx; i++) {
-      if (/^\s*env_vars\s*=/.test(lines[i])) {
-        let j = i;
-        let bracketBalance = 0;
-        for (; j < endIdx; j++) {
-          for (const ch of lines[j]) {
-            if (ch === "[") bracketBalance++;
-            else if (ch === "]") bracketBalance--;
-          }
-          if (bracketBalance <= 0 && j >= i) break;
-        }
-        lines.splice(i, j - i + 1);
-        endIdx -= (j - i + 1);
-        i--;
-      }
-    }
-    const envVarsLine = "env_vars = [" + desired.map((n) => JSON.stringify(n)).join(", ") + "]";
-    lines.splice(headerIdx + 1, 0, envVarsLine);
-    fs.writeFileSync(file, lines.join("\n"));
-  ' "$node_config_file"
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$SCRIPT_DIR/scripts/codex-mcp-env-vars.cjs")" "$node_config_file"
 }
 
 register_claude_channel_server() {

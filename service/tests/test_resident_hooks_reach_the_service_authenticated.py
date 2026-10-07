@@ -38,6 +38,7 @@ LIFTED = (
     "install_claude_turn_start_hook",
     "install_claude_turn_end_hook",
     "install_codex_turn_hooks",
+    "install_codex_mcp_env_vars",
     "install_hermes_turn_hooks",
 )
 
@@ -200,7 +201,7 @@ def _hermes_hooks(config: str) -> dict:
 
 
 class _Stub:
-    def __init__(self, answer_after: float = 0.0):
+    def __init__(self, answer_after: float = 0.0, host="127.0.0.2"):
         self.requests = []
         self.answered = threading.Event()
         stub = self
@@ -220,8 +221,8 @@ class _Stub:
                 pass
 
         # 127.0.0.2: a 127.0.0.1 endpoint makes the bridge's resolver add the real 127.0.0.1:8800 as a fallback.
-        self.server = ThreadingHTTPServer(("127.0.0.2", 0), Handler)
-        self.url = f"http://127.0.0.2:{self.server.server_address[1]}"
+        self.server = ThreadingHTTPServer((host, 0), Handler)
+        self.url = f"http://{host}:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def close(self):
@@ -229,7 +230,7 @@ class _Stub:
         self.server.server_close()
 
 
-def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-hook") -> float:
+def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-hook", extra_env=None) -> float:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_", "CLAUDE_MCP_"))}
     env.update({
         "HOME": _posix(home),
@@ -238,6 +239,9 @@ def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-
         "AIFY_COMMS_URL": stub.url,
         "AIFY_API_KEY": "hook-key",
     })
+    env.update(USERPROFILE=_posix(home), APPDATA=_posix(home / "AppData/Roaming"),
+               LOCALAPPDATA=_posix(home / "AppData/Local"), TEMP=_posix(home), TMP=_posix(home))
+    env.update(extra_env or {})
     argv = [_bash(), "-c", command] if isinstance(command, str) else command
     started = time.monotonic()
     result = subprocess.run(argv, input='{"hook_event_name":"x"}', capture_output=True, text=True, env=env, timeout=10)
@@ -471,3 +475,65 @@ def test_the_written_commands_reach_the_service_with_the_key(installed):
         assert stub.requests == [], "a plain session with no aify identity must post nothing"
     finally:
         stub.close()
+
+@pytest.mark.parametrize("mode", ["resident", "managed"])
+def test_g5_rendered_hooks_report_to_env_without_a_comms_url(installed, mode):
+    """Execute installed hooks for all residents and managed Claude/Hermes, including Claude's Stop gate."""
+    claude = json.loads((installed / ".claude/settings.json").read_text())["hooks"]
+    codex = json.loads((installed / ".codex/hooks.json").read_text())["hooks"]
+    hermes = _hermes_hooks((installed / ".hermes/config.yaml").read_text())
+    cases = [(_one_aify(_commands(claude[event]), needle), kind)
+             for event, needle, kind in (("UserPromptSubmit", "turn-start", "turn-start"),
+                                        ("Stop", "claude-stop-gate.js", "turn-end"),
+                                        ("PermissionRequest", "blocked", "blocked"))]
+    if mode == "resident":
+        cases += [(_one_aify(_commands(codex[event]), needle), kind)
+                  for event, needle, kind in (("UserPromptSubmit", "turn-start", "turn-start"),
+                                             ("Stop", "turn-end", "turn-end"),
+                                             ("PermissionRequest", "blocked", "blocked"),
+                                             ("PostToolUse", "unblocked", "unblocked"))]
+    cases += [(hermes[event][0], kind) for (event, _), kind in zip(
+        HERMES_WIRING, ("turn-start", "turn-end", "blocked", "unblocked"))]
+    stub = _Stub(host="127.0.0.1")
+    try:
+        folder = installed / ".aify/env"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "hook-test.json").write_text(json.dumps({"url": stub.url, "instance": "hook-test",
+            "pid": os.getpid(), "startedAt": "2026-10-01T00:00:00.000Z"}))
+        extra = {"AIFY_COMMS_URL": "", "AIFY_ENV_INSTANCE": "hook-test",
+                 "AIFY_LIFETIME": "7f3c9e2a-1111-4111-8111-111111111111", "AIFY_SESSION_MODE": mode}
+        for command, kind in cases:
+            stub.requests.clear()
+            _run_hook(command, stub, installed, extra_env=extra)
+            _await_request(stub, deadline=3)
+            assert len(stub.requests) == 1, (mode, command, stub.requests)
+            route, body, key = stub.requests[0]
+            assert route == "/agents/installed-hook/turn-event"
+            assert key is None
+            body = json.loads(body)
+            assert body == {"instance": "hook-test", "lifetime": extra["AIFY_LIFETIME"], "kind": kind,
+                            "firedAtUs": body["firedAtUs"]}
+            assert isinstance(body["firedAtUs"], int) and body["firedAtUs"] > 0
+    finally:
+        stub.close()
+
+
+def test_g5_codex_installer_forwards_the_host_minted_binding(tmp_path):
+    home = tmp_path
+    config = home / ".codex/config.toml"
+    config.parent.mkdir()
+    config.write_text('[mcp_servers.aify-comms]\ncommand = "node"\n')
+    script = f"SCRIPT_DIR={shlex.quote(_posix(REPO))}\n" + _lifted() + "\ninstall_codex_mcp_env_vars\n"
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_", "CLAUDE_MCP_"))}
+    env.update(HOME=_posix(home), USERPROFILE=_posix(home),
+               APPDATA=_posix(home / "AppData/Roaming"), LOCALAPPDATA=_posix(home / "AppData/Local"),
+               TEMP=_posix(home), TMP=_posix(home), TMPDIR=_posix(home))
+    env.pop("CODEX_HOME", None)
+    script_path = home / "forwarding.sh"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run([_bash(), _posix(script_path)], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    import tomllib
+    forwarded = tomllib.loads(config.read_text())["mcp_servers"]["aify-comms"]["env_vars"]
+    for name in ("AIFY_ENV_URL", "AIFY_ENV_INSTANCE", "AIFY_LIFETIME"):
+        assert name in forwarded, name

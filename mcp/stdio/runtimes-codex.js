@@ -205,6 +205,9 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "AIFY_MANAGED_VIA_WRAPPER",
     "AIFY_COMMS_AGENT_ID",
     "AIFY_COMMS_URL",
+    "AIFY_ENV_URL",
+    "AIFY_ENV_INSTANCE",
+    "AIFY_LIFETIME",
     "AIFY_API_KEY",
     "CODEX_THREAD_ID",
     "AIFY_CODEX_APP_SERVER_URL",
@@ -214,6 +217,7 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "",
     "[features]",
     "multi_agent = true",
+    // G5 excludes managed Codex hooks: its G4 lifetime sees no hook events; comms keeps its app-server turn source.
     "hooks = false",
     "",
     "[notice]",

@@ -62,7 +62,6 @@ def test_turn_hooks_are_installed_for_claude(install_text: str):
         ), f"{hook} is called somewhere, but not inside any `CLIENT = claude` branch"
 
 
-def test_turn_hooks_noop_without_agent_or_url(install_text: str):
-    # A plain `claude` (no aify wrapper) must be unaffected: the hook command
-    # gates on both AIFY_AGENT_ID and AIFY_COMMS_URL being set.
-    assert '[ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]' in install_text
+def test_turn_hooks_noop_without_agent_or_destination(install_text: str):
+    # A plain session has no identity; old-only hooks still work and a bound env needs no comms URL.
+    assert '[ -n "${AIFY_AGENT_ID:-}" ] && { [ -n "${AIFY_COMMS_URL:-}" ] || { [ -n "${AIFY_ENV_INSTANCE:-}" ] && [ -n "${AIFY_LIFETIME:-}" ]; }; }' in install_text

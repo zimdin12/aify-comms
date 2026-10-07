@@ -14,6 +14,8 @@
 // ~2s, and drains stdin without waiting for it to close.
 
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { defaultMachineId } from "./machine-id.mjs";
 
@@ -39,8 +41,45 @@ export function hookFiredAtUs(env = process.env, fallback = STARTED_AT_US) {
   return us > 0 && Number.isSafeInteger(us) ? us : fallback;
 }
 
-/** Post one state event for `AIFY_AGENT_ID`. Resolves true when the service accepted it; never throws. */
+/** Descriptor-only routing, reread for every event. No service resolver or credential enters this post. */
+export async function postEnvAgentState(kind, { env = process.env, firedAtUs = hookFiredAtUs(env) } = {}) {
+  const instance = env.AIFY_ENV_INSTANCE;
+  const lifetime = env.AIFY_LIFETIME;
+  const agentId = String(env.AIFY_AGENT_ID || "").trim();
+  if (!EVENTS.has(kind) || !agentId || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(instance || "")
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lifetime || "")
+      || !Number.isSafeInteger(firedAtUs) || firedAtUs <= 0) return false;
+  try {
+    const home = process.platform === "win32" ? env.USERPROFILE : env.HOME;
+    const descriptor = JSON.parse(fs.readFileSync(path.join(home || os.homedir(), ".aify", "env", `${instance}.json`), "utf8"));
+    if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)
+        || descriptor.instance !== instance || !Number.isSafeInteger(descriptor.pid) || descriptor.pid <= 0
+        || typeof descriptor.startedAt !== "string" || Number.isNaN(Date.parse(descriptor.startedAt))
+        || typeof descriptor.url !== "string") return false;
+    // Match the descriptor's strict endpoint form before URL normalisation can repair malformed input.
+    if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(descriptor.url)) return false;
+    const endpoint = new URL(descriptor.url);
+    const response = await fetch(new URL(`/agents/${encodeURIComponent(agentId)}/turn-event`, endpoint), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instance, lifetime, kind, firedAtUs }),
+      redirect: "manual", credentials: "omit", signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    await response.body?.cancel();
+    return response.ok;
+  } catch { return false; }
+}
+
+/** Post independently to both owners. Existing readers still use the service's answer. */
 export async function postAgentState(event) {
+  const firedAtUs = hookFiredAtUs();
+  const [service] = await Promise.all([
+    postServiceAgentState(event, firedAtUs), postEnvAgentState(event, { firedAtUs }),
+  ]);
+  return service;
+}
+
+/** The old service post, unchanged apart from taking the shared event timestamp. */
+async function postServiceAgentState(event, firedAtUs) {
   const agentId = String(process.env.AIFY_AGENT_ID || "").trim();
   if (!EVENTS.has(event) || !agentId) return false;
   if (!process.env.AIFY_SERVER_URL && process.env.AIFY_COMMS_URL) {
@@ -51,7 +90,6 @@ export async function postAgentState(event) {
     if (!IS_REMOTE) return false;
     const id = encodeURIComponent(agentId);
     const opts = { timeoutMs: TIMEOUT_MS };
-    const firedAtUs = hookFiredAtUs();
     const machineId = defaultMachineId();
     // No bridgeId: that is what keeps a turn-start / turn-end the authoritative harness signal, since
     // the service treats one carrying a bridgeId as a detector's and can refuse it. Each call is

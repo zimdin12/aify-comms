@@ -34,6 +34,8 @@ export const LIVE_ENV_CARRIERS = Object.freeze([
   // The agent lease a launcher holds (aify-wrapper): a child inheriting it attaches its own processes to that
   // agent's live record, and a later explicit start of the agent would stop them.
   "AIFY_AGENT_LEASE", "AIFY_START_INTENT",
+  // G5 hooks can now report to the environment independently of the service.
+  "AIFY_ENV_URL", "AIFY_ENV_INSTANCE", "AIFY_LIFETIME",
 ]);
 
 /**
