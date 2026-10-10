@@ -29,6 +29,7 @@ from service.routers.environments import router as _environments_router
 from service.routers.agent_definitions import router as _agent_definitions_router
 from service.routers.agent_state import router as _agent_state_router
 from service.routers.definition_requests import router as _definition_requests_router
+from service.routers.agent_lifecycle_requests import router as _agent_lifecycle_requests_router
 from service.routers.spawn_requests import router as _spawn_requests_router
 from service.routers.channels import router as _channels_router
 from service.routers.sessions import router as _sessions_router
@@ -50,6 +51,7 @@ router.include_router(_environments_router)
 router.include_router(_agent_definitions_router)
 router.include_router(_agent_state_router)
 router.include_router(_definition_requests_router)
+router.include_router(_agent_lifecycle_requests_router)
 router.include_router(_spawn_requests_router)
 router.include_router(_channels_router)
 router.include_router(_sessions_router)

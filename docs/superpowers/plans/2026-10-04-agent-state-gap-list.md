@@ -62,7 +62,8 @@ Sizes are ASSUMED estimates (production lines + test lines), not measured.
 | G8 | P4: comms ingest and the shadow comparison | comms: receiver route (C5 table, own transaction), stored records, the C8 recorder computing today's answer and `commsView` on the same evaluation, a doctor row | ~400 + ~500 | C5 receiver table cases; for each C8 decision, both answers recorded with inputs; nothing reads the new answer | G7, G0 |
 
 managed codex turn events: from the app-server's own turn notifications, later slice
-G6's read contract supplies `stoppedByOperator:false` with visible `inputs: { operatorStop: "not-tracked" }`; D9 adds the real producer and removes that marker.
+G6 before D9 supplies `stoppedByOperator:false` with visible `inputs: { operatorStop: "not-tracked" }`. The D9 obligation ruled in `1791393376609-0028cc6f` replaces that marker with journal-backed stop facts and protects the actual message cold-start producer. This line records the obligation, not implementation acceptance.
+Resident start/restart/spawn from a service into a herdr pane is a later slice. D9 refuses those actions with "a resident runs in its own terminal: start it there" and implements guarded resident stop/kill.
 
 G8a adds receiver/storage source only. It accepts the ordinary comms key in `x-aify-agent-state-key` on `POST /api/v1/agent-state` only, validates exact wire bytes, and keeps unavailable ordering separate from data application time. G8b's same-evaluation comparisons and doctor remain separate; neither C8 nor the switch is closed. The bounded G6 publication still supplies no `turn.ageMs` or running-code provenance for all three repositories. Those missing producers must be reported as unavailable, not synthesized into stale anchors or shadow agreements. Source publication is not installation or isolated end-to-end evidence.
 

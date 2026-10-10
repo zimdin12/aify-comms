@@ -8,6 +8,17 @@ kept as evidence. Last reviewed 2026-09-27.
 - Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.
 - Deferred diagnostic privacy: fatal-line forwarding to spawn_requests.error is bounded but does not redact secrets or distinguish conversation text; inherited behavior, not a privacy guarantee.
 
+## A lifecycle action that ends `execution-unknown` keeps its agent reserved (0.9 D9a, 2026-10-10)
+
+aify-env records every lifecycle action in `~/.aify/agent-lifecycle.json` before it acts. When the
+outcome cannot be proven (a stop whose process is not seen gone within 1 s, a start whose terminal
+attachment report is refused), the request reports `failed / execution-unknown`. The record then
+stays `pending`, so every later start, stop, restart or kill of that agent is refused
+`agent-reserved`, and automatic starts are refused too. Nothing reconciles it yet. To recover, check
+the agent by hand, then delete its `pending` record from the file. A missing or malformed file
+refuses every lifecycle action. The host still boots, and its log names the file. Resetting it to
+`{"version":1,"records":{},"stops":{}}` forgets every operator stop.
+
 ## A bare model on a hermes spawn can select a different provider (found 2026-10-05)
 
 A hermes spawn with a bare model can switch away from the configured provider. In Hermes

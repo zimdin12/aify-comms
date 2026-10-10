@@ -134,6 +134,9 @@ LEFT_BEHIND = {
     #: operator (only the operator may ask), not an agent the rename is about.
     ("definition_requests", "agent_id"): "a defined agent cannot be renamed here; its host renames it",
     ("definition_requests", "requested_by"): "requester audit: the operator, not the subject of the rename",
+    #: Lifecycle requests are admitted only for a defined agent (D9a), so the same two answers hold.
+    ("agent_lifecycle_requests", "agent_id"): "a defined agent cannot be renamed here; its host renames it",
+    ("agent_lifecycle_requests", "requested_by"): "requester audit: who asked, not the subject of the rename",
 }
 
 UNRESOLVED: dict[tuple[str, str], str] = {

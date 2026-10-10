@@ -11,7 +11,9 @@ const host = new AgentStateHost({ aifyHome: home, instance: 'fixture', probe: ()
 host.boot();
 let ids = ['alpha', 'nullable'];
 const definitions = { list: async () => ({ definitions: ids.map(id => ({ id, problems: [], agent: { mode: 'managed', harness: 'fixture' } })), unreadable: [], conflict: false, enumerationFailed: false }) };
-const read = async () => (await readAgentStates({ stateHost: host, definitions, observedHarnesses: async () => new Set(['fixture']) })).body;
+const read = async () => (await readAgentStates({ stateHost: host, definitions, observedHarnesses: async () => new Set(['fixture']),
+  // No operator stops recorded: D9a reads the stop map, and an unreadable one makes the whole read unavailable.
+  lifecycle: { stopFacts: () => new Map() } })).body;
 const record = lifetime => ({ agentId: 'alpha', instance: 'fixture', lifetime, pid: 4242 });
 const old = '11111111-1111-4111-8111-111111111111';
 const newer = '22222222-2222-4222-8222-222222222222';

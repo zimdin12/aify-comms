@@ -146,3 +146,10 @@ Route GET /docs name=swagger_ui_html status=- response_model=- tags=- deps=0 in_
 Route GET /docs/oauth2-redirect name=swagger_ui_redirect status=- response_model=- tags=- deps=0 in_schema=False
 Route GET /openapi.json name=openapi status=- response_model=- tags=- deps=0 in_schema=False
 Route GET /redoc name=redoc_html status=- response_model=- tags=- deps=0 in_schema=False
+JsonApiRoute GET /api/v1/agent-lifecycle-requests/{request_id} name=read_lifecycle status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/agents/{agent_id}/lifecycle-requests name=list_lifecycle status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/agents/{agent_id}/lifecycle-requests name=submit_lifecycle status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/environments/{environment_id:path}/lifecycle-requests/claim name=claim_lifecycle status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/environments/{environment_id:path}/lifecycle-requests/{request_id}/attachment name=attach_lifecycle_terminal status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/environments/{environment_id:path}/lifecycle-requests/{request_id}/launch name=prepare_lifecycle_launch status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/environments/{environment_id:path}/lifecycle-requests/{request_id}/result name=report_lifecycle status=- response_model=- tags=api deps=0 in_schema=True

@@ -156,6 +156,26 @@ def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> No
 
 
 @dataclass(frozen=True)
+class LifecycleProof:
+    """Lifecycle permission only. Never authorizes definition edits."""
+    actor: str
+
+
+def lifecycle_actor(body: dict) -> str:
+    actor = body.get("requestedBy")
+    if not isinstance(actor, str) or not actor.strip():
+        raise HTTPException(422, "requestedBy: explicitly name a nonempty caller actor string")
+    return actor
+
+
+def require_lifecycle(body: dict, request) -> LifecycleProof:
+    key = operator_key_from(request)
+    if key and not operator_privilege_granted(request, key):
+        raise HTTPException(403, "lifecycle actions require a valid X-Aify-Operator-Key header")
+    return LifecycleProof(lifecycle_actor(body))
+
+
+@dataclass(frozen=True)
 class OperatorProof:
     """A request this module found to be the operator's, naming the actor it records.
 

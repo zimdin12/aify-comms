@@ -21,8 +21,9 @@ a summary.
 - Answer to "How should the git watcher's folder grant work?": **"Agent workspaces + list (Recommended)"** (built:
   aify-env `1d30a1f`).
 - "you can tag. we can always update tag if some issues come up."
-- **Not explicitly answered, so they are my defaults with no objection, not confirmations:** D8 (undefined agents keep
+- **Historical defaults, superseded for D9 by the October 7 ruling below:** D8 (undefined agents keep
   today's spawn path for one tag), D9 (delete the environment stop control), D12 (gate the status route).
+  The separate D8 and D12 slices follow their later rulings, not this historical default.
 
 The previous revision (eda03a3d) kept aify-comms' status laws as the destination. Under the ruling that is only a
 stage on the way, so this revision restates the end state. It keeps what comms-senior-dev's review of 7ca834ae
@@ -127,7 +128,60 @@ Then the readers switch, and C7's list is deleted.
 revision and lifetime, one open request per agent, and durable results. An undefined agent keeps today's spawn path
 for one tag (a default, not confirmed).
 
-**D9. Delete the environment "stop" control.** It has no claimer (a default, not confirmed).
+**D9. Service lifecycle requests through aify-env.** The October 7 ruling
+`1791393376609-0028cc6f` supersedes the environment-stop deletion default. Extend C9:
+the service writes the request, the plugin claims it, and aify-env executes and reports it.
+Both comms and dashboard may use the callable contract. Dashboard UI stays in its owner's lane.
+
+Managed definitions support start, stop, restart, kill, spawn and delete. Stop ends the matched
+worker and durably blocks message cold-start until explicit start. Kill ends the worker and leaves
+it startable. Spawn starts an existing definition; creation and editing keep their existing path.
+Delete first ends the matched live lifetime with stop semantics, then removes the definition using
+the existing fenced service consequence. There is no new cross-repository cleanup protocol.
+
+Resident stop and kill require guarded lifetime and OS identity. Resident start, restart and spawn
+refuse with "a resident runs in its own terminal: start it there". Service-launched resident panes
+remain a later slice. The durable stop producer supplies `stoppedByOperator` and replaces G6's
+`inputs.operatorStop: "not-tracked"` marker. A configured `OPERATOR_KEY` requires its matching header
+regardless of caller name; when unset, agents may act. These are acceptance obligations, not a claim
+that the source is published, installed or live-qualified.
+
+D9 ships in ordered slices. D9a exposes start, stop, restart and kill. It refuses managed
+spawn and delete before effects until D9b. Resident start/restart/spawn keep the reason
+above. D9c owns legacy restart/stop delegation and queued-message wake. Shared six-action
+schemas describe the full protocol, not completion of the deferred slices.
+
+The D9a callable backend uses these routes under `/api/v1`:
+
+- `POST /agents/{agent_id}/lifecycle-requests` submits `requestId`, `action`, `requestedBy`,
+  and explicit `expectedLifetime`, with optional `expectedRevision` and `freshContext`.
+  Null lifetime means expected absence. The service captures machine/store/incarnation
+  and the current revision. A repeated ID with identical intent returns the original
+  receipt. Changed intent or another open request refuses. `{ok:true,request:...}`
+  means accepted intent, never completed execution.
+- `GET /agents/{agent_id}/lifecycle-requests` lists open and completed receipts.
+  `GET /agent-lifecycle-requests/{request_id}` reads one exact receipt.
+- `POST /environments/{environment_id:path}/lifecycle-requests/claim` uses the existing
+  `bridgeId` and `machineId` host proof. Its `requests` array is host work. Claim replay
+  does not authorize repeating an effect.
+- `POST /environments/{environment_id:path}/lifecycle-requests/{request_id}/launch`
+  uses that proof to prepare an already claimed start/restart. It returns `launch` with
+  argv, cwd, runtime, agentId, terminalId and the definition binding. Repetition returns
+  the same persistent association after current fences pass. It queues no legacy control,
+  rotates no live session and reports no worker running.
+- `POST /environments/{environment_id:path}/lifecycle-requests/{request_id}/attachment`
+  adds `terminalId`, actual runner `handle`, positive integer `processId`, host `lifetime`
+  and optional positive integer `cols`/`rows` to the proof. Its immutable `attachment`
+  receipt records subscribed output but does not complete the lifecycle request.
+- `POST /environments/{environment_id:path}/lifecycle-requests/{request_id}/result`
+  reports `status` as done/refused/failed, `outcome`, explicit `resultLifetime` and
+  `finishedAt`, with the host proof. The first terminal result is immutable.
+
+Submission requires the configured operator key independent of actor name. Claims,
+preparation, attachment and results require current host proof. The host keeps unknown
+execution reserved after a possible effect or lost attachment; retry is not permission
+for another birth. Successful attachment precedes host completion and stop clearing.
+These routes are the backend dependency. Dashboard UI adoption remains separately owned.
 
 **D10. aify-env forwards the state to herdr.** It covers managed panes, and residents whose record names a pane. The
 launchers' herdr hook retires with the switch.

@@ -570,6 +570,44 @@ CREATE TABLE IF NOT EXISTS definition_requests (
 CREATE INDEX IF NOT EXISTS idx_definition_requests_agent ON definition_requests(agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_definition_requests_machine ON definition_requests(machine_id, status);
 
+CREATE TABLE IF NOT EXISTS agent_lifecycle_requests (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    machine_id TEXT NOT NULL,
+    store_id TEXT NOT NULL,
+    expected_incarnation INTEGER NOT NULL,
+    expected_revision INTEGER NOT NULL,
+    expected_lifetime TEXT,
+    action TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    fresh_context INTEGER NOT NULL DEFAULT 0,
+    intent TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    outcome TEXT NOT NULL DEFAULT '',
+    result_lifetime TEXT,
+    result_incarnation INTEGER,
+    result_revision INTEGER,
+    created_at TEXT NOT NULL,
+    claimed_at TEXT NOT NULL DEFAULT '',
+    finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lifecycle_one_open ON agent_lifecycle_requests(agent_id)
+    WHERE status IN ('pending', 'claimed');
+CREATE INDEX IF NOT EXISTS idx_lifecycle_machine ON agent_lifecycle_requests(machine_id, status);
+
+CREATE TABLE IF NOT EXISTS lifecycle_launches (
+    request_id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    bridge_id TEXT NOT NULL,
+    session_id TEXT NOT NULL UNIQUE,
+    terminal_id TEXT NOT NULL UNIQUE,
+    spec_id TEXT NOT NULL UNIQUE,
+    launch_json TEXT NOT NULL,
+    attachment_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (request_id) REFERENCES agent_lifecycle_requests(id)
+);
+
 -- G8a shadow ingest only. No FK to authoritative agents or status tables.
 CREATE TABLE IF NOT EXISTS agent_state_shadow_publishers (
     machine_id TEXT NOT NULL,
