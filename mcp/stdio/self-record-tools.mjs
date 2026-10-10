@@ -26,6 +26,10 @@ import { validateName } from "./safe-name.mjs";
 // `z` is the caller's zod — see the other tool groups for why it is not imported here.
 //
 // The two bodies below are the original server.js text, indented one level. Nothing else changed.
+//: What an agent may say about itself (D12); the service refuses any other word. A copy of
+//: `selfReportedStatuses` in service/contracts/vocabulary.json, held to it by vocabulary-agreement.test.js.
+export const SELF_REPORTED_STATUSES = Object.freeze(["idle", "working", "reviewing", "testing", "researching", "blocked", "focused"]);
+
 export function registerSelfRecordTools(server, z) {
   // ═══════════════════════════════════════════════════════════════════════════════
   // 2b. comms_status -- Update your agent status
@@ -37,7 +41,7 @@ export function registerSelfRecordTools(server, z) {
     {
       agentId: z.string().describe("Your agent ID"),
       status: z
-        .enum(["idle", "working", "reviewing", "testing", "researching", "blocked", "focused"])
+        .enum(SELF_REPORTED_STATUSES)
         .describe("Coarse tag for the note; not your badge"),
       note: z.string().optional().describe("What you're working on, e.g. 'NRD createPipelines'"),
     },

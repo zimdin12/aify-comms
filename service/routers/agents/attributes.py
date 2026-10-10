@@ -22,6 +22,7 @@ import json
 
 from fastapi import HTTPException, Request
 
+from service.api_core.vocabulary import SELF_REPORTED_STATUSES
 from service.api_core.agent_sessions import _mark_agent_present
 from service.api_core.definition_guard import DEFINED_SQL
 from service.api_core.serialization import _json_loads_or
@@ -55,6 +56,12 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
         # the other half. `_MANUAL_STATUSES` is the one the operator would notice: it is the status
         # derivation is forbidden to argue with, and it matches on `"stopped"` exactly.
         status = str(req.status or "").strip().lower()
+        # D12: AN AGENT'S STATUS IS NOT ANYONE'S TO SET. This route is an agent reporting its own activity;
+        # a stored `stopped` here was the manual stop, settable by any key holder for any agent.
+        if status not in SELF_REPORTED_STATUSES:
+            raise HTTPException(422, f"status: an agent reports its own activity as one of "
+                                     f"{', '.join(SELF_REPORTED_STATUSES)}; stopped, offline and the other "
+                                     f"derived words are not anyone's to set")
         status_val = f"{status}: {note}" if note else status
         now = _now()
         cursor = await db.execute(

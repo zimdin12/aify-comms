@@ -271,11 +271,11 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._assert_stays_stopped()
 
     def test_CONTROL_a_status_patch_after_the_loss_stays(self):
-        """A status PATCH writes status and note (review of 5dc23997)."""
+        """A status PATCH writes status and note (review of 5dc23997). Since D12 it cannot write `stopped`, so the
+        manual stop is set where the operator's stop sets it."""
         self._nested_takes_over()
         self._lost("nested-bridge")
-        patched = self.client.patch(f"/api/v1/agents/{AGENT}", json={"status": "stopped", "note": "held by the operator"})
-        self.assertEqual(patched.status_code, 200, patched.text)
+        self._execute("UPDATE agents SET status = 'stopped', status_note = 'held by the operator' WHERE id = ?", (AGENT,))
         self._assert_stays_stopped()
 
     def test_CONTROL_a_run_patch_that_stops_the_agent_after_the_loss_stays(self):

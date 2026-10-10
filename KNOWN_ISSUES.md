@@ -136,14 +136,11 @@ to matter.
   dashboard's provider runner already passes its child a minimal environment. Matters when aify-env is started
   from a shell holding a key an agent should not have.
 
-## Any key holder can set an agent's status, `stopped` included (found 2026-10-02)
+## Status writers and readers the 0.9 census found (2026-10-02)
 
-`PATCH /agents/{id}` (`update_agent`, routers/agents/attributes.py) lowercases the request's `status` and writes it to
-`agents.status` with no allowlist and no operator gate, then broadcasts it. A stored `stopped` is the manual stop:
-`_MANUAL_STATUSES` makes derivation defer to it, the claim funnel answers `{stopped}`, and the sidecar goes dormant.
-So any holder of the shared key can stop any agent, and any other string shows as a grey `unknown` chip until the
-next poll. The `comms_status` tool uses this route for an agent reporting on itself. Read at 3811a66f; not
-exercised. The 0.9 plan (D12) gives the fix.
+The first finding, any key holder setting any agent's status (`stopped` included) through `PATCH /agents/{id}`, is
+closed by D12: that route now takes only the words `comms_status` offers
+(`service/tests/test_an_agent_reports_only_its_own_activity.py`).
 
 Found beside it by the 0.9 reader census (`docs/superpowers/plans/evidence/2026-10-02-c2/reader-ledger.md`), each
 read but not exercised:

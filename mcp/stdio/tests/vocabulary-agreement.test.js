@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { LAUNCHABLE_RUNTIMES, RUNTIME_ALIASES } from "../runtimes.js";
+import { SELF_REPORTED_STATUSES } from "../self-record-tools.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const contractPath = join(here, "..", "..", "..", "service", "contracts", "vocabulary.json");
@@ -77,3 +78,7 @@ assert.ok(
 );
 
 console.log("vocabulary agreement: bridge RUNTIME_ALIASES and LAUNCHABLE_RUNTIMES match the contract");
+
+// D12: the words comms_status offers are exactly the ones the service accepts, in the same order.
+assert.deepEqual([...SELF_REPORTED_STATUSES], contract.selfReportedStatuses.values,
+  "mcp/stdio/self-record-tools.mjs SELF_REPORTED_STATUSES has diverged from the contract");

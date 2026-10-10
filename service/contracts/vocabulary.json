@@ -51,6 +51,11 @@
     "values": ["resident", "managed"]
   },
 
+  "selfReportedStatuses": {
+    "$comment": "What an agent may say about itself through comms_status (PATCH /agents/{id}, D12). Never a derived word such as stopped or offline: those are not anyone's to set.",
+    "values": ["idle", "working", "reviewing", "testing", "researching", "blocked", "focused"]
+  },
+
   "runtimes": {
     "$comment": "Canonical runtime ids, and every accepted input spelling that normalizes to one.",
     "canonical": ["claude-code", "codex", "hermes", "opencode", "pi", "generic"],
