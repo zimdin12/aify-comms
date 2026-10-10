@@ -91,7 +91,7 @@ export function startColdAgent(agentAction, refreshSoon) {
   agentAction.textContent = 'Starting…';
   api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'start', from_agent: 'dashboard' }) })
     .then((r) => {
-      toast(r?.alreadyRunning ? `${id} is already running` : `Starting ${id} — the console appears once its worker is up`, 'ok');
+      toast(requestedInAifyEnv(r, id) || (r?.alreadyRunning ? `${id} is already running` : `Starting ${id} — the console appears once its worker is up`), 'ok');
       refreshSoon();
     })
     .catch((err) => {

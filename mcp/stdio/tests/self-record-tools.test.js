@@ -37,9 +37,11 @@ test("the scratch store is really in use", () => {
   assert.ok(MESSAGES_DIR.startsWith(STORE), `expected the scratch store, got ${MESSAGES_DIR}`);
 });
 
-test("the wrapper registers exactly the two self-record tools and exports only itself", () => {
+test("the wrapper registers exactly the two self-record tools and exports only itself and its words", () => {
   assert.deepEqual([...tools.keys()].sort(), ["comms_describe", "comms_status"]);
-  assert.deepEqual(Object.keys(selfRecord).sort(), ["registerSelfRecordTools"]);
+  // SELF_REPORTED_STATUSES (D12) is a frozen word list, exported so vocabulary-agreement.test.js holds it to the contract.
+  assert.deepEqual(Object.keys(selfRecord).sort(), ["SELF_REPORTED_STATUSES", "registerSelfRecordTools"]);
+  assert.ok(Object.isFrozen(selfRecord.SELF_REPORTED_STATUSES));
 });
 
 test("a status written by an agent lands in its own row and nobody else's", async () => {

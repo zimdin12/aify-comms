@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildReport } from "../doctor-report.mjs";
 import { markFor } from "../doctor-mark.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const moduleUrl = new URL("../agent-state-shadow-check.mjs", import.meta.url);
 const load = async () => {
@@ -225,7 +226,7 @@ with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as private:
 print(json.dumps({'reports':reports, 'source':source, 'python':sys.executable}))
 `;
   const result = spawnSync(process.env.AIFY_SHADOW_PYTHON || "python", ["-X", "utf8", "-B", "-c", program], {
-    cwd: root, encoding: "utf8", timeout: 30000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    cwd: root, encoding: "utf8", timeout: 30000, env: sealedChildEnv({ PYTHONDONTWRITEBYTECODE: "1" }),
   });
   assert.equal(result.status, 0, `${result.error || ""}\n${result.stderr}\n${result.stdout}`);
   const captured = JSON.parse(result.stdout);

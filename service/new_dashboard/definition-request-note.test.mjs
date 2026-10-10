@@ -21,3 +21,12 @@ test('an edit that applied directly gets no note', () => {
     assert.equal(requestedInAifyEnv(answer, 'plain'), '');
   }
 });
+
+test('a queued lifecycle action says what was queued and for which host (D9c)', () => {
+  const answer = { ok: true, queued: true, agentId: 'coder', request: { id: 'legacy-1', action: 'delete', machineId: 'win32:host-a' } };
+  assert.equal(requestedInAifyEnv(answer, 'coder'),
+    'Removal of coder queued for aify-env on win32:host-a; it happens when that host takes it');
+  for (const [action, verb] of [['stop', 'Stop'], ['kill', 'Stop'], ['restart', 'Restart'], ['start', 'Start']]) {
+    assert.match(requestedInAifyEnv({ ...answer, request: { ...answer.request, action } }, 'coder'), new RegExp(`^${verb} of coder queued`));
+  }
+});

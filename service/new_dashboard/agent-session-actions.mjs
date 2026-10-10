@@ -230,11 +230,11 @@ export async function stopAgentWorker(agentId) {
     + 'Any turn it is running is lost. Its identity, history and resume handle are kept, '
     + 'so you can start it again.', { tone: 'danger' })) return;
   try {
-    await api(`/agents/${encodeURIComponent(agentId)}/stop-worker`, {
+    const answer = await api(`/agents/${encodeURIComponent(agentId)}/stop-worker`, {
       method: 'POST',
       body: JSON.stringify({ requestedBy: 'dashboard' }),
     });
-    toast(`Stopped ${agentId}'s worker`, 'ok');
+    toast(requestedInAifyEnv(answer, agentId) || `Stopped ${agentId}'s worker`, 'ok');
     // AWAIT the refresh before re-rendering (review 2026-07-26). Rendering straight after the POST
     // painted the drawer from the PRE-stop `state.agents`, so it still showed the old status and a
     // live "Stop worker" button for a worker that was already gone. Pull fresh state first, then
@@ -268,7 +268,7 @@ export async function requestSessionControl(sessionId, action, confirmAction = t
   const destructive = action === 'stop' || action === 'recreate';
   if (confirmAction && !await uiConfirm(`Really ${labels[action] || action}?`, { tone: destructive ? 'danger' : '' })) return;
   try {
-    await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
+    const answer = await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
       method: 'POST',
       body: JSON.stringify({
         action,
@@ -291,6 +291,8 @@ export async function requestSessionControl(sessionId, action, confirmAction = t
         // the mistake. `comms_restart` on the bridge side already sends no body.
       }),
     });
+    const queued = requestedInAifyEnv(answer, answer?.agentId || sessionId);
+    if (queued) toast(queued, 'ok');
     if (refreshAfter) await refresh();
   // NAMES THE SESSION. This handler is the only one that ever runs -- it swallows, so the bulk
   // caller's own catch below can never fire, and the message that named the failing id lived
