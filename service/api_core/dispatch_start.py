@@ -54,6 +54,7 @@ from service.api_core.definition_start import (
     start_binding,
 )
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
+from service.api_core import lifecycle_delegation, partial_status_shadow as shadow
 from service.api_core.managed_env import (
     _has_pending_or_booting_spawn_request,
     _select_online_environment_for_runtime,
@@ -140,6 +141,12 @@ async def _coldstart_spawn_request_for_dispatch(
         binding = await start_binding(db, agent_id)
     except StartRefused as refused:
         return _coldstart_refusal(warnings, str(refused))
+    # STOP IS DURABLE (D9): only an explicit start brings an operator-stopped agent back. Its host refuses
+    # such a start too; asking here keeps the send from queueing a spawn that can only fail.
+    if binding is not None:
+        owner = await lifecycle_delegation.owner_of(db, agent_id)
+        if owner and lifecycle_delegation.stopped_by_operator(owner, agent_id, shadow.mirror.view(), shadow.clock()):
+            return _coldstart_refusal(warnings, "stopped by the operator; start it explicitly to deliver")
     normalized_runtime = binding.runtime if binding else _normalize_runtime(runtime or "")
     if normalized_runtime not in LAUNCHABLE_RUNTIMES:
         return _coldstart_refusal(

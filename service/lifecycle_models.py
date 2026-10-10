@@ -2,9 +2,15 @@
 from typing import Any
 from pydantic import BaseModel
 
+#: The lifecycle actions that launch a worker, and so prepare a launch and are refused at once for a
+#: definition that cannot start.
+LAUNCHING_ACTIONS = ('start', 'restart', 'spawn')
+#: A lifecycle request's settled statuses: the host reported it, and the result is immutable.
+TERMINAL = ('done', 'refused', 'failed')
+
 
 class LifecycleSubmit(BaseModel):
-    requestId: Any = None
+    requestId: str
     action: Any = None
     requestedBy: Any = None
     expectedLifetime: Any = None

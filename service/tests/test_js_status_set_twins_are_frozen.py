@@ -70,6 +70,7 @@ from unittest import mock
 from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES
+from service.api_core import partial_status_shadow as shadow_catalogs
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES, _TERMINAL_END_STATUSES
 from service.env_status import ENVIRONMENT_STATUSES
 from service.ntfy import NOTIFIABLE_EVENTS
@@ -91,6 +92,10 @@ OWNERS: dict[str, frozenset] = {
     "_TERMINAL_ACTIVE_STATUSES": frozenset(_TERMINAL_ACTIVE_STATUSES),
     "_TERMINAL_END_STATUSES": frozenset(_TERMINAL_END_STATUSES),
     "ENVIRONMENT_STATUSES": frozenset(ENVIRONMENT_STATUSES),
+    "CLASSES": frozenset(shadow_catalogs.CLASSES),
+    "COUNT_NAMES": frozenset(shadow_catalogs.COUNT_NAMES),
+    "REASONS": frozenset(shadow_catalogs.REASONS),
+    "SOURCES": frozenset(shadow_catalogs.SOURCES),
 }
 
 #: JS declaration -> the Python constant name(s) holding the identical value set.
@@ -121,6 +126,13 @@ EXACT_TWINS: dict[tuple[str, str], list[str]] = {
     # these six values, so which one the console chooser copied was not derivable. The other three
     # names are now aliases of this one, so the census sees one holder.
     ("service/new_dashboard/console-chooser.js", "sessionDead"): ["_TERMINAL_END_STATUSES"],
+    # 0.9 G8b: the doctor checks the service's shadow report against the recorder's own catalogs in
+    # service/api_core/partial_status_shadow.py. A wire contract across languages, so a copy; declared here
+    # so a catalog change names the doctor that must change with it.
+    ("mcp/stdio/agent-state-shadow-check.mjs", "CLASSES"): ["CLASSES"],
+    ("mcp/stdio/agent-state-shadow-check.mjs", "COUNTS"): ["COUNT_NAMES"],
+    ("mcp/stdio/agent-state-shadow-check.mjs", "REASONS"): ["REASONS"],
+    ("mcp/stdio/agent-state-shadow-check.mjs", "SOURCES"): ["SOURCES"],
 }
 
 #: JS sets that are DELIBERATELY WIDER than a Python owner. The census cannot find these — it matches

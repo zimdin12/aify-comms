@@ -21,20 +21,16 @@ from service.api_core.definition_start import (
     CHANGED_WHILE_STARTING,
     StartRefused,
     insert_spawn_request,
-    spec_columns,
     start_binding,
 )
-from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch, twin_refusal
+from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 from service.api_core.dispatch_text import _coldstart_refusal_message
-from service.api_core.managed_env import _select_online_environment_for_runtime
 from service.api_core.records import _environment_record_to_dict
-from service.api_core.runtime import _runtime_capability_for_environment
 from service.api_core.settings import _load_settings
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
 from service.api_core.start_intent import REPLACE
 from service.api_core.workspace import (
     _normalize_workspace_for_environment,
-    _workspace_for_environment,
     _workspace_root_for,
 )
 
@@ -65,9 +61,9 @@ async def _prepare_restart_spawn(db, req, session, session_id: str, agent_id: st
                 raise HTTPException(409, str(refused))
             spec_id = str(session["spawn_spec_id"] or "").strip()
             if binding is not None:
-                spawn_request_row, spawn_spec_row = await _bound_restart_spawn(
-                    db, req, session, agent_id, action, now, binding,
-                    preferred_environment_id=str(session["environment_id"] or ""))
+                # DEFINED SINCE THE ROUTE ASKED: a defined agent restarts only through its lifecycle queue (D9c),
+                # so a definition that landed after the route's check is a changed start, never a spawn here.
+                raise HTTPException(409, f'Agent "{agent_id}": {CHANGED_WHILE_STARTING}')
             elif not spec_id:
                 # FIX 5 (2026-06-03): a resident-origin session has a NULL spawn_spec,
                 # yet the SEND path already auto-starts it via the cold-start helper.
@@ -170,54 +166,3 @@ async def _forget_native_session(db, agent_id: str, now: str) -> None:
     """A recreate starts a fresh context, so the agent no longer names the native session it had."""
     await db.execute("UPDATE agents SET session_handle = '', runtime_state = '{}', last_seen = ? WHERE id = ?",
                      (now, agent_id))
-
-
-async def _bound_restart_spawn(db, req, session, agent_id: str, action: str, now: str, binding,
-                               *, preferred_environment_id: str):
-    """The spawn a defined agent's restart or recreate is served by: built from `binding`, on an online
-    environment of the machine that defines it (the session's own when it is one), recording the
-    revision it was built from. Raises 409 when none can be made."""
-    agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-    twin = await twin_refusal(db, agent_row)
-    if twin:
-        raise HTTPException(409, f'Agent "{agent_id}": {twin}')
-    settings = await _load_settings(db)
-    offline_seconds = settings.get("environment_offline_seconds", 90)
-    environment = None
-    preferred = await (await db.execute(
-        "SELECT * FROM environments WHERE id = ?", (preferred_environment_id,))).fetchone()
-    if preferred is not None:
-        candidate = _environment_record_to_dict(preferred, offline_seconds=offline_seconds)
-        if (str(candidate.get("status") or "").lower() == "online"
-                and candidate.get("machineId") == binding.machine_id
-                and _runtime_capability_for_environment(candidate, binding.runtime)):
-            environment = candidate
-    if environment is None:
-        environment = await _select_online_environment_for_runtime(
-            db, binding.runtime, offline_seconds=offline_seconds, machine_id=binding.machine_id)
-    if environment is None:
-        raise HTTPException(409, f'Agent "{agent_id}" is defined on {binding.machine_id}, and no online environment '
-                                 f'there can start "{binding.runtime}"; start aify-env on that host')
-    workspace, workspace_root = _workspace_for_environment(environment, binding.workspace)
-    spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    spec = {"id": spec_id, "agent_id": agent_id, "environment_id": environment["id"], "workspace": workspace,
-            "created_at": now, "updated_at": now, **spec_columns(binding)}
-    await db.execute(f"INSERT INTO spawn_specs ({', '.join(spec)}) VALUES ({', '.join('?' * len(spec))})",
-                     tuple(spec.values()))
-    request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    inserted = await insert_spawn_request(db, {
-        "id": request_id, "spawn_spec_id": spec_id, "created_by": req.from_agent or "dashboard",
-        "environment_id": environment["id"], "agent_id": agent_id, "role": binding.role, "name": binding.name,
-        "runtime": binding.runtime, "workspace": workspace, "workspace_root": workspace_root,
-        "initial_message": req.body or "", "priority": req.priority or "normal",
-        "subject": req.subject or f"{action.title()} {agent_id}", "mode": "managed-warm",
-        "resume_policy": "fresh_context" if action == "recreate" else "native_first", "status": "queued",
-        "session_handle": "" if action == "recreate" else (session["session_handle"] or ""),
-        "created_at": now, "updated_at": now, "start_intent": REPLACE,
-    }, binding)
-    if not inserted:
-        raise HTTPException(409, f'Agent "{agent_id}": {CHANGED_WHILE_STARTING}')
-    if action == "recreate":
-        await _forget_native_session(db, agent_id, now)
-    request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
-    return request_row, await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))).fetchone()

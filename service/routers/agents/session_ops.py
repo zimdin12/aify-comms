@@ -13,6 +13,7 @@ import time
 from fastapi import HTTPException, Request
 
 from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.lifecycle_delegation import delegate
 from service.api_core.request_body import json_object_body
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
@@ -72,6 +73,11 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         agent = await cursor.fetchone()
         if not agent:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
+        # A DEFINED agent's start and stop go to its host through the D9 lifecycle queue (D9c).
+        if action in {"start", "stop"}:
+            delegated = await delegate(db, agent_id, action, actor, request)
+            if delegated:
+                return delegated
 
         now = _now()
 
@@ -250,6 +256,10 @@ async def stop_agent_worker(agent_id: str, request: Request):
         agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
+        # Ending the worker and leaving the agent startable is the D9 `kill` (D9c).
+        delegated = await delegate(db, agent_id, "kill", requested_by, request)
+        if delegated:
+            return delegated
         now = _now()
         # THE RUN IN FLIGHT IS INTERRUPTED, as the session stop does: this is the drawer's only
         # stop since 2026-09-29, and without it the run is left with nobody behind it.

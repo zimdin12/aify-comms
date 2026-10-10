@@ -11,9 +11,9 @@ from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core import definition_requests as definitions
 from service.api_core.lifecycle_launch import settle_unstarted
 from service.api_core.agent_remove import remove_agent
+from service.lifecycle_models import TERMINAL
 
 ACTIONS = ('start', 'stop', 'restart', 'kill', 'spawn', 'delete')
-TERMINAL = ('done', 'refused', 'failed')
 
 
 def lifecycle_record(row):
@@ -45,6 +45,11 @@ async def admit_lifecycle(db, agent_id, body, proof, now):
     request_id = body.get('requestId')
     if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', request_id):
         raise HTTPException(422, 'requestId: 1 to 128 ASCII letters, digits, dot, underscore or hyphen; first character must be alphanumeric')
+    old = await (await db.execute('SELECT * FROM agent_lifecycle_requests WHERE id=?', (request_id,))).fetchone()
+    held = await (await db.execute('SELECT * FROM agent_definitions WHERE agent_id=?', (agent_id,))).fetchone()
+    if not old and not held:
+        # Before the body's other fields: an agent nobody defines is the answer whatever was asked.
+        raise HTTPException(404, 'agent has no owning definition')
     if body.get('action') not in ACTIONS:
         raise HTTPException(422, 'action: start, stop, restart, kill, spawn or delete')
     if 'expectedLifetime' not in body or (body['expectedLifetime'] is not None and
@@ -57,14 +62,10 @@ async def admit_lifecycle(db, agent_id, body, proof, now):
     intent = json.dumps({'agentId':agent_id, 'action':body['action'], 'requestedBy':proof.actor,
         'expectedLifetime':body['expectedLifetime'], 'expectedRevision':body.get('expectedRevision'),
         'freshContext':body.get('freshContext', False)}, sort_keys=True)
-    old = await (await db.execute('SELECT * FROM agent_lifecycle_requests WHERE id=?', (request_id,))).fetchone()
     if old:
         if old['intent'] != intent:
             raise HTTPException(409, 'requestId already records a different intent')
         return lifecycle_record(old)
-    held = await (await db.execute('SELECT * FROM agent_definitions WHERE agent_id=?', (agent_id,))).fetchone()
-    if not held:
-        raise HTTPException(404, 'agent has no owning definition')
     if body.get('expectedRevision', held['revision']) != held['revision']:
         raise HTTPException(409, 'definition revision moved')
     waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN ('pending','claimed')", (agent_id,))).fetchone()

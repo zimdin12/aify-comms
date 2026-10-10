@@ -146,6 +146,7 @@ Neither reads ok.
 | `external-keys` | `EXTERNAL_KEYS` that restrict nothing: no `API_KEY` is set, or the entry is malformed |
 | `client-api-key` | this host cannot authenticate against the service it points at, probed with the key it actually resolves |
 | `context-window` | a running agent whose conversation has outgrown its model, read from the runtime's own `used/limit` footer (warns at 0.9) |
+| `agent-state-shadow` | where aify-env's published status word disagrees with the service's own (`partial`), as diagnostic evidence for the 0.9 switch; never ok, since qualification stays unavailable |
 | `env-bridge` | no environment can claim a spawn now (it asks what `/spawn` asks: a fresh `metadata.bridgeLastSeen`), so dashboard-managed spawns cannot run |
 | `claude-login` | the refresh window of the one Claude OAuth grant every claude-code agent on this host shares; reads timestamps, never a token |
 | `usage-openai` | the ChatGPT quota token works, proven by calling the API |

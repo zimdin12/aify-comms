@@ -1,11 +1,12 @@
 """Process-only partial status comparison. Never supplies current status inputs."""
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from datetime import datetime
 from types import MappingProxyType
 import copy
 
 from service.clock import now as clock
 from service.status_engine import VALID_STATUSES
+from service.api_core.definition_schema import MODES
 
 SCOPE = 'partial-freshness-base-word'
 SOURCES = ('refresh', 'cache-broadcast', 'engine-status')
@@ -124,7 +125,7 @@ def project_inputs(inputs):
     """Only closed enums and detached boolean facts, never retain StatusInputs or config text."""
     mode = inputs.mode
     activity = inputs.host_activity
-    if mode not in ('managed', 'resident') or activity not in ('', 'working', 'idle', 'blocked', 'shell'):
+    if mode not in MODES or activity not in ('', 'working', 'idle', 'blocked', 'shell'):
         raise ValueError('unknown input vocabulary')
     names = (
         'alive', 'in_turn', 'awaiting_input', 'worker_present', 'env_reachable', 'disabled',

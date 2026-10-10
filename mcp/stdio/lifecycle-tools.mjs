@@ -34,6 +34,13 @@ import {
 import { INBOX_DIR, SHARED_DIR, readAgents, writeAgents } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
 
+// A DEFINED agent's restart or removal is queued for its host (D9c): say queued, never done.
+function queuedText(answer, what) {
+  return `${what} is queued as lifecycle request ${answer.request.id} [${answer.request.status}]; aify-env on `
+    + `its host carries it out. Read GET /agent-lifecycle-requests/${answer.request.id} before acting on it.`;
+}
+const isQueued = (answer) => answer?.queued === true && typeof answer.request?.id === "string";
+
 // Registers the four lifecycle tools on an MCP server. A function rather than a module-scope side
 // effect, so a fake server can capture the registrations and a test can call the handlers without an MCP
 // transport. `z` is the caller's zod — see the other tool groups for why it is not imported here.
@@ -55,6 +62,7 @@ export function registerLifecycleTools(server, z) {
 
       if (IS_REMOTE) {
         const r = await httpCall("DELETE", `/agents/${encodeURIComponent(agentId)}`);
+        if (isQueued(r)) return { content: [{ type: "text", text: queuedText(r, `Removal of "${agentId}"`) }] };
         forgetRemoteAgent(agentId);
         return {
           content: [{
@@ -159,6 +167,7 @@ export function registerLifecycleTools(server, z) {
           from_agent: process.env.AIFY_AGENT_ID || "agent",
         });
         const verb = freshContext ? "reset with a fresh context" : "restarted";
+        if (isQueued(r)) return { content: [{ type: "text", text: queuedText(r, `Restart of "${id}"`) }] };
         return {
           content: [{
             type: "text",

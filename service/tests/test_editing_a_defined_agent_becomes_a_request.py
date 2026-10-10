@@ -11,6 +11,7 @@ import json
 import sqlite3
 
 from service.tests._base import FastApiTestCase
+from service.tests.published_state import publish
 from service.tests.test_agent_definition_push import A, B, snapshot_digest, valid
 
 RUNTIMES = [{"runtime": r, "modes": ["managed-warm"], "capabilities": {}} for r in ("claude-code", "codex", "pi")]
@@ -162,9 +163,12 @@ class EditingADefinedAgentBecomesARequest(FastApiTestCase):
                          (422, 'runtime "pi" is not a harness a definition can name (claude-code, codex, hermes)'))
 
     def test_removal(self):
+        # Since D9c a defined agent's removal is the lifecycle delete: its host ends the worker, then removes it.
+        publish(self, A["machine"], {"lead": (None, "available")})
         queued = self.client.delete("/api/v1/agents/lead")
         self.assertEqual(queued.status_code, 200, queued.text)
-        self.assertEqual(queued.json()["request"]["patch"], {"remove": True})
+        self.assertEqual((queued.json()["request"]["action"], queued.json()["queued"]), ("delete", True))
+        self.assertEqual(self.patches("lead"), [], "no definition removal under a running worker")
         self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'lead'")), 1, "its host removes it, not this route")
         direct = self.client.delete("/api/v1/agents/plain")
         self.assertEqual((direct.status_code, direct.json()["ok"]), (200, True))

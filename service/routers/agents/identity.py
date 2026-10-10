@@ -51,6 +51,7 @@ from service.api_core.agent_remove import remove_agent
 from service.api_core.definition_guard import defined_on
 from service.api_core.definition_requests import queued_for_its_host
 from service.api_core.operator_authz import DASHBOARD_ACTOR, prove_operator
+from service.api_core.lifecycle_delegation import delegate
 from service.clock import now as _now
 
 router = domain_router()
@@ -172,9 +173,13 @@ async def get_agent(agent_id: str, request: Request):
 async def unregister_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
-        # A DEFINED AGENT IS REMOVED BY ITS HOST (P0 C5): the removal becomes a request, and the host's
-        # `done` runs this same removal behind C4's fence. Asked before any worker is stopped and
-        # again inside the deleting transaction, so an agent defined meanwhile is not removed here.
+        # A DEFINED AGENT IS REMOVED BY ITS HOST through the D9 delete (D9c): the host ends the running
+        # worker first, then removes the definition, and its `done` removes the agent here.
+        delegated = await delegate(db, agent_id, "delete", DASHBOARD_ACTOR, request)
+        if delegated:
+            return delegated
+        # Asked again before any worker is stopped and inside the deleting transaction, so an agent
+        # defined meanwhile is not removed here.
         async def defined_elsewhere(conn):
             owner = await defined_on(conn, agent_id)
             return f"defined on {owner}" if owner else ""

@@ -72,10 +72,15 @@ FROZEN: dict[str, dict] = {
     "_UNSETTLED_CONTROL_STATUSES": {
         "owner": "service/reconcilers/stuck_controls.py",
         "values": ["claimed", "pending"],
+        #: AND A THIRD TABLE, 0.9 D9a: `agent_lifecycle_requests` uses the same two words for a lifecycle
+        #: request not yet settled, in its claim queries and in schema.py's one-open partial index (DDL,
+        #: so it cannot interpolate). A third unsettled state must reach these two as well.
         "hardcoded_in": [
             "service/api_core/active_run_discard.py",
+            "service/api_core/agent_lifecycle_requests.py",
             "service/api_core/superseded_bridge_stops.py",
             "service/reconcilers/terminal_controls.py",
+            "service/schema.py",
         ],
     },
     "_DISPATCH_TERMINAL_STATUSES": {

@@ -3,6 +3,7 @@ import json
 import uuid
 from fastapi import HTTPException
 from service.api_core.definition_snapshot import fence_refusal
+from service.lifecycle_models import LAUNCHING_ACTIONS, TERMINAL
 from service.api_core.definition_start import binding_for, spec_columns, StartRefused
 from service.api_core.capabilities import _default_console_argv, _environment_supports_terminal
 from service.api_core.workspace import _workspace_for_environment
@@ -24,7 +25,7 @@ async def _admitted(db, environment, request_id, body, *, attachment_replay=Fals
     request = await _row(db, 'agent_lifecycle_requests', 'id', request_id)
     if not request:
         raise HTTPException(404, 'no lifecycle request')
-    if (request['status'] != 'claimed' and not (attachment_replay and request['status'] in ('done', 'refused', 'failed'))) or request['action'] not in ('start', 'restart', 'spawn'):
+    if (request['status'] != 'claimed' and not (attachment_replay and request['status'] in TERMINAL)) or request['action'] not in LAUNCHING_ACTIONS:
         raise HTTPException(409, 'launch requires a claimed start, restart or spawn')
     definition = await _row(db, 'agent_definitions', 'agent_id', request['agent_id'])
     store = await _row(db, 'definition_stores', 'machine_id', request['machine_id'])

@@ -169,6 +169,8 @@ def lifecycle_actor(body: dict) -> str:
 
 
 def require_lifecycle(body: dict, request) -> LifecycleProof:
+    # Naming the operator records it as the actor, so that name needs its proof like on every route.
+    refuse_an_unproven_operator_claim(lifecycle_actor(body), request, action="acting on an agent's lifecycle as the operator")
     key = operator_key_from(request)
     if key and not operator_privilege_granted(request, key):
         raise HTTPException(403, "lifecycle actions require a valid X-Aify-Operator-Key header")

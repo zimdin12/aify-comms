@@ -33,6 +33,7 @@ from service.api_core.events import _append_terminal_control
 # "which sessions are live" agree until one is corrected, and this one gates a stop.
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.lifecycle_delegation import delegate
 from service.api_core.records import _agent_session_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_sender
@@ -109,6 +110,13 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
 
         now = _now()
         agent_id = session["agent_id"]
+        # A DEFINED agent's stop and restart go to its host through the D9 lifecycle queue (D9c);
+        # `recreate` is a restart into a fresh conversation.
+        if action in {"stop", "restart", "recreate"}:
+            delegated = await delegate(db, agent_id, "stop" if action == "stop" else "restart", actor, request,
+                                       fresh_context=action == "recreate")
+            if delegated:
+                return delegated
 
         # ── THE CALLER'S PRECONDITION, ASKED WHERE THE STATE IS.
         #

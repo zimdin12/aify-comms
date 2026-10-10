@@ -23,6 +23,18 @@ from service.tests.test_agent_definition_push import A, B, invalid, snapshot_dig
 RUNTIMES = [{"runtime": runtime, "available": True} for runtime in ("claude-code", "codex", "hermes")]
 
 
+class ColdStart:
+    """A cold start's answer in the shape the start route gave: 200 when it queued a spawn, else 409 and why."""
+    def __init__(self, started, reasons):
+        self.status_code = 200 if started else 409
+        self.text = " ".join(reasons)
+        self._body = {"spawnRequested": True} if started else {
+            "detail": reasons[0].removeprefix(dispatch_start.COLDSTART_REFUSED_PREFIX) if reasons else ""}
+
+    def json(self):
+        return self._body
+
+
 class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
     DB_NAME = "aify-test-definition-start.db"
 
@@ -44,7 +56,12 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def start(self, agent_id):
-        return self.client.post(f"/api/v1/agents/{agent_id}/control", json={"action": "start", "from_agent": "dashboard"})
+        """The start that builds a spawn from the definition: a message's cold start. Since D9c the
+        dashboard's start of a DEFINED agent queues a lifecycle request instead
+        (test_legacy_routes_delegate_defined_agents.py), and the host's launch is built from the same
+        definition (test_lifecycle_launch.py)."""
+        reasons: list[str] = []
+        return ColdStart(self.cold_start(agent_id, reasons), reasons)
 
     def rows(self, sql, params=()):
         conn = sqlite3.connect(str(self._db_path))
@@ -204,15 +221,6 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                      (session_id, agent_id, environment["env"], first["spec_id"], first["id"], handle))
         return first
 
-    def test_a_restart_with_its_machine_offline_says_so_and_does_not_move(self):
-        self.restartable("m1")
-        self.execute("UPDATE environments SET last_seen = '2000-01-01T00:00:00Z' WHERE id = ?", (A["env"],))
-        restarted = self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "dashboard"})
-        self.assertEqual((restarted.status_code, restarted.json()["detail"]), (409,
-                         'Agent "coder" is defined on win32:host-a, and no online environment there can start '
-                         '"claude-code"; start aify-env on that host'))
-        self.assertEqual(len(self.spawns("coder")), 1, "B, online on another machine, is not used")
-
     def test_an_undefined_restart_overtaken_by_a_definition_queues_nothing(self):
         """Review of 8de83233, N6: the undefined restart from a session's old spec read "never defined",
         and a push or a withdrawal committing right after that read must not be answered with a start
@@ -250,9 +258,9 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                     self.assertEqual(self.rows("SELECT session_handle FROM agents WHERE id = ?", (agent_id,)),
                                      [{"session_handle": "h1"}], "the agent still names its native session")
 
-    def test_an_undefined_restart_from_its_old_spec_and_one_defined_first(self):
-        """The controls for N6, both orders serialised: undefined throughout, it restarts from its old spec
-        unbound; defined before the restart, it restarts from the definition."""
+    def test_an_undefined_restart_from_its_old_spec(self):
+        """The control for N6: undefined throughout, it restarts from its old spec unbound. Defined before the
+        restart, it goes to the lifecycle queue instead (test_legacy_routes_delegate_defined_agents.py)."""
         self.register_undefined("plain")
         self.restartable("", agent_id="plain", session_id="sess-plain")
         self.execute("UPDATE spawn_specs SET model = 'old-model' WHERE agent_id = 'plain'")
@@ -260,39 +268,6 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertEqual(plain.status_code, 200, plain.text)
         latest = self.spawns("plain")[-1]
         self.assertEqual((latest["store"], latest["revision"], latest["model"]), ("", 0, "old-model"))
-        self.register_undefined("later")
-        self.restartable("", agent_id="later", session_id="sess-later")
-        self.push("s1", 1, [valid("later", model="new-model")])
-        defined = self.client.post("/api/v1/sessions/sess-later/control", json={"action": "restart", "from_agent": "dashboard"})
-        self.assertEqual(defined.status_code, 200, defined.text)
-        latest = self.spawns("later")[-1]
-        self.assertEqual((latest["store"], latest["revision"], latest["model"]), ("s1", 1, "new-model"))
-
-    def test_a_restart_runs_on_the_machine_that_defines_it(self):
-        self.restartable("m1", environment=B)
-        restarted = self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "dashboard"})
-        self.assertEqual(restarted.status_code, 200, restarted.text)
-        self.assertEqual(self.spawns("coder")[-1]["environment_id"], A["env"])
-
-    def test_a_restart_is_built_from_the_definition_not_the_sessions_spec(self):
-        self.restartable("m1")
-        self.push("s1", 2, [valid("coder", revision=2, model="m2")])
-        restarted = self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "dashboard"})
-        self.assertEqual(restarted.status_code, 200, restarted.text)
-        latest = self.spawns("coder")[-1]
-        self.assertEqual({k: latest[k] for k in ("revision", "model", "environment_id", "session_handle", "resume_policy",
-                                                 "start_intent")},
-                         {"revision": 2, "model": "m2", "environment_id": A["env"], "session_handle": "h1",
-                          "resume_policy": "native_first", "start_intent": "replace"})
-
-    def test_a_recreate_is_built_from_the_definition_and_forgets_the_native_session(self):
-        self.restartable("m1")
-        self.execute("UPDATE agents SET session_handle = 'h1' WHERE id = 'coder'")
-        recreated = self.client.post("/api/v1/sessions/sess-1/control", json={"action": "recreate", "from_agent": "dashboard"})
-        self.assertEqual(recreated.status_code, 200, recreated.text)
-        latest = self.spawns("coder")[-1]
-        self.assertEqual((latest["revision"], latest["session_handle"], latest["resume_policy"]), (1, "", "fresh_context"))
-        self.assertEqual(self.rows("SELECT session_handle FROM agents WHERE id = 'coder'")[0]["session_handle"], "")
 
     def test_the_launch_carries_the_definition_it_was_built_from(self):
         first = self.restartable("m1")
@@ -440,28 +415,3 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertFalse(self.cold_start("coder", []), "an undefined reading of a defined agent inserts nothing")
         dispatch_start.start_binding = real
         self.assertTrue(self.cold_start("coder", []), "control: read now, it starts")
-
-    def test_a_restart_from_a_definition_that_changed_meanwhile_queues_nothing(self):
-        import service.api_core.session_restart as session_restart
-
-        first = self.restartable("m1")
-
-        async def read():
-            db = await get_db()
-            try:
-                return await start_binding(db, "coder")
-            finally:
-                await db.close()
-
-        stale = asyncio.run(read())
-        self.push("s1", 2, [valid("coder", revision=2, model="m2")])
-        real = session_restart.start_binding
-
-        async def read_before_the_push(db, agent_id):
-            return stale
-
-        session_restart.start_binding = read_before_the_push
-        self.addCleanup(setattr, session_restart, "start_binding", real)
-        restarted = self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "dashboard"})
-        self.assertEqual((restarted.status_code, restarted.json()["detail"]), (409, f'Agent "coder": {CHANGED_WHILE_STARTING}'))
-        self.assertEqual([spawn["id"] for spawn in self.spawns("coder")], [first["id"]])
