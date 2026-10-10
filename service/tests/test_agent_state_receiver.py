@@ -67,6 +67,15 @@ class AgentStateReceiverTest(FastApiTestCase):
         self.assertEqual(response.status_code, 204, response.text)
         self.assertEqual(response.content, b'')
 
+    def test_c1_fields_are_read_when_present(self):
+        named = row()
+        named.update(name='Alpha', role='coder', launch={'cwd': 'C:/work', 'definition': {'storeId': 's', 'incarnation': 1, 'revision': 3}})
+        bare = row('beta')
+        bare.update(name=None, role=None, launch={'cwd': None, 'definition': None})
+        response = self.client.post('/api/v1/agent-state', content=wire(body(agents=[named, bare])),
+                                    headers={'content-type': 'application/json'})
+        self.assertEqual(response.status_code, 204, response.text)
+
     def test_protected_real_ingest_refuses_before_writing(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
@@ -175,7 +184,11 @@ class AgentStateReceiverTest(FastApiTestCase):
                        {'process': dict(state='running', verified='yes', pid=0)},
                        {'process': dict(state='none', verified='no', pid=None, extra=True)},
                        {'turn': dict(open=True, startedAtUs=-1, lastEventAtUs=1, awaitingInput=False, busyIf=dict(strict=True, verifiedRenewal=True))},
-                       {'extra': True}):
+                       {'extra': True},
+                       # C1's optional fields, each malformed.
+                       {'name': ''}, {'role': 1}, {'launch': {'cwd': None}}, {'launch': {'cwd': '', 'definition': None}},
+                       {'launch': {'cwd': None, 'definition': {'storeId': 's', 'incarnation': 0, 'revision': 1}}},
+                       {'launch': {'cwd': None, 'definition': {'storeId': 's', 'incarnation': 1}}}):
             bad_row = row('bad'); bad_row.update(change)
             invalid.append(body(generation=9, agents=[row(), bad_row]))
         for field, value in [('open', 1), ('startedAtUs', 1.5), ('lastEventAtUs', True), ('awaitingInput', 'no'),

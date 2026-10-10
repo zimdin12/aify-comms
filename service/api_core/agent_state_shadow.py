@@ -76,7 +76,21 @@ def _decode(raw):
 
 
 def _record(record):
-    _object(record, ('agentId', 'lifetime', 'state', 'stateCause', 'busy', 'process', 'turn'))
+    # name, role and launch arrived with C1: optional, so a publisher from before them is still read.
+    _object(record, ('agentId', 'lifetime', 'state', 'stateCause', 'busy', 'process', 'turn'), ('name', 'role', 'launch'))
+    for key in ('name', 'role'):
+        if record.get(key) is not None:
+            _text(record[key])
+    launch = record.get('launch')
+    if launch is not None:
+        _object(launch, ('cwd', 'definition'))
+        if launch['cwd'] is not None:
+            _text(launch['cwd'])
+        if launch['definition'] is not None:
+            _object(launch['definition'], ('storeId', 'incarnation', 'revision'))
+            _text(launch['definition']['storeId'])
+            _integer(launch['definition']['incarnation'], 1)
+            _integer(launch['definition']['revision'], 1)
     _text(record['agentId'])
     if record['lifetime'] is not None:
         _text(record['lifetime'])
