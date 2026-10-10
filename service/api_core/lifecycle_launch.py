@@ -24,8 +24,8 @@ async def _admitted(db, environment, request_id, body, *, attachment_replay=Fals
     request = await _row(db, 'agent_lifecycle_requests', 'id', request_id)
     if not request:
         raise HTTPException(404, 'no lifecycle request')
-    if (request['status'] != 'claimed' and not (attachment_replay and request['status'] in ('done', 'refused', 'failed'))) or request['action'] not in ('start', 'restart'):
-        raise HTTPException(409, 'launch requires a claimed start or restart')
+    if (request['status'] != 'claimed' and not (attachment_replay and request['status'] in ('done', 'refused', 'failed'))) or request['action'] not in ('start', 'restart', 'spawn'):
+        raise HTTPException(409, 'launch requires a claimed start, restart or spawn')
     definition = await _row(db, 'agent_definitions', 'agent_id', request['agent_id'])
     store = await _row(db, 'definition_stores', 'machine_id', request['machine_id'])
     expected = (request['machine_id'], request['store_id'], request['expected_incarnation'], request['expected_revision'])

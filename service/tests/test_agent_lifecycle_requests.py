@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from service.api_core import agent_lifecycle_requests as lifecycle_core
 from service.api_core.operator_authz import LifecycleProof
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import AsyncMock, patch
 
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_definition_push import A, B, snapshot_digest, valid
@@ -177,19 +178,41 @@ class LifecycleRequests(FastApiTestCase):
             headers={'X-Aify-Operator-Key':'fixture-key'}, json={'patch':{'role':'other'}, 'requestedBy':'peer'})
         self.assertEqual(edit.status_code, 403)
 
-    def _assert_deferred(self, action):
-        response = self.ask(action=action)
-        self.assertEqual(response.status_code, 409, response.text)
-        self.assertIn('D9b', response.text)
-        self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [])
+    def test_delete_and_spawn_are_queued_like_any_action(self):
+        for action in ('delete', 'spawn'):
+            self.sql('DELETE FROM agent_lifecycle_requests')
+            response = self.ask(action=action, requestId=f'{action}-1')
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['request']['status'], 'pending', 'queued is not done')
         self.assertEqual(self.sql('SELECT id FROM definition_requests'), [])
-        self.assertEqual(self.sql('SELECT id FROM agents WHERE id=\'coder\''), [{'id': 'coder'}])
 
-    def test_d9a_excludes_delete_before_queue_or_effects(self):
-        self._assert_deferred('delete')
+    def deleted(self, **report):
+        self.ask(action='delete', expectedLifetime=None).raise_for_status()
+        self.claim().raise_for_status()
+        return self.report(outcome='delete', **report)
 
-    def test_d9a_excludes_spawn_before_queue_or_effects(self):
-        self._assert_deferred('spawn')
+    def test_a_done_delete_removes_the_agent_and_signals_no_stop(self):
+        self.sql("UPDATE agents SET session_mode='managed' WHERE id='coder'")
+        # A signalled stop leaves no row to inspect (the delete cascades it away), so watch the signaller.
+        with patch('service.api_core.agent_remove._request_stop_agent_terminals', new=AsyncMock(return_value=0)) as stop:
+            first = self.deleted(resultIncarnation=2, resultRevision=5)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()['removal'], '')
+        self.assertEqual(self.sql("SELECT id FROM agents WHERE id='coder'"), [])
+        self.assertEqual([r['agent_id'] for r in self.sql('SELECT agent_id FROM agent_tombstones')], ['coder'])
+        stop.assert_not_called()
+        again = self.report(outcome='delete', resultIncarnation=2, resultRevision=5)
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json()['removal'], '', 'a repeated report re-runs the removal harmlessly')
+
+    def test_a_done_delete_removes_nothing_once_the_id_is_defined_again(self):
+        self.ask(action='delete', expectedLifetime=None).raise_for_status()
+        self.claim().raise_for_status()
+        self.push('s1', 2, [valid('coder', incarnation=3, revision=1)])
+        response = self.report(outcome='delete', resultIncarnation=2, resultRevision=5)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn('not the one this removal was for', response.json()['removal'])
+        self.assertEqual(self.sql("SELECT id FROM agents WHERE id='coder'"), [{'id': 'coder'}])
 
     def test_refused_failed_are_durable_and_changed_store_cannot_claim(self):
         for status in ('refused','failed'):
@@ -214,7 +237,6 @@ class LifecycleRequests(FastApiTestCase):
         self.refused(self.ask(requestId='-x'), 422,
                      'requestId: 1 to 128 ASCII letters, digits, dot, underscore or hyphen')
         self.refused(self.ask(action='pause'), 422, 'action: start, stop, restart, kill, spawn or delete')
-        self.refused(self.ask(action='spawn'), 409, 'action deferred until D9b')
         self.refused(self.ask(expectedLifetime=42), 422, 'expectedLifetime: explicitly name a lifetime string or null')
         self.refused(self.ask(freshContext='yes'), 422, 'freshContext: a boolean')
         self.refused(self.ask(expectedRevision='5'), 422, 'expectedRevision: a definition revision counter')
@@ -239,8 +261,14 @@ class LifecycleRequests(FastApiTestCase):
         self.refused(self.report(B), 409, 'lifecycle request belongs to another machine')
         self.report().raise_for_status()
         self.refused(self.report(outcome='other'), 409, 'terminal lifecycle result is immutable')
-        self.sql("UPDATE agent_lifecycle_requests SET action='delete'")
-        self.refused(self.report(), 409, 'action deferred until D9b')
+
+    def test_a_done_delete_must_carry_its_removal_receipt(self):
+        self.ask(action='delete', expectedLifetime=None).raise_for_status()
+        self.claim().raise_for_status()
+        for receipt in ({}, {'resultIncarnation': 2}, {'resultIncarnation': 0, 'resultRevision': 5}):
+            self.refused(self.report(outcome='delete', **receipt), 422,
+                         'a done delete reports resultIncarnation and resultRevision from its removal')
+        self.assertEqual(self.sql("SELECT id FROM agents WHERE id='coder'"), [{'id': 'coder'}])
 
     def test_core_requires_a_lifecycle_proof(self):
         with self.assertRaises(HTTPException) as caught:

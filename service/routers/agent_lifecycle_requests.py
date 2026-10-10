@@ -100,7 +100,9 @@ async def report_lifecycle(environment_id: str, request_id: str, result: Lifecyc
         await _proven_host(db, environment, body.get('machineId',''), request)
         reported = await core.report_lifecycle_result(db, environment, request_id, body, now())
         await db.commit()
-
+        if reported['action'] == 'delete' and reported['status'] == 'done':
+            # Reported back so a host can see a removal the service declined, e.g. a redefined id.
+            return {'ok': True, 'request': reported, 'removal': await core.finish_lifecycle_removal(db, reported)}
         return {'ok': True, 'request': reported}
     finally:
         await db.close()

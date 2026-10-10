@@ -19,11 +19,13 @@ Refusal = Callable[[object], Awaitable[str]]
 
 
 async def remove_agent(db, agent_id: str, *, actor: str, reason: str,
-                       refusal: Optional[Refusal] = None) -> tuple[int, str]:
+                       refusal: Optional[Refusal] = None, stop_worker: bool = True) -> tuple[int, str]:
     """Remove `agent_id`, returning (rows deleted, why nothing was removed or "").
 
     A refusal that appears only at the second asking, after a managed worker was told to stop, leaves
     that worker stopped and the agent in place: stopping is undone by starting, a removal is not.
+    `stop_worker=False` is for a caller whose host already verified the worker dead (a D9 delete): no
+    stop is signalled, so none can reach a worker started under the same id afterwards.
     """
     if refusal is not None:
         # THE FENCE AND THE STOP ARE ONE TRANSACTION. Asked outside it, a change of custody between the
@@ -47,7 +49,7 @@ async def remove_agent(db, agent_id: str, *, actor: str, reason: str,
     cursor = await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))
     agent_row = await cursor.fetchone()
     managed = bool(agent_row) and _normalize_session_mode(agent_row["session_mode"] or "resident") == "managed"
-    if managed:
+    if managed and stop_worker:
         now = _now()
         await db.execute(
             "UPDATE agents SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ? WHERE id = ?",

@@ -10,6 +10,7 @@ from service.api_core.operator_authz import LifecycleProof, lifecycle_actor
 from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core import definition_requests as definitions
 from service.api_core.lifecycle_launch import settle_unstarted
+from service.api_core.agent_remove import remove_agent
 
 ACTIONS = ('start', 'stop', 'restart', 'kill', 'spawn', 'delete')
 TERMINAL = ('done', 'refused', 'failed')
@@ -46,8 +47,6 @@ async def admit_lifecycle(db, agent_id, body, proof, now):
         raise HTTPException(422, 'requestId: 1 to 128 ASCII letters, digits, dot, underscore or hyphen; first character must be alphanumeric')
     if body.get('action') not in ACTIONS:
         raise HTTPException(422, 'action: start, stop, restart, kill, spawn or delete')
-    if body['action'] in ('delete', 'spawn'):
-        raise HTTPException(409, 'action deferred until D9b')
     if 'expectedLifetime' not in body or (body['expectedLifetime'] is not None and
             (not isinstance(body['expectedLifetime'], str) or not body['expectedLifetime'])):
         raise HTTPException(422, 'expectedLifetime: explicitly name a lifetime string or null')
@@ -108,9 +107,12 @@ async def report_lifecycle_result(db, environment, request_id, body, now):
         raise HTTPException(404, 'no lifecycle request')
     if row['machine_id'] != body['machineId']:
         raise HTTPException(409, 'lifecycle request belongs to another machine')
-    if row['action'] in ('delete', 'spawn'):
-        raise HTTPException(409, 'action deferred until D9b')
     counters = (None, None)
+    if row['action'] == 'delete' and body['status'] == 'done':
+        # The host's removal receipt: the definition's last incarnation and revision, as it removed them.
+        counters = (body.get('resultIncarnation'), body.get('resultRevision'))
+        if not all(is_counter(value) for value in counters):
+            raise HTTPException(422, 'a done delete reports resultIncarnation and resultRevision from its removal')
     result = (body['status'],body['outcome'],body['resultLifetime'],body['finishedAt'],*counters)
     if row['status'] in TERMINAL:
         original = tuple(row[key] for key in ('status','outcome','result_lifetime','finished_at','result_incarnation','result_revision'))
@@ -122,3 +124,14 @@ async def report_lifecycle_result(db, environment, request_id, body, now):
     await db.execute('UPDATE agent_lifecycle_requests SET status=?,outcome=?,result_lifetime=?,finished_at=?,result_incarnation=?,result_revision=? WHERE id=?', (*result,request_id))
     await settle_unstarted(db, request_id, body, now)
     return await lifecycle_request_by_id(db, request_id)
+
+
+async def finish_lifecycle_removal(db, request):
+    """The service's consequence of a done delete: remove the agent behind the definition-removal fence.
+    The host verified the worker's death before it removed the file, so no stop is signalled here; a
+    repeated report re-runs it harmlessly. Owns its commits, so it runs after the report's commit."""
+    fenced = {'agentId': request['agentId'], 'machineId': request['machineId'],
+              'storeId': request['storeId'], 'expectedIncarnation': request['expectedIncarnation']}
+    _, why = await remove_agent(db, request['agentId'], actor=request['requestedBy'], reason='definition_removed',
+                                refusal=lambda conn: definitions.removal_refusal(conn, fenced), stop_worker=False)
+    return why

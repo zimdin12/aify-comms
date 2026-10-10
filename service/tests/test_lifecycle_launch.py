@@ -236,7 +236,7 @@ class LifecycleLaunch(FastApiTestCase):
     def test_each_refusal_names_its_cause(self):
         self.refused(self.post('launch'), 404, 'no lifecycle request')
         self.queue(claim=False)
-        self.refused(self.post('launch'), 409, 'launch requires a claimed start or restart')
+        self.refused(self.post('launch'), 409, 'launch requires a claimed start, restart or spawn')
         self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/claim",
             json={'bridgeId': A['bridge'], 'machineId': A['machine']}).raise_for_status()
         self.sql("UPDATE agent_definitions SET revision=6 WHERE agent_id='coder'")
@@ -252,6 +252,12 @@ class LifecycleLaunch(FastApiTestCase):
         self.sql("UPDATE terminal_sessions SET status='starting'")
         self.post('attachment', **body).raise_for_status()
         self.refused(self.post('attachment', **(body | {'handle': 'runner-2'})), 409, 'lifecycle attachment receipt is immutable')
+
+    def test_spawn_prepares_a_launch_of_the_existing_definition(self):
+        self.queue(action='spawn')
+        launch = self.prepare()
+        self.assertEqual(launch['definition'], {'storeId': 's1', 'incarnation': 2, 'revision': 5})
+        self.assertEqual(self.sql('SELECT status FROM agent_lifecycle_requests'), [{'status': 'claimed'}])
 
     def test_preparation_refuses_an_environment_that_cannot_run_the_runtime(self):
         self.queue()
