@@ -22,6 +22,7 @@ import unittest
 from service.api_core.dispatch_start import _why_no_environment_can_start
 from service.api_core.runtime import _runtime_unlaunchable_reason
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import publish
 
 REASON = (
     'Runtime "pi" is not launchable from this bridge because the required wrapper "pi-aify" is not '
@@ -114,11 +115,18 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         response = self.client.post("/api/v1/environments/heartbeat", json={
             "id": self.ENV, "kind": "windows", "os": "windows",
             "machineId": "win32:spawn-host", "runtimes": runtimes,
-            "terminal": True, "pty": True,
+            "terminal": True, "pty": True, "cwdRoots": ["C:/work"],
             "bridgeId": "bridge-spawn-host",
             "terminalRuntimes": [r["runtime"] for r in runtimes if r.get("available") is not False],
         })
         self.assertEqual(response.status_code, 200, response.text)
+        self._publish_definitions("bridge-spawn-host")
+
+    def _publish_definitions(self, bridge_id):
+        """D8: a spawn of a new id asks this machine's host to define it, so the host has published its store.
+        Without one an accepted spawn is refused at the end, and a gate that is gone reads the same as one that
+        refused; with one, getting past every gate is a 200."""
+        publish(self, environment_id=self.ENV, machine_id="win32:spawn-host", bridge_id=bridge_id)
 
     def _spawn(self, runtime):
         return self.client.post("/api/v1/spawn-requests", json={
@@ -151,9 +159,13 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
 
         self.client.post("/api/v1/environments/heartbeat", json={
             "id": self.ENV, "kind": "windows", "os": "windows", "machineId": "win32:spawn-host",
-            "runtimes": [{"runtime": "pi", "available": True}],
-            "terminal": True, "pty": True, "terminalRuntimes": ["pi"],
+            "runtimes": [{"runtime": "codex", "available": True}],
+            "terminal": True, "pty": True, "terminalRuntimes": ["codex"], "bridgeId": bridge_id,
+            "cwdRoots": ["C:/work"],
         })
+        # The push is fenced to a bridge that beat, so the host publishes while its bridge stamps the row;
+        # the row is made legacy (no stamp) below, as before.
+        self._publish_definitions(bridge_id)
 
         async def _run():
             db = await get_db()
@@ -179,7 +191,7 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         would refuse every environment registered before the field existed, on a host that is
         perfectly capable of claiming the spawn."""
         self._legacy_environment_with_a_live_bridge()
-        response = self._spawn("pi")
+        response = self._spawn("codex")
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_a_LEGACY_row_whose_bridge_is_GONE_is_refused(self):
@@ -201,7 +213,7 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
                 await db.close()
 
         asyncio.run(_kill())
-        response = self._spawn("pi")
+        response = self._spawn("codex")
         self.assertEqual(response.status_code, 409, response.text)
 
     def test_the_ABSENT_arm_AGES_the_same_as_the_stamped_one(self):
@@ -238,7 +250,7 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
 
         asyncio.run(_age())
         self.assertEqual(
-            self._spawn("pi").status_code, 409,
+            self._spawn("codex").status_code, 409,
             "a bridge 100s old was accepted through the ABSENT arm while the STAMPED arm calls it "
             "dead at 90s -- the same bridge, two answers, decided by whether a stamp exists",
         )
@@ -298,7 +310,7 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
                 await db.close()
 
         asyncio.run(_skew())
-        self.assertEqual(self._spawn("pi").status_code, 409, "a future-dated bridge authorized a spawn")
+        self.assertEqual(self._spawn("codex").status_code, 409, "a future-dated bridge authorized a spawn")
 
     def test_a_LEGACY_row_whose_bridge_was_SUPERSEDED_is_refused(self):
         """A superseded bridge keeps heartbeating -- supersession is a server-side fact it is never
@@ -319,7 +331,7 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
                 await db.close()
 
         asyncio.run(_supersede())
-        response = self._spawn("pi")
+        response = self._spawn("codex")
         self.assertEqual(response.status_code, 409, response.text)
 
     def test_a_spawn_with_no_live_BRIDGE_is_refused_rather_than_queued_for_ever(self):
@@ -378,8 +390,8 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
     def test_the_same_spawn_is_ACCEPTED_when_the_host_says_the_runtime_is_there(self):
         # The control. Without it this file passes just as well on a gate that refuses everything,
         # and "spawning is broken" would be indistinguishable from "the gate works".
-        self._environment([{"runtime": "pi", "available": True, "unavailableReason": ""}])
-        response = self._spawn("pi")
+        self._environment([{"runtime": "codex", "available": True, "unavailableReason": ""}])
+        response = self._spawn("codex")
         self.assertIn(response.status_code, (200, 201), response.text)
 
     def test_a_runtime_the_environment_never_advertised_keeps_its_OWN_refusal(self):

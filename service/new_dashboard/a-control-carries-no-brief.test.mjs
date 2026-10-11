@@ -4,7 +4,7 @@
 //
 //   1. Operator clicks Restart. This module POSTed `/sessions/{id}/control` with
 //      `body: "Session {action} requested from Dashboard Next."`.
-//   2. `session_restart.py` stores that as the spawn request's `initial_message`, with
+//   2. `session_restart.py` (deleted by D8) stored that as the spawn request's `initial_message`, with
 //      `subject = f"{action.title()} {agent_id}"` -- "Restart mc-vulkan-manager".
 //   3. The spawn settles to `running` and `_hand_settled_spawn_to_dispatch` turns a NON-EMPTY
 //      `initial_message` into a real `type=request` message plus a dispatch run, addressed to the

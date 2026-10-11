@@ -20,6 +20,7 @@ from service.routers.api_v2 import router
 
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import define
 
 
 class HermesStaleBridgeClaimGuardTests(FastApiTestCase):
@@ -133,6 +134,9 @@ class HermesStaleBridgeClaimGuardTests(FastApiTestCase):
     def test_stale_and_current_environment_bridge_claims_are_blocked(self):
         self._heartbeat_environment()
         self._register_hermes_agent()
+        # Since D8 a message to a managed agent no host defines is refused before any run exists.
+        define(self, "hermes-stale-bridge", environment_id="linux:test-host:default", machine_id="linux:test-host",
+               bridge_id="bridge-current", runtime="hermes", workspace="/workspace")
         run_id = self._dispatch_to_hermes()
 
         stale_claim = self.client.post(

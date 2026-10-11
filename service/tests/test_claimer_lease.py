@@ -33,6 +33,7 @@ from service.reconcilers import undeliverable_queued_runs
 from service.routers.api_v2 import router
 from service.api_core.liveness import _has_live_claimer_lease
 from service.clock import now as _now
+from service.tests.defined_agents import define
 
 
 class _DummyWS:
@@ -240,6 +241,9 @@ class DeafTargetAlwaysQueuesTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
 
     def _register_managed_hermes(self, agent_id: str):
+        # D8: a send cold-starts only an agent its host defines, so the host defines it before it registers.
+        define(self, agent_id, environment_id="linux:test-host:default", machine_id="linux:test-host",
+               bridge_id="bridge-current", runtime="hermes", workspace="/workspace")
         resp = self.client.post(
             "/api/v1/agents",
             json={

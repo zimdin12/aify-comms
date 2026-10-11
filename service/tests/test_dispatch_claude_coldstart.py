@@ -10,6 +10,7 @@ queued until the 180s backstop FAILED it, while hermes/codex got the coldstart f
 import sqlite3
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import define
 
 
 class DispatchClaudeColdstartTests(FastApiTestCase):
@@ -88,6 +89,9 @@ class DispatchClaudeColdstartTests(FastApiTestCase):
         environment; a second send reuses it rather than piling up another."""
         self._heartbeat_environment()
         self._register_dead_managed_claude("claude-cold")
+        # Since D8 only an agent its host defines is cold-started by a message.
+        define(self, "claude-cold", environment_id="linux:test-host:default", machine_id="linux:test-host",
+               bridge_id="bridge-current", runtime="claude-code", workspace="/workspace")
         for _ in range(2):
             response = self.client.post(
                 "/api/v1/messages/send",

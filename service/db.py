@@ -420,13 +420,16 @@ DEFINITION_STORE_MIGRATIONS = {
 
 # 0.8: what the service did about a host's `done` removal, durable so a crash between recording the
 # host's answer and removing the agent is finished by the next report (review of 12766276). '' when a
-# request has no service consequence; 'pending', then 'removed' or 'nothing removed: <why>'.
+# request has no service consequence; 'pending', then 'removed' or 'nothing removed: <why>'. A done creation (D8)
+# is 'spawn pending', then 'spawn queued <lifecycle request>' or 'nothing spawned: <why>'.
 DEFINITION_REQUEST_MIGRATIONS = {
     "consequence": "ALTER TABLE definition_requests ADD COLUMN consequence TEXT DEFAULT ''",
     # When the reconcile pass last failed to finish this owed removal ('' never): a failing one goes
     # behind every other owed removal, so a prefix that keeps failing cannot starve the rest (review
     # of P4, N4).
     "consequence_failed_at": "ALTER TABLE definition_requests ADD COLUMN consequence_failed_at TEXT DEFAULT ''",
+    # D8: a creation's brief, {"subject","body","priority"} as JSON, carried to the spawn it queues; '' for none.
+    "brief": "ALTER TABLE definition_requests ADD COLUMN brief TEXT DEFAULT ''",
 }
 
 

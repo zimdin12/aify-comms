@@ -33,10 +33,7 @@ Built with `domain_router()`, and declares NO tags: the parent applies `tags=["a
 
 from __future__ import annotations
 
-import json
 import logging
-import time
-import uuid
 from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
@@ -44,7 +41,8 @@ from fastapi import HTTPException, Query, Request
 from service import longpoll
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.claim_emptiness import spawn_request_is_empty
-from service.api_core.definition_start import StartRefused, insert_spawn_request, start_binding
+from service.api_core.definition_creation import admit_creation, created_agent
+from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import (
     operator_key_from, prove_operator, recorded_operator_actor, refuse_a_reserved_agent_id,
 )
@@ -70,7 +68,6 @@ from service.clock import now as _now
 from service.db import get_db
 from service.models import SpawnRequestClaim, SpawnRequestCreate, SpawnRequestUpdate
 from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_root_for
-from service.api_core.start_intent import start_intent_for_spawn
 from service.api_core.spawn_requests_io import (
     _claim_spawn_request_once,
     _spawn_request_to_dict,
@@ -273,6 +270,9 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         if defined:
             raise HTTPException(409, f'Agent "{req.agentId}" is defined in aify-env on {defined.machine_id}; '
                                      f'start it, and its spawn is built from that definition')
+        if await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (req.agentId,))).fetchone():
+            raise HTTPException(409, f'Agent "{req.agentId}" already exists and no host defines it; define it on its '
+                                     f'host (`aify-env agents import --write`), then start it')
         env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
         env_row = await env_cursor.fetchone()
         if not env_row:
@@ -347,76 +347,27 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         workspace_root = _workspace_root_for(environment, workspace)
         if not workspace and workspace_root:
             workspace = workspace_root
+        # A DEFINITION HOLDS MODEL AND EFFORT, so any other runtime option asked for is refused rather than dropped.
+        uncarried = sorted(set(req.runtimeConfig or {}) - {"effort"})
+        if uncarried:
+            raise HTTPException(422, f'runtimeConfig: {", ".join(uncarried)} cannot be carried; an agent definition '
+                                     f'holds a model and an effort only')
         settings = await _load_settings(db)
         model, runtime_config = with_defaults(settings, normalized_runtime, str(req.model or "").strip(), req.runtimeConfig or {})
-        metadata = req.metadata or {}
-        if runtime_config:
-            metadata = {**metadata, "runtimeConfig": runtime_config}
-
-        now = _now()
-        spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        # No prior row means a new lifetime, even when this ID has old host markers.
-        existing_agent = await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (req.agentId,))).fetchone()
-        await db.execute(
-            """
-            INSERT INTO spawn_specs (
-                id, agent_id, environment_id, runtime, workspace, model, profile, mode,
-                system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
-                context_policy, restart_policy, metadata, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                spec_id,
-                req.agentId,
-                req.environmentId,
-                normalized_runtime,
-                workspace,
-                model,
-                req.profile or "",
-                mode,
-                req.systemPrompt or "",
-                req.instructions or "",
-                json.dumps(req.envVars or {}),
-                json.dumps(req.channelIds or []),
-                json.dumps(req.budgetPolicy or {}),
-                json.dumps(req.contextPolicy or {}),
-                json.dumps(req.restartPolicy or {}),
-                json.dumps(metadata),
-                now,
-                now,
-            ),
-        )
-        # Through the one guarded insert every start uses; this route also holds the write lock from its
-        # binding read, so the guard cannot fail here.
-        await insert_spawn_request(db, {
-            "id": request_id,
-            "spawn_spec_id": spec_id,
-            "created_by": created_by,
-            "environment_id": req.environmentId,
-            "agent_id": req.agentId,
-            "role": req.role or "coder",
-            "name": req.name or req.agentId,
-            "runtime": normalized_runtime,
-            "workspace": workspace,
-            "workspace_root": workspace_root,
-            "initial_message": req.initialMessage or "",
-            "priority": req.priority or "normal",
-            "subject": req.subject or "",
-            "mode": mode,
-            "resume_policy": (req.resumePolicy or "native_first") if existing_agent else "fresh_context",
-            "status": "queued",
-            "created_at": now,
-            "updated_at": now,
-            "start_intent": start_intent_for_spawn(req.createdBy, req.agentId, req.metadata),
-        }, None)
+        # D8: THE HOST DEFINES IT, THEN IT IS SPAWNED from that definition (definition_creation.py). What a
+        # definition cannot hold is not carried: profile, channels and the budget, context and restart
+        # policies, none of which anything read.
+        agent = created_agent(
+            req.agentId, name=req.name or req.agentId, role=req.role or "coder", runtime=normalized_runtime,
+            workspace=workspace, model=model, effort=str(runtime_config.get("effort") or ""),
+            instructions="\n\n".join(text for text in (req.systemPrompt, req.instructions) if text),
+            env=req.envVars or {})
+        brief = ({"subject": req.subject or f"Spawn {req.agentId}", "body": req.initialMessage,
+                  "priority": req.priority or "normal"} if str(req.initialMessage or "").strip() else None)
+        queued = await admit_creation(db, req.agentId, str(environment.get("machineId") or ""), agent, brief,
+                                      created_by, _now())
         await db.commit()
-        row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
-        spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))).fetchone()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("spawn_request_created", {"spawnRequestId": request_id, "environmentId": req.environmentId})
-        return {"ok": True, "spawnRequest": _spawn_request_to_dict(row, _spawn_spec_to_dict(spec))}
+        return {"ok": True, "spawnRequest": None, "definitionRequest": queued}
     finally:
         await db.close()
 

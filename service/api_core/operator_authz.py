@@ -146,8 +146,7 @@ def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> No
     """Refuse (403) a request that names the operator without proving it, when the gate is on.
 
     For every route where naming `dashboard` or `operator` grants something beyond a label: a message
-    read as the operator's (the sending routes), a start that REPLACES a live instance
-    (`start_intent_for_requester`), a spawn brief delivered as the dashboard's, a steer or interrupt an
+    read as the operator's (the sending routes), a spawn brief delivered as the dashboard's, a steer or interrupt an
     agent is told came from the operator, a compaction by an unregistered caller. Pass the actor the
     route will RECORD, after its own default, so an omitted name that becomes `dashboard` is gated too
     (review of 0.7.6, S4). With no `OPERATOR_KEY` it grants, as `authorize_operator` does.

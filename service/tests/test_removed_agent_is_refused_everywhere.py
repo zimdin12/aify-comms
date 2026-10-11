@@ -36,7 +36,7 @@ AGENT_ID = "lc-removed"
 BODIES: dict[str, dict] = {
     "/api/v1/agent-definitions/{agent_id}/release": {"requestedBy": "dashboard", "machineId": "linux:test-host"},
     "/api/v1/agent-definitions/{agent_id}/requests": {"requestedBy": "dashboard", "patch": {"role": "reviewer"}},
-    "/api/v1/agents/{agent_id}": {"status": "active", "description": "x"},
+    "/api/v1/agents/{agent_id}": {"status": "working", "description": "x"},
     "/api/v1/agents/{agent_id}/background-work": {"count": 1},
     "/api/v1/agents/{agent_id}/claimer-lease": {"action": "acquire", "bridgeId": "b1"},
     "/api/v1/agents/{agent_id}/compact/native": {"from": "dashboard"},

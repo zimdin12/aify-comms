@@ -27,12 +27,13 @@ So the test is not "a 409 is returned". It is that DIFFERENT causes produce DIFF
 single generic sentence satisfies any assertion written per-cause; only comparing the causes against
 each other catches it — and only after the agent id is normalised out, because the old sentence
 interpolated the id and so varied between agents while saying the same wrong thing.
+
+SINCE D8 none of the cold-start causes reaches this button: an agent no host defines is refused before
+cold-start (whatever its runtime or environment), and a defined agent's Start goes to its host's
+lifecycle queue (D9c). What the button still refuses itself is an undefined agent and a resident one,
+so those are the causes compared here; the cold-start causes are reported on the send path.
 """
 
-import asyncio
-
-from service.db import get_db
-from service.clock import now as _now
 from service.tests._base import FastApiTestCase
 
 
@@ -55,21 +56,15 @@ class StartRefusalNamesTheRealCauseTests(FastApiTestCase):
 
     # ── each cause names itself ──────────────────────────────────────────────────────────────
 
-    def test_unresolvable_environment_says_so(self):
-        self._register("src-noenv")
-        self.assertIn("environment bound to this agent could not be resolved", self._refusal("src-noenv"))
-
-    def test_a_non_coldstartable_runtime_says_so_and_claims_no_missing_bridge(self):
-        """Not "no bridge available" — no bridge could ever help; the runtime is the problem.
-
-        Two halves, both needed: the recorded cause must be there, and the specific false claim that
-        sent an operator to run a bare `aify-comms` must NOT be -- a message carrying the real cause
-        AND the old sentence would pass the first half alone. A runtime that cannot be cold-started
-        is not a bridge problem, and no bridge would fix it.
+    def test_an_undefined_agent_of_any_runtime_names_its_definition_and_claims_no_missing_bridge(self):
+        """Since D8 the cause for an agent no host defines is that, whatever its runtime: no bridge
+        would fix it. Two halves, both needed: the recorded cause must be there, and the specific false
+        claim that sent an operator to run a bare `aify-comms` must NOT be -- a message carrying the
+        real cause AND the old sentence would pass the first half alone.
         """
         self._register("src-badruntime", runtime="notarealruntime")
         detail = self._refusal("src-badruntime")
-        self.assertIn("cold-startable", detail)
+        self.assertIn('no host defines "src-badruntime"', detail)
         self.assertNotIn("environment bridge is available", detail)
         self.assertNotIn("`aify-comms`", detail, "advice that can reap a live fleet")
 
@@ -102,41 +97,14 @@ class StartRefusalNamesTheRealCauseTests(FastApiTestCase):
 
     def test_the_reachable_causes_do_not_share_one_diagnosis(self):
         """A single hardcoded sentence satisfies any per-cause assertion that quotes a word it
-        happens to contain. Comparing the causes against each other is what makes this gate real."""
-        self._register("src-cmp-noenv")
-        self._register("src-cmp-runtime", runtime="notarealruntime")
-        shapes = {self._refusal_shape("src-cmp-noenv"), self._refusal_shape("src-cmp-runtime")}
+        happens to contain. Comparing the causes against each other is what makes this gate real.
+        Since D8 a Start reaches cold-start only for a defined agent, whose Start goes to its host
+        (D9c); what the button itself still refuses is an undefined agent and a resident one."""
+        self._register("src-cmp-undefined")
+        self._register("src-cmp-resident", session_mode="resident")
+        shapes = {self._refusal_shape("src-cmp-undefined"), self._refusal_shape("src-cmp-resident")}
         self.assertEqual(
             len(shapes), 2,
-            f"an unresolvable environment and a non-cold-startable runtime produced the SAME "
-            f"diagnosis — the recorded reason is being discarded and a cause asserted in its "
-            f"place: {shapes}",
+            f"an undefined agent and a resident one produced the SAME diagnosis — the recorded "
+            f"reason is being discarded and a cause asserted in its place: {shapes}",
         )
-
-    # ── the idempotent case is still not a failure ──────────────────────────────────────────
-
-    def test_a_spawn_already_in_flight_is_still_reported_as_pending_not_refused(self):
-        """Guards the earlier fix (2026-07-19) that this change routes around: an in-flight spawn
-        returns 200 + spawnPending BEFORE any refusal message is rendered."""
-        self._register("src-inflight")
-
-        async def _seed():
-            db = await get_db()
-            try:
-                await db.execute("PRAGMA foreign_keys=OFF")
-                await db.execute(
-                    """
-                    INSERT INTO spawn_requests
-                        (id, spawn_spec_id, environment_id, agent_id, runtime, status, created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    """,
-                    ("spawn-src-inflight", "spec-1", "env-1", "src-inflight", "hermes", "queued", _now(), _now()),
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-        asyncio.run(_seed())
-        r = self._start("src-inflight")
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(r.json().get("spawnPending"), r.text)

@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from service.api_core.spawn_requests_io import _spawn_spec_to_dict
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 
 #: A spec row as the table holds one. Only the columns the serialiser reads need to be here.
 SPEC_ROW = {
@@ -102,17 +103,11 @@ class TheListEndpointIsSlim(FastApiTestCase):
         self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
 
     def _create(self):
-        response = self.client.post("/api/v1/spawn-requests", json={
-            "agentId": "slim-agent",
-            "role": "coder",
-            "runtime": "claude-code",
-            "environmentId": "linux:test-host:default",
-            "workspace": "/workspace",
-            "instructions": "STANDING INSTRUCTIONS BODY " * 40,
-            "createdBy": "dashboard",
-        })
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()
+        # Since D8 the one producer of a legacy spawn request is a cold start of a DEFINED agent, which
+        # binds the definition's instructions into the spec.
+        return spawn_defined(self, "slim-agent", environment_id="linux:test-host:default",
+                             machine_id="linux:test-host", bridge_id="bridge-a", workspace="/workspace",
+                             instructions="STANDING INSTRUCTIONS BODY " * 40)
 
     def test_the_list_route_does_not_carry_the_instructions_body(self):
         self._create()

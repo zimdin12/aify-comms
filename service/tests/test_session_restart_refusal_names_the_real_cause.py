@@ -38,11 +38,10 @@ HELPER = "_coldstart_spawn_request_for_dispatch"
 #: does both. Counts rather than line numbers so the census survives code moving.
 #:
 #: Two sites were FIXED after this census found them: `session_ops.py` (a32efd96) and
-#: `session_restart.py` (here). The discards below were each examined and left, with the reason.
+#: `session_restart.py`; D8 deleted both calls, since neither the Start button nor a restart cold-starts now. The discards below were each examined and
+#: left, with the reason.
 CENSUS = {
     # ── surface a refusal to a human: must say which of the five causes fired ──
-    "service/routers/agents/session_ops.py":  {"collect": 1, "discard": 0},  # Start button -> 409
-    "service/api_core/session_restart.py":    {"collect": 1, "discard": 0},  # restart/reset -> 409
     "service/api_core/session_mode_gates.py": {"collect": 1, "discard": 0},  # mode switch -> error
     # Send path (the original N8 fix) reports twice; the third call is a "final safety" cold-start
     # wrapped in `try/except: pass` whose result is never read, so it has no message to improve.
@@ -165,24 +164,24 @@ class SessionRestartRefusalNamesTheRealCauseTests(FastApiTestCase):
             json={"action": "restart", "from_agent": "dashboard"},
         )
 
-    def test_a_non_coldstartable_runtime_is_not_reported_as_a_missing_environment(self):
-        """The false claim. No environment would ever host this runtime — bringing one up is not
-        the fix, and the old message said it was."""
+    def test_an_undefined_agent_is_not_reported_as_a_missing_environment(self):
+        """The false claim, in 0.9's shape. Since D8 a restart of an agent no host defines is refused
+        before any cold-start is attempted (the cold-start branch of `_prepare_restart_spawn` is no
+        longer reached), so the cause to name is the missing definition. Bringing up an environment is
+        not the fix, and a message saying so would be the N8 defect again."""
         self._register("srr-badruntime", runtime="notarealruntime")
         session_id = self._seed_session_without_spawn_spec("srr-badruntime", runtime="notarealruntime")
 
         r = self._restart(session_id)
         self.assertEqual(r.status_code, 409, r.text)
-        detail = r.json().get("detail", "").lower()
+        raw = r.json().get("detail", "")
+        detail = raw.lower()
 
-        self.assertIn("no stored spawn spec", detail, "the true half of the message should survive")
-        self.assertIn("cold-startable", detail, f"the recorded reason is still being discarded: {detail}")
+        self.assertIn("no host defines", detail, f"the refusal does not name the real cause: {detail}")
         self.assertNotIn(
             "no online environment", detail,
             "this refusal has nothing to do with environment availability; the message asserted a "
             "cause the code never checked",
         )
-        # ANTI-VACUITY: the text comes from the refusal RECORD, not from a second hardcoded sentence
-        # that happens to mention the runtime. The reason names the runtime as the helper quoted it
-        # -- repr'd -- which no message written at this call site would produce.
-        self.assertIn("'notarealruntime'", r.json().get("detail", ""), detail)
+        # ANTI-VACUITY: the refusal names THIS agent, as `undefined_refusal` quotes it.
+        self.assertIn('"srr-badruntime"', raw, detail)

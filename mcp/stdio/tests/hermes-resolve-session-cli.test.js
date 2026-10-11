@@ -350,7 +350,7 @@ test("the default writer CREATES the parent directory", async () => {
 // ── fresh context: the one instruction that must beat every resume path ─────────────────────────
 //
 // MEASURED 2026-08-31, and it is why `comms_restart freshContext=true` had never once worked for a
-// hermes agent. `service/api_core/session_restart.py` sets `resume_policy="fresh_context"` and clears
+// hermes agent. A Reset (`session_restart.py`, deleted by D8) set `resume_policy="fresh_context"` and cleared
 // `agents.session_handle`; `spawn-loop.mjs` carries it; ONLY codex reads it. Hermes resumed anyway,
 // and comms-senior-dev sat on a 5 JUNE conversation until it hit 1,122,638 tokens against a 900k
 // window and could no longer answer anything.

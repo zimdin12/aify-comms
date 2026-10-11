@@ -29,31 +29,21 @@ logger = logging.getLogger("aify_comms.routers.agents.session_ops")
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 from service.models import AgentControlRequest
 
-from service.api_core.definition_start import StartRefused, start_binding
+from service.api_core.definition_start import undefined_refusal
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
-from service.api_core.dispatch_text import _coldstart_refusal_message
 from service.api_core.events import _append_terminal_control, _append_terminal_event
-from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.api_core.records import _agent_record_to_dict, _terminal_session_to_dict
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
-from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _compute_agent_status
 from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.ws import _get_ws
 from service.db import get_db
-from service.api_core.tuning import LIVE_SESSION_STATUSES
-from service.api_core.start_intent import start_intent_for_requester
 from service.clock import now as _now
-from service.reconcilers.dead_session_status import managed_sessions_with_dead_terminals
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 import sqlite3
-from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.routers.agents.shared import logger
-from service.api_core.dispatch_start import (
-    _coldstart_spawn_request_for_dispatch,
-)
 
 router = domain_router()
 
@@ -81,116 +71,16 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
 
         now = _now()
 
-        # START (2026-07-14). A managed agent with NO session row could not be started from the
-        # dashboard at all: the Console tab returns early on "no session" (above the start
-        # buttons, which all need a session id), so the only way to bring one up was to send it a
-        # message and hope. Operator: "why can't I start hermes models?" — the cold-start itself
-        # was never broken; there was simply no button.
-        #
-        # This is the SAME mechanism the send path uses (_coldstart_spawn_request_for_dispatch):
-        # create a spawn request, a bridge claims it, registers a session and brings the worker
-        # up — resuming the agent's saved session handle when it has one, which for the hermes
-        # coders means their existing conversation (lc-coder alone is 12,780 messages).
+        # START: a defined agent's was handed to its host above (D9c). What reaches here no host defines, and
+        # since D8 that is not started; a resident is told where its terminal is instead.
         if action == "start":
-            # RESERVE THE WRITER BEFORE THE READS THAT DECIDE THIS START, as the conditional restart
-            # does (`session_control.py`). Two starts once both read "nothing live, nothing pending"
-            # before either wrote, and each queued a `replace` spawn: two workers, the second told
-            # to kill the first. Held, the second start waits here, then reads the first one's
-            # committed spawn request and answers spawnPending. Every early return leaves the
-            # transaction open for the pool to roll back.
-            await db.execute("BEGIN IMMEDIATE")
-            # A DEFINED agent's mode is its definition's, and its start is built from it whether or not
-            # it has ever run (P0 C7); a withdrawn one is not started (C6).
-            try:
-                binding = await start_binding(db, agent_id)
-            except StartRefused as refused:
-                raise HTTPException(409, str(refused))
-            if binding is None and _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
+            if _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
                 raise HTTPException(
                     409,
                     f'Agent "{agent_id}" is resident — its terminal is the CLI you launched, '
                     "not a dashboard-owned worker. Switch it to managed to start one from here.",
                 )
-            # ALLOWLIST, never a blocklist (fixed 2026-07-26). This gate used to be
-            # `status NOT IN ('stopped','failed','ended','cancelled')`, which silently treats
-            # every status NOT on that list as LIVE. `lost` is not on it — so an agent whose
-            # worker was lost months ago read as "already running" forever: Start returned
-            # alreadyRunning, no spawn request was ever created, the agent stayed `available`,
-            # and clicking again just repeated the toast. Live-reproduced on the whole ef- team
-            # (ef-manager / ef-coder-lead / ef-tech-lead / ef-tester — four sessions stuck
-            # `lost` with ended_at 2026-04-30), which were permanently unstartable from the
-            # dashboard. Note the asymmetry that made it invisible: derive() correctly reported
-            # `available` off real liveness, so status and this gate disagreed.
-            #
-            # Use the canonical live sets instead, so a new session status can never silently
-            # mean "live" here again. The union of both is deliberate: LIVE_SESSION_STATUSES is
-            # the session-row set the reconcilers use, _LIVE_SESSION_STATUSES the narrower
-            # status-engine set that also covers restarting/cli-takeover. A row must ALSO not be
-            # marked ended — a live status with ended_at set is a stale row the reconcilers heal,
-            # and trusting it would re-create exactly this permanent block.
-            _start_live_statuses = sorted(
-                {s.lower() for s in LIVE_SESSION_STATUSES}
-                | {s.lower() for s in _LIVE_SESSION_STATUSES}
-            )
-            #
-            # A STOPPED WORKER IS NOT A LIVE SESSION, whatever its row still says: a managed session
-            # whose terminals are all dead keeps `running` until the sweep settles it, and reading
-            # the row alone answered alreadyRunning for a worker that was gone. The sweep's own rule
-            # decides it, as in `_live_session_for`; it never calls `restarting` or `cli-takeover`
-            # dead, so a restart in flight still blocks a second start.
-            _live_ph = ",".join("?" for _ in _start_live_statuses)
-            live_rows = await (await db.execute(
-                f"""
-                SELECT id FROM agent_sessions
-                WHERE agent_id = ?
-                  AND LOWER(COALESCE(status,'')) IN ({_live_ph})
-                  AND COALESCE(ended_at,'') = ''
-                """,
-                (agent_id, *_start_live_statuses),
-            )).fetchall()
-            dead = {row["id"] for row in await managed_sessions_with_dead_terminals(db, agent_id)}
-            if any(row["id"] not in dead for row in live_rows):
-                # Already running — starting again would spawn a duplicate worker.
-                return {"ok": True, "agentId": agent_id, "action": "start", "alreadyRunning": True}
-            settings = await _load_settings(db)
-            start_runtime = binding.runtime if binding else _normalize_runtime(agent["runtime"] or "")
-            # N8 applied to the DASHBOARD START BUTTON. `_coldstart_spawn_request_for_dispatch`
-            # refuses for FIVE distinct causes and records which one in `warnings`; this call site
-            # passed no list, so the reason was discarded and every cause rendered the same
-            # sentence — "no environment bridge is available to run it. Start one on its host with
-            # `aify-comms`." That sentence NAMES a cause. Measured, three of the five causes reach
-            # this branch, and for two of them the claim is false: a non-cold-startable runtime and
-            # a corrupt environment row both reported a missing bridge. (The resident refusal is
-            # guarded EARLIER with its own accurate message, and an in-flight spawn returns 200
-            # below, so neither was ever part of this defect.)
-            #
-            # The advice made it worse than a vague message would have been: a bare `aify-comms` on
-            # a host that already runs one SUPERSEDES the live bridge and reaps its managed workers
-            # (2026-08-11, nine agents). So a wrong diagnosis here steers the operator into an
-            # outage. Read the recorded reason instead of asserting one.
-            coldstart_warnings: list[str] = []
-            started = await _coldstart_spawn_request_for_dispatch(
-                db,
-                agent_id,
-                runtime=start_runtime,
-                settings=settings,
-                requested_by=actor,
-                warnings=coldstart_warnings,
-                start_intent=start_intent_for_requester(req.from_agent),
-            )
-            await db.commit()
-            if not started:
-                # _coldstart returns False for an already-pending/booting spawn too (idempotent
-                # success, not a failure). Clicking Start twice during a slow boot — before the
-                # session row exists — must not surface a false "no environment bridge" error.
-                if await _has_pending_or_booting_spawn_request(db, agent_id):
-                    return {"ok": True, "agentId": agent_id, "action": "start", "spawnPending": True}
-                raise HTTPException(
-                    409,
-                    _coldstart_refusal_message(coldstart_warnings, start_runtime),
-                )
-            await _invalidate_agent_live_state(db, agent_id)
-            return {"ok": True, "agentId": agent_id, "action": "start", "spawnRequested": True}
+            raise HTTPException(409, undefined_refusal(agent_id))
         active_run = await _get_blocking_active_run(db, agent_id)
         control_id = ""
         if action in {"interrupt", "stop"}:
@@ -212,7 +102,6 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
 
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        settings = await _load_settings(db)
         status = await _compute_agent_status(updated, db)
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         ws = await _get_ws(request)

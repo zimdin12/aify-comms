@@ -15,6 +15,12 @@ green while this was broken, and a single spawned agent reported it in its first
 
 The brief IS a message — one agent asking another to do something — so it now gets a row like any
 other rather than a special case every reader downstream has to know about.
+
+D8 (0.9): a new agent is defined on its host first, and its brief rides the LIFECYCLE spawn queued once the
+definition is published; it is handed to dispatch when that worker attaches (lifecycle_launch.py), through the
+same `_hand_settled_spawn_to_dispatch`. A legacy spawn request is now only a defined agent's cold start, which
+never carries a brief, so these tests drive the lifecycle path. A repeated attachment sending the brief once is
+`test_a_spawn_defines_its_agent_first.py`'s `test_the_brief_is_its_first_message_once_the_worker_attaches_and_only_once`.
 """
 
 from __future__ import annotations
@@ -24,9 +30,12 @@ import unittest
 
 from service.db import get_db
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import define, publish
 
 ENVIRONMENT_ID = "linux:test-host:default"
+MACHINE_ID = "linux:test-host"
 BRIDGE_ID = "bridge-spawn-brief"
+HOST = {"bridgeId": BRIDGE_ID, "machineId": MACHINE_ID}
 
 
 class TheSpawnBriefIsARealMessage(FastApiTestCase):
@@ -37,30 +46,50 @@ class TheSpawnBriefIsARealMessage(FastApiTestCase):
         response = self.client.post(
             "/api/v1/environments/heartbeat",
             json={
-                "id": ENVIRONMENT_ID, "label": "test", "machineId": "linux:test-host", "os": "linux",
+                "id": ENVIRONMENT_ID, "label": "test", "machineId": MACHINE_ID, "os": "linux",
                 "kind": "linux", "bridgeId": BRIDGE_ID, "cwdRoots": ["/workspace"],
                 "runtimes": [{"runtime": "codex", "available": True}], "status": "online",
+                "metadata": {"terminal": True, "pty": True, "terminalRuntimes": ["codex"]},
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.client.post("/api/v1/agents", json={"agentId": "spawner", "role": "manager"})
+        # D8: a spawn asks this machine's host to define the agent, so the host has published its store.
+        publish(self, environment_id=ENVIRONMENT_ID, machine_id=MACHINE_ID, bridge_id=BRIDGE_ID)
 
     def _spawn(self, *, initial_message: str, subject: str = "First task") -> str:
+        """Spawn `fresh-worker` the D8 way, up to its queued lifecycle spawn: the creation request, the host
+        claiming it, reporting it done and publishing the definition. Returns the lifecycle request id."""
         response = self.client.post("/api/v1/spawn-requests", json={
             "environmentId": ENVIRONMENT_ID, "agentId": "fresh-worker", "runtime": "codex",
             "workspace": "/workspace/proj", "createdBy": "spawner",
             "initialMessage": initial_message, "subject": subject,
         })
         self.assertEqual(response.status_code, 200, response.text)
-        return response.json()["spawnRequest"]["id"]
+        creation = response.json()["definitionRequest"]
+        claimed = self.client.post(f"/api/v1/environments/{ENVIRONMENT_ID}/definition-requests/claim", json=HOST)
+        self.assertEqual([r["id"] for r in claimed.json()["requests"]], [creation["id"]], claimed.text)
+        done = self.client.post(f"/api/v1/environments/{ENVIRONMENT_ID}/definition-requests/{creation['id']}/result",
+                                json={**HOST, "status": "done", "resultIncarnation": 1, "resultRevision": 1})
+        self.assertEqual(done.status_code, 200, done.text)
+        define(self, "fresh-worker", environment_id=ENVIRONMENT_ID, machine_id=MACHINE_ID, bridge_id=BRIDGE_ID,
+               runtime="codex", workspace="/workspace/proj")
+        spawned = self._query("SELECT id, action FROM agent_lifecycle_requests WHERE agent_id = ?", ("fresh-worker",))
+        self.assertEqual([r["action"] for r in spawned], ["spawn"], "no lifecycle spawn was queued")
+        return spawned[0]["id"]
 
     def _settle(self, spawn_id: str):
-        # The bridge's own report that the worker is live — the transition that hands the waiting
-        # brief to dispatch.
-        for status in ("claimed", "starting", "running"):
-            r = self.client.patch(f"/api/v1/spawn-requests/{spawn_id}",
-                                  json={"status": status, "bridgeId": BRIDGE_ID})
-            self.assertEqual(r.status_code, 200, r.text)
+        # The host's own report that the worker is live: claimed, launched, attached. The attachment is the
+        # transition that hands the waiting brief to dispatch.
+        claimed = self.client.post(f"/api/v1/environments/{ENVIRONMENT_ID}/lifecycle-requests/claim", json=HOST)
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        base = f"/api/v1/environments/{ENVIRONMENT_ID}/lifecycle-requests/{spawn_id}"
+        launch = self.client.post(f"{base}/launch", json=HOST)
+        self.assertEqual(launch.status_code, 200, launch.text)
+        attached = self.client.post(f"{base}/attachment", json={
+            **HOST, "terminalId": launch.json()["launch"]["terminalId"], "handle": "h", "processId": 7,
+            "lifetime": "life-1"})
+        self.assertEqual(attached.status_code, 200, attached.text)
 
     def _query(self, sql, params=()):
         async def run():
@@ -106,17 +135,6 @@ class TheSpawnBriefIsARealMessage(FastApiTestCase):
             self._query("SELECT id FROM messages WHERE to_agent = ?", ("fresh-worker",)), [],
             "a spawn with no brief still put a message in the agent's inbox",
         )
-
-    def test_settling_TWICE_does_not_duplicate_the_brief(self):
-        """The handoff is guarded on the row having only just reached `running`. If that guard ever
-        stops holding, the agent gets the same brief twice — and now a duplicate inbox row too."""
-        spawn_id = self._spawn(initial_message="only once please")
-        self._settle(spawn_id)
-        again = self.client.patch(f"/api/v1/spawn-requests/{spawn_id}",
-                                  json={"status": "running", "bridgeId": BRIDGE_ID})
-        self.assertEqual(again.status_code, 200, again.text)
-        rows = self._query("SELECT id FROM messages WHERE to_agent = ?", ("fresh-worker",))
-        self.assertEqual(len(rows), 1, "the brief was delivered twice")
 
 
 if __name__ == "__main__":

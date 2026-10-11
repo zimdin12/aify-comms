@@ -15,9 +15,11 @@ import sqlite3
 import time
 
 import service.api_core.dispatch_start as dispatch_start
-from service.api_core.definition_start import CHANGED_WHILE_STARTING, start_binding
+from service.api_core.definition_start import CHANGED_WHILE_STARTING, start_binding, undefined_refusal
+from service.api_core.managed_env import _select_online_environment_for_runtime
 from service.db import get_db
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import define, undefine
 from service.tests.test_agent_definition_push import A, B, invalid, snapshot_digest, valid
 
 RUNTIMES = [{"runtime": runtime, "available": True} for runtime in ("claude-code", "codex", "hermes")]
@@ -92,6 +94,17 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.client.post("/api/v1/agents", json={"agentId": agent_id, "role": "coder", "runtime": "claude-code",
                                                   "sessionMode": "managed"}).raise_for_status()
 
+    def started_before_d8(self, agent_id):
+        """An agent started before D8 that no host defines, as the live fleet still has: since an undefined
+        agent is no longer started, it is started defined (on B, so A's snapshot is left alone), then its
+        definition goes and its spawn request records none, as an undefined start's did."""
+        define(self, agent_id, environment_id=B["env"], machine_id=B["machine"], bridge_id=B["bridge"],
+               workspace="/work")
+        self.assertEqual(self.start(agent_id).status_code, 200)
+        undefine(self, agent_id)
+        self.execute("UPDATE spawn_requests SET definition_store_id = '', definition_incarnation = 0, "
+                     "definition_revision = 0 WHERE agent_id = ?", (agent_id,))
+
     def test_a_newly_defined_id_starts_with_no_session_from_its_definition(self):
         self.push("s1", 1, [valid("coder", role="reviewer", name="Code Rev", harness="codex", model="gpt-x",
                                   effort="high", instructions="be brief", env={"K": "v"}, workspace="/work/coder")])
@@ -109,11 +122,13 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertEqual(json.loads(spawn["env_vars"]), {"K": "v"})
         self.assertEqual(json.loads(spawn["metadata"]), {"runtimeConfig": {"effort": "high"}})
 
-    def test_an_undefined_agents_start_records_no_definition(self):
+    def test_an_undefined_agent_is_not_started_and_says_how_to_define_it(self):
+        """D8: an agent no host defines is never started; before D8 it started recording no definition."""
         self.register_undefined("plain")
-        self.assertEqual(self.start("plain").status_code, 200)
-        [spawn] = self.spawns("plain")
-        self.assertEqual((spawn["store"], spawn["incarnation"], spawn["revision"], spawn["role"]), ("", 0, 0, "coder"))
+        refused = self.start("plain")
+        self.assertEqual((refused.status_code, refused.json()["detail"]), (409, undefined_refusal("plain")))
+        self.assertEqual(self.spawns("plain"), [])
+        self.assertEqual(self.rows("SELECT id FROM spawn_specs WHERE agent_id = 'plain'"), [], "nor a spec")
 
     def test_a_start_is_built_from_the_current_revision(self):
         self.push("s1", 1, [valid("coder", model="m1")])
@@ -146,10 +161,16 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         # heartbeated, since two heartbeats in one second tie.
         aged = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 30))
         self.execute("UPDATE environments SET last_seen = ? WHERE id = ?", (aged, A["env"]))
-        self.register_undefined("plain")
-        self.assertEqual(self.start("plain").status_code, 200)
-        self.assertEqual(self.spawns("plain")[0]["environment_id"], B["env"],
-                         "control: an undefined agent takes the freshest environment")
+
+        async def freshest():
+            db = await get_db()
+            try:
+                return await _select_online_environment_for_runtime(db, "claude-code")
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(freshest())["id"], B["env"],
+                         "control: with no machine to keep to, the freshest environment is B")
         self.assertEqual(self.start("coder").status_code, 200)
         self.assertEqual(self.spawns("coder")[0]["environment_id"], A["env"])
 
@@ -212,7 +233,9 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         `environment`. A defined agent is pushed first."""
         if agent_id == "coder":
             self.push("s1", 1, [valid("coder", model=model)])
-        self.assertEqual(self.start(agent_id).status_code, 200)
+            self.assertEqual(self.start(agent_id).status_code, 200)
+        else:
+            self.started_before_d8(agent_id)
         first = self.spawns(agent_id)[-1]
         self.execute("UPDATE spawn_requests SET status = 'running' WHERE id = ?", (first["id"],))
         self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "
@@ -221,53 +244,19 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                      (session_id, agent_id, environment["env"], first["spec_id"], first["id"], handle))
         return first
 
-    def test_an_undefined_restart_overtaken_by_a_definition_queues_nothing(self):
-        """Review of 8de83233, N6: the undefined restart from a session's old spec read "never defined",
-        and a push or a withdrawal committing right after that read must not be answered with a start
-        from the old spec, nor a recreate forgetting the agent's native session."""
-        import service.api_core.session_restart as session_restart
-
-        real = session_restart.start_binding
-        self.addCleanup(setattr, session_restart, "start_binding", real)
-        for action in ("restart", "recreate"):
-            for arm in ("defined", "withdrawn"):
-                with self.subTest(action=action, arm=arm):
-                    agent_id, session_id = f"p-{action}-{arm}", f"sess-{action}-{arm}"
-                    self.register_undefined(agent_id)
-                    self.restartable("", agent_id=agent_id, session_id=session_id)
-                    self.execute("UPDATE agents SET session_handle = 'h1' WHERE id = ?", (agent_id,))
-
-                    async def read_then_overtaken(db, read_id, arm=arm):
-                        binding = await real(db, read_id)
-                        if arm == "defined":
-                            self.execute(
-                                "INSERT INTO agent_definitions (agent_id, machine_id, store_id, incarnation, revision, "
-                                "definition_digest, body, available, updated_at) VALUES (?, ?, 's1', 1, 1, 'd', ?, 1, 'now')",
-                                (read_id, A["machine"], json.dumps(valid(read_id)["definition"])))
-                        else:
-                            self.execute("UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?", (read_id,))
-                        return binding
-
-                    session_restart.start_binding = read_then_overtaken
-                    answered = self.client.post(f"/api/v1/sessions/{session_id}/control",
-                                                json={"action": action, "from_agent": "dashboard"})
-                    session_restart.start_binding = real
-                    self.assertEqual((answered.status_code, answered.json().get("detail")),
-                                     (409, f'Agent "{agent_id}": {CHANGED_WHILE_STARTING}'))
-                    self.assertEqual(len(self.spawns(agent_id)), 1, "no start from the old spec")
-                    self.assertEqual(self.rows("SELECT session_handle FROM agents WHERE id = ?", (agent_id,)),
-                                     [{"session_handle": "h1"}], "the agent still names its native session")
-
-    def test_an_undefined_restart_from_its_old_spec(self):
-        """The control for N6: undefined throughout, it restarts from its old spec unbound. Defined before the
-        restart, it goes to the lifecycle queue instead (test_legacy_routes_delegate_defined_agents.py)."""
+    def test_an_undefined_restart_is_refused_and_not_built_from_its_old_spec(self):
+        """N6 left no window: since D8 the route reads nothing after its own check, so an undefined agent is
+        refused, where before D8 it restarted from its old spec unbound. Defined before the restart, it goes to the lifecycle queue instead
+        (test_legacy_routes_delegate_defined_agents.py)."""
         self.register_undefined("plain")
         self.restartable("", agent_id="plain", session_id="sess-plain")
         self.execute("UPDATE spawn_specs SET model = 'old-model' WHERE agent_id = 'plain'")
-        plain = self.client.post("/api/v1/sessions/sess-plain/control", json={"action": "restart", "from_agent": "dashboard"})
-        self.assertEqual(plain.status_code, 200, plain.text)
-        latest = self.spawns("plain")[-1]
-        self.assertEqual((latest["store"], latest["revision"], latest["model"]), ("", 0, "old-model"))
+        for action in ("restart", "recreate"):
+            with self.subTest(action):
+                plain = self.client.post("/api/v1/sessions/sess-plain/control",
+                                         json={"action": action, "from_agent": "dashboard"})
+                self.assertEqual((plain.status_code, plain.json().get("detail")), (409, undefined_refusal("plain")))
+                self.assertEqual(len(self.spawns("plain")), 1, "no start from the old spec")
 
     def test_the_launch_carries_the_definition_it_was_built_from(self):
         first = self.restartable("m1")
@@ -289,7 +278,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.push("s1", 1, [valid("coder", model="m1", effort="high")])
         self.assertEqual(self.start("coder").status_code, 200)
         self.register_undefined("plain")
-        self.assertEqual(self.start("plain").status_code, 200)
+        self.started_before_d8("plain")
         for agent_id, session, terminal in (("coder", "sess-1", "term-bound"), ("plain", "sess-plain", "term-plain")):
             spawn = self.spawns(agent_id)[-1]
             self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "

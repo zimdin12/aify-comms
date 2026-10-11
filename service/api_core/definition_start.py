@@ -2,7 +2,8 @@
 
 `start_binding` answers, for one agent, what a start may be built from:
 
-- None: the agent was never defined, and starts as it always has;
+- None: the agent was never defined. Since D8 it does not start at all (`undefined_refusal`): a spawn of a new
+  id defines it first (`definition_creation.py`), and an existing one is defined by `aify-env agents import`;
 - a `StartBinding`: the definition the spawn is built from. Its store, incarnation and revision are
   recorded on the spawn request and carried by the launch, so the host can refuse to start a worker
   from any other;
@@ -25,6 +26,12 @@ from service.api_core.definition_push import HARNESS_RUNTIME
 
 class StartRefused(Exception):
     """A defined or withdrawn agent that may not be started now; the message says why and what to do."""
+
+
+def undefined_refusal(agent_id: str) -> str:
+    """D8: why an agent no host defines is not started, and what to do."""
+    return (f'no host defines "{agent_id}", so it cannot be started; define it on its host '
+            f'(`aify-env agents import --write` adopts an existing agent), then start it')
 
 
 @dataclass(frozen=True)
@@ -113,7 +120,10 @@ def spawn_request_guard(agent_id: str, binding: Optional[StartBinding]) -> tuple
 
 async def insert_spawn_request(db, columns: dict[str, Any], binding: Optional[StartBinding]) -> bool:
     """Insert the spawn request `columns` describe, recording `binding`, only while the guard holds.
-    True when it was inserted."""
+    True when it was inserted. An undefined agent is refused (D8): every caller refuses it first, with its
+    own answer, and this keeps a caller that forgets from starting one."""
+    if binding is None:
+        raise StartRefused(undefined_refusal(columns["agent_id"]))
     row = {**columns, **request_columns(binding)}
     guard, guard_params = spawn_request_guard(row["agent_id"], binding)
     names = ", ".join(row)

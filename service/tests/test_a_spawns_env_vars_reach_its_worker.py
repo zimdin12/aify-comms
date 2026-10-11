@@ -8,6 +8,10 @@ a 200 and a worker without it.
 These drive the REAL spawn route for the write and the REAL launch route for the read, joined the way
 the control plane joins them (terminal -> session -> spawn spec), so the stored shape and the read
 shape cannot drift apart unnoticed.
+
+SINCE D8 the spawn route asks the host to DEFINE the agent, with its `envVars` as the definition's `env`,
+and the worker is started from what the host defined. `_spawned` follows that path: the route's creation,
+the host defining exactly what it was asked, and the start built from that definition.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from service.api_core.spawn_env import (
     spawn_env_problems,
 )
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import publish, spawn_defined
 
 
 class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
@@ -38,6 +43,18 @@ class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
             "metadata": {},
         })
         self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
+        publish(self, **self.HOST)
+
+    HOST = {"environment_id": ENV, "machine_id": "linux:spawn-env-host", "bridge_id": "bridge-spawn-env"}
+
+    def _spawned(self, agent_id, env_vars):
+        """The spawn spec a worker is launched from, after the route's creation is defined by the host."""
+        created = self._spawn(agent_id=agent_id, envVars=env_vars)
+        self.assertEqual(created.status_code, 200, created.text)
+        asked = created.json()["definitionRequest"]["patch"]
+        spawned = spawn_defined(self, agent_id, runtime="claude-code", workspace=asked["workspace"],
+                                env=asked["env"], **self.HOST)
+        return spawned["spawnSpec"]
 
     def _spawn(self, agent_id="env-worker", **extra):
         body = {"agentId": agent_id, "environmentId": self.ENV, "runtime": "claude-code",
@@ -95,16 +112,17 @@ class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
         async def go():
             db = await get_db()
             try:
-                return (await (await db.execute("SELECT COUNT(*) FROM spawn_specs")).fetchone())[0]
+                # Since D8 what a spawn writes is a creation request; a spec is written only once it starts.
+                return (await (await db.execute(
+                    "SELECT (SELECT COUNT(*) FROM spawn_specs) + (SELECT COUNT(*) FROM definition_requests)"
+                )).fetchone())[0]
             finally:
                 await db.close()
 
         return asyncio.run(go())
 
     def test_THE_DEFECT_a_spawns_variables_reach_the_worker_launch(self):
-        created = self._spawn(envVars={"DASHBOARD_PROJECT": "aify-dashboard", "FEATURE_FLAG": "1"})
-        self.assertEqual(created.status_code, 200, created.text)
-        spec = created.json()["spawnRequest"]["spawnSpec"]
+        spec = self._spawned("env-worker", {"DASHBOARD_PROJECT": "aify-dashboard", "FEATURE_FLAG": "1"})
         self.assertEqual(spec["envVars"], {"DASHBOARD_PROJECT": "aify-dashboard", "FEATURE_FLAG": "1"})
 
         env = self._launch_env(self._terminal_for_spec("env-worker", spec["id"]))
@@ -147,11 +165,7 @@ class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
         variables go down first. On Windows those are ONE variable: aify-env keeps the order when it
         merges and node-pty passes the pairs through without de-duplicating, so the first one is the one a
         worker can read. Any name the launch writes is dropped from the spawn in every spelling."""
-        created = self._spawn(agent_id="real-agent", envVars={
-            "claude_session_id": "someone-elses", "still_arrives": "yes",
-        })
-        self.assertEqual(created.status_code, 200, created.text)
-        spec_id = created.json()["spawnRequest"]["spawnSpec"]["id"]
+        spec_id = self._spawned("real-agent", {"claude_session_id": "someone-elses", "still_arrives": "yes"})["id"]
         env = self._launch_env(self._terminal_for_spec("real-agent", spec_id))
         spellings = [key for key in env if key.upper() == "CLAUDE_SESSION_ID"]
         self.assertEqual(spellings, ["CLAUDE_SESSION_ID"], f"the launch carries {spellings} for one Windows variable")

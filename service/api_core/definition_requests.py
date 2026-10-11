@@ -27,11 +27,22 @@ from service.api_core.serialization import _iso_add_seconds
 
 #: C4: a request no host claims in this time expires.
 REQUEST_TTL_SECONDS = 600
-#: The statuses a request is still waiting in. One per agent at a time.
-_OPEN_SQL = "('pending', 'claimed')"
+#: The statuses a request is still waiting in, a definition's or a lifecycle one's. One per agent at a time.
+OPEN_SQL = "('pending', 'claimed')"
 _FINISHED = ("done", "refused", "expired")
 #: The agent fields a patch may set: every C1 field but the id, which names the file.
 EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field != "id")
+
+
+#: D8: a creation expects lifetime 0 revision 0, the pair of an agent no store has defined yet (lifetimes and
+#: revisions count from 1). aify-env reads the same pair (`isCreation`).
+CREATION = (0, 0)
+#: A done creation's consequence here until its spawn is queued (`definition_creation.spawn_created`).
+SPAWN_OWED = "spawn pending"
+
+
+def is_creation(row) -> bool:
+    return (row["expected_incarnation"], row["expected_revision"]) == CREATION
 
 
 def is_removal(patch: Any) -> bool:
@@ -85,7 +96,7 @@ async def admit(db, agent_id: str, patch: Any, operator: Optional[OperatorProof]
         raise HTTPException(422, "; ".join(problems))
     await _refuse_undeliverable(db, agent_id, held, now)
     waiting = await (await db.execute(
-        f"SELECT id FROM definition_requests WHERE agent_id = ? AND status IN {_OPEN_SQL}", (agent_id,))).fetchone()
+        f"SELECT id FROM definition_requests WHERE agent_id = ? AND status IN {OPEN_SQL}", (agent_id,))).fetchone()
     if waiting:
         raise HTTPException(409, f'"{agent_id}" already has a change waiting for its host ({waiting["id"]}); '
                                  f'ask again once that one is done. If that host is gone for good, release the '
@@ -179,7 +190,7 @@ async def _refuse_undeliverable(db, agent_id: str, held, now: str) -> None:
     left waiting by a host that never came back, whose definition was then released and made elsewhere,
     blocked every later change to the agent (external review of 0.8.1)."""
     rows = await (await db.execute(
-        f"SELECT * FROM definition_requests WHERE agent_id = ? AND status IN {_OPEN_SQL}", (agent_id,))).fetchall()
+        f"SELECT * FROM definition_requests WHERE agent_id = ? AND status IN {OPEN_SQL}", (agent_id,))).fetchall()
     for row in rows:
         store = await (await db.execute(
             "SELECT store_id FROM definition_stores WHERE machine_id = ?", (row["machine_id"],))).fetchone()
@@ -208,6 +219,10 @@ def _undeliverable(row, held, current_store: str) -> str:
     when = "after" if row["status"] == "claimed" else "before"
     if row["store_id"] != current_store:
         return "made for a store this machine has since replaced"
+    if is_creation(row):
+        # Held on its own machine and store, it is this creation applied, or another the host refuses.
+        elsewhere = held is not None and (held["machine_id"], held["store_id"]) != (row["machine_id"], row["store_id"])
+        return f"{row['agent_id']} was defined on {held['machine_id']} {when} its host claimed this" if elsewhere else ""
     if held is None:
         return f"the definition was withdrawn {when} its host claimed this"
     if held["machine_id"] != row["machine_id"] or held["store_id"] != row["store_id"]:
@@ -229,7 +244,7 @@ async def claim(db, environment: Optional[dict], bridge_id: str, machine_id: str
         "SELECT store_id FROM definition_stores WHERE machine_id = ?", (machine_id,))).fetchone()
     current_store = store["store_id"] if store else ""
     rows = await (await db.execute(
-        f"SELECT * FROM definition_requests WHERE machine_id = ? AND status IN {_OPEN_SQL} ORDER BY created_at, id",
+        f"SELECT * FROM definition_requests WHERE machine_id = ? AND status IN {OPEN_SQL} ORDER BY created_at, id",
         (machine_id,))).fetchall()
     delivered = []
     for row in rows:
@@ -284,7 +299,8 @@ async def report(db, environment: Optional[dict], request_id: str, body: dict, n
         # refused, so a report that skipped it would apply what the claim would have refused. A superseded
         # request was claimed: its host's result is recorded, and its consequence is fenced.
         raise HTTPException(409, f"definition request {request_id} was never claimed; claim it first")
-    owed = "pending" if body["status"] == "done" and is_removal(json.loads(row["patch"])) else ""
+    owed = "" if body["status"] != "done" else (
+        "pending" if is_removal(json.loads(row["patch"])) else SPAWN_OWED if is_creation(row) else "")
     await db.execute(
         "UPDATE definition_requests SET status = ?, outcome = ?, result_incarnation = ?, result_revision = ?, "
         "finished_at = ?, consequence = ? WHERE id = ?",

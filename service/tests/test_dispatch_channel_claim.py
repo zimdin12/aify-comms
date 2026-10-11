@@ -4,6 +4,9 @@ Codex/Hermes managed-wrapper dispatches are persisted as execution_mode='channel
 but the environment bridge must not claim them. The claimant must be the
 *-aify wrapper PTY's child bridge, registered as bridge_kind='managed-wrapper-child',
 because only that child has the live app-server/gateway for the visible console.
+
+Every agent here is defined on its host (`_define`): a send to a managed agent with no live wrapper child
+cold-starts its backing, and since D8 only a defined agent is cold-started.
 """
 
 import asyncio
@@ -21,6 +24,10 @@ from service.routers.api_v2 import router
 
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import define
+
+#: The host every agent here is defined on. Since D8 a send cold-starts only an agent a host defines.
+HOST = {"environment_id": "linux:test-host:default", "machine_id": "linux:test-host", "bridge_id": "bridge-current"}
 
 
 class ChannelClaimWrapperBackedTests(FastApiTestCase):
@@ -51,6 +58,9 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         response = self.client.post("/api/v1/environments/heartbeat", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
 
+    def _define(self, agent_id: str, runtime: str) -> None:
+        define(self, agent_id, runtime=runtime, workspace="/workspace", **HOST)
+
     def _register_managed_agent(self, *, agent_id: str, runtime: str) -> None:
         # Native-managed capability + managed session_mode + a plausible
         # runtimeConfig the controller can dispatch into. The exact config
@@ -76,6 +86,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
+        self._define(agent_id, runtime)
         conn = sqlite3.connect(str(self._db_path))
         try:
             session_id = f"session-{agent_id}"
@@ -290,6 +301,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
+        self._define("codex-no-backing", "codex")
         sent = self.client.post(
             "/api/v1/messages/send",
             json={
@@ -387,6 +399,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
+        self._define("claude-sidecar", "claude-code")
         run_id = self._dispatch_to("claude-sidecar")
         claim = self.client.post(
             "/api/v1/dispatch/claim",
@@ -430,6 +443,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
+        self._define("claude-heal", "claude-code")
         sidecar_bridge = "channel-linux:test-host"
         # First claim creates the channel-sidecar bridge row.
         run_id1 = self._dispatch_to("claude-heal")

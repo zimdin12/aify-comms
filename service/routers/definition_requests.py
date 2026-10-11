@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from service.api_core.definition_requests import (
     admit, claim, finish_removal, report, request_by_id, requests_for,
 )
+from service.api_core.definition_creation import spawn_created
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.operator_authz import require_operator
 from service.api_core.request_body import json_object_body
@@ -88,7 +89,9 @@ async def report_definition_change(environment_id: str, request_id: str, result:
         environment = await _environment(db, environment_id)
         await _proven_host(db, environment, body.get("machineId", ""), request)
         reported = await report(db, environment, request_id, body, _now())
+        await spawn_created(db, reported["machineId"], _now())
         await db.commit()
+        reported = await request_by_id(db, request_id)
         # OWED UNTIL SETTLED: a removal whose `done` was recorded and whose service consequence did not
         # finish (a crash, a lost connection) is finished by whichever report finds it still pending,
         # and one already settled is never run again.

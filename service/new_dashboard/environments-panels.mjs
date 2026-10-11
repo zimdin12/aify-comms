@@ -465,6 +465,8 @@ export async function createSpawnRequest() {
   });
   byId('env-spawn-agent-id').value = '';
   byId('env-spawn-prompt').value = '';
-  toast(`Spawn queued for ${agentId}`, 'ok'); // a sentence, not the drawer taken over by the record's JSON
+  // D8: the host defines it first, and it is spawned once that definition is published. A sentence, not the
+  // drawer taken over by the record's JSON.
+  toast(`Asked its host to define ${agentId}; it starts once defined`, 'ok');
   await refresh();
 }

@@ -352,8 +352,9 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     explicitId = "",
     // FRESH CONTEXT — the one instruction that must beat every resume path.
     //
-    // `resumePolicy: "fresh_context"` reaches the bridge correctly (session_restart.py sets it,
-    // spawn-loop.mjs carries it) and until 2026-08-31 ONLY codex read it. Hermes resumed regardless,
+    // `resumePolicy: "fresh_context"` reached the bridge correctly (a Reset set it, spawn-loop.mjs
+    // carried it; since D8 a fresh-context lifecycle start sets the variable below) and until 2026-08-31
+    // ONLY codex read it. Hermes resumed regardless,
     // so `comms_restart freshContext=true` reported success and changed nothing: comms-senior-dev
     // stayed on a 5 JUNE conversation until it reached 1,122,638 tokens against a 900k window and
     // could no longer answer at all.

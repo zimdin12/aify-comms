@@ -25,6 +25,7 @@ from service.db import get_db
 from service.api_core.live_process_probes import _has_live_managed_wrapper_child
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import define
 from service.api_core.settings import _load_settings
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
 from service.clock import now as _now
@@ -55,6 +56,11 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         response = self.client.post("/api/v1/agents", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def _define(self, agent_id: str):
+        """D8: a managed agent is started only when a host defines it, so a cold start here is a defined one's."""
+        define(self, agent_id, environment_id=ENV_ID, machine_id="linux:test-host", bridge_id="bridge-current",
+               runtime="codex", workspace="/workspace")
 
     def _heartbeat_environment(self, **extra):
         payload = {
@@ -157,7 +163,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         """Managed codex agent + running session + attached console PTY row."""
         now = _now()
         self._heartbeat_environment()
-        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._define(agent_id)
         self._execute(
             """
             INSERT INTO agent_sessions (
@@ -321,7 +327,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         # murder the booting worker).
         agent_id = "bugd-coalesce"
         self._heartbeat_environment()
-        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._define(agent_id)
         self._seed_spawn_request("spawn_bugd_running", agent_id, status="running")
 
         created = self._run_coldstart(agent_id)
@@ -336,7 +342,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         # must NOT block future autostarts.
         agent_id = "bugd-old-running"
         self._heartbeat_environment()
-        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._define(agent_id)
         old = _minutes_ago(10)
         self._seed_spawn_request(
             "spawn_bugd_old", agent_id, status="running", created_at=old, updated_at=old,
@@ -360,7 +366,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         # backs the agent — no duplicate.
         agent_id = "bugd-queued-coalesce"
         self._heartbeat_environment()
-        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._define(agent_id)
         self._seed_spawn_request("spawn_bugd_queued", agent_id, status="queued")
 
         created = self._run_coldstart(agent_id)
@@ -378,7 +384,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         # coldstart_rescue event + a spawn_request, run stays queued.
         agent_id = "bugd-rescue"
         self._heartbeat_environment()
-        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._define(agent_id)
         self._seed_queued_managed_run(
             "bugd-run-1", target_agent=agent_id, requested_at=_minutes_ago(10),
         )
@@ -420,7 +426,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         # claimer, the run must fail exactly as before (mirrored to the sender).
         agent_id = "bugd-rescue-expired"
         self._heartbeat_environment()
-        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._define(agent_id)
         self._seed_queued_managed_run(
             "bugd-run-2", target_agent=agent_id, requested_at=_minutes_ago(20),
         )

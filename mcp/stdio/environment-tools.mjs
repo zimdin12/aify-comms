@@ -177,13 +177,15 @@ export function registerEnvironmentTools(server, z) {
         resumePolicy: "native_first",
         ...(envVars ? { envVars } : {}),
       });
-      const req = r.spawnRequest || {};
+      // D8: the host defines the agent first, and the service spawns it once that definition is published.
+      const req = r.definitionRequest || {};
       return {
         content: [{
           type: "text",
           text:
-            `Queued persistent agent "${agentId}" in ${env.id} (${resolvedRuntime}, ${selectedWorkspace || "default workspace"}). ` +
-            `Spawn request: ${req.id || "unknown"} [${req.status || "queued"}].`,
+            `Queued: asked the host of ${env.id} to define "${agentId}" (${resolvedRuntime}, ${selectedWorkspace || "default workspace"}); ` +
+            `it is spawned once that host has defined it. Definition request: ${req.id || "unknown"} [${req.status || "pending"}]. ` +
+            `Not confirmation: comms_agent_info shows whether it started.`,
         }],
       };
     }

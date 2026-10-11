@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 
-#: The requester the dashboard names itself. The same word `start_intent_for_requester` trusts.
+#: The requester the dashboard names itself.
 DASHBOARD_CALLER = "dashboard"
 
 

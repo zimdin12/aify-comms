@@ -14,6 +14,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from service.api_core.definition_push import RUNTIME_HARNESS
 from service.api_core.harness_defaults import defaulted_runtimes
 from service.db import get_db, init_db
 from service import main as service_main
@@ -86,6 +87,7 @@ from service.routers.agents import console as agents_console
 from service.routers.api_v2 import router
 
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
+from service.tests.defined_agents import cold_start, define, publish, spawn_defined, undefine
 from service.api_core.events import _append_terminal_control
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _iso_add_seconds, _iso_from_ms
@@ -277,6 +279,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             sessionMode="managed",
             machineId="linux:test-host",
         )
+        # D8: only a defined agent is woken.
+        define(self, "cold-worker", environment_id="linux:test-host:default", machine_id="linux:test-host",
+               bridge_id="bridge-current", runtime="hermes")
         response = self.client.post(
             "/api/v1/channels",
             json={"name": "room", "description": "", "createdBy": "alice"},
@@ -692,7 +697,8 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_managed_spawn_uses_settings_defaults_and_persists_runtime_config(self):
         # One case per runtime with its own settings keys: the managed_<runtime>_model/effort
-        # defaults reach the spawn spec, and the running transition persists them on the agent.
+        # defaults reach the agent a spawn asks its host to define (D8), the running transition of
+        # the spawn built from that definition persists them on the agent, and agent info says so.
         cases = [
             {
                 "runtime": "claude-code", "agent": "default-claude", "role": "manager",
@@ -718,17 +724,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "model": "gpt-test-default", "effort": "xhigh",
             },
             {
-                "runtime": "pi", "agent": "default-pi", "role": "coder",
-                "environment": {
-                    "id": "linux:test-host:default",
-                    "runtimes": [{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-                },
-                "workspace": "/workspace/project",
-                "settings": {"managed_pi_model": "gpt-5.5", "managed_pi_effort": "high"},
-                "running": {"machineId": "linux:test-host"},
-                "model": "gpt-5.5", "effort": "high",
-            },
-            {
                 "runtime": "hermes", "agent": "default-hermes", "role": "coder",
                 "environment": {
                     "id": "linux:test-host:hermes",
@@ -740,15 +735,21 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "model": "anthropic/claude-sonnet-4.6", "effort": "low",
             },
         ]
-        # EVERY runtime the settings give defaults to has a case: a list typed here would miss the next
-        # one, as the three service sites missed hermes (P0 C12).
-        self.assertEqual(sorted(case["runtime"] for case in cases), sorted(defaulted_runtimes()))
+        # EVERY runtime the settings give defaults to that a definition can name has a case: a list typed
+        # here would miss the next one, as the three service sites missed hermes (P0 C12). pi has defaults
+        # but no harness, so since D8 it cannot be spawned at all.
+        self.assertEqual(sorted(case["runtime"] for case in cases),
+                         sorted(set(defaulted_runtimes()) & set(RUNTIME_HARNESS)))
         for case in cases:
             with self.subTest(runtime=case["runtime"]):
                 environment_id = case["environment"]["id"]
+                host = {"environment_id": environment_id,
+                        "machine_id": case["environment"].get("machineId", "linux:test-host"),
+                        "bridge_id": "bridge-current"}
                 self._heartbeat_environment(bridgeId="bridge-current", **case["environment"])
                 settings = self.client.put("/api/v1/settings", json=case["settings"])
                 self.assertEqual(settings.status_code, 200, settings.text)
+                publish(self, **host)
 
                 created = self.client.post(
                     "/api/v1/spawn-requests",
@@ -762,9 +763,12 @@ class ApiV2RegressionTests(FastApiTestCase):
                     },
                 )
                 self.assertEqual(created.status_code, 200, created.text)
-                spawn = created.json()["spawnRequest"]
-                self.assertEqual(spawn["spawnSpec"]["model"], case["model"])
-                self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], case["effort"])
+                patch = created.json()["definitionRequest"]["patch"]
+                self.assertEqual((patch["model"], patch["effort"]), (case["model"], case["effort"]))
+
+                # The host defines what it was asked, and the spawn is built from that definition.
+                spawn = spawn_defined(self, case["agent"], runtime=case["runtime"], workspace=patch["workspace"],
+                                      role=patch["role"], model=patch["model"], effort=patch["effort"], **host)
 
                 updated = self.client.patch(
                     f"/api/v1/spawn-requests/{spawn['id']}",
@@ -776,14 +780,12 @@ class ApiV2RegressionTests(FastApiTestCase):
                 )
                 self.assertEqual(agent["model"], case["model"])
                 self.assertEqual(json.loads(agent["runtime_config"])["effort"], case["effort"])
-                # AND AGENT INFO SAYS SO (P0 C12): what this managed agent's next start uses, from its record.
+                # AND AGENT INFO SAYS SO (P0 C12): what this managed agent's next start uses, from its definition.
                 shown = self.client.get(f"/api/v1/agents/{case['agent']}").json()["agent"]["runsWith"]
-                self.assertEqual(shown, {"model": {"value": case["model"], "from": "agent"},
-                                         "effort": {"value": case["effort"], "from": "agent"}})
+                self.assertEqual(shown, {"model": {"value": case["model"], "from": "definition"},
+                                         "effort": {"value": case["effort"], "from": "definition"}})
                 listed = self.client.get("/api/v1/agents").json()["agents"][case["agent"]]["runsWith"]
                 self.assertEqual(listed, shown)
-                if case["runtime"] == "pi":
-                    self.assertIn("steer", json.loads(agent["capabilities"]))
 
     def test_managed_wrapper_child_reregister_preserves_runtime_policy(self):
         self._register(
@@ -858,6 +860,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(settings.json().get("managed_codex_model"), "")
         self.assertEqual(settings.json().get("managed_claude_model"), "")
         self.assertEqual(settings.json().get("managed_pi_model"), "")
+        publish(self, environment_id="wsl:test-host:default", machine_id="linux:test-host", bridge_id="bridge-current")
 
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -871,9 +874,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
-        self.assertEqual(spawn["spawnSpec"]["model"], "")
-        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
+        # D8: the defaults land in the agent the spawn asks its host to define.
+        patch = created.json()["definitionRequest"]["patch"]
+        self.assertEqual(patch["model"], "")
+        self.assertEqual(patch["effort"], "high")
 
     def test_managed_codex_spawn_override_wins_over_settings_defaults(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
@@ -881,6 +885,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "/api/v1/settings",
             json={"managed_codex_model": "gpt-default", "managed_codex_effort": "medium"},
         )
+        publish(self, environment_id="wsl:test-host:default", machine_id="linux:test-host", bridge_id="bridge-current")
 
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -892,14 +897,15 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "runtime": "codex",
                 "workspace": "/workspace/project",
                 "model": "gpt-custom",
-                "runtimeConfig": {"effort": "high", "quietTimeoutMs": 0},
+                "runtimeConfig": {"effort": "high"},
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
-        self.assertEqual(spawn["spawnSpec"]["model"], "gpt-custom")
-        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
-        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["quietTimeoutMs"], 0)
+        # D8: the overrides land in the agent the spawn asks its host to define. A definition holds no
+        # runtimeConfig beyond effort, and any other option is refused (test_a_spawn_defines_its_agent_first.py).
+        patch = created.json()["definitionRequest"]["patch"]
+        self.assertEqual(patch["model"], "gpt-custom")
+        self.assertEqual(patch["effort"], "high")
 
     def test_runtime_defaults_reach_existing_agents_only_when_applied(self):
         # Saving a runtime's managed model/effort default changes NEW workers only. Until 2026-09-19 every
@@ -913,40 +919,21 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "settings": {"managed_codex_model": "gpt-global", "managed_codex_effort": "xhigh"},
                 "model": "gpt-global", "effort": "xhigh",
             },
-            {
-                "runtime": "pi", "agent": "global-pi",
-                "environment": {
-                    "id": "linux:test-host:default",
-                    "runtimes": [{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-                },
-                "running": {},
-                "settings": {"managed_pi_model": "gpt-5.5", "managed_pi_effort": "medium"},
-                "model": "gpt-5.5", "effort": "medium",
-            },
         ]
         for case in cases:
             with self.subTest(runtime=case["runtime"]):
                 environment_id = case["environment"]["id"]
                 self._heartbeat_environment(bridgeId="bridge-current", **case["environment"])
-                created = self.client.post(
-                    "/api/v1/spawn-requests",
-                    json={
-                        "createdBy": "dashboard",
-                        "environmentId": environment_id,
-                        "agentId": case["agent"],
-                        "role": "coder",
-                        "runtime": case["runtime"],
-                        "workspace": "/workspace/project",
-                    },
-                )
-                self.assertEqual(created.status_code, 200, created.text)
-                spawn = created.json()["spawnRequest"]
+                spawn = self._spawn(case["agent"], runtime=case["runtime"], environment_id=environment_id)
                 updated = self.client.patch(
                     f"/api/v1/spawn-requests/{spawn['id']}",
                     json={"status": "running", "bridgeId": "bridge-current", "machineId": "linux:test-host",
                           **case["running"]},
                 )
                 self.assertEqual(updated.status_code, 200, updated.text)
+                # Running before D8 with no definition: the agents the apply route rewrites (a defined one's
+                # model and effort are its definition's, and the route skips it).
+                undefine(self, case["agent"])
 
                 before = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", (case["agent"],))
                 settings = self.client.put("/api/v1/settings", json=case["settings"])
@@ -1043,19 +1030,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             bridgeId="env-bridge",
             machineId="wsl-Ubuntu:test-host",
         )
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "wsl:test-host:default",
-                "agentId": "dual-mode-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
+        spawn = self._spawn("dual-mode-coder", environment_id="wsl:test-host:default",
+                            machine_id="wsl-ubuntu:test-host", bridge_id="env-bridge")
         updated = self.client.patch(
             f"/api/v1/spawn-requests/{spawn['id']}",
             json={
@@ -1067,6 +1043,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
+        # Running before D8 with no definition: its mode is the operator's to switch, not a definition's.
+        undefine(self, "dual-mode-coder")
 
         self._register(
             "dual-mode-coder",
@@ -1445,7 +1423,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(control["currentEnvironment"]["bridgeId"], "bridge-new")
         self.assertEqual(control["currentEnvironment"]["metadata"]["pid"], 222)
 
-    def test_pi_runtime_alias_is_spawnable_from_environment(self):
+    def test_pi_runtime_alias_normalizes_and_a_spawn_of_it_is_refused(self):
+        # The alias is pi on both the environment and the spawn route. Since D8 a spawn defines its agent, and
+        # pi is no harness a definition can name, so the spawn is refused as pi, not as an unknown runtime.
         environment = self._heartbeat_environment(
             runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
         )
@@ -1462,26 +1442,13 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "workspace": "/workspace/project",
             },
         )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_request = created.json()["spawnRequest"]
-        self.assertEqual(spawn_request["runtime"], "pi")
-        self.assertEqual(spawn_request["spawnSpec"]["runtime"], "pi")
+        self.assertEqual(created.status_code, 422, created.text)
+        self.assertEqual(created.json()["detail"],
+                         'runtime "pi" is not a harness a definition can name (claude-code, codex, hermes)')
 
     def test_forget_environment_hides_target_but_preserves_agent_session_and_spec(self):
         self._heartbeat_environment(id="linux:test-host:default")
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "preserved-agent",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("preserved-agent")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -1492,6 +1459,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"status": "running", "bridgeId": "bridge-current", "sessionHandle": "thread-1"},
         )
         self.assertEqual(running.status_code, 200, running.text)
+        # Running before D8 with no definition: an environment that governs definitions is not forgotten
+        # (test_a_host_that_stops_pushing_its_definitions_says_so.py), so this is the agent a forget can
+        # still leave behind.
+        undefine(self, "preserved-agent")
 
         forgotten = self.client.post(
             "/api/v1/environments/linux%3Atest-host%3Adefault/control",
@@ -1512,19 +1483,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_sessions_include_console_ownership_defaults(self):
         self._heartbeat_environment(id="linux:test-host:default")
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "console-defaults-agent",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("console-defaults-agent")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -1814,6 +1773,28 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertNotEqual(listed.json()["agents"]["expiring-agent"]["status"], "offline")
 
+    def _spawn(self, agent_id: str, *, runtime: str = "codex", workspace: str = "/workspace/project",
+               environment_id: str = "linux:test-host:default", machine_id: str = "linux:test-host",
+               bridge_id: str = "bridge-current", **fields) -> dict:
+        """D8: the queued legacy spawn request a test claims and runs is a defined agent's cold start."""
+        return spawn_defined(self, agent_id, environment_id=environment_id, machine_id=machine_id, bridge_id=bridge_id,
+                             runtime=runtime, workspace=workspace, **fields)
+
+    def _outlive_the_in_flight_window(self, agent_id: str) -> None:
+        """A RESPAWN: the worker it replaces went running long ago, so that spawn no longer counts as in flight,
+        which refuses a second cold start beside a booting worker."""
+        self._execute(
+            "UPDATE spawn_requests SET updated_at = '2000-01-01T00:00:00Z' WHERE agent_id = ? AND status = 'running'",
+            (agent_id,))
+
+    def _respawn(self, agent_id: str, runtime: str = "codex") -> str:
+        """The id of a defined agent's next cold start, queued once its running worker is no longer in flight."""
+        self._outlive_the_in_flight_window(agent_id)
+        warnings = cold_start(self, agent_id, runtime=runtime)
+        queued = self._fetchone("SELECT id FROM spawn_requests WHERE agent_id = ? AND status = 'queued'", (agent_id,))
+        self.assertIsNotNone(queued, warnings)
+        return queued["id"]
+
     def _create_running_session(
         self,
         *,
@@ -1825,7 +1806,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         session_handle: str = "thread-1",
         role: str = "coder",
         initial_message: str = "",
+        defined: bool = False,
     ):
+        """A managed agent with a running session. Undefined by default once running: an agent that was running
+        before D8 with no definition, so its stop and console paths are the service's own, not its host's."""
         self._heartbeat_environment(
             terminal=terminal,
             pty=terminal,
@@ -1838,20 +1822,12 @@ class ApiV2RegressionTests(FastApiTestCase):
                 }
             ],
         )
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": agent_id,
-                "role": role,
-                "runtime": runtime,
-                "workspace": workspace,
-                "initialMessage": initial_message,
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        self._outlive_the_in_flight_window(agent_id)
+        # D8: defined on its host, and woken as a message wakes it, which is the spawn request a start makes.
+        spawn_id = spawn_defined(self, agent_id, environment_id="linux:test-host:default", machine_id="linux:test-host",
+                                 bridge_id="bridge-current", runtime=runtime, workspace=workspace, role=role)["id"]
+        if initial_message:
+            self._execute("UPDATE spawn_requests SET initial_message = ? WHERE id = ?", (initial_message, spawn_id))
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -1862,6 +1838,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": session_handle},
         )
         self.assertEqual(running.status_code, 200, running.text)
+        if not defined:
+            undefine(self, agent_id)
         return running.json()["spawnRequest"]["sessionId"]
 
     def _stamp_live_channel_sidecar(self, agent_id: str = "console-agent", runtime: str = "claude-code"):
@@ -4227,30 +4205,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"reuse event must be appended; got {event_types}",
         )
 
-    def test_pi_console_start_creates_virtual_rpc_terminal_not_wrapper_pty(self):
-        session_id = self._create_running_session(
-            agent_id="pi-console-agent",
-            terminal=True,
-            runtime="pi",
-            terminal_runtimes=["pi"],
-            session_handle="pi-session-1",
-        )
-
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/console/start",
-            json={"requestedBy": "dashboard"},
-        )
-        self.assertEqual(started.status_code, 200, started.text)
-        body = started.json()
-        self.assertTrue(body.get("virtual"), body)
-        self.assertTrue(body["terminal"]["id"].startswith("vterm_"), body)
-        self.assertEqual(body["terminal"]["command"], "aify://virtual-rpc/pi")
-        self.assertNotIn("pi-aify", body["terminal"]["command"])
-
-        session = self._fetchone("SELECT terminal_id, terminal_command FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(session["terminal_id"], body["terminal"]["id"])
-        self.assertEqual(session["terminal_command"], "aify://virtual-rpc/pi")
-
     def test_console_start_rejects_environment_without_terminal_support(self):
         session_id = self._create_running_session(terminal=False)
 
@@ -4684,7 +4638,9 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_managed_dispatch_native_runtime_can_fall_back_to_native_when_terminal_backing_disabled(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
-        for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
+        # codex only since D8: pi and opencode are no harness a definition can name, so no managed worker of
+        # either can be started (test_spawn_request_refusals.py).
+        for runtime, handle in (("codex", "codex-thread-1"),):
             with self.subTest(runtime=runtime):
                 agent_id = f"{runtime}-native-agent"
                 session_id = self._create_running_session(
@@ -5378,12 +5334,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("owner session is stopped", terminal["error"])
 
     def test_sessions_list_clears_stopped_terminal_as_current_console_binding(self):
+        # codex since D8: no pi worker can be started any more, and the binding repair is not the runtime's.
         session_id = self._create_running_session(
-            agent_id="pi-agent",
+            agent_id="codex-agent",
             terminal=True,
-            runtime="pi",
-            terminal_runtimes=["pi"],
-            session_handle="pi-session-1",
+            runtime="codex",
+            terminal_runtimes=["codex"],
+            session_handle="codex-thread-1",
         )
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
@@ -5397,7 +5354,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             UPDATE agent_sessions
             SET owner_mode = 'managed',
                 terminal_status = 'stopped',
-                terminal_command = 'pi-aify --aify-agent pi-agent --resume pi-session-1'
+                terminal_command = 'codex-aify --aify-agent codex-agent resume codex-thread-1'
             WHERE id = ?
             """,
             (session_id,),
@@ -5407,12 +5364,12 @@ class ApiV2RegressionTests(FastApiTestCase):
             UPDATE agents
             SET runtime_state = ?,
                 status_note = 'Dashboard Console PTY attached.'
-            WHERE id = 'pi-agent'
+            WHERE id = 'codex-agent'
             """,
             (json.dumps({"consoleTerminal": {"terminalId": terminal_id, "bridgeId": "bridge-current"}}),),
         )
 
-        listed = self.client.get("/api/v1/sessions?agentId=pi-agent")
+        listed = self.client.get("/api/v1/sessions?agentId=codex-agent")
         self.assertEqual(listed.status_code, 200, listed.text)
         listed_session = listed.json()["sessions"][0]
         self.assertEqual(listed_session["terminalId"], "")
@@ -5424,7 +5381,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(session["terminal_id"], "")
         self.assertEqual(session["terminal_status"], "")
         self.assertEqual(session["terminal_command"], "")
-        agent = self._fetchone("SELECT runtime_state, status_note FROM agents WHERE id = 'pi-agent'")
+        agent = self._fetchone("SELECT runtime_state, status_note FROM agents WHERE id = 'codex-agent'")
         self.assertNotIn("consoleTerminal", json.loads(agent["runtime_state"]))
         self.assertEqual(agent["status_note"], "")
 
@@ -5633,20 +5590,9 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_assign_agent_environment_retargets_saved_managed_config(self):
         self._heartbeat_environment(id="linux:old-host:default", bridgeId="bridge-old")
+        # Spawned before the new environment exists: both are on one machine, and a cold start takes its freshest.
+        spawn_id = self._spawn("move-me", environment_id="linux:old-host:default", bridge_id="bridge-old")["id"]
         self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:old-host:default",
-                "agentId": "move-me",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
         self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:old-host:default", "bridgeId": "bridge-old", "machineId": "linux:test-host"},
@@ -5656,6 +5602,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"status": "running", "bridgeId": "bridge-old", "sessionHandle": "thread-1"},
         )
         self.assertEqual(running.status_code, 200, running.text)
+        # Running before D8 with no definition: its saved config is the service's to retarget (a defined
+        # agent's assignment is a request for its host instead).
+        undefine(self, "move-me")
 
         assigned = self.client.post(
             "/api/v1/agents/move-me/environment",
@@ -5714,40 +5663,28 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(spec["environment_id"], "linux:new-host:default")
         self.assertEqual(spec["workspace"], "/newroot/project")
 
+        # Adopted is not defined: since D8 no host defines it, so its restart is refused (it used to restart
+        # from the adopted spec, resuming thread-old) and nothing is queued.
         restarted = self.client.post(
             f"/api/v1/sessions/{session['id']}/control",
             json={"action": "restart", "from_agent": "dashboard", "subject": "restart resident-manager"},
         )
-        self.assertEqual(restarted.status_code, 200, restarted.text)
-        spawn_request = self._fetchone(
-            "SELECT resume_policy, session_handle FROM spawn_requests WHERE id = ?",
-            (restarted.json()["spawnRequest"]["id"],),
-        )
-        self.assertEqual(spawn_request["resume_policy"], "native_first")
-        self.assertEqual(spawn_request["session_handle"], "thread-old")
+        self.assertEqual(restarted.status_code, 409, restarted.text)
+        self.assertIn('no host defines "resident-manager", so it cannot be started', restarted.json()["detail"])
+        self.assertEqual(self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("resident-manager",)), [])
 
     def test_rename_agent_identity_cascades_history_and_blocks_stale_old_id(self):
         self._heartbeat_environment(cwdRoots=["/workspace"])
         self._register("manager", role="manager")
         self._register("peer", role="coder")
-        spawn = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "old-agent",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(spawn.status_code, 200, spawn.text)
-        spawn_id = spawn.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("old-agent")["id"]
         running = self.client.patch(
             f"/api/v1/spawn-requests/{spawn_id}",
             json={"status": "running", "bridgeId": "bridge-current", "sessionHandle": "thread-old"},
         )
         self.assertEqual(running.status_code, 200, running.text)
+        # Running before D8 with no definition: a defined id is not renamed, it is redefined on its host.
+        undefine(self, "old-agent")
         self._send_message(from_agent="old-agent", to="peer", type="info", subject="from old", body="hello", trigger=False)
         self._send_message(from_agent="peer", to="old-agent", type="info", subject="to old", body="hello", trigger=False)
         created = self.client.post("/api/v1/channels", json={"name": "rename-room", "description": "", "createdBy": "old-agent"})
@@ -5827,19 +5764,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_managed_dispatch_claim_rejects_stale_environment_bridge(self):
         self._heartbeat_environment(id="linux:test-host:default", bridgeId="bridge-current")
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "managed-stale-bridge",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("managed-stale-bridge")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -5984,20 +5909,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_spawn_request_targets_environment_and_matching_bridge_claims(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "worker-env",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-                "initialMessage": "Start here",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_request = created.json()["spawnRequest"]
+        spawn_request = self._spawn("worker-env")
         self.assertEqual(spawn_request["status"], "queued")
         self.assertEqual(spawn_request["environmentId"], "linux:test-host:default")
         self.assertEqual(spawn_request["workspaceRoot"], "/workspace")
@@ -6023,20 +5935,10 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_initial_dispatch_failure_marks_running_spawn_request_failed(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "brief-fails",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-                "initialMessage": "Start here",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("brief-fails")["id"]
+        # A spawn request carrying a brief: since D8 none is made (a new agent's brief rides its lifecycle
+        # spawn), so this is one queued before the upgrade.
+        self._execute("UPDATE spawn_requests SET initial_message = ? WHERE id = ?", ("Start here", spawn_id))
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6076,20 +5978,10 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_spawn_request_running_auto_registers_agent_session_and_initial_dispatch(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "spawned-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-                "initialMessage": "Implement a small task",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("spawned-coder", workspace="/workspace/repo")["id"]
+        # A spawn request carrying a brief: since D8 none is made (a new agent's brief rides its lifecycle
+        # spawn), so this is one queued before the upgrade.
+        self._execute("UPDATE spawn_requests SET initial_message = ? WHERE id = ?", ("Implement a small task", spawn_id))
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6138,19 +6030,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_session_stop_interrupts_active_run_and_marks_session_stopped(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "session-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("session-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6161,6 +6041,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"status": "running", "bridgeId": "bridge-current", "processId": "1234"},
         )
         self.assertEqual(running.status_code, 200, running.text)
+        # Running before D8 with no definition: the session stop is the service's own, not its host's.
+        undefine(self, "session-coder")
         session_id = running.json()["spawnRequest"]["sessionId"]
 
         dispatched = self._dispatch(
@@ -6186,7 +6068,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(stopped.status_code, 200, stopped.text)
         payload = stopped.json()
         self.assertEqual(payload["session"]["status"], "stopped")
-        self.assertIsNone(payload["spawnRequest"])
+        # A stop starts nothing: no spawn is queued behind it.
+        self.assertEqual(self._fetchall(
+            "SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued', 'claimed')", ("session-coder",)), [])
         self.assertTrue(payload["interruptControlId"])
 
         controls = self._fetchall(
@@ -6198,89 +6082,26 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(controls[0]["status"], "pending")
         self.assertEqual(controls[0]["body"], "stop now")
 
-    def test_session_restart_queues_spawn_request_from_stored_spec(self):
-        self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "restart-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
-        spec_id = created.json()["spawnRequest"]["spawnSpecId"]
-        claim = self.client.post(
-            "/api/v1/spawn-requests/claim",
-            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
-        )
-        self.assertEqual(claim.status_code, 200, claim.text)
-        running = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn_id}",
-            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234"},
-        )
-        self.assertEqual(running.status_code, 200, running.text)
-        session_id = running.json()["spawnRequest"]["sessionId"]
-
-        restarted = self.client.post(
-            f"/api/v1/sessions/{session_id}/control",
-            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker", "body": "continue from the dashboard"},
-        )
-        self.assertEqual(restarted.status_code, 200, restarted.text)
-        payload = restarted.json()
-        self.assertEqual(payload["session"]["status"], "restarting")
-        self.assertEqual(payload["spawnRequest"]["status"], "queued")
-        self.assertEqual(payload["spawnRequest"]["spawnSpecId"], spec_id)
-        self.assertEqual(payload["spawnRequest"]["environmentId"], "linux:test-host:default")
-        self.assertEqual(payload["spawnRequest"]["workspace"], "/workspace/repo")
-        self.assertEqual(payload["spawnRequest"]["initialMessage"], "continue from the dashboard")
-
-    def test_session_recreate_is_explicit_fresh_context_reset(self):
-        self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "recreate-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
-        self.client.post(
-            "/api/v1/spawn-requests/claim",
-            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
-        )
-        running = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn_id}",
-            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "thread-old"},
-        )
-        self.assertEqual(running.status_code, 200, running.text)
-        session_id = running.json()["spawnRequest"]["sessionId"]
-
-        recreated = self.client.post(
-            f"/api/v1/sessions/{session_id}/control",
-            json={"action": "recreate", "from_agent": "dashboard", "subject": "recreate worker", "body": "fresh start"},
-        )
-        self.assertEqual(recreated.status_code, 200, recreated.text)
-        self.assertEqual(recreated.json()["session"]["status"], "ended")
-        spawn_request = self._fetchone(
-            "SELECT resume_policy, session_handle, initial_message FROM spawn_requests WHERE id = ?",
-            (recreated.json()["spawnRequest"]["id"],),
-        )
-        self.assertEqual(spawn_request["resume_policy"], "fresh_context")
-        self.assertEqual(spawn_request["session_handle"], "")
-        self.assertEqual(spawn_request["initial_message"], "fresh start")
-        agent = self._fetchone("SELECT session_handle, runtime_state FROM agents WHERE id = ?", ("recreate-coder",))
-        self.assertEqual(agent["session_handle"], "")
-        self.assertEqual(agent["runtime_state"], "{}")
+    def test_an_undefined_agents_session_restart_or_recreate_is_refused_and_changes_nothing(self):
+        # Restart and recreate used to queue a spawn from the session's stored spec. Since D8 no agent no host
+        # defines is started (a defined one's go to its host's lifecycle queue,
+        # test_legacy_routes_delegate_defined_agents.py), so for one running from before D8 both are refused,
+        # and the refusal leaves the session, the agent's native handle and the spawn requests as they were.
+        session_id = self._create_running_session(agent_id="restart-coder", session_handle="thread-old")
+        for action in ("restart", "recreate"):
+            with self.subTest(action=action):
+                answered = self.client.post(
+                    f"/api/v1/sessions/{session_id}/control",
+                    json={"action": action, "from_agent": "dashboard", "subject": f"{action} worker", "body": "go"},
+                )
+                self.assertEqual(answered.status_code, 409, answered.text)
+                self.assertIn('no host defines "restart-coder", so it cannot be started', answered.json()["detail"])
+                session = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", (session_id,))
+                self.assertEqual(session["status"], "running")
+                agent = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("restart-coder",))
+                self.assertEqual(agent["session_handle"], "thread-old")
+                spawns = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("restart-coder",))
+                self.assertEqual(len(spawns), 1)
 
     def test_operator_can_set_agent_session_handle_for_each_runtime(self):
         self._heartbeat_environment()
@@ -6370,24 +6191,14 @@ class ApiV2RegressionTests(FastApiTestCase):
                 self.assertNotIn("registeredHandle", json.loads(session["telemetry"]))
 
     def test_runtime_state_update_persists_reported_managed_native_handle(self):
+        # claude-code since D8 (pi, which this used, can no longer be started): it reports its handle as
+        # sessionId, as pi did.
         self._heartbeat_environment(
             id="linux:test-host:default",
             bridgeId="bridge-current",
-            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
         )
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "late-handle-pi",
-                "role": "coder",
-                "runtime": "pi",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("late-handle-claude", runtime="claude-code")["id"]
         running = self.client.patch(
             f"/api/v1/spawn-requests/{spawn_id}",
             json={
@@ -6406,42 +6217,30 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.json()["spawnRequest"]["sessionHandle"], "")
 
         state_update = self.client.patch(
-            "/api/v1/agents/late-handle-pi/runtime-state",
+            "/api/v1/agents/late-handle-claude/runtime-state",
             json={
                 "runtimeState": {
                     "bridgeInstanceId": "bridge-current",
                     "environmentId": "linux:test-host:default",
                     "spawnRequestId": spawn_id,
-                    "sessionId": "pi-native-session",
+                    "sessionId": "claude-native-session",
                 }
             },
         )
         self.assertEqual(state_update.status_code, 200, state_update.text)
 
-        agent = self._fetchone("SELECT session_handle, runtime_state FROM agents WHERE id = ?", ("late-handle-pi",))
-        self.assertEqual(agent["session_handle"], "pi-native-session")
-        self.assertEqual(json.loads(agent["runtime_state"])["sessionId"], "pi-native-session")
+        agent = self._fetchone("SELECT session_handle, runtime_state FROM agents WHERE id = ?", ("late-handle-claude",))
+        self.assertEqual(agent["session_handle"], "claude-native-session")
+        self.assertEqual(json.loads(agent["runtime_state"])["sessionId"], "claude-native-session")
         session = self._fetchone(
             "SELECT session_handle FROM agent_sessions WHERE agent_id = ? AND spawn_request_id = ?",
-            ("late-handle-pi", spawn_id),
+            ("late-handle-claude", spawn_id),
         )
-        self.assertEqual(session["session_handle"], "pi-native-session")
+        self.assertEqual(session["session_handle"], "claude-native-session")
 
     def test_recovered_session_running_ends_previous_recovering_session(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "recover-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("recover-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6454,15 +6253,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.status_code, 200, running.text)
         old_session_id = running.json()["spawnRequest"]["sessionId"]
 
-        # Lifecycle cleanup (2026-06-03): `recover` was a byte-identical alias of
-        # `restart`; the alias was dropped, so this flow now uses `restart`.
-        recover = self.client.post(
-            f"/api/v1/sessions/{old_session_id}/control",
-            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker"},
-        )
-        self.assertEqual(recover.status_code, 200, recover.text)
-        self.assertEqual(recover.json()["session"]["status"], "restarting")
-        recover_spawn_id = recover.json()["spawnRequest"]["id"]
+        # The worker is recovering, and the agent's next start (since D8 a defined agent's cold start; the
+        # session restart that used to make it goes to the host's lifecycle queue) brings up its successor.
+        self._execute("UPDATE agent_sessions SET status = 'recovering' WHERE id = ?", (old_session_id,))
+        recover_spawn_id = self._respawn("recover-coder")
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6485,19 +6279,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_runtime_state_update_refreshes_current_managed_session(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "fresh-backed-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("fresh-backed-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6555,19 +6337,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_session_cli_takeover_pauses_dashboard_delivery(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "takeover-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("takeover-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6620,12 +6390,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_resident_register_requires_manual_switch_from_managed_agent(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={"createdBy": "dashboard", "environmentId": "linux:test-host:default", "agentId": "auto-owner", "role": "coder", "runtime": "codex", "workspace": "/workspace/repo"},
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("auto-owner", workspace="/workspace/repo")["id"]
         self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"})
         running = self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "managed-thread"})
         self.assertEqual(running.status_code, 200, running.text)
@@ -7558,14 +7323,12 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_stale_resident_send_does_not_auto_return_to_managed(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={"createdBy": "dashboard", "environmentId": "linux:test-host:default", "agentId": "return-owner", "role": "coder", "runtime": "codex", "workspace": "/workspace/repo"},
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("return-owner", workspace="/workspace/repo")["id"]
         self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"})
         self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "managed-thread"})
+        # Running before D8 with no definition: its session mode is the operator's to switch (a defined
+        # agent's is its definition's).
+        undefine(self, "return-owner")
         self._register(
             "return-owner",
             runtime="codex",
@@ -7591,14 +7354,13 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_session_stop_marks_resident_owner_for_bridge_termination(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={"createdBy": "dashboard", "environmentId": "linux:test-host:default", "agentId": "stop-resident", "role": "coder", "runtime": "codex", "workspace": "/workspace/repo"},
-        )
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("stop-resident", workspace="/workspace/repo")["id"]
         self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"})
         running = self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "managed-thread"})
         session_id = running.json()["spawnRequest"]["sessionId"]
+        # Running before D8 with no definition: its session mode is the operator's to switch (a defined
+        # agent's is its definition's).
+        undefine(self, "stop-resident")
         self._register(
             "stop-resident",
             runtime="codex",
@@ -7621,19 +7383,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_list_sessions_repairs_superseded_recovering_rows(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "repair-recover-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("repair-recover-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -7715,19 +7465,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_session_stop_cancels_pending_recovery_and_late_bridge_running_is_rejected(self):
         self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "cancel-recover-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        spawn_id = self._spawn("cancel-recover-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -7740,19 +7478,16 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.status_code, 200, running.text)
         session_id = running.json()["spawnRequest"]["sessionId"]
 
-        # Lifecycle cleanup (2026-06-03): `recover` alias dropped -> use `restart`.
-        recover = self.client.post(
-            f"/api/v1/sessions/{session_id}/control",
-            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker"},
-        )
-        self.assertEqual(recover.status_code, 200, recover.text)
-        pending_spawn_id = recover.json()["spawnRequest"]["id"]
+        # A successor spawn is claimed (since D8 a defined agent's cold start makes it) ...
+        pending_spawn_id = self._respawn("cancel-recover-coder")
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
         )
         self.assertEqual(claim_recover.status_code, 200, claim_recover.text)
         self.assertEqual(claim_recover.json()["spawnRequest"]["id"], pending_spawn_id)
+        # ... for an agent running from before D8 with no definition, whose session stop is the service's own.
+        undefine(self, "cancel-recover-coder")
 
         stopped = self.client.post(
             f"/api/v1/sessions/{session_id}/control",
@@ -7894,6 +7629,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_spawn_request_normalizes_linux_workspace_slashes_before_persisting(self):
         self._heartbeat_environment(cwdRoots=["/home/dev/projects"])
+        publish(self, environment_id="linux:test-host:default", machine_id="linux:test-host", bridge_id="bridge-current")
         created = self.client.post(
             "/api/v1/spawn-requests",
             json={
@@ -7906,16 +7642,15 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
-        self.assertEqual(spawn["workspace"], "/home/dev/projects/blei-code-intel")
-        self.assertEqual(spawn["spawnSpec"]["workspace"], "/home/dev/projects/blei-code-intel")
-
+        # D8: what is persisted is the agent its host is asked to define, and the host is handed it as asked.
+        self.assertEqual(created.json()["definitionRequest"]["patch"]["workspace"], "/home/dev/projects/blei-code-intel")
         claimed = self.client.post(
-            "/api/v1/spawn-requests/claim",
-            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+            "/api/v1/environments/linux:test-host:default/definition-requests/claim",
+            json={"bridgeId": "bridge-current", "machineId": "linux:test-host"},
         )
         self.assertEqual(claimed.status_code, 200, claimed.text)
-        self.assertEqual(claimed.json()["spawnRequest"]["workspace"], "/home/dev/projects/blei-code-intel")
+        self.assertEqual([request["patch"]["workspace"] for request in claimed.json()["requests"]],
+                         ["/home/dev/projects/blei-code-intel"])
 
     def test_channel_fanout_suppresses_duplicate_direct_delivery(self):
         self._register("alice", runtime="codex", sessionMode="managed")
@@ -8766,14 +8501,10 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_async_manager_summary_does_not_duplicate_explicit_dashboard_reply(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
-        self._create_running_session(
-            agent_id="manager",
-            role="manager",
-            terminal=True,
-            runtime="opencode",
-            terminal_runtimes=["opencode"],
-            session_handle="opencode-session-1",
-        )
+        # Registered, not started: since D8 no managed opencode worker can be started (it is no harness a
+        # definition can name), and the delivery path under test does not need one.
+        self._register("manager", role="manager", runtime="opencode", sessionMode="managed", launchMode="managed",
+                       sessionHandle="opencode-session-1")
         self._register("coder", runtime="codex", sessionMode="managed")
 
         sent = self._send_message(
@@ -8805,6 +8536,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             "SELECT COUNT(*) AS c FROM messages WHERE from_agent = 'manager' AND to_agent = 'dashboard'"
         )
         self.assertEqual(count["c"], 1)
+        # ...because the mirror found the explicit report, not because it never looked.
+        skipped = self._fetchone(
+            "SELECT 1 FROM dispatch_events WHERE run_id = ? AND event_type = 'dashboard_report_skipped'", (run_id,))
+        self.assertIsNotNone(skipped)
 
     def test_triggered_send_steers_busy_target_by_default_and_can_explicitly_queue(self):
         self._register("lead", runtime="codex", sessionMode="managed")
@@ -8886,14 +8621,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("qa", runtime="codex", sessionMode="managed")
-        self._create_running_session(
-            agent_id="manager",
-            role="manager",
-            terminal=True,
-            runtime="opencode",
-            terminal_runtimes=["opencode"],
-            session_handle="opencode-session-1",
-        )
+        # Registered, not started: since D8 no managed opencode worker can be started (it is no harness a
+        # definition can name), and the delivery path under test does not need one.
+        self._register("manager", role="manager", runtime="opencode", sessionMode="managed", launchMode="managed",
+                       sessionHandle="opencode-session-1")
 
         active = self._dispatch(
             from_agent="dashboard",
@@ -10962,6 +10693,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._register("toggle-codex", runtime="codex", sessionMode="managed")
         self.client.post("/api/v1/agents/toggle-codex/control", json={"action": "stop", "from_agent": "dashboard"})
         self.client.post("/api/v1/agents/toggle-codex/control", json={"action": "resume", "from_agent": "dashboard"})
+        # D8: only a defined agent is cold-started. Defined after the stop and resume, which are the
+        # service's own for an agent no host defines (a defined one's go to its host's lifecycle queue).
+        define(self, "toggle-codex", environment_id="env_codex", machine_id="linux:codex", bridge_id="bridge-codex",
+               runtime="codex")
 
         sent = self._send_message(
             from_agent="peer",
@@ -13296,6 +13031,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         for agent_id, stored_handle in (("g1-coder", "codex-thread-g1"), ("g1-fresh", "")):
             with self.subTest(stored_handle=stored_handle):
                 self._register(agent_id, runtime="codex", sessionMode="managed")
+                define(self, agent_id, environment_id="env_g1", machine_id="linux:g1", bridge_id="bridge-g1",
+                       runtime="codex")  # D8: only a defined agent is cold-started
                 if stored_handle:
                     self._execute("UPDATE agents SET session_handle = ? WHERE id = ?", (stored_handle, agent_id))
 

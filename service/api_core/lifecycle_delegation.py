@@ -1,6 +1,6 @@
 """The existing start, stop, restart and delete entry points hand a DEFINED agent to the D9 lifecycle queue.
 
-Asked before any legacy effect. An undefined agent answers None and keeps its legacy path until D8.
+Asked before any legacy effect. An undefined agent answers None; since D8 its caller refuses a start of it.
 The lifetime the request must name comes only from what the agent's own host published (the G8 mirror),
 never from a session id or a pid; the host checks it again before it acts.
 """
@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from service.api_core import agent_lifecycle_requests as lifecycle
 from service.api_core import partial_status_shadow as shadow
+from service.api_core.definition_requests import OPEN_SQL
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import require_lifecycle
 from service.clock import now
@@ -62,10 +63,17 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False)
             'freshContext': fresh_context}
     await db.execute('BEGIN IMMEDIATE')
     try:
-        queued = await lifecycle.admit_lifecycle(db, agent_id, body, proof, now())
+        # A REPEAT OF WHAT IS ALREADY WAITING is that request, not an error: a second Start clicked while the
+        # first is still queued answered 409 "open lifecycle request". Another action waiting is still refused.
+        waiting = await (await db.execute(
+            f"SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND action=? AND status IN {OPEN_SQL}",
+            (agent_id, action))).fetchone()
+        queued = (await lifecycle.lifecycle_request_by_id(db, waiting['id']) if waiting
+                  else await lifecycle.admit_lifecycle(db, agent_id, body, proof, now()))
         await db.commit()
     except BaseException:
         await db.rollback()
         raise
     # QUEUED IS NOT DONE: the host executes it. Callers say so and point at the receipt.
-    return {'ok': True, 'agentId': agent_id, 'action': action, 'queued': True, 'request': queued}
+    return {'ok': True, 'agentId': agent_id, 'action': action, 'queued': True, 'request': queued,
+            'alreadyQueued': waiting is not None}

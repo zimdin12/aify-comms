@@ -21,6 +21,9 @@ def _iso(dt: datetime) -> str:
 from service.tests._base import FastApiTestCase
 from service.api_core.settings import _load_settings
 from service.api_core import dispatch_start  # v0.5.4: call the OWNER, not the carrier alias
+from service.tests.defined_agents import define
+
+HOST = {"environment_id": "linux:test-host:default", "machine_id": "linux:test-host", "bridge_id": "bridge-current"}
 
 
 class LifecyclePhase7Tests(FastApiTestCase):
@@ -126,6 +129,7 @@ class LifecyclePhase7Tests(FastApiTestCase):
     def test_coldstart_creates_queued_spawn_request_for_cold_managed_agent(self):
         self._heartbeat_environment()
         self._register("worker", runtime="codex", sessionMode="managed")
+        define(self, "worker", runtime="codex", workspace="/workspace/project", **HOST)
         self._seed_ended_session("worker")
 
         created = self._coldstart("worker")
@@ -146,6 +150,7 @@ class LifecyclePhase7Tests(FastApiTestCase):
     def test_coldstart_is_idempotent_when_a_claimable_spawn_request_exists(self):
         self._heartbeat_environment()
         self._register("worker", runtime="codex", sessionMode="managed")
+        define(self, "worker", runtime="codex", workspace="/workspace/project", **HOST)
         self._seed_ended_session("worker")
 
         first = self._coldstart("worker")
@@ -165,6 +170,7 @@ class LifecyclePhase7Tests(FastApiTestCase):
     def test_coldstart_autobinds_first_online_env_when_no_prior_session(self):
         self._heartbeat_environment()  # advertises codex, online
         self._register("fresh", runtime="codex", sessionMode="managed")
+        define(self, "fresh", runtime="codex", **HOST)
         # No _seed_ended_session — this agent has never run.
 
         created = self._coldstart("fresh")
@@ -187,6 +193,7 @@ class LifecyclePhase7Tests(FastApiTestCase):
         # create NOTHING.
         self._heartbeat_environment()  # codex only
         self._register("lonely", runtime="hermes", sessionMode="managed")
+        define(self, "lonely", runtime="hermes", **HOST)
 
         created = self._coldstart("lonely", runtime="hermes")
         self.assertFalse(created, "cold-start must decline when no online env advertises the runtime")
@@ -195,13 +202,16 @@ class LifecyclePhase7Tests(FastApiTestCase):
 
     def test_coldstart_skips_offline_env_and_picks_online_one(self):
         # Two envs advertise codex: one offline (stale heartbeat), one online.
-        # Auto-bind must skip the offline env and choose the online one.
+        # Auto-bind must skip the offline env and choose the online one. Both are on the machine that
+        # defines the agent, so the machine is not what tells them apart.
         stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._heartbeat_environment(id="env-online", bridgeId="bridge-online", machineId="linux:online")
-        self._heartbeat_environment(id="env-offline", bridgeId="bridge-offline", machineId="linux:offline")
+        self._heartbeat_environment(id="env-online", bridgeId="bridge-online", machineId="linux:picky")
+        self._register("picky", runtime="codex", sessionMode="managed")
+        define(self, "picky", runtime="codex", environment_id="env-online", machine_id="linux:picky",
+               bridge_id="bridge-online")
+        self._heartbeat_environment(id="env-offline", bridgeId="bridge-offline", machineId="linux:picky")
         # Force env-offline stale so its effective status degrades to offline.
         self._execute("UPDATE environments SET last_seen = ? WHERE id = ?", (stale, "env-offline"))
-        self._register("picky", runtime="codex", sessionMode="managed")
 
         created = self._coldstart("picky")
         self.assertTrue(created)

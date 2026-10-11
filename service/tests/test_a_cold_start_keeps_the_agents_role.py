@@ -6,8 +6,10 @@ cold-start writes its spawn request with `role='coder'` and `name=<agent id>`
 (`running_spawn.py`). So a reviewer woken by a message comes back a coder. P3 is held to this test,
 which is written against today's code first and must go red there.
 
-It drives the real routes: the spawn route, the claim, and the `running` report that brings a request
-up, as `test_a_start_says_whether_it_replaces_a_live_instance.py` does.
+It drives the real routes: the definition push, the claim, and the `running` report that brings a request
+up, as `test_a_start_says_whether_it_replaces_a_live_instance.py` does. Since D8 a defined agent's role is
+held twice (the cold start copies the agent's role, and the running transition keeps a defined agent's
+own), so this goes red only when both give way.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 
 
 class AColdStartKeepsTheAgentsRole(FastApiTestCase):
@@ -64,12 +67,10 @@ class AColdStartKeepsTheAgentsRole(FastApiTestCase):
         from service.db import get_db
 
         agent_id = "the-reviewer"
-        created = self.client.post("/api/v1/spawn-requests", json={
-            "agentId": agent_id, "environmentId": self.ENV, "runtime": "claude-code",
-            "role": "reviewer", "name": "The Reviewer", "workspace": "/work", "createdBy": "dashboard",
-        })
-        self.assertEqual(created.status_code, 200, created.text)
-        self._bring_up(created.json()["spawnRequest"]["id"])
+        # Since D8 an agent starts only from its host's definition, which carries its role and name.
+        created = spawn_defined(self, agent_id, environment_id=self.ENV, machine_id="linux:role-host",
+                                bridge_id=self.BRIDGE, workspace="/work", role="reviewer", name="The Reviewer")
+        self._bring_up(created["id"])
         # CONTROL: the first start did set the identity this test then expects to survive.
         self.assertEqual(self._identity(agent_id), [{"role": "reviewer", "name": "The Reviewer"}])
 

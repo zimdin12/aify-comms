@@ -17,9 +17,11 @@ import asyncio
 import aiosqlite
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 
 ENVIRONMENT_ID = "env-list-pairs"
 BRIDGE_ID = "bridge-list-pairs"
+MACHINE_ID = "linux:test-host"
 
 
 class SpawnRequestListPairsEachSpec(FastApiTestCase):
@@ -32,7 +34,7 @@ class SpawnRequestListPairsEachSpec(FastApiTestCase):
             json={
                 "id": ENVIRONMENT_ID,
                 "label": "Linux on test-host",
-                "machineId": "linux:test-host",
+                "machineId": MACHINE_ID,
                 "os": "linux",
                 "kind": "linux",
                 "bridgeId": BRIDGE_ID,
@@ -45,18 +47,13 @@ class SpawnRequestListPairsEachSpec(FastApiTestCase):
 
     def _create(self, workspace: str) -> str:
         """One spawn request, and with it one spec. The workspace differs per request so each row's
-        spec is DISTINGUISHABLE -- which is the whole point."""
-        response = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "environmentId": ENVIRONMENT_ID,
-                "agentId": "lc-worker",
-                "runtime": "codex",
-                "workspace": workspace,
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()["spawnRequest"]["id"]
+        spec is DISTINGUISHABLE -- which is the whole point.
+
+        Since D8 the only spawn request made is a defined agent's cold start, and one agent has one in
+        flight at a time, so each request is its own agent, defined at that workspace."""
+        agent_id = f"lc-worker-{workspace.rsplit('/', 1)[-1]}"
+        return spawn_defined(self, agent_id, environment_id=ENVIRONMENT_ID, machine_id=MACHINE_ID,
+                             bridge_id=BRIDGE_ID, runtime="codex", workspace=workspace)["id"]
 
     def _list(self, limit: int = 100) -> list[dict]:
         response = self.client.get(f"/api/v1/spawn-requests?limit={limit}")

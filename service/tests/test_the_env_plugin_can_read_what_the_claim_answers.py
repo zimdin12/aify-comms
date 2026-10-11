@@ -42,6 +42,7 @@ from pathlib import Path
 
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 from service.tests.test_the_env_plugin_addresses_routes_this_service_serves import (
     PLUGIN_DIR, env_repo,
 )
@@ -60,9 +61,9 @@ RUNTIME = "codex"
 #: DELIBERATELY NOT THE PLUGIN'S DEFAULT, and a surviving mutant is why. The plugin builds its
 #: runtime state as `request.resumePolicy || "native_first"`, so seeding the default would make a
 #: renamed read indistinguishable from a working one -- the fallback would supply the same value
-#: and the fidelity check would agree with a broken plugin. `resumePolicy` is free-form on this
-#: side (`req.resumePolicy or "native_first"`), so a distinct value is a thing a real caller can
-#: send.
+#: and the fidelity check would agree with a broken plugin. Since D8 the only spawn request this
+#: service queues is a message's cold start, which writes `native_first`; a request queued before
+#: D8 by a caller that named another policy still carries it, so the seeded request is given one.
 RESUME_POLICY = "resume_only"
 
 #: The one outcome `runClaimPass` returns by falling through rather than by naming a failure.
@@ -185,14 +186,18 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         self.assertEqual(beat.status_code, 200, beat.text)
 
     def _a_spawn_request(self) -> str:
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={"createdBy": "dashboard", "environmentId": ENVIRONMENT_ID, "agentId": AGENT_ID,
-                  "role": "coder", "runtime": RUNTIME, "workspace": WORKSPACE,
-                  "resumePolicy": RESUME_POLICY},
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        return created.json()["spawnRequest"]["id"]
+        """The spawn request a host claims: since D8, a defined agent's cold start (`spawn_defined`)."""
+        import sqlite3
+
+        spawn_id = spawn_defined(self, AGENT_ID, environment_id=ENVIRONMENT_ID, machine_id=MACHINE_ID,
+                                 bridge_id=CLAIMING_BRIDGE, runtime=RUNTIME, workspace=WORKSPACE)["id"]
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute("UPDATE spawn_requests SET resume_policy = ? WHERE id = ?", (RESUME_POLICY, spawn_id))
+            db.commit()
+        finally:
+            db.close()
+        return spawn_id
 
     def _claim_answer(self) -> dict:
         """What this service really answers a claiming host — through the real route."""
@@ -363,6 +368,18 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         self.assertEqual(listed.status_code, 200, listed.text)
         return listed.json().get("agents") or {}
 
+    def _sessions_of(self, spawn_id: str) -> list[dict]:
+        """The sessions the spawn request brought up. Since D8 the agent is on the roster from its
+        definition before it ever runs, so its SESSION is what a report running brings into being."""
+        import sqlite3
+
+        db = sqlite3.connect(self._db_path)
+        try:
+            return [{"agent_id": row[0], "status": row[1]} for row in db.execute(
+                "SELECT agent_id, status FROM agent_sessions WHERE spawn_request_id = ?", (spawn_id,))]
+        finally:
+            db.close()
+
     def _replay(self, reports: list[dict]) -> list[int]:
         """Send the plugin's recorded reports to the REAL route, in the order it sent them."""
         statuses = []
@@ -396,11 +413,12 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         # on its own -- a seeding step that already registered one would satisfy it while the
         # replay did nothing at all. I measured the absence by hand and review measured it
         # independently, and neither reading is in the suite, so the claim rested on two people
-        # remembering. It rests on this line now.
-        self.assertNotIn(
-            AGENT_ID, self._agents(),
-            "the agent already existed before the plugin reported anything, so the check below "
-            "cannot tell a working round trip from a fixture that registered it")
+        # remembering. It rests on this line now. Since D8 the defined agent is listed before it
+        # runs, so the contrast is its session: none before the reports, one after.
+        self.assertEqual(
+            self._sessions_of(spawn_id), [],
+            "a session for this spawn already existed before the plugin reported anything, so the "
+            "check below cannot tell a working round trip from a fixture that brought one up")
 
         statuses = self._replay(read["reported"])
         self.assertEqual(
@@ -414,6 +432,10 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
             "the spawn was claimed and reported running and no agent exists, which is the state "
             "the `spawn-queue` doctor row was written for: work taken and not done, with every "
             f"other instrument reading healthy. Agents present: {sorted(agents)}")
+        self.assertEqual(
+            [row["agent_id"] for row in self._sessions_of(spawn_id)], [AGENT_ID],
+            "the spawn was claimed and reported running and no session of its agent exists: work "
+            "taken and not done")
 
         # AND THE REQUEST IS NO LONGER OUTSTANDING. An agent that exists while its request still
         # reads claimed is the same stranded state seen from the other side.
@@ -436,7 +458,7 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         is doing.
         """
         self._heartbeat()
-        self._a_spawn_request()
+        spawn_id = self._a_spawn_request()
         read = self._read_by_the_plugin(self._claim_answer())
         self.assertTrue(read["reported"], "nothing was reported, so this control replays nothing")
 
@@ -455,11 +477,11 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
             "accepted report is enough to register the agent, so a partial refusal is none: "
             f"{statuses}")
 
-        # AND NOTHING WAS CREATED BY IT, which is the consequence the status codes only imply.
-        agents = self.client.get("/api/v1/agents").json().get("agents") or {}
-        self.assertNotIn(
-            AGENT_ID, agents,
-            "a bridge that never claimed this request nevertheless brought its agent into being")
+        # AND NOTHING WAS CREATED BY IT, which is the consequence the status codes only imply. Since
+        # D8 the defined agent is listed before it runs, so what must not exist is its session.
+        self.assertEqual(
+            self._sessions_of(spawn_id), [],
+            "a bridge that never claimed this request nevertheless brought its agent's session into being")
 
     # ── the negative control, driven by REMOVING what the claim watches ──────────────────────
 

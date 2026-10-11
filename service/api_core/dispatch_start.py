@@ -49,6 +49,7 @@ from service.api_core.channel_delivery import _has_live_worker_for
 from service.api_core.definition_start import (
     CHANGED_WHILE_STARTING,
     StartRefused,
+    undefined_refusal,
     insert_spawn_request,
     spec_columns,
     start_binding,
@@ -175,6 +176,8 @@ async def _coldstart_spawn_request_for_dispatch(
                 "forked beside a live resident session. Switch it to managed first if that is intended")
     elif twin := await twin_refusal(db, _agent_row):
         return _coldstart_refusal(warnings, twin)
+    if binding is None:
+        return _coldstart_refusal(warnings, undefined_refusal(agent_id))
 
     # Don't pile up duplicate cold-starts — a queued/claimed/recently-running spawn_request
     # is already a (possibly mid-boot) backing for this agent. Bug D fix (2026-07-02): the

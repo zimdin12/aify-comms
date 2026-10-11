@@ -18,6 +18,7 @@ import service.api_core.terminal_controls_io as terminal_controls_io
 import service.routers.spawn_requests as spawn_requests_router
 from service.api_core.host_proof import _digest
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 from service.tests.test_agent_definition_push import A
 
 RUNTIMES = [{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {}}]
@@ -34,6 +35,11 @@ class AClaimJudgesItsProofUnderTheWriteLock(FastApiTestCase):
             "terminalRuntimes": ["claude-code"], "metadata": {"bridgeKind": "aify-env"}})
         self.assertEqual(beat.status_code, 200, beat.text)
         self.assertEqual(self.rows("SELECT machine_id FROM host_proofs"), [], "control: the machine starts unenrolled")
+
+    def spawned(self, agent_id):
+        """A spawn request to update: since D8 the only one made is a defined agent's cold start."""
+        return spawn_defined(self, agent_id, environment_id=A["env"], machine_id=A["machine"], bridge_id=A["bridge"],
+                             workspace="/work")["id"]
 
     def rows(self, sql, params=()):
         conn = sqlite3.connect(str(self._db_path))
@@ -150,10 +156,7 @@ class AClaimJudgesItsProofUnderTheWriteLock(FastApiTestCase):
         self.assertEqual(self.rows("SELECT machine_id FROM host_proofs"), [], "nothing enrolled before the claim's commit")
 
     def test_a_spawn_update_raced_by_an_enrollment_writes_nothing(self):
-        made = self.client.post("/api/v1/spawn-requests", json={
-            "environmentId": A["env"], "agentId": "worker", "runtime": "claude-code", "workspace": "/work"})
-        self.assertEqual(made.status_code, 200, made.text)
-        request_id = made.json()["spawnRequest"]["id"]
+        request_id = self.spawned("worker")
         took = self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": A["env"], "bridgeId": A["bridge"]})
         self.assertEqual(took.status_code, 200, took.text)
         updated = self.enrolled_while(spawn_requests_router, lambda: self.client.patch(
@@ -170,9 +173,7 @@ class AClaimJudgesItsProofUnderTheWriteLock(FastApiTestCase):
         conn.close()
         claimed = self.client.post("/api/v1/terminals/controls/claim", json={"environmentId": A["env"], "bridgeId": A["bridge"]})
         self.assertEqual([c["id"] for c in claimed.json()["controls"]], ["ctl-2"])
-        made = self.client.post("/api/v1/spawn-requests", json={
-            "environmentId": A["env"], "agentId": "worker2", "runtime": "claude-code", "workspace": "/work"})
-        request_id = made.json()["spawnRequest"]["id"]
+        request_id = self.spawned("worker2")
         self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": A["env"], "bridgeId": A["bridge"]}).raise_for_status()
         updated = self.client.patch(f"/api/v1/spawn-requests/{request_id}", json={"status": "failed", "bridgeId": A["bridge"], "error": "x"})
         self.assertEqual(updated.status_code, 200, updated.text)

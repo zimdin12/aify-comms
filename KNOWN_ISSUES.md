@@ -8,6 +8,14 @@ kept as evidence. Last reviewed 2026-09-27.
 - Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.
 - Deferred diagnostic privacy: fatal-line forwarding to spawn_requests.error is bounded but does not redact secrets or distinguish conversation text; inherited behavior, not a privacy guarantee.
 
+## Handoff compaction under the same id is refused for a defined agent (0.9 D8, 2026-10-11)
+
+`comms_compact` in handoff mode, and the dashboard's Compact, spawn the successor through `POST /spawn-requests`.
+Since 0.8 that route has refused an id a host defines, and since D8 every managed agent is defined. So a handoff
+that keeps the agent's id is refused. One with a new successor id still works, and defines that successor on its
+host. Native compaction (`/compact/native`) is unaffected. The planned fix is a fresh-context lifecycle `restart`
+that carries the handoff brief (0.9.1).
+
 ## A lifecycle action that ends `execution-unknown` keeps its agent reserved (0.9 D9a, 2026-10-10)
 
 aify-env records every lifecycle action in `~/.aify/agent-lifecycle.json` before it acts. When the

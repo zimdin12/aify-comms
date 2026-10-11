@@ -108,7 +108,8 @@ async function compactByHandoff({ from, targetAgentId, newAgentId, role, environ
       sameAgentId: successorId === targetAgentId,
     },
   });
-  const req = r.spawnRequest || {};
+  // A new successor id is defined by its host first (D8): the answer is that definition request.
+  const req = r.spawnRequest || r.definitionRequest || {};
   const identityText = successorId === targetAgentId ? `same agent ID "${successorId}"` : `successor "${successorId}"`;
   return {
     content: [{

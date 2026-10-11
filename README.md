@@ -131,7 +131,9 @@ Rules that cost real hours:
 5. **Upgrading to 0.8 moves agent definitions to aify-env.** With aify-env 0.8 running,
    `aify-env agents import` shows what it would define from this service's registry; `--write` defines
    them, and `aify-env agents remove <id>` drops one you no longer run. Run this `install.sh` before
-   aify-wrapper's own installer: its 0.8 launchers need this bridge's definition reader.
+   aify-wrapper's own installer: its 0.8 launchers need this bridge's definition reader. From 0.9 a
+   managed agent no host defines is not started at all, so run `--write` when you upgrade. A spawn
+   of a new id asks its host to define it first.
 
 Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day:
 `tier-version`, `env-code-currency`, `spawn-queue`, `session-handles`, `context-window`,

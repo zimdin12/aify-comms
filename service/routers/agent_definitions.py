@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
+from service.api_core.definition_creation import spawn_created
 from service.api_core.definition_push import apply_definition_push
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.serialization import _normalize_machine_id
@@ -40,6 +41,8 @@ async def push_agent_definitions(environment_id: str, push: DefinitionPush, requ
             # the dashboard can say two stores claim the machine.
             await db.commit()
             raise
+        # D8: a creation done and now published starts here.
+        await spawn_created(db, body["machineId"].strip(), _now())
         await db.commit()
     finally:
         await db.close()

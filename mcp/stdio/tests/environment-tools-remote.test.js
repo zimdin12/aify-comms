@@ -464,22 +464,22 @@ test("an explicit subject is not overwritten by the derived one", async () => {
   assert.equal(JSON.parse(REQUESTS.filter((r) => r.method === "POST")[0].body).subject, "index work");
 });
 
-test("the reply names the queued request and its status", async () => {
+test("the reply names the queued definition request and its status (D8: defined first, then spawned)", async () => {
   // The caller polls on this id. A confirmation without it is a spawn the agent cannot follow up on.
   reset((req) => (req.method === "POST"
-    ? { spawnRequest: { id: "sr-77", status: "queued" } }
+    ? { spawnRequest: null, definitionRequest: { id: "defreq-77", status: "pending" } }
     : { environments: [ONLINE] }));
   const result = await tool("comms_spawn").callback({
     from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
   });
-  assert.match(text(result), /Spawn request: sr-77 \[queued\]/);
-  assert.match(text(result), /Queued persistent agent "new-agent" in env-wsl \(claude-code, \/home\/dev\)/);
+  assert.match(text(result), /Definition request: defreq-77 \[pending\]/);
+  assert.match(text(result), /asked the host of env-wsl to define "new-agent" \(claude-code, \/home\/dev\)/);
 });
 
-test("a service that returns NO spawn request still reports something followable", async () => {
+test("a service that returns NO definition request still reports something followable", async () => {
   reset((req) => (req.method === "POST" ? {} : { environments: [ONLINE] }));
   const result = await tool("comms_spawn").callback({
     from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
   });
-  assert.match(text(result), /Spawn request: unknown \[queued\]/);
+  assert.match(text(result), /Definition request: unknown \[pending\]/);
 });

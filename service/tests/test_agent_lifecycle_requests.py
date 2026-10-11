@@ -86,8 +86,12 @@ class LifecycleRequests(FastApiTestCase):
         with ThreadPoolExecutor(2) as pool:
             responses = list(pool.map(lambda n: self.ask(requestId=f'life-{n}'), (1, 2)))
         self.assertEqual(sorted(r.status_code for r in responses), [200, 409])
+        # A copy of the open request under a new id, whatever columns the table has.
+        copied = [c['name'] for c in self.sql("PRAGMA table_info(agent_lifecycle_requests)") if c['name'] != 'id']
+        self.assertIn('agent_id', copied, 'the column read found the table')
         with self.assertRaises(sqlite3.IntegrityError):
-            self.sql("INSERT INTO agent_lifecycle_requests SELECT 'duplicate', agent_id, machine_id, store_id, expected_incarnation, expected_revision, expected_lifetime, action, requested_by, fresh_context, intent, status, outcome, result_lifetime, result_incarnation, result_revision, created_at, claimed_at, finished_at FROM agent_lifecycle_requests")
+            self.sql(f"INSERT INTO agent_lifecycle_requests (id, {', '.join(copied)}) "
+                     f"SELECT 'duplicate', {', '.join(copied)} FROM agent_lifecycle_requests")
 
     def test_claim_and_report_fences_and_immutable_result(self):
         self.assertEqual(self.ask().status_code, 200)

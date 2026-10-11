@@ -68,12 +68,20 @@ async def admit_lifecycle(db, agent_id, body, proof, now):
         return lifecycle_record(old)
     if body.get('expectedRevision', held['revision']) != held['revision']:
         raise HTTPException(409, 'definition revision moved')
-    waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN ('pending','claimed')", (agent_id,))).fetchone()
+    await queue_lifecycle(db, request_id, held, action=body['action'], actor=proof.actor,
+                          expected_lifetime=body['expectedLifetime'], fresh_context=body.get('freshContext', False),
+                          intent=intent, now=now)
+    return await lifecycle_request_by_id(db, request_id)
+
+
+async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifetime, fresh_context, intent, now, brief=''):
+    """Insert one request for the definition `held`, after its caller has judged who may ask. 409 while the
+    agent has another one open."""
+    waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN ('pending','claimed')", (held['agent_id'],))).fetchone()
     if waiting:
         raise HTTPException(409, f"agent has an open lifecycle request {waiting['id']}")
-    await db.execute('INSERT INTO agent_lifecycle_requests (id,agent_id,machine_id,store_id,expected_incarnation,expected_revision,expected_lifetime,action,requested_by,fresh_context,intent,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        (request_id,agent_id,held['machine_id'],held['store_id'],held['incarnation'],held['revision'],body['expectedLifetime'],body['action'],proof.actor,body.get('freshContext',False),intent,now))
-    return await lifecycle_request_by_id(db, request_id)
+    await db.execute('INSERT INTO agent_lifecycle_requests (id,agent_id,machine_id,store_id,expected_incarnation,expected_revision,expected_lifetime,action,requested_by,fresh_context,intent,brief,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (request_id,held['agent_id'],held['machine_id'],held['store_id'],held['incarnation'],held['revision'],expected_lifetime,action,actor,fresh_context,intent,brief,now))
 
 
 async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now):

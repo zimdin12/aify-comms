@@ -12,6 +12,7 @@ import sqlite3
 import threading
 
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import cold_start, undefine
 from service.tests.test_agent_definition_push import A, snapshot_digest, valid
 
 LINUX = {"env": "linux:p3b-host:default", "machine": "linux:p3b-host", "bridge": "bridge-p3b"}
@@ -90,13 +91,20 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
                          "control: an undefined agent's adopt branch writes")
 
     def test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes(self):
+        """Since D8 a spawn request is only ever queued for a defined agent (a message's cold start), so the
+        spawn that reaches running with a stale description is one built from an EARLIER revision: it comes up
+        as the definition now describes, not as its request said. The control is an agent whose spawn was
+        queued while defined and which is undefined by the time it runs, as one in flight across the D8
+        upgrade is: it comes up as its request says."""
+        self.define(valid("lead", role="from-request", name="From Request", instructions="from the request"),
+                    valid("plain", incarnation=2, role="from-request", name="From Request",
+                          instructions="from the request"))
         for agent_id in ("lead", "plain"):
-            created = self.client.post("/api/v1/spawn-requests", json={
-                "agentId": agent_id, "environmentId": A["env"], "runtime": "claude-code", "role": "from-request",
-                "name": "From Request", "instructions": "from the request", "workspace": "/work", "createdBy": "dashboard"})
-            self.assertEqual(created.status_code, 200, created.text)
+            self.assertEqual(cold_start(self, agent_id), [], agent_id)
+        undefine(self, "plain")
         self.register("lead")
-        self.define(valid("lead", role="reviewer", name="The Lead", instructions="review everything"))
+        self.register("plain")
+        self.define(valid("lead", revision=2, role="reviewer", name="The Lead", instructions="review everything"))
         for _ in range(2):
             claim = self.client.post("/api/v1/spawn-requests/claim", json={
                 "environmentId": A["env"], "bridgeId": A["bridge"], "machineId": A["machine"]})
@@ -158,12 +166,14 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
         self.assertEqual(self.rows("SELECT id FROM spawn_specs WHERE agent_id = 'racer'"), [], "no spec either")
 
     def test_a_spawn_that_commits_first_is_queued_and_the_definition_still_applies(self):
-        """The opposite order: the spawn takes the lock first and queues; the push lands after it."""
+        """The opposite order: the spawn takes the lock first and queues; the push lands after it. Since D8 what
+        a spawn of a new id queues is the request for its host to define it, so the store is published first."""
+        self.define()
         created = self.client.post("/api/v1/spawn-requests", json={
             "agentId": "early", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})
         self.assertEqual(created.status_code, 200, created.text)
         self.define(valid("early", role="reviewer"))
-        self.assertEqual(len(self.rows("SELECT id FROM spawn_requests WHERE agent_id = 'early'")), 1)
+        self.assertEqual(len(self.rows("SELECT id FROM definition_requests WHERE agent_id = 'early'")), 1)
         self.assertEqual(self.rows("SELECT machine_id FROM agent_definitions WHERE agent_id = 'early'"),
                          [{"machine_id": A["machine"]}])
 

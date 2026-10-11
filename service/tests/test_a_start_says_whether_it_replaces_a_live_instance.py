@@ -5,8 +5,14 @@ refused by one. The operator's rule (2026-09-14) is that only an explicit start 
 dashboard, or a restart/recreate -- and everything automatic is a start. `api_core/start_intent.py` has
 the history.
 
-These drive the real routes: the spawn route stores the intent, the claim and the `running` report bring
-up the request's terminal the way production does, and the launch route hands the intent to the host.
+These drive the real routes: the claim and the `running` report bring up the request's terminal the way
+production does, and the launch route hands the intent to the host.
+
+SINCE D8 THE ONLY LEGACY SPAWN REQUEST IS A MESSAGE'S COLD START of a defined agent, and it is a START.
+The spawn route defines the agent instead, and the dashboard's start, restart and recreate of a defined
+agent go to its host's lifecycle queue (test_legacy_routes_delegate_defined_agents.py), so the tests of
+the intent those used to store went with them. A request's intent is still carried to its launch, so
+`_spawn` sets the one a test needs on the request a cold start queued.
 """
 
 from __future__ import annotations
@@ -18,10 +24,9 @@ from service.api_core.start_intent import (
     REPLACE,
     START,
     normalize_start_intent,
-    start_intent_for_requester,
-    start_intent_for_spawn,
 )
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 
 
 class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
@@ -55,12 +60,13 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def _spawn(self, agent_id, **extra):
-        body = {"agentId": agent_id, "environmentId": self.ENV, "runtime": "claude-code", "role": "coder", "workspace": "/work"}
-        body.update(extra)
-        created = self.client.post("/api/v1/spawn-requests", json=body)
-        self.assertEqual(created.status_code, 200, created.text)
-        return created.json()["spawnRequest"]["id"]
+    def _spawn(self, agent_id, intent=START):
+        """A defined agent's queued spawn request carrying `intent`. A cold start queues a START; a REPLACE
+        is the intent a dashboard start's request carried before D8, and one queued then still runs."""
+        spawn_id = spawn_defined(self, agent_id, environment_id=self.ENV, machine_id="linux:intent-host",
+                                 bridge_id=self.BRIDGE, workspace="/work")["id"]
+        self._rows("UPDATE spawn_requests SET start_intent = ? WHERE id = ?", (intent, spawn_id))
+        return spawn_id
 
     def _bring_up(self, spawn_id):
         """Claim the request and report it running, which is what creates its terminal in production."""
@@ -79,20 +85,11 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()["launch"]["env"]["AIFY_START_INTENT"]
 
-    def test_the_REQUESTER_decides_what_is_stored(self):
-        cases = {"dashboard": REPLACE, None: START, "": START, "sc-manager": START}
-        for created_by, want in cases.items():
-            with self.subTest(created_by):
-                extra = {} if created_by is None else {"createdBy": created_by}
-                label = {None: "omitted", "": "empty"}.get(created_by, created_by)
-                spawn_id = self._spawn(f"stored-{label}", **extra)
-                self.assertEqual(self._rows("SELECT start_intent FROM spawn_requests WHERE id = ?", (spawn_id,)), [{"start_intent": want}])
-
     def test_THE_REQUESTS_OWN_TERMINAL_carries_its_intent_into_the_launch(self):
         for created_by, want in (("dashboard", REPLACE), ("sc-manager", START)):
             with self.subTest(created_by):
                 agent_id = f"up-{created_by}"
-                self._bring_up(self._spawn(agent_id, createdBy=created_by))
+                self._bring_up(self._spawn(agent_id, intent=want))
                 terminals = self._terminals(agent_id)
                 self.assertEqual(len(terminals), 1, f"control: the running report brought up one terminal, got {terminals}")
                 self.assertEqual(terminals[0]["requested_by"], "spawn-request")
@@ -104,7 +101,7 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         worker, it makes every start of that agent through the host read as nested in its own live
         instance, so even the dashboard's replace is refused."""
         agent_id = "lease-unset"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        self._bring_up(self._spawn(agent_id, intent=REPLACE))
         terminal = self._terminals(agent_id)[0]
         launch = self.client.get(f"/api/v1/terminals/{terminal['id']}/launch").json()["launch"]
         self.assertIn("AIFY_AGENT_ID", launch["unsetEnv"], "control: the unset list is the one the host applies")
@@ -115,7 +112,7 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         """A PTY recovered for a dispatch, or anything relaunched later, was not asked for by anybody: an
         old REPLACE must never reach it, or a message could kill a live instance."""
         agent_id = "other-terminal"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        self._bring_up(self._spawn(agent_id, intent=REPLACE))
         first = self._terminals(agent_id)[0]
         self.assertEqual(first["start_intent"], REPLACE, "control: the request's own terminal replaces")
         from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
@@ -140,43 +137,9 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         self.assertEqual([t["start_intent"] for t in second], [START])
         self.assertEqual(self._launch_intent(second[0]["id"]), START)
 
-    def test_a_RESTART_replaces_even_when_an_agent_asks_for_it(self):
-        agent_id = "restarted"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
-        session_id = self._rows("SELECT id FROM agent_sessions WHERE agent_id = ?", (agent_id,))[0]["id"]
-        for action in ("restart", "recreate"):
-            with self.subTest(action):
-                self._rows("UPDATE spawn_requests SET status = 'running' WHERE agent_id = ?", (agent_id,))
-                control = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": action, "from_agent": "sc-manager"})
-                self.assertEqual(control.status_code, 200, control.text)
-                newest = self._rows("SELECT start_intent, status FROM spawn_requests WHERE agent_id = ? ORDER BY rowid DESC LIMIT 1", (agent_id,))
-                self.assertEqual(newest[0]["start_intent"], REPLACE, newest)
-                self.assertEqual(newest[0]["status"], "queued", "control: the restart queued a new request")
-
-    def test_a_self_restart_creates_its_own_terminal_before_the_old_stop_lands(self):
-        agent_id = "self-restarting"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
-        old = self._terminals(agent_id)[0]["id"]
-        self._rows("UPDATE terminal_sessions SET status = 'attached', created_at = '2026-01-01T00:00:00Z' WHERE id = ?", (old,))
-        old_session = self._rows("SELECT id FROM agent_sessions WHERE agent_id = ?", (agent_id,))[0]["id"]
-        restart = self.client.post(f"/api/v1/sessions/{old_session}/control", json={"action": "restart", "from_agent": agent_id})
-        self.assertEqual(restart.status_code, 200, restart.text)
-        spawn_id = restart.json()["spawnRequest"]["id"]
-        self.assertEqual(self._rows("SELECT status FROM terminal_sessions WHERE id = ?", (old,))[0]["status"], "attached", "the old stop has not landed")
-        self._bring_up(spawn_id)
-        session_id = self._rows("SELECT session_id FROM spawn_requests WHERE id = ?", (spawn_id,))[0]["session_id"]
-        new = self._rows("SELECT id, start_intent FROM terminal_sessions WHERE session_id = ?", (session_id,))
-        self.assertEqual(len(new), 1, "the replacement must own a terminal, not adopt the outgoing worker")
-        self.assertNotEqual(new[0]["id"], old)
-        self.assertEqual(new[0]["start_intent"], REPLACE)
-        self.assertEqual(self._launch_intent(new[0]["id"]), REPLACE)
-        old_exit = self.client.post(f"/api/v1/terminals/{old}/output", json={"bridgeId": self.BRIDGE, "status": "stopped", "exitCode": 0, "output": "[terminal exited]\n"})
-        self.assertEqual(old_exit.status_code, 200, old_exit.text)
-        self.assertEqual(self._rows("SELECT status FROM spawn_requests WHERE id = ?", (spawn_id,))[0]["status"], "running", "an outgoing worker's exit cannot fail its replacement")
-
     def test_a_worker_exit_settles_its_spawn_immediately_with_the_exit_reason(self):
         agent_id = "early-exit"
-        spawn_id = self._spawn(agent_id, createdBy="dashboard")
+        spawn_id = self._spawn(agent_id)
         self._bring_up(spawn_id)
         terminal_id = self._terminals(agent_id)[0]["id"]
         ended = self.client.post(f"/api/v1/terminals/{terminal_id}/output", json={
@@ -191,7 +154,7 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
 
     def test_a_late_start_completion_cannot_resurrect_an_exited_worker(self):
         agent_id = "exit-before-completion"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        self._bring_up(self._spawn(agent_id))
         terminal_id = self._terminals(agent_id)[0]["id"]
         claimed = self.client.post("/api/v1/terminals/controls/claim", json={"environmentId": self.ENV, "bridgeId": self.BRIDGE})
         self.assertEqual(claimed.status_code, 200, claimed.text)
@@ -202,35 +165,13 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         self.assertEqual(completed.status_code, 200, completed.text)
         self.assertEqual(self._rows("SELECT status, exit_code FROM terminal_sessions WHERE id = ?", (terminal_id,)), [{"status": "stopped", "exit_code": 75}])
 
-    def test_a_restart_never_migrates_a_terminal_with_an_outgoing_stop(self):
-        for stop_status in ("pending", "claimed"):
-            with self.subTest(stop_status=stop_status):
-                agent_id = f"same-second-{stop_status}"
-                self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
-                old = self._terminals(agent_id)[0]["id"]
-                self._rows("UPDATE terminal_sessions SET status = 'attached' WHERE id = ?", (old,))
-                old_session = self._rows("SELECT session_id FROM terminal_sessions WHERE id = ?", (old,))[0]["session_id"]
-                response = self.client.post(f"/api/v1/sessions/{old_session}/control", json={"action": "restart", "from_agent": agent_id})
-                self.assertEqual(response.status_code, 200, response.text)
-                spawn_id = response.json()["spawnRequest"]["id"]
-                self._rows("UPDATE terminal_sessions SET created_at = (SELECT created_at FROM spawn_requests WHERE id = ?) WHERE id = ?", (spawn_id, old))
-                self._rows("UPDATE terminal_controls SET status = ? WHERE terminal_id = ? AND action = 'stop'", (stop_status, old))
-                self.assertEqual(self._rows("SELECT status FROM terminal_controls WHERE terminal_id = ? AND action = 'stop'", (old,)), [{"status": stop_status}])
-                self._bring_up(spawn_id)
-                new_session = self._rows("SELECT session_id FROM spawn_requests WHERE id = ?", (spawn_id,))[0]["session_id"]
-                self.assertEqual(self._rows("SELECT session_id FROM terminal_sessions WHERE id = ?", (old,))[0]["session_id"], old_session, "the outgoing terminal must not cross the handoff")
-                new = self._rows("SELECT id FROM terminal_sessions WHERE session_id = ?", (new_session,))
-                self.assertEqual(len(new), 1)
-                self.assertNotEqual(new[0]["id"], old)
-                self.assertEqual(self._launch_intent(new[0]["id"]), REPLACE)
-
     def test_the_ending_fatal_line_survives_an_earlier_in_flight_output_batch(self):
         import httpx
         from unittest.mock import patch
         from service.db import get_db
         from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES as queue
 
-        spawn_id = self._spawn("in-flight-exit", createdBy="dashboard")
+        spawn_id = self._spawn("in-flight-exit")
         self._bring_up(spawn_id)
         terminal_id = self._terminals("in-flight-exit")[0]["id"]
 
@@ -279,21 +220,6 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         self.assertIn("75", observed["error"])
         self.assertIn("ending-batch-only", observed["error"])
 
-    def test_a_RESTART_of_a_session_with_no_spawn_spec_replaces_too(self):
-        """A resident-origin session has no spawn spec, so its restart cold-starts through the dispatch
-        path -- whose default is START. The restart must still say REPLACE."""
-        agent_id = "restarted-without-spec"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
-        session_id = self._rows("SELECT id FROM agent_sessions WHERE agent_id = ?", (agent_id,))[0]["id"]
-        self._rows("UPDATE agent_sessions SET spawn_spec_id = NULL WHERE id = ?", (session_id,))
-        self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
-        before = len(self._rows("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,)))
-        control = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "restart", "from_agent": "sc-manager"})
-        self.assertEqual(control.status_code, 200, control.text)
-        rows = self._rows("SELECT start_intent FROM spawn_requests WHERE agent_id = ? ORDER BY rowid", (agent_id,))
-        self.assertEqual(len(rows), before + 1, f"control: the restart cold-started a request: {control.text}")
-        self.assertEqual(rows[-1]["start_intent"], REPLACE)
-
     def test_an_AUTOMATIC_cold_start_is_a_start(self):
         """The send path and the queued-run backstop cold-start a lane through one helper, and a message
         waking a lane must never replace a live instance. Its default is what they all get."""
@@ -302,7 +228,7 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         from service.db import get_db
 
         agent_id = "woken-by-a-message"
-        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        self._bring_up(self._spawn(agent_id, intent=REPLACE))
         self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
 
         async def coldstart():
@@ -319,31 +245,6 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         newest = self._rows("SELECT start_intent FROM spawn_requests WHERE agent_id = ? ORDER BY rowid DESC LIMIT 1", (agent_id,))
         self.assertEqual(newest, [{"start_intent": START}])
 
-    def test_a_HANDOFF_of_an_agent_to_itself_replaces_it(self):
-        """`comms_compact` into the same agent id asks for its live worker to give way; the dashboard's
-        identical handoff already replaces. A handoff to a DIFFERENT agent is an ordinary start."""
-        cases = (("self-handoff", "self-handoff", REPLACE), ("successor", "someone-else", START))
-        for agent_id, compacted_from, want in cases:
-            with self.subTest(agent_id):
-                spawn_id = self._spawn(agent_id, createdBy="sc-manager", metadata={
-                    "compactMode": "handoff", "compactedFromAgentId": compacted_from, "sameAgentId": agent_id == compacted_from})
-                self.assertEqual(self._rows("SELECT start_intent FROM spawn_requests WHERE id = ?", (spawn_id,)), [{"start_intent": want}])
-
-    def test_the_START_BUTTON_replaces_and_an_agent_starting_one_does_not(self):
-        for from_agent, want in (("dashboard", REPLACE), ("sc-manager", START)):
-            with self.subTest(from_agent):
-                agent_id = f"started-by-{from_agent}"
-                registered = self.client.post("/api/v1/agents", json={
-                    "agentId": agent_id, "role": "coder", "runtime": "claude-code", "sessionMode": "managed",
-                    "machineId": "linux:intent-host", "bridgeId": self.BRIDGE})
-                self.assertEqual(registered.status_code, 200, registered.text)
-                self._rows("UPDATE agents SET session_mode = 'managed' WHERE id = ?", (agent_id,))
-                started = self.client.post(f"/api/v1/agents/{agent_id}/control", json={"action": "start", "from_agent": from_agent})
-                self.assertEqual(started.status_code, 200, started.text)
-                self.assertTrue(started.json().get("spawnRequested"), f"control: the button queued a spawn: {started.text}")
-                rows = self._rows("SELECT start_intent FROM spawn_requests WHERE agent_id = ?", (agent_id,))
-                self.assertEqual(rows, [{"start_intent": want}])
-
 
 class StartIntentValues(FastApiTestCase):
     DB_NAME = "aify-test-start-intent-values.db"
@@ -352,13 +253,6 @@ class StartIntentValues(FastApiTestCase):
         for value in (None, "", "bogus", 1, "start ", "replace-all"):
             self.assertEqual(normalize_start_intent(value), START, repr(value))
         self.assertEqual(normalize_start_intent(" Replace "), REPLACE, "control: a real REPLACE survives")
-        for requester in (None, "", "  ", "sc-manager", "Dashboard-ish"):
-            self.assertEqual(start_intent_for_requester(requester), START, repr(requester))
-        self.assertEqual(start_intent_for_requester(" dashboard "), REPLACE, "control: the dashboard replaces")
-        handoff = {"compactMode": "handoff", "compactedFromAgentId": "a"}
-        self.assertEqual(start_intent_for_spawn("sc-manager", "a", handoff), REPLACE)
-        for agent_id, metadata in (("b", handoff), ("a", {"compactMode": "fork", "compactedFromAgentId": "a"}), ("a", None), ("a", "junk")):
-            self.assertEqual(start_intent_for_spawn("sc-manager", agent_id, metadata), START, repr((agent_id, metadata)))
 
     def test_the_launch_always_writes_it(self):
         self.assertIn("AIFY_START_INTENT", ALWAYS_SET)

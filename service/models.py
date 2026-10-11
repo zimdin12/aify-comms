@@ -561,11 +561,8 @@ class SessionControlRequest(BaseModel):
     body: Optional[str] = None
     subject: Optional[str] = None
     priority: str = "normal"
-    #: THE CALLER'S ASSUMPTION, RE-EVALUATED HERE. A caller that picked this session BECAUSE the
-    #: agent had no live worker sets this, and the route refuses if that stopped being true
-    #: between the reading and the request. Absent, the action is unconditional -- which is what
-    #: the dashboard's own Restart button means when an operator presses it on purpose.
-    only_if_no_live_session: bool = False
+    # `only_if_no_live_session` is gone with the restart it conditioned (D8): aify-env's starter still sends it,
+    # with a restart this route delegates to the host or refuses, and an unknown field is ignored here.
 
 
 class ConsoleStartRequest(BaseModel):

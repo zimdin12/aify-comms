@@ -12,6 +12,7 @@ from service.api_core.model_effort import as_its_spec_declares
 from service.api_core.launch_env import managed_launch_env, NEVER_INHERITED, launches_via_wrapper
 from service.api_core.settings import _load_settings
 from service.api_core.terminal_status import _terminal_status_transition
+from service.api_core.running_spawn import _hand_settled_spawn_to_dispatch
 
 
 async def _row(db, table, column, value):
@@ -93,7 +94,7 @@ async def prepare_launch(db, environment, request_id, body, now):
 
 async def attach(db, environment, request_id, body, now):
     prepared = await _row(db, 'lifecycle_launches', 'request_id', request_id)
-    await _admitted(db, environment, request_id, body, attachment_replay=bool(prepared and prepared['attachment_json']))
+    request, binding, _ = await _admitted(db, environment, request_id, body, attachment_replay=bool(prepared and prepared['attachment_json']))
     if not prepared or (prepared['environment_id'], prepared['bridge_id'], prepared['terminal_id']) != (environment['id'], body['bridgeId'], body.get('terminalId')):
         raise HTTPException(409, 'attachment requires the exact prepared terminal')
     for key in ('handle', 'lifetime'):
@@ -116,6 +117,13 @@ async def attach(db, environment, request_id, body, now):
     await db.execute('UPDATE lifecycle_launches SET attachment_json=? WHERE request_id=?', (json.dumps(receipt), request_id))
     await db.execute("UPDATE terminal_sessions SET status='attached',process_id=?,cols=?,rows=?,updated_at=? WHERE id=?", (str(body['processId']), body.get('cols',terminal['cols']), body.get('rows',terminal['rows']), now, terminal['id']))
     await db.execute("UPDATE agent_sessions SET status='running',terminal_status='attached',process_id=?,last_seen=? WHERE id=?", (str(body['processId']), now, prepared['session_id']))
+    if request['brief']:
+        # D8: A SPAWN'S BRIEF IS ITS FIRST MESSAGE, sent once its worker is there, as a legacy spawn's was
+        # once it ran. Here, after the replay return above, so a repeated attachment sends it once.
+        brief = json.loads(request['brief'])
+        await _hand_settled_spawn_to_dispatch(db, {
+            'agent_id': request['agent_id'], 'created_by': request['requested_by'], 'runtime': binding.runtime,
+            'subject': brief['subject'], 'initial_message': brief['body'], 'priority': brief['priority']})
     return receipt
 
 

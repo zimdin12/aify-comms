@@ -2,7 +2,8 @@
 
 Each witness drives the real route, then reads the queued lifecycle request and the legacy tables the
 route used to write, since queued is not done and a legacy side effect beside the request would be a
-second, unfenced actor. Undefined agents keep their legacy path until D8.
+second, unfenced actor. An undefined agent is refused a start since D8
+(test_a_spawn_defines_its_agent_first.py).
 """
 from __future__ import annotations
 
@@ -108,13 +109,6 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
         refused = self.client.post("/api/v1/agents/coder/control", json={"action": "start", "from_agent": "dashboard"})
         self.assertEqual(refused.status_code, 409, refused.text)
         self.assertIn("as resident", refused.json()["detail"])
-        self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
-
-    def test_an_undefined_agent_keeps_its_legacy_start(self):
-        self.client.post("/api/v1/agents", json={"agentId": "plain", "role": "coder", "runtime": "claude-code",
-                                                  "sessionMode": "managed"}).raise_for_status()
-        started = self.client.post("/api/v1/agents/plain/control", json={"action": "start", "from_agent": "dashboard"})
-        self.assertEqual((started.status_code, started.json().get("spawnRequested")), (200, True), started.text)
         self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
 
     def cold_start(self, reasons):

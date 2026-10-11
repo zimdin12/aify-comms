@@ -282,8 +282,8 @@ async def _resume_policy_for_agent(db, agent_id: str) -> str:
     the first version of the caller read `terminal["runtime_state"]`, which `terminal_sessions` has
     no column for. Nothing raised -- the read was guarded on the column being present -- so it
     answered "" for every terminal for ever, and the guard that was supposed to make it safe is
-    exactly what made the mistake invisible. `session_restart.py` writes `resumePolicy` here, and
-    `launch_env.py` reads it from the same place.
+    exactly what made the mistake invisible. A worker's runtime-state report writes `resumePolicy` here
+    (`claim.mjs` builds it from the spawn request), and `launch_env.py` reads it from the same place.
     """
     if not agent_id:
         return ""

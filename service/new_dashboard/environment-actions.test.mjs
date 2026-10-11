@@ -191,7 +191,7 @@ test("A SUCCESSFUL SPAWN SAYS SO IN A SENTENCE, not by taking over the drawer wi
   globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
   try {
     await createSpawnRequest();
-    assert.ok(created.some((el) => /Spawn queued for new-coder/.test(el.textContent)), "no toast named the spawn");
+    assert.ok(created.some((el) => /Asked its host to define new-coder/.test(el.textContent)), "no toast named the spawn");
   } finally { h.restore(); }
 });
 

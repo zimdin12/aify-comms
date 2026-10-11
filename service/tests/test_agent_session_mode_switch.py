@@ -32,6 +32,7 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
+from service.api_core.definition_start import undefined_refusal
 from service.tests._base import FastApiTestCase
 
 
@@ -386,11 +387,12 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
                 self.assertEqual((body.get("agent") or {}).get("sessionMode"), "managed")
                 self.assertIn((body.get("agent") or {}).get("status"), {"available", "working", "online"})
                 self.assertEqual(self._read_agent_mode(agent_id), "managed")
-                # 2026-06-03: resident->managed for a wrapper-backed runtime (codex/hermes)
-                # now COLDSTARTS a managed-warm spawn_request at switch time (the lazy
-                # next-dispatch autostart became an at-switch coldstart), so the side effect
-                # reports managedSpawnRequested rather than a missing-backing error.
-                self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"), body)
+                # 2026-06-03: resident->managed for a wrapper-backed runtime cold-starts a worker at
+                # switch time. Since D8 an agent no host defines is not started, so the switch still
+                # lands and the side effect names why no worker came, with what to do.
+                effects = body.get("sideEffects") or {}
+                self.assertFalse(effects.get("managedSpawnRequested"), body)
+                self.assertIn(undefined_refusal(agent_id), effects.get("error", ""), body)
 
     # ─── 2026-06-12 — the sc-manager "sent but never received" strand ─────────
 

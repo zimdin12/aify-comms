@@ -237,6 +237,17 @@ class TerminalAndConsoleRefusalTests(FastApiTestCase):
         self.assertEqual(response.status_code, 409, response.text)
         self.assertIn('Session "sess-blank" is active;', response.json()["detail"])
 
+    def test_a_console_for_a_session_whose_environment_is_gone_names_it(self):
+        self._write(
+            "INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace, status,"
+            " session_handle, started_at, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
+            ("sess-orphan", AGENT_ID, "linux:gone:default", "codex", "/workspace/proj", "running", "h",
+             "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+        )
+        response = self.client.post("/api/v1/sessions/sess-orphan/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual((response.status_code, response.json()["detail"]),
+                         (409, 'Environment "linux:gone:default" is not available'))
+
     # ── the pi console handle guard (the LIVE copy) ──────────────────────────────────────────
 
     def test_a_pi_console_without_a_session_handle_is_refused(self):

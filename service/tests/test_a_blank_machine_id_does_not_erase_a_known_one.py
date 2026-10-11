@@ -28,6 +28,7 @@ import asyncio
 
 from service.db import get_db
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import spawn_defined
 
 ENVIRONMENT_ID = "wsl:laputa:default"
 BRIDGE_ID = "bridge-machine-id"
@@ -78,12 +79,11 @@ class ABlankMachineIdDoesNotEraseAKnownOne(FastApiTestCase):
         claim (which stamps `claim_machine_id`) and the settle (which copies it onto the agent).
         Seeding the row would have proved the copy and missed the blank.
         """
-        created = self.client.post("/api/v1/spawn-requests", json={
-            "environmentId": ENVIRONMENT_ID, "agentId": agent_id, "runtime": "hermes",
-            "workspace": "/workspace/proj", "createdBy": "operator",
-        })
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
+        # D8: the only legacy spawn request left is a defined agent's cold start. A push leaves an existing
+        # row's machine alone, so the machine each test set up is still the one the claim meets.
+        spawn_id = spawn_defined(self, agent_id, environment_id=ENVIRONMENT_ID, machine_id=HOST_MACHINE,
+                                 bridge_id=BRIDGE_ID, runtime="hermes", workspace="/workspace/proj",
+                                 requested_by="operator")["id"]
 
         claim_body = {"environmentId": ENVIRONMENT_ID, "bridgeId": BRIDGE_ID}
         if claim_machine_id is not None:
@@ -128,8 +128,11 @@ class ABlankMachineIdDoesNotEraseAKnownOne(FastApiTestCase):
         )
 
     def test_a_spawn_for_an_agent_with_no_machine_yet_still_records_one(self):
-        """An agent first seen BY the spawn has nothing to keep, so the claim's value is all there
-        is. The guard must not read a missing row as a value worth protecting."""
+        """An agent with no machine yet has nothing to keep, so the claim's value is all there is. The
+        guard must not read a blank as a value worth protecting. (Since D8 no agent is first seen BY its
+        spawn: the definition creates the row, so the blank here is a registration that named none.)"""
+        self._register("fresh-worker")
+        self.assertEqual(self._machine_id("fresh-worker"), "", "setup did not take")
         self._spawn_and_run("fresh-worker", claim_machine_id=HOST_MACHINE)
         self.assertEqual(self._machine_id("fresh-worker"), HOST_MACHINE)
 

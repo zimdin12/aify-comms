@@ -23,6 +23,8 @@ from unittest.mock import patch
 
 from service.routers.agents import attributes
 from service.tests._base import PRE_PLAN4_SETTINGS, FastApiTestCase
+from service.tests import published_state
+from service.tests.defined_agents import definition_entry, publish, spawn_defined
 
 ENV = "linux:test-host:default"
 CLAIM = {"environmentId": ENV, "bridgeId": "bridge-current", "machineId": "linux:test-host"}
@@ -49,10 +51,10 @@ class AnEffortChangeReachesItsStart(FastApiTestCase):
     def config(self, agent_id="worker"):
         return json.loads(self.sql("SELECT runtime_config FROM agents WHERE id = ?", (agent_id,))[0]["runtime_config"])
 
-    def heartbeat(self, env=ENV, runtime="codex"):
+    def heartbeat(self, env=ENV, runtime="codex", metadata=None):
         self.ok(self.client.post("/api/v1/environments/heartbeat", json={
             "id": env, "label": env, "machineId": "linux:test-host", "os": "linux", "kind": "linux",
-            "bridgeId": "bridge-current", "cwdRoots": ["/workspace"], "metadata": {},
+            "bridgeId": "bridge-current", "cwdRoots": ["/workspace"], "metadata": metadata or {},
             "runtimes": [{"runtime": runtime, "modes": ["managed-warm"],
                           "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True}}]}))
 
@@ -70,25 +72,45 @@ class AnEffortChangeReachesItsStart(FastApiTestCase):
             "status": "running", "bridgeId": "bridge-current", "processId": process, "machineId": "linux:test-host"}))["spawnRequest"]
 
     def restarted_launch(self, effort):
-        """Spawn at low, change the effort, restart, and return the replacement's real launch."""
-        self.heartbeat()
-        first = self.ok(self.client.post("/api/v1/spawn-requests", json={
-            "createdBy": "dashboard", "environmentId": ENV, "agentId": "worker", "runtime": "codex", "role": "coder",
-            "workspace": "/workspace/project", "runtimeConfig": {"effort": "low", "thinking": "minimal", "maxTurns": 5}}))["spawnRequest"]
+        """Start at low, change the effort, restart, and return the replacement's real launch.
+
+        Since D8 only a DEFINED agent starts, and its effort is its definition's (C5): the change is a request
+        its host applies and pushes back as the next revision, and the restart goes to its lifecycle queue.
+        The witness is the same: the replacement launches with the changed effort, not the first start's."""
+        # A host whose terminals can run codex: a lifecycle launch asks, a legacy spawn did not.
+        self.heartbeat(metadata={"terminal": True, "pty": True, "terminalRuntimes": ["codex"]})
+        first = spawn_defined(self, "worker", environment_id=ENV, machine_id=CLAIM["machineId"],
+                              bridge_id=CLAIM["bridgeId"], runtime="codex", workspace="/workspace/project", effort="low")
         session = self.running(first["id"], "fake-1")["sessionId"]
-        self.ok(self.client.patch("/api/v1/agents/worker/effort", json={"effort": effort}))
+        changed = self.ok(self.client.patch("/api/v1/agents/worker/effort", json={"effort": effort}))
+        self.assertEqual(changed["appliesAt"], "next start")
+        self.host_applies(effort=effort)
+        published_state.publish(self, CLAIM["machineId"], {"worker": ("life-1", "idle")})
         restart = self.ok(self.client.post(f"/api/v1/sessions/{session}/control", json={
-            "action": "restart", "from_agent": "dashboard", "subject": "restart"}))["spawnRequest"]
-        self.assertEqual(restart["spawnSpecId"], first["spawnSpecId"], "the restart starts from the stored spec")
-        replacement = self.running(restart["id"], "fake-2")
-        return self.launch_for("worker", replacement["sessionId"])
+            "action": "restart", "from_agent": "dashboard", "subject": "restart"}))
+        self.assertEqual((restart["queued"], restart["action"]), (True, "restart"))
+        [queued] = self.sql("SELECT id FROM agent_lifecycle_requests WHERE agent_id = 'worker'")
+        host = {"bridgeId": CLAIM["bridgeId"], "machineId": CLAIM["machineId"]}
+        self.ok(self.client.post(f"/api/v1/environments/{ENV}/lifecycle-requests/claim", json=host))
+        return self.ok(self.client.post(f"/api/v1/environments/{ENV}/lifecycle-requests/{queued['id']}/launch",
+                                        json=host))["launch"]
+
+    def host_applies(self, **fields):
+        """The host's push after it applied the change: the same lifetime at its next revision."""
+        entries = self.__dict__["_defined_by_machine"][CLAIM["machineId"]]
+        current = entries["worker"]
+        entries["worker"] = definition_entry("worker", runtime="codex", workspace="/workspace/project",
+                                             incarnation=current["incarnation"], revision=current["revision"] + 1,
+                                             **fields)
+        publish(self, environment_id=ENV, machine_id=CLAIM["machineId"], bridge_id=CLAIM["bridgeId"])
 
     def test_c1_a_restart_launches_with_the_changed_effort(self):
         launch = self.restarted_launch("high")
         self.assertEqual(launch["env"].get("AIFY_MANAGED_EFFORT"), "high")
-        self.assertEqual(self.config()["effort"], "high", "settlement copied the spec over the agent")
-        self.assertNotIn("thinking", self.config())
-        self.assertEqual(self.config()["maxTurns"], 5, "only the effort changes")
+        # A defined agent's record is not what it starts from (its definition is), so the witness that the
+        # change stuck is what the agent says it runs with, read from the definition the launch was built from.
+        self.assertEqual(self.ok(self.client.get("/api/v1/agents/worker"))["agent"]["runsWith"]["effort"],
+                         {"value": "high", "from": "definition"})
 
     def test_c1_a_cleared_effort_is_the_runtimes_own_even_against_the_hosts_environment(self):
         launch = self.restarted_launch("")

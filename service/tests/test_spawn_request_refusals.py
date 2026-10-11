@@ -45,9 +45,11 @@ import aiosqlite
 
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
+from service.tests.defined_agents import publish, spawn_defined
 
 ENVIRONMENT_ID = "linux:test-host:default"
 BRIDGE_ID = "bridge-one"
+MACHINE_ID = "linux:test-host"
 
 #: The five the PATCH allowlist accepts, and a spread of what it must not.
 ACCEPTED_STATUSES = ("claimed", "starting", "running", "failed", "cancelled")
@@ -58,6 +60,8 @@ class SpawnRequestRefusalTests(FastApiTestCase):
     def setUp(self):
         super().setUp()
         self._heartbeat()
+        # D8: a spawn asks this machine's host to define the agent, so the host has published its store.
+        publish(self, environment_id=ENVIRONMENT_ID, machine_id=MACHINE_ID, bridge_id=BRIDGE_ID)
 
     # ── seeding ──────────────────────────────────────────────────────────────────────────────
 
@@ -67,7 +71,7 @@ class SpawnRequestRefusalTests(FastApiTestCase):
             json={
                 "id": ENVIRONMENT_ID,
                 "label": "Linux on test-host",
-                "machineId": "linux:test-host",
+                "machineId": MACHINE_ID,
                 "os": "linux",
                 "kind": "linux",
                 "bridgeId": BRIDGE_ID,
@@ -88,10 +92,14 @@ class SpawnRequestRefusalTests(FastApiTestCase):
         body.update(overrides)
         return self.client.post("/api/v1/spawn-requests", json=body)
 
-    def _created_id(self) -> str:
-        response = self._create()
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()["spawnRequest"]["id"]
+    def _created_id(self, agent_id: str = "") -> str:
+        """A spawn request to report on. Since D8 the only one made is a defined agent's cold start, and one
+        agent has one in flight at a time, so each call is a new agent unless the caller names one."""
+        if not agent_id:
+            self._made = getattr(self, "_made", 0) + 1
+            agent_id = f"lc-worker-{self._made}"
+        return spawn_defined(self, agent_id, environment_id=ENVIRONMENT_ID, machine_id=MACHINE_ID,
+                             bridge_id=BRIDGE_ID, runtime="codex", workspace="/workspace/proj")["id"]
 
     def _patch(self, spawn_request_id: str, **body):
         return self.client.patch(f"/api/v1/spawn-requests/{spawn_request_id}", json=body)
@@ -166,7 +174,7 @@ class SpawnRequestRefusalTests(FastApiTestCase):
             with self.subTest(requested=requested):
                 self._heartbeat(status=requested)
                 self.assertEqual(
-                    self._create().status_code, 200,
+                    self._create(agentId=f"lc-worker-{requested}").status_code, 200,
                     f"a heartbeat claiming {requested!r} must be stored as online",
                 )
 
@@ -194,7 +202,7 @@ class SpawnRequestRefusalTests(FastApiTestCase):
         for status in ("online", "ONLINE", "Online"):
             with self.subTest(status=status):
                 self._heartbeat(status=status)
-                self.assertEqual(self._create().status_code, 200)
+                self.assertEqual(self._create(agentId=f"lc-worker-{status}").status_code, 200)
 
     def test_a_runtime_the_environment_does_not_advertise_is_refused(self):
         """`cwdRoots` bounds WHERE a worker may run; the advertised runtimes bound WHAT may run.
@@ -210,10 +218,18 @@ class SpawnRequestRefusalTests(FastApiTestCase):
                 )
 
     def test_an_advertised_runtime_is_accepted(self):
-        self._heartbeat(runtimes=("codex", "pi"))
-        for runtime in ("codex", "pi"):
+        self._heartbeat(runtimes=("codex", "claude-code", "pi"))
+        for runtime in ("codex", "claude-code"):
             with self.subTest(runtime=runtime):
-                self.assertEqual(self._create(runtime=runtime).status_code, 200)
+                self.assertEqual(self._create(runtime=runtime, agentId=f"lc-{runtime}").status_code, 200)
+
+    def test_an_advertised_runtime_no_definition_can_name_is_refused(self):
+        """D8: a spawn defines its agent, and a definition names claude, codex or hermes only."""
+        self._heartbeat(runtimes=("pi",))
+        response = self._create(runtime="pi")
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()["detail"],
+                         'runtime "pi" is not a harness a definition can name (claude-code, codex, hermes)')
 
     # ── PATCH: the bridge reporting back ─────────────────────────────────────────────────────
 
@@ -378,7 +394,7 @@ class SpawnRequestRefusalTests(FastApiTestCase):
         rather than the constant, so trusting the constant's name later cannot quietly change it."""
         for status in ("claimed", "starting", "running"):
             with self.subTest(no_finish=status):
-                request_id = self._created_id()
+                request_id = self._created_id(f"lc-{status}")
                 self.assertEqual(self._patch(request_id, status=status).status_code, 200)
                 self.assertFalse(
                     self._row(request_id)["finished_at"],
@@ -386,6 +402,6 @@ class SpawnRequestRefusalTests(FastApiTestCase):
                 )
         for status in ("failed", "cancelled"):
             with self.subTest(finished=status):
-                request_id = self._created_id()
+                request_id = self._created_id(f"lc-{status}")
                 self.assertEqual(self._patch(request_id, status=status).status_code, 200)
                 self.assertTrue(self._row(request_id)["finished_at"])

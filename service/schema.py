@@ -582,6 +582,8 @@ CREATE TABLE IF NOT EXISTS agent_lifecycle_requests (
     requested_by TEXT NOT NULL,
     fresh_context INTEGER NOT NULL DEFAULT 0,
     intent TEXT NOT NULL,
+    -- D8: a spawn's first message, {"subject","body","priority"} as JSON, delivered once its worker attaches; '' for none.
+    brief TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     outcome TEXT NOT NULL DEFAULT '',
     result_lifetime TEXT,

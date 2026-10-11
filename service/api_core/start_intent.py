@@ -13,6 +13,10 @@ host killed four working sessions in ten minutes (aify-env `terminal-controls.mj
 WHY A FIELD. `spawn_requests.created_by` cannot say it: a cold start records the SENDER's agent id, so a
 message waking a lane reads exactly like that agent spawning it on purpose.
 
+SINCE D8 NOTHING NEW ASKS FOR REPLACE: the dashboard's start and restart go to the host's lifecycle queue,
+whose executor stops the instance it replaces itself, and a handoff into the same id is refused (KNOWN_ISSUES). A spawn request
+still carrying REPLACE was queued before the upgrade, and is honoured as it always was.
+
 WHERE IT TRAVELS. Decided where the start is asked for, stored on the spawn request, stamped on the ONE
 terminal that request brings up, and handed to that terminal's launch as `AIFY_START_INTENT`. Every
 other terminal -- a PTY recovered for a dispatch, anything relaunched later -- carries START, so an old
@@ -30,29 +34,3 @@ def normalize_start_intent(value: Any) -> str:
     """A stored or supplied intent, with anything unrecognised read as the safe one."""
     text = str(value if value is not None else "").strip().lower()
     return text if text in START_INTENTS else START
-
-
-def start_intent_for_requester(requested_by: Any) -> str:
-    """REPLACE only for a request that says it is the dashboard's; START for anyone else.
-
-    AN ABSENT REQUESTER IS NOT THE DASHBOARD here, although the attribution columns record it as one.
-    Both dashboard writers send `dashboard` explicitly, while an agent's `comms_spawn` accepts an empty
-    `from` and any HTTP caller can omit the field -- and reading those as the dashboard would let them
-    end a live instance. Guessing wrong in this direction costs a refused start, which is retried;
-    guessing wrong in the other costs somebody's working session.
-    """
-    return REPLACE if str(requested_by or "").strip() == "dashboard" else START
-
-
-def start_intent_for_spawn(requested_by: Any, agent_id: Any, metadata: Any) -> str:
-    """The intent of a spawn request: the requester's, except that a HANDOFF of an agent to itself replaces.
-
-    `comms_compact` into the same agent id asks, explicitly, for that agent's live worker to give way to
-    a fresh-context one. Stored as START, the live worker it names would refuse its own successor -- the
-    dashboard's identical handoff already replaces, because the dashboard is its requester.
-    """
-    meta = metadata if isinstance(metadata, dict) else {}
-    target = str(agent_id or "").strip()
-    if meta.get("compactMode") == "handoff" and target and str(meta.get("compactedFromAgentId") or "").strip() == target:
-        return REPLACE
-    return start_intent_for_requester(requested_by)
