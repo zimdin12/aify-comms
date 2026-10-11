@@ -57,7 +57,7 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False)
     machine_id = await owner_of(db, agent_id)
     if machine_id is None:
         return None
-    proof = require_lifecycle({'requestedBy': actor}, request)  # before anything about its state is said
+    proof = require_lifecycle({'requestedBy': actor, 'action': action}, request)  # before anything about its state is said
     body = {'requestId': f'legacy-{uuid.uuid4().hex}', 'action': action, 'requestedBy': actor,
             'expectedLifetime': published_lifetime(machine_id, agent_id, shadow.mirror.view(), shadow.clock()),
             'freshContext': fresh_context}

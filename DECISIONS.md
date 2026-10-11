@@ -1235,3 +1235,14 @@ the dashboard from the bridges, not from a determined local agent. **One real ch
 on for anyone who can load the dashboard. That is small beside what such a host already allows
 (anyone who reaches the port can type into consoles), but it is a change. Setting `API_KEY` is still
 the answer to "who may reach this at all".
+
+## 2026-10-11 — The operator key locks what cannot be undone, not every lifecycle action (0.9)
+
+0.9's lifecycle queue first required the operator key for every start, stop, restart, kill, spawn and delete of
+a defined agent whenever a key is configured, and since 2026-09-24 one always is. The bridge sends only the
+API key, so after deploy no agent could restart or stop a worker, which the skill tells managers they may do.
+Steven's ruling: the operator key is an optional safeguard against irreversible actions. With a key set, the
+API key may still start, stop, restart and spawn a defined agent under its caller's own name; **kill and
+delete need the key** (`lifecycle_models.IRREVERSIBLE_ACTIONS`, and `API_KEY_ACTIONS` is derived as every
+other action). Naming the operator still needs its proof whatever the action, and a word outside the
+vocabulary needs the key, so an unknown action fails closed.

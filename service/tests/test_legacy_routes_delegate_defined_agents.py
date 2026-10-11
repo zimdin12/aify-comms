@@ -70,6 +70,21 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
                 self.queued(call(), action, lifetime)
         self.assertEqual(len(self.sql("SELECT id FROM agents WHERE id = 'coder'")), 1, "its host removes it")
 
+    def test_an_agent_without_the_operator_key_restarts_and_stops_but_does_not_kill(self):
+        """Steven, 2026-10-11: the operator key locks what cannot be undone. A manager's comms_restart and stop of
+        a defined agent, which send only the API key, still queue; its kill is refused and queues nothing."""
+        self._app.state.config.operator_key = "fixture-key"
+        publish(self, A["machine"], {"coder": ("L1", "idle")})
+        self.queued(self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "manager"}),
+                    "restart", "L1")
+        self.sql("DELETE FROM agent_lifecycle_requests")
+        self.queued(self.client.post("/api/v1/agents/coder/control", json={"action": "stop", "from_agent": "manager"}),
+                    "stop", "L1")
+        self.sql("DELETE FROM agent_lifecycle_requests")
+        killed = self.client.post("/api/v1/agents/coder/stop-worker", json={})
+        self.assertEqual(killed.status_code, 403, killed.text)
+        self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
+
     def test_recreate_is_a_restart_into_a_fresh_conversation(self):
         publish(self, A["machine"], {"coder": ("L1", "idle")})
         self.queued(self.client.post("/api/v1/sessions/sess-1/control", json={"action": "recreate", "from_agent": "dashboard"}),

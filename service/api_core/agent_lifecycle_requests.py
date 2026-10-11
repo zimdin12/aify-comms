@@ -11,9 +11,8 @@ from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core import definition_requests as definitions
 from service.api_core.lifecycle_launch import settle_unstarted
 from service.api_core.agent_remove import remove_agent
-from service.lifecycle_models import TERMINAL
+from service.lifecycle_models import ACTIONS, TERMINAL
 
-ACTIONS = ('start', 'stop', 'restart', 'kill', 'spawn', 'delete')
 
 
 def lifecycle_record(row):

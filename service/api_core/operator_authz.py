@@ -52,6 +52,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from service.lifecycle_models import API_KEY_ACTIONS, IRREVERSIBLE_ACTIONS
+
 #: The header a dashboard/operator surface presents to prove it may act on another agent's behalf.
 #: Deliberately NOT the same header as the service API key: every bridge holds that one.
 OPERATOR_KEY_HEADER = "X-Aify-Operator-Key"
@@ -171,8 +173,11 @@ def require_lifecycle(body: dict, request) -> LifecycleProof:
     # Naming the operator records it as the actor, so that name needs its proof like on every route.
     refuse_an_unproven_operator_claim(lifecycle_actor(body), request, action="acting on an agent's lifecycle as the operator")
     key = operator_key_from(request)
-    if key and not operator_privilege_granted(request, key):
-        raise HTTPException(403, "lifecycle actions require a valid X-Aify-Operator-Key header")
+    # THE KEY LOCKS WHAT CANNOT BE UNDONE (`IRREVERSIBLE_ACTIONS`); the API key may ask anything else as its
+    # caller. An action outside the vocabulary needs the key too, so an unknown word fails closed.
+    if key and body.get("action") not in API_KEY_ACTIONS and not operator_privilege_granted(request, key):
+        raise HTTPException(403, f"{', '.join(IRREVERSIBLE_ACTIONS)} and any unknown lifecycle action require a valid "
+                                 f"X-Aify-Operator-Key header")
     return LifecycleProof(lifecycle_actor(body))
 
 

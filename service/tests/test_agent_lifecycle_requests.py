@@ -169,11 +169,24 @@ class LifecycleRequests(FastApiTestCase):
         self.assertEqual(self.ask(requestedBy='peer').status_code, 409)
         self.assertEqual(self.sql('SELECT requested_by FROM agent_lifecycle_requests'), [{'requested_by': '  peer  '}])
 
-    def test_lifecycle_authorization_is_narrow_and_actor_independent(self):
+    def test_the_operator_key_locks_only_what_cannot_be_undone(self):
+        """Steven, 2026-10-11: the operator key is an optional lock on irreversible actions. With one set, the
+        API key may still start, stop, restart and spawn a defined agent as itself; kill and delete, and any
+        word outside the vocabulary, need the key; and naming the operator needs its proof whatever the
+        action. Each action is asked on its own request id, so the one open request per agent decides nothing."""
         self._app.state.config.operator_key = 'fixture-key'
-        for action in ('start','stop','restart','kill','spawn','delete'):
-            for actor in ('peer','operator'):
-                self.assertEqual(self.ask(action=action, requestedBy=actor).status_code, 403)
+        for action in ('start','stop','restart','spawn','kill','delete','pause'):
+            with self.subTest(action=action):
+                self.sql('DELETE FROM agent_lifecycle_requests')
+                answered = self.ask(action=action, requestId=f'peer-{action}', requestedBy='peer')
+                if action in ('start','stop','restart','spawn'):
+                    self.assertEqual(answered.status_code, 200, answered.text)
+                else:
+                    self.refused(answered, 403, 'kill, delete and any unknown lifecycle action require a valid '
+                                                'X-Aify-Operator-Key header')
+                self.assertEqual(self.ask(action=action, requestId=f'op-{action}', requestedBy='operator').status_code,
+                                 403, 'naming the operator needs its proof whatever the action')
+        self.sql('DELETE FROM agent_lifecycle_requests')
         accepted = self.client.post('/api/v1/agents/coder/lifecycle-requests',
             headers={'X-Aify-Operator-Key':'fixture-key'}, json={
                 'requestId':'life-1', 'action':'start', 'expectedLifetime':None, 'requestedBy':'peer'})
@@ -235,7 +248,7 @@ class LifecycleRequests(FastApiTestCase):
     def test_each_refusal_names_its_cause(self):
         # Submission, in the order admit checks it.
         self._app.state.config.operator_key = 'fixture-key'
-        self.refused(self.ask(), 403, 'lifecycle actions require a valid X-Aify-Operator-Key header')
+        self.refused(self.ask(action='kill'), 403, 'kill, delete and any unknown lifecycle action require a valid')
         self._app.state.config.operator_key = ''
         self.refused(self.ask(requestedBy=''), 422, 'requestedBy: explicitly name a nonempty caller actor string')
         self.refused(self.ask(requestId='-x'), 422,

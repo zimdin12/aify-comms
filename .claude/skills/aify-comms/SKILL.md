@@ -76,9 +76,9 @@ comms_spawn(from="<your-id>", agentId="feature-coder", role="coder", runtime="co
 
 On `spawn UNPROVEN` in `comms_envs`, spawn anyway: the attempt is the authority.
 
-Every agent holding the service API key may spawn, restart, interrupt, compact and remove
-agents. Starting or restarting aify-env is the operator's alone: a new aify-env supersedes
-the running one and reaps its managed workers. Ask `aify-env doctor` whether one is running.
+Every agent holding the service API key may spawn, start, stop, restart and compact agents;
+kill and remove need the operator key when set. Starting aify-env is the operator's
+alone: a new one reaps the running one's managed workers. Ask `aify-env doctor` if one runs.
 
 ## Responding
 
