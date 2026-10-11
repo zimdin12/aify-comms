@@ -7,6 +7,8 @@ kept as evidence. Last reviewed 2026-09-27.
 
 - Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.
 - Deferred diagnostic privacy: fatal-line forwarding to spawn_requests.error is bounded but does not redact secrets or distinguish conversation text; inherited behavior, not a privacy guarantee.
+- A send to a WORKING managed hermes can be refused "Cannot start managed hermes for this agent: a spawn for this agent is ALREADY IN FLIGHT" (sc-coder-gpt, 2026-10-06 22:30Z, twice); the message is stored, `queueIfBusy=true` queued normally. The send tried to cold-start a busy agent. Reported by sc-manager, not yet traced; the lane was also calling the HTTP API directly at the time (possible confounder). Follow-up: that lane's hermes session (~47 h, 83 context compressions) had lost the comms MCP tools ("not available in this session"), which is why it fell back to raw HTTP. A `comms_restart` without fresh context brought the worker back; whether it restored the tools is unconfirmed. A long-lived hermes session losing its MCP tools after compression is its own defect to trace.
+- A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (sc-coder-gpt, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
 
 ## Handoff compaction under the same id is refused for a defined agent (0.9 D8, 2026-10-11)
 
