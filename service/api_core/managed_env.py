@@ -422,7 +422,7 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
         """,
         (agent_id, running_cutoff, *ended_params),
     )).fetchone()
-    return bool(row) or await lifecycle_start_in_flight(db, agent_id, running_cutoff)
+    return bool(row) or await lifecycle_start_in_flight(db, agent_id)
 
 
 async def _select_online_environment_for_runtime(

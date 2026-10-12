@@ -44,6 +44,12 @@ async def owner_of(db, agent_id):
     return held['machine_id'] if held else None
 
 
+def _new_request(machine_id, agent_id, action, actor, fresh_context):
+    return {'requestId': f'legacy-{uuid.uuid4().hex}', 'action': action, 'requestedBy': actor,
+            'expectedLifetime': published_lifetime(machine_id, agent_id, shadow.mirror.view(), shadow.clock()),
+            'freshContext': fresh_context}
+
+
 async def delegate(db, agent_id, action, actor, request, *, fresh_context=False):
     """Queue `action` for a defined agent and answer the receipt, or None for an undefined agent.
     Opens and commits its own transaction, so call it before the route writes anything."""
@@ -55,11 +61,12 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False)
             raise HTTPException(409, str(refused))
     machine_id = await owner_of(db, agent_id)
     if machine_id is None:
+        # AN UNDEFINED AGENT'S DELETE IS STILL A DELETE: its caller removes it here, so the key that locks a defined
+        # agent's delete locks this one too (pre-tag review of 0.9, F6).
+        if action == 'delete':
+            require_lifecycle({'requestedBy': actor, 'action': action}, request)
         return None
     proof = require_lifecycle({'requestedBy': actor, 'action': action}, request)  # before anything about its state is said
-    body = {'requestId': f'legacy-{uuid.uuid4().hex}', 'action': action, 'requestedBy': actor,
-            'expectedLifetime': published_lifetime(machine_id, agent_id, shadow.mirror.view(), shadow.clock()),
-            'freshContext': fresh_context}
     await db.execute('BEGIN IMMEDIATE')
     try:
         # A REPEAT OF WHAT IS ALREADY WAITING is that request, not an error: a second Start clicked while the
@@ -68,8 +75,11 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False)
         waiting = await (await db.execute(
             f"SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND action=? AND fresh_context=? "
             f"AND status IN {OPEN_SQL}", (agent_id, action, int(fresh_context)))).fetchone()
+        # Only a NEW request names the running lifetime, so a stale mirror refuses a new one and still answers a
+        # repeat with the request already waiting (pre-tag review of 0.9, F4).
         queued = (await lifecycle.lifecycle_request_by_id(db, waiting['id']) if waiting
-                  else await lifecycle.admit_lifecycle(db, agent_id, body, proof, now()))
+                  else await lifecycle.admit_lifecycle(db, agent_id, _new_request(machine_id, agent_id, action, actor,
+                                                                                   fresh_context), proof, now()))
         await db.commit()
     except BaseException:
         await db.rollback()
