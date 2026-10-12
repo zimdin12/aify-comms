@@ -48,6 +48,28 @@ test("AN APPROVAL FOR ANOTHER FILE OF THE SAME NAME is not carried, and that fil
   assert.equal(withoutDuplicateHooks(two).removed, 0);
 });
 
+test("ONLY THE INSTALLER'S OWN COMMAND FORM counts, and a POSIX path keeps its case", () => {
+  // Review of 0.9.1 R4, second pass: an approval moved to a command with a prefix, and two case-distinct POSIX files were
+  // folded into one.
+  const prefixed = [
+    "hooks:",
+    "  pre_llm_call:",
+    `    - command: ${JSON.stringify('printf unapproved; bash "/h/agent-hooks/aify-turn-start.sh"')}`,
+  ].join("\n");
+  const approved = [{ event: "pre_llm_call", command: 'bash "/h/agent-hooks/aify-turn-start.sh"' }];
+  assert.deepEqual(carried(approved, currentCommands(prefixed), "now", () => null), []);
+  const cased = [
+    "hooks:",
+    "  pre_llm_call:",
+    `    - command: ${JSON.stringify('bash "/op/One/agent-hooks/aify-turn-start.sh"')}`,
+    `    - command: ${JSON.stringify('bash "/op/one/agent-hooks/aify-turn-start.sh"')}`,
+  ].join("\n");
+  assert.equal(withoutDuplicateHooks(cased).removed, 0);
+  const moved = [{ event: "pre_llm_call", command: 'bash "/op/One/agent-hooks/aify-turn-start.sh"' }];
+  const current = currentCommands(`hooks:\n  pre_llm_call:\n    - command: ${JSON.stringify('"/usr/bin/bash" "/op/one/agent-hooks/aify-turn-start.sh"')}`);
+  assert.deepEqual(carried(moved, current, "now", () => null), []);
+});
+
 test("A HOOK NEVER APPROVED gets no approval, and one already carried is not added twice", () => {
   const approvals = [{ event: "pre_llm_call", command: `${GIT} "C:\\h\\agent-hooks\\aify-turn-start.sh"` }];
   assert.deepEqual(carried(approvals, currentCommands(config), "now", () => null), []);

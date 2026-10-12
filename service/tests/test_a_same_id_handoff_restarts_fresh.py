@@ -103,6 +103,13 @@ class ASameIdHandoffRestartsFresh(FastApiTestCase):
                 self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
         self.assertEqual(self.handoff(COMPACT_TOOL, workspace="/WORK/").status_code, 200, "the same path spelled otherwise")
 
+    def test_a_workspace_is_compared_the_way_its_host_reads_paths(self):
+        # Review of 0.9.1 R5, second pass: `/WORK` passed for a Linux host, where it is another folder than `/work`.
+        from service.api_core.handoff_restart import _same_path
+        self.assertFalse(_same_path("/WORK", "/work", windows=False))
+        self.assertTrue(_same_path("/work/", "/work", windows=False))
+        self.assertTrue(_same_path("C:\\Work\\", "c:/work", windows=True))
+
     def test_a_handoff_behind_a_waiting_restart_is_refused_not_merged(self):
         """The waiting request would never deliver this brief, so it is not answered as that request."""
         waiting = self.client.post("/api/v1/agents/coder/lifecycle-requests", json={

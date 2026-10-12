@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.lifecycle_delegation import delegate
+from service.api_core.serialization import _normalize_machine_id
 
 
 def same_id_handoff(agent_id: str, metadata: dict | None) -> bool:
@@ -24,9 +25,12 @@ def same_id_handoff(agent_id: str, metadata: dict | None) -> bool:
     return meta.get("compactMode") == "handoff" and source == agent_id
 
 
-def _same_path(a: str, b: str) -> bool:
-    """PURE: one directory however it is spelled (slashes, case, a trailing slash)."""
-    norm = lambda p: str(p or "").replace("\\", "/").rstrip("/").lower()
+def _same_path(a: str, b: str, *, windows: bool) -> bool:
+    """PURE: one directory as its host reads it. A trailing slash never counts; slashes and case count only off Windows,
+    where `/WORK` and `/work` are two folders (review of 0.9.1, R5)."""
+    def norm(p):
+        p = str(p or "")
+        return p.replace("\\", "/").rstrip("/").lower() if windows else p.rstrip("/")
     return norm(a) == norm(b)
 
 
@@ -45,12 +49,13 @@ async def restart_with_brief(db, agent_id: str, *, runtime: str, brief: dict | N
     if runtime and runtime != binding.runtime:
         raise HTTPException(409, f'Agent "{agent_id}" is defined to run {binding.runtime} on {binding.machine_id}; '
                                  f'a handoff restarts it from that definition, so change the runtime there first')
-    if workspace and not _same_path(workspace, binding.workspace):
+    host = _normalize_machine_id(binding.machine_id)  # "<platform>:<host>"
+    if workspace and not _same_path(workspace, binding.workspace, windows=host.startswith("win32:")):
         raise HTTPException(409, f'Agent "{agent_id}" is defined to work in {binding.workspace}; a handoff restarts it '
                                  f'from that definition, so change the workspace there first')
     if environment_id:
         row = await (await db.execute("SELECT machine_id FROM environments WHERE id = ?", (environment_id,))).fetchone()
-        if row is None or str(row["machine_id"] or "").lower() != str(binding.machine_id).lower():
+        if row is None or _normalize_machine_id(row["machine_id"]) != host:
             raise HTTPException(409, f'Agent "{agent_id}" is defined on {binding.machine_id}; a handoff restarts it '
                                      f'there, not in environment {environment_id}')
     return await delegate(db, agent_id, "restart", actor, request, fresh_context=True,

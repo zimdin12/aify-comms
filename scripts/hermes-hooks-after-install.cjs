@@ -17,11 +17,16 @@
 const fs = require("fs");
 const path = require("path");
 
-//: The aify hook script a command runs, by its whole path: a basename alone let an approval move to another file of the
-//: same name, and folded the operator's own copy elsewhere into ours.
+//: A command exactly as install.sh writes it: `bash "<hook>"` or `"<...bash.exe>" "<hook>"`, the hook in an `agent-hooks`
+//: folder. Anything else is the operator's, so an approval never moves to a command with something prefixed.
+const INSTALLER_COMMAND = /^(?:bash|"[^"]*[\\/]bash(?:\.exe)?") "([^"]*[\\/]agent-hooks[\\/]aify-[a-z-]+\.sh)"$/;
+
+/** The hook an installer-written command runs, by its whole path: a basename alone let an approval move to another file
+ *  of the same name. A drive-letter path is folded for slashes and case, as Windows reads it; any other is kept exact. */
 const scriptOf = (command) => {
-  const m = String(command).match(/(?:"([^"]*aify-[a-z-]+\.sh)"|(\S*aify-[a-z-]+\.sh))\s*$/);
-  return m ? (m[1] || m[2]).replace(/\\/g, "/").toLowerCase() : undefined;
+  const hook = (String(command).trim().match(INSTALLER_COMMAND) || [])[1];
+  if (!hook) return undefined;
+  return /^[A-Za-z]:/.test(hook) ? hook.replace(/\\/g, "/").toLowerCase() : hook;
 };
 
 /** The aify script a config line's quoted `command:` names, or undefined. */
