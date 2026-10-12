@@ -75,7 +75,7 @@ function redactTokens(text) {
 }
 
 
-async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure, explain, signal } = {}) {
+async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure, explain, signal, onFailedProbe } = {}) {
   const deadline = Date.now() + deadlineMs;
   let lastErr = null;
   for (;;) {
@@ -85,6 +85,7 @@ async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, 
     } catch (err) {
       if (signal?.aborted) throw signal.reason;
       lastErr = err;
+      onFailedProbe?.(err);
       // FAIL FAST on a known-fatal boot signature (task #237 item e). The
       // "Installing TUI dependencies" npm step runs OUTSIDE `--skip-build` and, on
       // hermes upstream drift, dies `npm error Missing script: "build"` — the
@@ -358,16 +359,20 @@ export async function ensureGatewayHost({
   if (lifetimeKnown && (child.exitCode !== null || child.signalCode !== null)) {
     onExit(child.exitCode, child.signalCode);
   }
+  // THE LAST PROBE'S ERROR when the gateway wrote nothing. This timer and the probe loop's own deadline race,
+  // and between probes the loop sleeps, so this one usually fires first: it said only "did not become ready"
+  // where the loop said why (failed under suite load 2026-10-12).
+  let lastProbeError = null;
   const timer = setTimeout(() => {
     const tail = explain();
     stop(`hermes dashboard at ${indexUrl} did not become ready within ${deadlineMs}ms`
-      + (tail ? `: its stderr ends: ${tail}` : ""));
+      + (tail ? `: its stderr ends: ${tail}` : lastProbeError ? `: ${lastProbeError.message || lastProbeError}` : ""));
   }, deadlineMs);
   timer.unref?.();
   try {
     const token = await Promise.race([waitForIndexToken(indexUrl, fetchImpl, {
       detectFailure: detectBootFailure, explain, deadlineMs,
-      intervalMs: readyIntervalMs, signal: abort.signal,
+      intervalMs: readyIntervalMs, signal: abort.signal, onFailedProbe: (err) => { lastProbeError = err; },
     }), stopped]);
     clearTimeout(timer);
     // The same child must survive through WS proof, not merely index scraping.

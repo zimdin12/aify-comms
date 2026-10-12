@@ -52,6 +52,25 @@ test("CONTROL: a gateway that wrote nothing still reports the fetch error", asyn
   assert.match(message, /did not become ready within 50ms: fetch failed$/);
 });
 
+test("THE TIMER THAT WINS THE RACE still says why: the last probe's error, when the gateway wrote nothing", async () => {
+  // The probe loop and the outer deadline race. Here the second probe never answers, so only the outer timer
+  // can end the wait, as it usually does in production, where the loop sleeps 250 ms between probes.
+  let probes = 0;
+  const fetchImpl = (_url, { signal } = {}) => {
+    probes += 1;
+    if (probes === 1) return Promise.reject(new Error("fetch failed"));
+    return new Promise((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+  };
+  // The deadline timer is unref'd and a pending probe holds nothing open, so this keeps the loop alive meanwhile.
+  const alive = setTimeout(() => {}, 10_000);
+  const message = await ensureGatewayHost({
+    agentId: "readiness-probe", port: 9399, spawn: spawnWritingStderr(""), fetchImpl,
+    probeFirst: false, verifyWs: false, readyTimeoutMs: 50, readyIntervalMs: 5,
+  }).then(() => assert.fail("a gateway that never serves must reject"), (err) => String(err.message))
+    .finally(() => clearTimeout(alive));
+  assert.match(message, /did not become ready within 50ms: fetch failed$/);
+});
+
 test("the last line is the last NON-BLANK line", () => {
   assert.equal(lastGatewayLogLine("a\r\n  b  \r\n\r\n"), "b");
   assert.equal(lastGatewayLogLine(""), "");

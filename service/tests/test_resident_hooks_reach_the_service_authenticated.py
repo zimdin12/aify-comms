@@ -500,14 +500,21 @@ def test_g5_rendered_hooks_report_to_env_without_a_comms_url(installed, mode):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "hook-test.json").write_text(json.dumps({"url": stub.url, "instance": "hook-test",
             "pid": os.getpid(), "startedAt": "2026-10-01T00:00:00.000Z"}))
-        extra = {"AIFY_COMMS_URL": "", "AIFY_ENV_INSTANCE": "hook-test",
-                 "AIFY_LIFETIME": "7f3c9e2a-1111-4111-8111-111111111111", "AIFY_SESSION_MODE": mode}
+        # ONE LIFETIME PER MODE. The other mode's stub held a port this one can be given, and under suite load a
+        # hook that mode ran can post after it closed: counted here it read as a duplicate (2026-10-12).
+        lifetime = {"resident": "7f3c9e2a-1111-4111-8111-111111111111",
+                    "managed": "7f3c9e2a-2222-4222-8222-222222222222"}[mode]
+        extra = {"AIFY_COMMS_URL": "", "AIFY_ENV_INSTANCE": "hook-test", "AIFY_LIFETIME": lifetime,
+                 "AIFY_SESSION_MODE": mode}
         for command, kind in cases:
             stub.requests.clear()
             _run_hook(command, stub, installed, extra_env=extra)
-            _await_request(stub, deadline=3)
-            assert len(stub.requests) == 1, (mode, command, stub.requests)
-            route, body, key = stub.requests[0]
+            # The default budget: a hermes hook's detached node posts after the hook returns, and under suite
+            # load that took longer than the 3 s this once allowed (failed 2026-10-12, passes alone).
+            _await_request(stub)
+            ours = [r for r in stub.requests if json.loads(r[1]).get("lifetime") == lifetime]
+            assert len(ours) == 1, (mode, command, stub.requests)
+            route, body, key = ours[0]
             assert route == "/agents/installed-hook/turn-event"
             assert key is None
             body = json.loads(body)
