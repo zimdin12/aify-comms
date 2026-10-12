@@ -331,7 +331,7 @@ def test_hermes_hooks_name_their_bash_and_add_one_entry_per_event(installed):
     events = _hermes_hooks((root / "config.yaml").read_text())
     bash = _hook_bash()
     # Hermes approves a shell hook by its exact (event, command) pair; install.sh carries an approved one over
-    # to this command (scripts/hermes-hook-approvals.cjs), so a managed hermes keeps running it.
+    # to this command (scripts/hermes-hooks-after-install.cjs), so a managed hermes keeps running it.
     assert events["pre_llm_call"] == [f'{bash} "{_native(root / "agent-hooks" / "aify-turn-start.sh")}"', "echo mine"], events
     for event, script in (("on_session_end", "aify-turn-end.sh"), ("pre_approval_request", "aify-blocked.sh"),
                           ("post_approval_response", "aify-unblocked.sh")):

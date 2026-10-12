@@ -2102,7 +2102,7 @@ elif [ "$CLIENT" = "hermes" ]; then
   # Turn-start (pre_llm_call), turn-end (on_session_end) and approval
   # (pre_approval_request / post_approval_response) shell hooks; see install_hermes_turn_hooks.
   install_hermes_turn_hooks
-  MSYS_NO_PATHCONV=1 node "$(path_for_node "$SCRIPT_DIR/scripts/hermes-hook-approvals.cjs")" "$(path_for_node "$(hermes_config_root)")" || true
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$SCRIPT_DIR/scripts/hermes-hooks-after-install.cjs")" "$(path_for_node "$(hermes_config_root)")" || true
   # No per-agent daemon exists at install time (no agent id), so say it starts at launch and fails loudly.
   echo "Hermes delivery (managed AND resident): hermes-aify brings up a per-agent"
   echo "  hidden tui_gateway host (node mcp/stdio/hermes-managed-host.js ensure-host"

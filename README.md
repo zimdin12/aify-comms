@@ -82,6 +82,7 @@ bash scripts/stamp.sh && docker compose up -d --build   # service :8800 (API), d
 curl http://localhost:8800/health # {"status":"healthy"}
 
 bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
+.\install.cmd --client claude http://localhost:8800 --with-hook   # the same from PowerShell or cmd
 git clone https://github.com/zimdin12/aify-env  # agent hosts only; then its own ./install.sh
 ```
 

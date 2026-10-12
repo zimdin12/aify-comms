@@ -1,12 +1,13 @@
-// install.sh carries an approved aify hermes hook to its new Git Bash command (scripts/hermes-hook-approvals.cjs).
-// A managed hermes never shows the approval prompt, so a command whose approval is not carried stops running.
+// What install.sh does to hermes' hooks once written (scripts/hermes-hooks-after-install.cjs): each aify hook listed
+// once per event, and an approved hook carried to its new Git Bash command. A managed hermes never shows the approval
+// prompt, so a command whose approval is not carried stops running.
 
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { carried, currentCommands } = require("../../../scripts/hermes-hook-approvals.cjs");
+const { carried, currentCommands, withoutDuplicateHooks } = require("../../../scripts/hermes-hooks-after-install.cjs");
 
 const GIT = '"C:/Program Files/Git/usr/bin/bash.exe"';
 const config = [
@@ -37,4 +38,32 @@ test("A HOOK NEVER APPROVED gets no approval, and one already carried is not add
   const approvals = [{ event: "pre_llm_call", command: `${GIT} "C:\\h\\agent-hooks\\aify-turn-start.sh"` }];
   assert.deepEqual(carried(approvals, currentCommands(config), "now", () => null), []);
   assert.deepEqual(carried([], currentCommands(config), "now", () => null), [], "turn-end was never approved");
+});
+
+test("EACH AIFY HOOK IS LISTED ONCE PER EVENT, and the operator's own hooks and other events are untouched", () => {
+  const cmd = (script) => JSON.stringify(`${GIT} "C:\\h\\agent-hooks\\${script}"`);
+  const config = [
+    "model: x",
+    "hooks:",
+    "  pre_llm_call:",
+    `    - command: ${cmd("aify-turn-start.sh")}`,
+    "      timeout: 3",
+    "    - matcher: .*",
+    `      command: ${cmd("aify-turn-start.sh")}`,
+    "      timeout: 3",
+    `    - command: ${JSON.stringify("python mine.py")}`,
+    "      timeout: 3",
+    "  post_tool_call:",
+    "    - matcher: \".*\"",
+    `      command: ${cmd("aify-turn-start.sh")}`,
+    "      timeout: 3",
+    "hooks_auto_accept: false",
+  ].join("\r\n");
+  const { text, removed } = withoutDuplicateHooks(config);
+  assert.equal(removed, 1);
+  assert.equal(text.split("\r\n").length, 15 - 3, "exactly the second turn-start entry went");
+  assert.match(text, /mine\.py/);
+  assert.match(text, /post_tool_call:\r\n    - matcher: ".*"\r\n      command: .*aify-turn-start/, "another event keeps its own entry");
+  assert.match(text, /hooks_auto_accept: false$/);
+  assert.equal(withoutDuplicateHooks(text).removed, 0, "a second pass changes nothing");
 });

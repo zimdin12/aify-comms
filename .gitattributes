@@ -2,6 +2,7 @@
 *.py text eol=lf
 *.js text eol=lf
 *.sh text eol=lf
+*.cmd text eol=crlf
 
 # CAPTURED PTY LOGS ARE BINARY, whatever their extension says.
 #
