@@ -55,7 +55,9 @@ def test_the_roster_reads_as_definitions_field_by_field(tmp_path):
     assert sorted(records) == ["lead", "plain", "sparse"], "another machine's agent is not this host's to import"
     assert records["lead"] == {"id": "lead", "unreported": ["env"], "agent": {
         "name": "The Lead", "role": "reviewer", "harness": "claude", "mode": "resident", "workspace": "C:/work/lead",
-        "model": "claude-sonnet-4-5", "effort": "high", "instructions": "review only", "env": {}, "herdrSpace": False}}
+        "model": "claude-sonnet-4-5", "effort": "high", "instructions": "review only", "env": {}, "herdrSpace": False},
+        # Beside the definition, not in it: the session `aify-env agents models` reads (0.9.1). None registered here.
+        "sessionHandle": ""}
     assert records["plain"] == {"id": "plain", "notImportable": "its runtime generic has no harness"}
     sparse = records["sparse"]
     assert (sparse["unreported"], sparse["agent"]["model"], sparse["agent"]["effort"]) == (["effort", "env"], "", ""), sparse
