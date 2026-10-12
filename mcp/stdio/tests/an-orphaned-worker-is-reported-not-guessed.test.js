@@ -28,9 +28,21 @@ test("a loop bound to the live bridge is the live worker, not an orphan", () => 
   const verdict = managedOrphanVerdict({
     loops: [{ agentId: "comms-senior-dev", pid: 193348 }],
     agents: { "comms-senior-dev": bound(LIVE) },
-    liveBridgeId: LIVE,
+    liveBridgeIds: [LIVE],
   });
   assert.equal(verdict.ok, true);
+  assert.equal(verdict.code, "ok");
+});
+
+test("a hermes the operator started by hand is bound to its own resident bridge, not an orphan", () => {
+  // The field case, 2026-10-13: hermes-aify runs this same loop for a resident it launches, bound to that
+  // resident's bridge. Compared against the environment's bridge alone, the live pc-manager read orphaned.
+  const RESIDENT = "dd14480f-8705-45ca-b5f7-682c67190be8";
+  const verdict = managedOrphanVerdict({
+    loops: [{ agentId: "pc-manager", pid: 27720 }],
+    agents: { "pc-manager": { sessionMode: "resident", runtimeState: { bridgeInstanceId: RESIDENT } } },
+    liveBridgeIds: [LIVE, RESIDENT],
+  });
   assert.equal(verdict.code, "ok");
 });
 
@@ -40,7 +52,7 @@ test("a loop bound to a bridge that is gone is an orphan, and it is named", () =
   const verdict = managedOrphanVerdict({
     loops: [{ agentId: "graph-senior-dev", pid: 185120 }],
     agents: { "graph-senior-dev": bound(DEAD) },
-    liveBridgeId: LIVE,
+    liveBridgeIds: [LIVE],
   });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "orphaned");
@@ -54,7 +66,7 @@ test("a loop for an agent the service does not know is an orphan too", () => {
   const verdict = managedOrphanVerdict({
     loops: [{ agentId: "long-deleted-agent", pid: 4242 }],
     agents: {},
-    liveBridgeId: LIVE,
+    liveBridgeIds: [LIVE],
   });
   assert.equal(verdict.ok, false);
   assert.match(verdict.detail, /long-deleted-agent/);
@@ -70,14 +82,14 @@ test("the nohup parent and its node child are ONE loop, not two", () => {
       { agentId: "graph-senior-dev", pid: 185120 },  // its node child
     ],
     agents: { "graph-senior-dev": bound(DEAD) },
-    liveBridgeId: LIVE,
+    liveBridgeIds: [LIVE],
   });
   assert.match(verdict.detail, /^1 of 1 managed delivery loop/);
   assert.match(verdict.detail, /pid 18100\+185120/, "both pids belong to the one loop it names");
 });
 
 test("no loops at all is clean", () => {
-  const verdict = managedOrphanVerdict({ loops: [], agents: {}, liveBridgeId: LIVE });
+  const verdict = managedOrphanVerdict({ loops: [], agents: {}, liveBridgeIds: [LIVE] });
   assert.equal(verdict.ok, true);
   assert.equal(verdict.code, "none");
 });
@@ -94,7 +106,7 @@ test("orphans and live workers are counted apart", () => {
       "graph-senior-dev": bound(DEAD),
       "mc-senior-dev": bound(DEAD),
     },
-    liveBridgeId: LIVE,
+    liveBridgeIds: [LIVE],
   });
   assert.equal(verdict.ok, false);
   assert.match(verdict.detail, /^2 of 3 managed delivery loop/);
@@ -107,14 +119,14 @@ test("orphans and live workers are counted apart", () => {
 // nothing.
 
 test("an unreadable process table is unknown, never clean", () => {
-  const verdict = managedOrphanVerdict({ loops: null, agents: {}, liveBridgeId: LIVE });
+  const verdict = managedOrphanVerdict({ loops: null, agents: {}, liveBridgeIds: [LIVE] });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "unknown-all");
   assert.match(verdict.detail, /process table/);
 });
 
 test("a service that did not answer is unknown, never clean", () => {
-  const verdict = managedOrphanVerdict({ loops: [], agents: null, liveBridgeId: LIVE });
+  const verdict = managedOrphanVerdict({ loops: [], agents: null, liveBridgeIds: [LIVE] });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "unknown-all");
   assert.match(verdict.detail, /service/);
@@ -126,18 +138,18 @@ test("no bridge online is unknown, never clean", () => {
   const verdict = managedOrphanVerdict({
     loops: [{ agentId: "graph-senior-dev", pid: 185120 }],
     agents: { "graph-senior-dev": bound(DEAD) },
-    liveBridgeId: null,
+    liveBridgeIds: null,
   });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "unknown-all");
-  assert.match(verdict.detail, /no environment bridge is online/);
+  assert.match(verdict.detail, /no bridge is online/);
 });
 
 test("every missing input is named, not just the first", () => {
-  const verdict = managedOrphanVerdict({ loops: null, agents: null, liveBridgeId: null });
+  const verdict = managedOrphanVerdict({ loops: null, agents: null, liveBridgeIds: null });
   assert.match(verdict.detail, /process table/);
   assert.match(verdict.detail, /service/);
-  assert.match(verdict.detail, /environment bridge/);
+  assert.match(verdict.detail, /no bridge is online/);
 });
 
 test("called with nothing at all, it is unknown rather than throwing", () => {

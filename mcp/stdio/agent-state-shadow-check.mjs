@@ -79,5 +79,7 @@ export async function checkAgentStateShadow({ get, add, skip }) {
   try { report = await get("/api/v1/agent-state/shadow-report"); } catch { /* no raw transport error in report */ }
   const verdict = shadowReportVerdict(report);
   if (verdict.code === "skipped") return skip("agent-state-shadow", verdict.detail, verdict.shadow, verdict.ok);
-  return add("agent-state-shadow", verdict.ok, verdict.code, verdict.detail, "", verdict.shadow);
+  return add("agent-state-shadow", verdict.ok, verdict.code, verdict.detail,
+    "Nothing to do on this host: the counts are evidence for switching status to aify-env, read by whoever decides that switch.",
+    verdict.shadow);
 }

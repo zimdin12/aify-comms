@@ -722,7 +722,7 @@ export function spawnHostVerdict({ launcherText = null, endpointAnswered = null,
 }
 
 /**
- * Managed delivery loops running for agents that no longer belong to the live environment bridge.
+ * Managed delivery loops running for agents that no longer belong to any live bridge.
  *
  * WHY THIS IS A CHECK AND NOT A REAPER. An orphaned loop is a `hermes-managed-host.js run <agent>`
  * process, launched detached under nohup so it deliberately OUTLIVES whatever started it. Nothing
@@ -743,9 +743,11 @@ export function spawnHostVerdict({ launcherText = null, endpointAnswered = null,
  * @param {object}   input
  * @param {Array|null} input.loops  [{agentId, pid}] enumerated loops, or null if unreadable.
  * @param {object|null} input.agents  {agentId: {sessionMode, runtimeState}}, or null if unreachable.
- * @param {string|null} input.liveBridgeId  The ONLINE environment's bridgeId, or null if unknown.
+ * @param {string[]|null} input.liveBridgeIds  Every bridge beating now: the online environment's and each one
+ *   `/bridges` lists. A hermes the operator starts by hand runs this same loop bound to its own resident
+ *   bridge, so the environment's alone accused every one of them (pc-manager, 2026-10-13). Null if unknown.
  */
-export function managedOrphanVerdict({ loops = null, agents = null, liveBridgeId = null } = {}) {
+export function managedOrphanVerdict({ loops = null, agents = null, liveBridgeIds = null } = {}) {
   // NO EVIDENCE IS NOT A PASS. Each of the three inputs can be absent for its own reason -- an
   // unreadable process table, a service that is down, no bridge online -- and every one of them makes
   // the answer unknown rather than clean. `env-bridge` and `bridge-current` both shipped as
@@ -753,7 +755,7 @@ export function managedOrphanVerdict({ loops = null, agents = null, liveBridgeId
   const missing = [];
   if (loops === null) missing.push("the process table could not be read");
   if (agents === null) missing.push("the service did not answer");
-  if (!liveBridgeId) missing.push("no environment bridge is online");
+  if (!Array.isArray(liveBridgeIds) || liveBridgeIds.length === 0) missing.push("no bridge is online");
   if (missing.length) {
     return {
       ok: false,
@@ -783,15 +785,14 @@ export function managedOrphanVerdict({ loops = null, agents = null, liveBridgeId
     const row = agents[agentId];
     // A loop for an agent the service does not know is orphaned by definition: nothing can address it.
     const boundTo = String(row?.runtimeState?.bridgeInstanceId || "").trim();
-    if (boundTo && boundTo === liveBridgeId) continue;
+    if (boundTo && liveBridgeIds.includes(boundTo)) continue;
     orphans.push({ agentId, pids: pids.slice().sort((a, b) => a - b), boundTo: boundTo || "(none)" });
   }
   if (orphans.length === 0) {
     return {
       ok: true,
       code: "ok",
-      detail: `${byAgent.size} managed delivery loop(s) running, all bound to the live environment `
-        + "bridge.",
+      detail: `${byAgent.size} managed delivery loop(s) running, all bound to a live bridge.`,
       fix: "",
     };
   }

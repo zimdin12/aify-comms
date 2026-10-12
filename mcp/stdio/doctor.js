@@ -637,9 +637,13 @@ async function checkManagedOrphans() {
   // whenever no bridge can claim a spawn, and reading `status` here would attribute orphans to a
   // bridge that has not spoken since yesterday.
   const online = (envs && envs.environments ? envs.environments : []).filter(envCanClaimASpawn);
-  const liveBridgeId = online.length === 1 ? String(online[0].bridgeId || "") : "";
+  const live = await get("/api/v1/bridges");
+  const liveBridgeIds = envs && live
+    ? [...online.map((env) => String(env.bridgeId || "")), ...(live.bridges || []).map((b) => String(b?.id || ""))]
+      .filter(Boolean)
+    : null;
 
-  const verdict = managedOrphanVerdict({ loops, agents, liveBridgeId });
+  const verdict = managedOrphanVerdict({ loops, agents, liveBridgeIds });
   return add("managed-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 
