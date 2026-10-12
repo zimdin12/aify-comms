@@ -44,9 +44,10 @@ async def owner_of(db, agent_id):
     return held['machine_id'] if held else None
 
 
-async def delegate(db, agent_id, action, actor, request, *, fresh_context=False):
-    """Queue `action` for a defined agent and answer the receipt, or None for an undefined agent.
-    Opens and commits its own transaction, so call it before the route writes anything."""
+async def delegate(db, agent_id, action, actor, request, *, fresh_context=False, brief=''):
+    """Queue `action` for a defined agent and answer the receipt, or None for an undefined agent. `brief` is the
+    started worker's first message (JSON subject, body, priority). Opens and commits its own transaction, so
+    call it before the route writes anything."""
     if action in LAUNCHING_ACTIONS:
         # Refused at once, as before D9c: withdrawn, resident, or a definition its host cannot use.
         try:
@@ -65,11 +66,12 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False)
         # A REPEAT OF WHAT IS ALREADY WAITING is that request, not an error: a second Start clicked while the
         # first is still queued answered 409 "open lifecycle request". Another action waiting is still refused,
         # and so is a Recreate behind a waiting Restart: that restart keeps the conversation the caller asked to drop.
-        waiting = await (await db.execute(
+        # One carrying a brief is never a repeat: the waiting request would not deliver it.
+        waiting = None if brief else await (await db.execute(
             f"SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND action=? AND fresh_context=? "
             f"AND status IN {OPEN_SQL}", (agent_id, action, int(fresh_context)))).fetchone()
         queued = (await lifecycle.lifecycle_request_by_id(db, waiting['id']) if waiting
-                  else await lifecycle.admit_lifecycle(db, agent_id, body, proof, now()))
+                  else await lifecycle.admit_lifecycle(db, agent_id, body, proof, now(), brief=brief))
         await db.commit()
     except BaseException:
         await db.rollback()

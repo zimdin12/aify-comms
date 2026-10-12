@@ -36,7 +36,7 @@ async def lifecycle_requests_for(db, agent_id):
     return [lifecycle_record(row) for row in rows]
 
 
-async def admit_lifecycle(db, agent_id, body, proof, now):
+async def admit_lifecycle(db, agent_id, body, proof, now, *, brief=''):
     if not isinstance(proof, LifecycleProof):
         raise HTTPException(403, 'lifecycle proof required')
     if proof.actor != lifecycle_actor(body):
@@ -69,7 +69,7 @@ async def admit_lifecycle(db, agent_id, body, proof, now):
         raise HTTPException(409, 'definition revision moved')
     await queue_lifecycle(db, request_id, held, action=body['action'], actor=proof.actor,
                           expected_lifetime=body['expectedLifetime'], fresh_context=body.get('freshContext', False),
-                          intent=intent, now=now)
+                          intent=intent, now=now, brief=brief)
     return await lifecycle_request_by_id(db, request_id)
 
 

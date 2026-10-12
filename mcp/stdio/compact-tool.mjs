@@ -14,7 +14,8 @@
 //            `/compress`) into a managed agent's live console, then Enter. The service refuses a resident,
 //            a runtime with no verified command, a console with no TUI, and an agent that is not idle at
 //            its prompt -- typed mid-turn it queues behind the turn, typed over a dialog it ANSWERS it.
-//   handoff  a fresh session from a spawn request, as before. Its first message is the service's brief
+//   handoff  a fresh session, posted as a spawn request: a new successor id is defined on its host first, and
+//            the same id, defined, is its host's fresh-context restart (0.9.1). Its first message is the service's brief
 //            (`GET /agents/{id}/compact/handoff-brief`): the previous session and native session id, where
 //            the transcript is when the runtime's layout says, and "read your last N messages" with
 //            comms_inbox. It used to paste ~24 message bodies; the inbox already holds them.
@@ -108,14 +109,16 @@ async function compactByHandoff({ from, targetAgentId, newAgentId, role, environ
       sameAgentId: successorId === targetAgentId,
     },
   });
-  // A new successor id is defined by its host first (D8): the answer is that definition request.
-  const req = r.spawnRequest || r.definitionRequest || {};
+  // A new successor id is defined by its host first (D8): the answer is that definition request. The same id,
+  // defined, is its host's fresh-context restart (0.9.1): the answer is that lifecycle request.
+  const req = r.spawnRequest || r.definitionRequest || r.lifecycleRequest || {};
   const identityText = successorId === targetAgentId ? `same agent ID "${successorId}"` : `successor "${successorId}"`;
+  const queuedAs = r.lifecycleRequest ? "Its host restarts it into a fresh conversation. Restart request" : "Spawn request";
   return {
     content: [{
       type: "text",
       text:
-        `Queued handoff compaction for ${identityText} from "${targetAgentId}". Spawn request: ${req.id || "unknown"} [${req.status || "queued"}]. ` +
+        `Queued handoff compaction for ${identityText} from "${targetAgentId}". ${queuedAs}: ${req.id || "unknown"} [${req.status || "queued"}]. ` +
         `The fresh session is told its previous session and to read its last ${brief.recentMessages} message(s); the old native session is not reused.`,
     }],
   };

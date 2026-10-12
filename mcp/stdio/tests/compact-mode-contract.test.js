@@ -17,6 +17,7 @@ const requests = [];
 let sessionsPayload = { sessions: [] };
 let nativeReply = { ok: true, command: "/compact", terminalId: "term_1", controlId: "ctl_1" };
 
+let spawnReply = { ok: true, spawnRequest: { id: "sr_1", status: "queued" } };
 const server = http.createServer((req, res) => {
   let body = "";
   req.on("data", (chunk) => { body += chunk; });
@@ -34,7 +35,7 @@ const server = http.createServer((req, res) => {
     }
     if (url.endsWith("/compact/native")) return res.end(JSON.stringify(nativeReply));
     if (url.includes("/messages")) return res.end(JSON.stringify({ messages: [{ from: "a", to: "target", body: "OLD BODY" }] }));
-    return res.end(JSON.stringify({ ok: true, spawnRequest: { id: "sr_1", status: "queued" } }));
+    return res.end(JSON.stringify(spawnReply));
   });
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.2", resolve));
@@ -90,6 +91,16 @@ sessionsPayload = { sessions: [{ id: "s1", agentId: "target", runtime: "claude-c
   assert.ok(!res.isError, text(res));
   assert.equal(lastSpawn().body.initialMessage, "BRIEF read 3\n\nInstructions:\nfinish the parser");
   assert.match(text(res), /read its last 3 message/);
+}
+
+// ── a defined agent's same-id handoff is answered as its host's restart (0.9.1) ──
+{
+  spawnReply = { ok: true, spawnRequest: null, definitionRequest: null,
+                 lifecycleRequest: { id: "legacy-1", action: "restart", status: "pending" } };
+  const res = await compact.handler({ targetAgentId: "target", from: "agent-a" });
+  spawnReply = { ok: true, spawnRequest: { id: "sr_1", status: "queued" } };
+  assert.ok(!res.isError, text(res));
+  assert.match(text(res), /restarts it into a fresh conversation\. Restart request: legacy-1 \[pending\]/);
 }
 
 {

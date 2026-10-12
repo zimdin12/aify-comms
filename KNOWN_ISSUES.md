@@ -10,14 +10,6 @@ kept as evidence. Last reviewed 2026-09-27.
 - A send to a WORKING managed hermes can be refused "Cannot start managed hermes for this agent: a spawn for this agent is ALREADY IN FLIGHT" (sc-coder-gpt, 2026-10-06 22:30Z, twice); the message is stored, `queueIfBusy=true` queued normally. The send tried to cold-start a busy agent. Reported by sc-manager, not yet traced; the lane was also calling the HTTP API directly at the time (possible confounder). Follow-up: that lane's hermes session (~47 h, 83 context compressions) had lost the comms MCP tools ("not available in this session"), which is why it fell back to raw HTTP. A `comms_restart` without fresh context brought the worker back; whether it restored the tools is unconfirmed. A long-lived hermes session losing its MCP tools after compression is its own defect to trace.
 - A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (sc-coder-gpt, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
 
-## Handoff compaction under the same id is refused for a defined agent (0.9 D8, 2026-10-11)
-
-`comms_compact` in handoff mode, and the dashboard's Compact, spawn the successor through `POST /spawn-requests`.
-Since 0.8 that route has refused an id a host defines, and since D8 every managed agent is defined. So a handoff
-that keeps the agent's id is refused. One with a new successor id still works, and defines that successor on its
-host. Native compaction (`/compact/native`) is unaffected. The planned fix is a fresh-context lifecycle `restart`
-that carries the handoff brief (0.9.1).
-
 ## A creation its host claimed and never reported holds the id (0.9 D8, 2026-10-11)
 
 A spawn of a new id queues a creation on one host. Until that host reports it, another spawn of the id is

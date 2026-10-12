@@ -42,6 +42,7 @@ from service import longpoll
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.claim_emptiness import spawn_request_is_empty
 from service.api_core.definition_creation import admit_creation, created_agent
+from service.api_core.handoff_restart import restart_with_brief, same_id_handoff
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import (
     operator_key_from, prove_operator, recorded_operator_actor, refuse_a_reserved_agent_id,
@@ -257,6 +258,16 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
 
     db = await get_db()
     try:
+        # A HANDOFF INTO ITS OWN ID restarts the defined agent into a fresh conversation, the brief its first
+        # message (0.9.1, handoff_restart.py). One no host defines falls through to the refusals below.
+        if same_id_handoff(req.agentId, req.metadata):
+            brief = ({"subject": req.subject or f"Handoff {req.agentId}", "body": req.initialMessage,
+                      "priority": req.priority or "normal"} if str(req.initialMessage or "").strip() else None)
+            restarted = await restart_with_brief(db, req.agentId, runtime=normalized_runtime, brief=brief,
+                                                 actor=created_by, request=request)
+            if restarted:
+                return {"ok": True, "spawnRequest": None, "definitionRequest": None,
+                        "lifecycleRequest": restarted["request"]}
         # A DEFINED AGENT IS STARTED FROM ITS DEFINITION (P0 C5, C7). A spawn of its own would run a
         # spec the host never wrote, under an id the host owns. READ INSIDE THE WRITE TRANSACTION: read
         # before it, a push could define the id between this check and the insert below (review of
