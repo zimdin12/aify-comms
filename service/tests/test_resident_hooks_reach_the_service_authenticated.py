@@ -39,6 +39,7 @@ LIFTED = (
     "install_claude_turn_end_hook",
     "install_codex_turn_hooks",
     "install_codex_mcp_env_vars",
+    "hermes_hook_bash",
     "install_hermes_turn_hooks",
 )
 
@@ -317,16 +318,24 @@ def test_codex_hooks_replace_the_curl_entries_once_and_keep_the_users(installed)
     assert "echo mine" in _commands(hooks["Stop"])
 
 
-def test_hermes_keeps_the_approved_turn_start_command_and_adds_one_entry_per_event(installed):
+def _hook_bash() -> str:
+    """The bash a hermes hook names: Git Bash by its path on Windows, where a bare `bash` is WSL's (System32 first)."""
+    if not _git_bash():
+        return "bash"
+    found = subprocess.run([_bash(), "-c", 'cygpath -m "$(command -v bash)"'], capture_output=True, text=True)
+    return f'"{found.stdout.strip()}"'
+
+
+def test_hermes_hooks_name_their_bash_and_add_one_entry_per_event(installed):
     root = installed / ".hermes"
     events = _hermes_hooks((root / "config.yaml").read_text())
-    start = f'bash "{_native(root / "agent-hooks" / "aify-turn-start.sh")}"'
-    # Hermes approves a shell hook by its exact (event, command) pair, so changing this string would
-    # silently unregister a turn-start the operator already approved.
-    assert events["pre_llm_call"] == [start, "echo mine"], events
+    bash = _hook_bash()
+    # Hermes approves a shell hook by its exact (event, command) pair; install.sh carries an approved one over
+    # to this command (scripts/hermes-hook-approvals.cjs), so a managed hermes keeps running it.
+    assert events["pre_llm_call"] == [f'{bash} "{_native(root / "agent-hooks" / "aify-turn-start.sh")}"', "echo mine"], events
     for event, script in (("on_session_end", "aify-turn-end.sh"), ("pre_approval_request", "aify-blocked.sh"),
                           ("post_approval_response", "aify-unblocked.sh")):
-        assert events.get(event) == [f'bash "{_native(root / "agent-hooks" / script)}"'], events
+        assert events.get(event) == [f'{bash} "{_native(root / "agent-hooks" / script)}"'], events
     assert len(events["post_tool_call"]) == 1
     assert "curl" not in (root / "agent-hooks" / "aify-turn-start.sh").read_text()
 
@@ -352,7 +361,7 @@ def test_hermes_reinstall_finds_its_entries_written_with_EITHER_separator():
         _install(home)
         events = _hermes_hooks((home / ".hermes" / "config.yaml").read_text())
         for event, script in HERMES_WIRING:
-            assert events.get(event) == [f'bash "{_native(hooks / script)}"'], (event, events)
+            assert events.get(event) == [f'{_hook_bash()} "{_native(hooks / script)}"'], (event, events)
 
 
 def _trust(config: str) -> dict:

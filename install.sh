@@ -1435,6 +1435,10 @@ install_codex_hook() {
   " "$node_hooks_file" "$hook_command"
 }
 
+# Hermes runs a hook's bare first word, Windows looks in System32 first, so `bash` was WSL's: each hook started WSL.
+hermes_hook_bash() {
+  if is_git_bash_windows; then printf '"%s"' "$(cygpath -m "$(command -v bash)")"; else printf bash; fi
+}
 install_hermes_hook() {
   local config_root="$(hermes_config_root)"
   local config_file="$config_root/config.yaml"
@@ -1453,7 +1457,7 @@ node $(shell_quote "$node_notify_script")
 EOF
   chmod +x "$hook_path"
   hook_command_path="$(path_for_node "$hook_path" | sed 's#\\\\#/#g')"
-  hook_command="bash \"$hook_command_path\""
+  hook_command="$(hermes_hook_bash) \"$hook_command_path\""
 
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
@@ -1585,7 +1589,7 @@ if [ -n "\${AIFY_AGENT_ID:-}" ] && { [ -n "\${AIFY_COMMS_URL:-}" ] || { [ -n "\$
 fi
 EOF
     chmod +x "$hook_dir/$script"
-    pairs+=("$event" "bash \"$(path_for_node "$hook_dir/$script" | sed 's#\\\\#/#g')\"")
+    pairs+=("$event" "$(hermes_hook_bash) \"$(path_for_node "$hook_dir/$script" | sed 's#\\\\#/#g')\"")
   done
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
@@ -2098,7 +2102,7 @@ elif [ "$CLIENT" = "hermes" ]; then
   # Turn-start (pre_llm_call), turn-end (on_session_end) and approval
   # (pre_approval_request / post_approval_response) shell hooks; see install_hermes_turn_hooks.
   install_hermes_turn_hooks
-  echo "  New hermes hooks run only once approved: see 'hermes hooks list'; approve at hermes' prompt or --accept-hooks."
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$SCRIPT_DIR/scripts/hermes-hook-approvals.cjs")" "$(path_for_node "$(hermes_config_root)")" || true
   # No per-agent daemon exists at install time (no agent id), so say it starts at launch and fails loudly.
   echo "Hermes delivery (managed AND resident): hermes-aify brings up a per-agent"
   echo "  hidden tui_gateway host (node mcp/stdio/hermes-managed-host.js ensure-host"
