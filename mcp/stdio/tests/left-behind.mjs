@@ -17,18 +17,18 @@ const RUN_ROOT = /^aify-comms-testrun-[A-Za-z0-9]{6,}$/;
 /**
  * The run's own processes that name `rootName`, outermost first, never `selfPid`. PURE.
  *
- * Naming the root is not ownership: a log viewer someone opened on this run's output names it too. A named process is
- * the run's when its parent is `selfPid`, is gone (how a leaked stub looks: its test exited), or is itself one of the
- * run's named processes. A viewer's parent is a live shell that is none of these. A dead parent's pid reused by an
- * unrelated process makes this miss a leftover, never take a stranger.
+ * Naming the root is not ownership: a log viewer someone opened on this run's output names it too, and its parent can be
+ * gone as well. A named process is the run's when its parent is `selfPid`, one of `owners` (the test files the runner
+ * spawned and recorded, which is how a leaked stub looks once its test has exited), or another of the run's named
+ * processes. ponytail: a stub whose launcher exited first is missed (its parent was neither); missing one is the safe way
+ * to be wrong (review of 0.9.1, F1).
  */
-export function leftBehind(processes, rootName, selfPid) {
+export function leftBehind(processes, rootName, selfPid, owners = new Set()) {
   if (!RUN_ROOT.test(String(rootName || ""))) throw new Error(`refusing to sweep for ${JSON.stringify(rootName)}: not a run root`);
   const names = new RegExp(`${rootName}(?![A-Za-z0-9])`);
-  const byPid = new Map(processes.map((p) => [p.pid, p]));
   const named = new Map(processes.filter((p) => p.pid !== selfPid && names.test(String(p.commandLine || ""))).map((p) => [p.pid, p]));
   const ours = (p, seen = new Set()) => {
-    if (p.ppid === selfPid || !byPid.has(p.ppid)) return true;
+    if (p.ppid === selfPid || owners.has(p.ppid)) return true;
     const parent = named.get(p.ppid);
     return Boolean(parent) && !seen.has(parent.pid) && ours(parent, seen.add(p.pid));
   };
@@ -39,9 +39,9 @@ export function leftBehind(processes, rootName, selfPid) {
 
 /** Kill what this run left behind and say so. Returns what it found. Never throws. */
 export function sweepLeftBehind(rootName, { list = defaultListProcesses, killTree = defaultKillTree,
-  log = (line) => console.error(line), selfPid = process.pid } = {}) {
+  log = (line) => console.error(line), selfPid = process.pid, owners = new Set() } = {}) {
   let found = [];
-  try { found = leftBehind(list(), rootName, selfPid); } catch { return []; }
+  try { found = leftBehind(list(), rootName, selfPid, owners); } catch { return []; }
   for (const p of found) killTree(p.pid);
   if (found.length) {
     log(`\n[run-all] ${found.length} process(es) from this run were still running; killed:`);

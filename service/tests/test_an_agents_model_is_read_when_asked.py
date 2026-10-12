@@ -121,6 +121,50 @@ class AnAgentsModelIsReadWhenAsked(FastApiTestCase):
         self.assertEqual(claimed.status_code, 403, claimed.text)
         self.assertIn("unknown", asked.json()["actual"])
 
+    def test_work_that_lands_while_an_attempt_closes_its_database_is_not_taken_on_the_old_proof(self):
+        # Review of 0.9.1 F3, second pass: the re-proof was followed by `await db.close()` and only then the dequeue, so a
+        # host enrolled and a read queued during that close went to the proofless claim.
+        from service.routers import model_reads as router
+        real_proof, real_get_db = router._proven_host, router.get_db
+        proven = {"holds": True}
+        closes, parked, release = [], asyncio.Event(), asyncio.Event()
+
+        async def proof(db, environment, machine_id, request):
+            if not proven["holds"]:
+                raise router.HTTPException(403, "host proof required")
+            return await real_proof(db, environment, machine_id, request)
+
+        async def get_db():
+            db = await real_get_db()
+            close = db.close
+
+            async def parked_close():
+                closes.append(1)
+                if len(closes) == 2:  # the held claim's first attempt; the first close is its admission proof
+                    parked.set()
+                    await release.wait()
+                await close()
+            db.close = parked_close
+            return db
+
+        router._proven_host, router.get_db = proof, get_db
+        self.addCleanup(setattr, router, "_proven_host", real_proof)
+        self.addCleanup(setattr, router, "get_db", real_get_db)
+
+        async def scenario(client):
+            held = asyncio.create_task(client.post(f"{API}/environments/{A['env']}/model-reads/claim",
+                                                   json={"bridgeId": A["bridge"], "machineId": A["machine"], "waitMs": 1_000}))
+            await asyncio.wait_for(parked.wait(), 5)
+            proven["holds"] = False  # the host enrolled: its old proof no longer holds
+            asking = asyncio.create_task(client.get(f"{API}/agents/coder/model"))
+            await asyncio.sleep(0.1)
+            release.set()
+            return await held, await asking
+        claimed, asked = self.run_against_the_app(scenario)
+        self.assertFalse(claimed.status_code == 200 and claimed.json().get("reads"),
+                         f"the proofless claim was handed the read queued after enrollment: {claimed.text}")
+        self.assertIn("unknown", asked.json()["actual"])
+
     def test_no_handle_or_a_shared_handle_is_unknown_and_no_host_is_asked(self):
         self.agent("idle", handle="")
         self.agent("twin", handle="sess-1")

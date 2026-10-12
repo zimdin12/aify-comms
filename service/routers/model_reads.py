@@ -52,14 +52,17 @@ async def agent_model(agent_id: str):
     return {"ok": True, "agentId": agent_id, "actual": actual}
 
 
-async def _host_machine(environment_id: str, machine_id: Any, request: Request) -> str:
+async def _host_machine(environment_id: str, machine_id: Any, request: Request, then=None):
+    """The proved host's machine id, or `then(machine)` run straight after the proof. Nothing awaits between the two,
+    so no enrollment or new work can land in between (review of 0.9.1, F3: the dequeue once followed `db.close()`)."""
     db = await get_db()
     try:
         environment = await _environment(db, environment_id)
         if environment is None:
             raise HTTPException(404, f"Environment '{environment_id}' not found")
         await _proven_host(db, environment, str(machine_id or ''), request)
-        return str(environment.get("machine_id") or "")
+        machine = str(environment.get("machine_id") or "")
+        return then(machine) if then else machine
     finally:
         await db.close()
 
@@ -69,10 +72,10 @@ async def claim_model_reads(environment_id: str, body: ModelReadClaim, request: 
     machine = await _host_machine(environment_id, body.machineId, request)
 
     async def claimed() -> dict:
-        # PROVED AGAIN BEFORE ANY READ IS HANDED OUT: a claim held while its host enrolled would otherwise dequeue work on
+        # PROVED AGAIN IN THE SAME STEP AS THE DEQUEUE: a claim held while its host enrolled would otherwise take work on
         # the proof it had when it started, which an enrolled host no longer accepts.
-        await _host_machine(environment_id, body.machineId, request)
-        return {"ok": True, "reads": model_reads.MODEL_READS.claim(machine)}
+        return {"ok": True, "reads": await _host_machine(environment_id, body.machineId, request,
+                                                         then=model_reads.MODEL_READS.claim)}
 
     # NO FALLBACK RE-CHECK: a read only ever arrives through `ask`, which notifies this scope, so the held claim wakes
     # for it at once and otherwise sleeps out its wait.
