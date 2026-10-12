@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { withoutAgentSession } from "aify-wrapper/lib/inherited-session.mjs";
 import { disabledBy } from "./deprecated-runtimes.mjs";
+import { sweepLeftBehind } from "./left-behind.mjs";
 import { skippedFrom, slowest, summarise } from "./run-all-summary.mjs";
 import { orderLongestFirst, readTimings, writeTimings } from "./run-all-timings.mjs";
 
@@ -70,8 +71,9 @@ const inherited = withoutAgentSession(process.env);
 for (const name of Object.keys(inherited)) if (/^(AIFY_)?HERDR_/i.test(name)) delete inherited[name];
 const childEnv = { ...inherited, TMPDIR: tempRoot, TEMP: tempRoot, TMP: tempRoot };
 
-/** Remove the whole root. Called on every exit path, including the failing one. */
+/** Kill what the run left running, then remove the whole root. Called on every exit path, including the failing one. */
 function removeTempRoot() {
+  sweepLeftBehind(basename(tempRoot));
   try { rmSync(tempRoot, { recursive: true, force: true }); } catch { /* pruned next run */ }
 }
 

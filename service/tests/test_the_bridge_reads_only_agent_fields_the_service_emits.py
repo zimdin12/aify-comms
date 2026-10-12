@@ -40,7 +40,7 @@ import re
 import unittest
 from pathlib import Path
 
-from service.tests.test_the_dashboard_reads_only_agent_fields_the_service_emits import emitted_fields
+from service.tests.test_the_dashboard_reads_only_agent_fields_the_service_emits import ASSEMBLY, emitted_fields
 
 REPO = Path(__file__).resolve().parents[2]
 SUMMARY = REPO / "mcp" / "stdio" / "agent-summary.mjs"
@@ -69,7 +69,7 @@ class TheBridgeReadsOnlyAgentFieldsTheServiceEmits(unittest.TestCase):
     def test_BOTH_SCANS_FOUND_THEIR_SUBJECT(self):
         """The control, and the reason it comes first. Two empty sets agree perfectly and the
         comparison below would pass having read nothing -- the wrong zero this repo keeps paying for."""
-        self.assertEqual(len(self.assembly), 3, f"the service-side scan found {self.assembly}")
+        self.assertEqual(self.assembly, ASSEMBLY, f"the service-side scan found only {self.assembly}")
         self.assertGreater(len(self.emitted), 25, f"only {len(self.emitted)} emitted fields found")
         self.assertGreater(len(self.reads), 5, f"only {len(self.reads)} info.X reads found")
 
