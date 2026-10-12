@@ -38,6 +38,7 @@ from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.console_prompts import forget_terminal as _forget_answered_prompts
 from service.api_core.launch_env import NEVER_INHERITED, launches_via_wrapper, managed_launch_env
+from service.api_core.lifecycle_launch import recorded_binding
 from service.api_core.model_effort import as_its_spec_declares
 from service.api_core.records import _terminal_session_to_dict, herdr_space_of
 from service.api_core.serialization import _json_loads_or
@@ -262,6 +263,8 @@ async def get_terminal_launch(terminal_id: str):
             "s.env_vars, s.model, s.metadata FROM agent_sessions a JOIN spawn_requests r ON r.id = a.spawn_request_id "
             "LEFT JOIN spawn_specs s ON s.id = r.spawn_spec_id WHERE a.id = ?", (row["session_id"],),
         )).fetchone()
+        if not (bound and bound["definition_store_id"]):
+            bound = await recorded_binding(db, row["session_id"]) or bound
         if bound and bound["definition_store_id"]:
             if bound["spec_id"] is None:
                 raise HTTPException(409, f"terminal {terminal_id}'s start was built from a definition, and its spawn "

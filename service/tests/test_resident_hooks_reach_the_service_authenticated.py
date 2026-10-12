@@ -488,7 +488,7 @@ def test_the_written_commands_reach_the_service_with_the_key(installed):
 @pytest.mark.parametrize("mode", ["resident", "managed"])
 def test_g5_rendered_hooks_report_to_env_without_a_comms_url(installed, mode):
     """Execute installed hooks for all residents and managed Claude/Hermes, including Claude's Stop gate."""
-    claude = json.loads((installed / ".claude/settings.json").read_text())["hooks"]
+    claude = json.loads((installed / ".claude" / "settings.json").read_text())["hooks"]
     codex = json.loads((installed / ".codex/hooks.json").read_text())["hooks"]
     hermes = _hermes_hooks((installed / ".hermes/config.yaml").read_text())
     cases = [(_one_aify(_commands(claude[event]), needle), kind)

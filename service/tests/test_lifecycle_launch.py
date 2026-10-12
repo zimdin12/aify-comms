@@ -69,6 +69,21 @@ class LifecycleLaunch(FastApiTestCase):
         self.assertEqual(self.sql('SELECT status,process_id FROM agent_sessions'), [{'status': 'starting', 'process_id': ''}])
         self.assertEqual(self.sql('SELECT status FROM agent_lifecycle_requests'), [{'status': 'claimed'}])
 
+    def test_a_later_terminal_for_a_lifecycle_session_keeps_its_definition(self):
+        # Review of 0.9.1 F2: a lifecycle start has no spawn request, so a console recovery's new terminal for the same
+        # session went out with `definition: null` and the host refused it.
+        self.queue()
+        launch = self.prepare()
+        [original] = self.sql('SELECT * FROM terminal_sessions WHERE id = ?', (launch['terminalId'],))
+        recovered = {**original, 'id': 'term-recovered'}
+        self.sql(f"INSERT INTO terminal_sessions ({', '.join(recovered)}) VALUES ({', '.join('?' * len(recovered))})",
+                 tuple(recovered.values()))
+        later = self.client.get('/api/v1/terminals/term-recovered/launch')
+        self.assertEqual(later.status_code, 200, later.text)
+        self.assertEqual(later.json()['launch']['definition'], {'storeId': 's1', 'incarnation': 2, 'revision': 5})
+        self.assertEqual(later.json()['launch']['env']['AIFY_MANAGED_MODEL'], 'chosen')
+        self.assertEqual(later.json()['launch']['env']['CUSTOM'], 'value')
+
     def test_no_claim_wrong_host_and_definition_drift_refuse_before_writes_or_replay(self):
         self.queue(claim=False)
         self.assertEqual(self.post('launch').status_code, 409)

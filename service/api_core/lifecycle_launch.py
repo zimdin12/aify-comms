@@ -15,6 +15,22 @@ from service.api_core.terminal_status import _terminal_status_transition
 from service.api_core.running_spawn import _hand_settled_spawn_to_dispatch
 
 
+async def recorded_binding(db, session_id):
+    """The definition and spec a lifecycle launch bound `session_id` to, keyed like the spawn-request join, or None.
+
+    A lifecycle start has no spawn request, so a later terminal for its session (a console recovery) found no binding and
+    went out with `definition: null`, which the host refuses (review of 0.9.1, F2)."""
+    row = await (await db.execute(
+        'SELECT l.launch_json, s.id AS spec_id, s.env_vars, s.model, s.metadata FROM lifecycle_launches l '
+        'LEFT JOIN spawn_specs s ON s.id = l.spec_id WHERE l.session_id = ?', (session_id,))).fetchone()
+    definition = (json.loads(row['launch_json']).get('definition') or {}) if row else {}
+    if not definition.get('storeId'):
+        return None
+    return {'definition_store_id': definition['storeId'], 'definition_incarnation': definition['incarnation'],
+            'definition_revision': definition['revision'], 'spec_id': row['spec_id'], 'env_vars': row['env_vars'],
+            'model': row['model'], 'metadata': row['metadata']}
+
+
 async def _row(db, table, column, value):
     return await (await db.execute(f'SELECT * FROM {table} WHERE {column}=?', (value,))).fetchone()
 

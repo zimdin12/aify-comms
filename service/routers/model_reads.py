@@ -69,6 +69,9 @@ async def claim_model_reads(environment_id: str, body: ModelReadClaim, request: 
     machine = await _host_machine(environment_id, body.machineId, request)
 
     async def claimed() -> dict:
+        # PROVED AGAIN BEFORE ANY READ IS HANDED OUT: a claim held while its host enrolled would otherwise dequeue work on
+        # the proof it had when it started, which an enrolled host no longer accepts.
+        await _host_machine(environment_id, body.machineId, request)
         return {"ok": True, "reads": model_reads.MODEL_READS.claim(machine)}
 
     # NO FALLBACK RE-CHECK: a read only ever arrives through `ask`, which notifies this scope, so the held claim wakes

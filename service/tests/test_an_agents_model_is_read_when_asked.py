@@ -94,6 +94,33 @@ class AnAgentsModelIsReadWhenAsked(FastApiTestCase):
         self.assertFalse(forged["accepted"])
         self.assertEqual(actual["model"], "real")
 
+    def test_a_held_claim_whose_host_proof_stops_holding_hands_out_nothing(self):
+        # Review 0.9.1 F3: proof was checked once before the claim was held, so a claim begun proofless while the host was
+        # unenrolled dequeued the read that arrived after the host enrolled.
+        from service.routers import model_reads as router
+        real = router._proven_host
+        proven = {"holds": True}
+
+        async def proof(db, environment, machine_id, request):
+            if not proven["holds"]:
+                raise router.HTTPException(403, "host proof required")
+            return await real(db, environment, machine_id, request)
+
+        router._proven_host = proof
+        self.addCleanup(setattr, router, "_proven_host", real)
+
+        async def scenario(client):
+            held = asyncio.create_task(client.post(f"{API}/environments/{A['env']}/model-reads/claim",
+                                                   json={"bridgeId": A["bridge"], "machineId": A["machine"], "waitMs": 10_000}))
+            await asyncio.sleep(0.2)
+            proven["holds"] = False
+            asking = asyncio.create_task(client.get(f"{API}/agents/coder/model"))
+            claimed = await held
+            return claimed, await asking
+        claimed, asked = self.run_against_the_app(scenario)
+        self.assertEqual(claimed.status_code, 403, claimed.text)
+        self.assertIn("unknown", asked.json()["actual"])
+
     def test_no_handle_or_a_shared_handle_is_unknown_and_no_host_is_asked(self):
         self.agent("idle", handle="")
         self.agent("twin", handle="sess-1")

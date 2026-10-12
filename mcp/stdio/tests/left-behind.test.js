@@ -23,6 +23,17 @@ test("ONLY WHAT NAMES THE ROOT is found, outermost first, and never the runner i
   assert.deepEqual(leftBehind(processes, ROOT, 13).map((p) => p.pid), [10, 11]);
 });
 
+test("NAMING THE ROOT IS NOT OWNERSHIP: a viewer someone opened on the run's log, and a longer root, are left alone", () => {
+  const processes = [
+    { pid: 20, ppid: 1, commandLine: "bash -l" },
+    { pid: 21, ppid: 20, commandLine: `tail -f /tmp/${ROOT}/f-x/stdout.log` },
+    { pid: 22, ppid: 1, commandLine: `bash /tmp/${ROOT}ZZ/f-x/stub-bin/codex` },
+    { pid: 23, ppid: 13, commandLine: `node /tmp/${ROOT}/f-x/serve.js` },
+    { pid: 13, ppid: 20, commandLine: "node run-all.mjs" },
+  ];
+  assert.deepEqual(leftBehind(processes, ROOT, 13).map((p) => p.pid), [23]);
+});
+
 test("A NAME THAT IS NOT A RUN ROOT sweeps nothing, an empty one above all", () => {
   const everything = [{ pid: 10, ppid: 1, commandLine: "anything at all" }];
   const killed = [];

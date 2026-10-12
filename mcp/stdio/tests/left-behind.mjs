@@ -14,12 +14,27 @@ import { defaultKillTree, defaultListProcesses } from "../proc-probes.js";
 //: else, an empty name above all, would match every process on the machine.
 const RUN_ROOT = /^aify-comms-testrun-[A-Za-z0-9]{6,}$/;
 
-/** The processes whose command line names `rootName`, outermost first, never `selfPid`. PURE. */
+/**
+ * The run's own processes that name `rootName`, outermost first, never `selfPid`. PURE.
+ *
+ * Naming the root is not ownership: a log viewer someone opened on this run's output names it too. A named process is
+ * the run's when its parent is `selfPid`, is gone (how a leaked stub looks: its test exited), or is itself one of the
+ * run's named processes. A viewer's parent is a live shell that is none of these. A dead parent's pid reused by an
+ * unrelated process makes this miss a leftover, never take a stranger.
+ */
 export function leftBehind(processes, rootName, selfPid) {
   if (!RUN_ROOT.test(String(rootName || ""))) throw new Error(`refusing to sweep for ${JSON.stringify(rootName)}: not a run root`);
-  const named = processes.filter((p) => p.pid !== selfPid && String(p.commandLine || "").includes(rootName));
-  const pids = new Set(named.map((p) => p.pid));
-  return [...named.filter((p) => !pids.has(p.ppid)), ...named.filter((p) => pids.has(p.ppid))];
+  const names = new RegExp(`${rootName}(?![A-Za-z0-9])`);
+  const byPid = new Map(processes.map((p) => [p.pid, p]));
+  const named = new Map(processes.filter((p) => p.pid !== selfPid && names.test(String(p.commandLine || ""))).map((p) => [p.pid, p]));
+  const ours = (p, seen = new Set()) => {
+    if (p.ppid === selfPid || !byPid.has(p.ppid)) return true;
+    const parent = named.get(p.ppid);
+    return Boolean(parent) && !seen.has(parent.pid) && ours(parent, seen.add(p.pid));
+  };
+  const found = [...named.values()].filter((p) => ours(p));
+  const pids = new Set(found.map((p) => p.pid));
+  return [...found.filter((p) => !pids.has(p.ppid)), ...found.filter((p) => pids.has(p.ppid))];
 }
 
 /** Kill what this run left behind and say so. Returns what it found. Never throws. */

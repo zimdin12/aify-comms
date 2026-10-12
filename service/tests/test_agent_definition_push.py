@@ -22,8 +22,7 @@ from service.tests._base import FastApiTestCase
 
 ROOT = Path(__file__).resolve().parents[2]
 ENV_REPOS = tuple(Path(p) for p in filter(None, [os.environ.get("AIFY_ENV_REPO")])) + (
-    ROOT.parent / "aify-env-next", ROOT.parent / "aify-env",
-    Path.home() / "projects" / "aify-env-next", Path.home() / "projects" / "aify-env")
+    ROOT.parent / "aify-env", Path.home() / "projects" / "aify-env")
 FIXTURE = Path("tests") / "fixtures" / "agent-definitions" / "cases.json"
 
 A = {"env": "win32:host-a:default", "machine": "win32:host-a", "bridge": "bridge-a"}
