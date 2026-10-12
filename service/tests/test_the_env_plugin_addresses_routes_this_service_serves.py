@@ -429,8 +429,8 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
 
         Pydantic ignores an undeclared field, so a renamed key is not an error anywhere: the
         request succeeds, the value never arrives, and the symptom is behaviour that quietly
-        stops happening. `only_if_no_live_session` is a live instance -- spell it wrong on the
-        wire and every other test still passes while the race it closes reopens.
+        stops happening. `only_if_no_live_session` was one until D8 removed the restart it conditioned:
+        spelt wrong on the wire, every other test still passed while the race it closed reopened.
         """
         wrong = undeclared_fields(self.driven["requests"], self.declared, self.routes)
         self.assertEqual(wrong, [], (

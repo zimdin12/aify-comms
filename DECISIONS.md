@@ -1242,7 +1242,8 @@ the answer to "who may reach this at all".
 a defined agent whenever a key is configured, and since 2026-09-24 one always is. The bridge sends only the
 API key, so after deploy no agent could restart or stop a worker, which the skill tells managers they may do.
 Steven's ruling: the operator key is an optional safeguard against irreversible actions. With a key set, the
-API key may still start, stop, restart and spawn a defined agent under its caller's own name; **kill and
-delete need the key** (`lifecycle_models.IRREVERSIBLE_ACTIONS`, and `API_KEY_ACTIONS` is derived as every
-other action). Naming the operator still needs its proof whatever the action, and a word outside the
+API key may still start, stop, restart, kill and spawn a defined agent under its caller's own name; **delete
+needs the key** (`lifecycle_models.IRREVERSIBLE_ACTIONS`, and `API_KEY_ACTIONS` is derived as every other
+action). Kill was locked too at first and is not: the host's kill is its stop without the durable stop mark,
+so a killed agent starts again (review of 0.9, M2). Naming the operator still needs its proof whatever the action, and a word outside the
 vocabulary needs the key, so an unknown action fails closed.

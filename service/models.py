@@ -561,8 +561,7 @@ class SessionControlRequest(BaseModel):
     body: Optional[str] = None
     subject: Optional[str] = None
     priority: str = "normal"
-    # `only_if_no_live_session` is gone with the restart it conditioned (D8): aify-env's starter still sends it,
-    # with a restart this route delegates to the host or refuses, and an unknown field is ignored here.
+    # `only_if_no_live_session` went with the restart it conditioned (D8).
 
 
 class ConsoleStartRequest(BaseModel):

@@ -227,6 +227,11 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         await self.db.execute(
             "CREATE TABLE terminal_sessions (id TEXT, session_id TEXT, status TEXT, created_at TEXT)"
         )
+        # The other way a worker is coming (M1), read by the same predicate: empty here.
+        await self.db.execute(
+            "CREATE TABLE agent_lifecycle_requests (id TEXT, agent_id TEXT, status TEXT, action TEXT, "
+            "claimed_at TEXT, created_at TEXT)"
+        )
 
     async def asyncTearDown(self):
         await self.db.close()

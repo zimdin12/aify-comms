@@ -85,10 +85,9 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
 
         cancelled_spawns = 0
 
+        # Only an undefined agent's stop and a CLI takeover reach here: restart and recreate returned above.
         next_status = {
             "stop": "stopped",
-            "restart": "restarting",
-            "recreate": "ended",
             "cli_takeover": "cli-takeover",
         }[action]
         await db.execute(
@@ -107,10 +106,8 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         # kill the live managed PTY, not just flip DB status. Previously only the agent-control
         # stop enqueued a terminal stop, so the UI's session-control Stop left the worker running
         # as a headless orphan until a reaper / the next Restart's reap-prior. Enqueue a terminal
-        # 'stop' for the session's live terminal(s). For restart/recreate the new spawn_request
-        # was already queued above (and an env-offline target 409'd before reaching here), so we
-        # never kill the old backing without a replacement queued. Resume is unaffected — it
-        # carries via the durable session_handle, not the live PTY.
+        # 'stop' for the session's live terminal(s). Resume is unaffected — it carries via the
+        # durable session_handle, not the live PTY.
         live_terminals = await (await db.execute(
             "SELECT id, environment_id, bridge_id, status FROM terminal_sessions WHERE session_id = ?",
             (session_id,),

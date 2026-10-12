@@ -8,9 +8,13 @@ LAUNCHING_ACTIONS = ('start', 'restart', 'spawn')
 #: Every lifecycle action a request may ask for.
 ACTIONS = ('start', 'stop', 'restart', 'kill', 'spawn', 'delete')
 #: THE OPERATOR KEY IS AN OPTIONAL LOCK ON WHAT CANNOT BE UNDONE (Steven, 2026-10-11): when one is configured,
-#: killing or deleting an agent needs it. Anything else the API key may ask, acting as its caller.
-IRREVERSIBLE_ACTIONS = ('kill', 'delete')
+#: deleting an agent needs it. A kill is the host's stop without the durable stop mark, so a killed agent
+#: starts again (aify-env `AgentLifecycle.#stop`); anything but a delete the API key may ask, as its caller.
+IRREVERSIBLE_ACTIONS = ('delete',)
 API_KEY_ACTIONS = tuple(action for action in ACTIONS if action not in IRREVERSIBLE_ACTIONS)
+#: The statuses a request is still waiting in, a lifecycle one's or a definition's. One per agent at a time.
+OPEN_STATUSES = ('pending', 'claimed')
+OPEN_SQL = "(" + ", ".join(f"'{status}'" for status in OPEN_STATUSES) + ")"
 #: A lifecycle request's settled statuses: the host reported it, and the result is immutable.
 TERMINAL = ('done', 'refused', 'failed')
 

@@ -432,6 +432,19 @@ DEFINITION_REQUEST_MIGRATIONS = {
     "brief": "ALTER TABLE definition_requests ADD COLUMN brief TEXT DEFAULT ''",
 }
 
+# D8: the brief a spawn hands its first attach. The table came in with D9a, before this column.
+LIFECYCLE_REQUEST_MIGRATIONS = {
+    "brief": "ALTER TABLE agent_lifecycle_requests ADD COLUMN brief TEXT NOT NULL DEFAULT ''",
+}
+
+
+async def _migrate_agent_lifecycle_requests_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(agent_lifecycle_requests)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in LIFECYCLE_REQUEST_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
 
 async def _migrate_definition_requests_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(definition_requests)")
@@ -636,6 +649,7 @@ async def init_db(db_path: Path = None):
         await _migrate_agent_hook_order_table(db)
         await _migrate_definition_stores_table(db)
         await _migrate_definition_requests_table(db)
+        await _migrate_agent_lifecycle_requests_table(db)
         await _migrate_agent_status_state_table(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)

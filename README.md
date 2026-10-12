@@ -178,13 +178,13 @@ about itself. The key can only send messages, and cannot send as an agent that l
 
 **The operator key is off by default.** Anything holding `API_KEY` (not an external key) may delete
 other agents' messages, channels and shared files as the operator, and act under the name `dashboard`
-or `operator` anywhere: send messages agents read as the operator's own, start an agent so that it
-replaces a live instance, and stop, restart or steer work in the operator's name. Set `OPERATOR_KEY` in
+or `operator` anywhere: send messages agents read as the operator's own, and start, stop, restart or steer work in the
+operator's name. Set `OPERATOR_KEY` in
 `.env` and no route accepts those names without it; the dashboard then sends it automatically. No agent
 can be registered, renamed or spawned under either name, key or not: they belong to the operator. The key
 proves the operator's NAME. It does not restrict most actions: an API-key holder can still stop or
-restart a worker under its own name, and the audit trail then says so; killing or deleting a defined agent,
-which cannot be undone, needs the key once it is set. Once a key is set, these routes are
+restart a worker under its own name, and the audit trail then says so; deleting a defined agent, which
+cannot be undone, needs the key once it is set. Once a key is set, these routes are
 the operator's alone and refuse a caller without it: `PATCH /agents/{id}/effort`, `/usage-source` and
 `/session-mode`, `POST /agents/{id}/environment`, and `POST /spawn-requests` with `envVars` (which can pick the
 program a launcher runs). Changing or removing an agent a host defines is the operator's through any route,

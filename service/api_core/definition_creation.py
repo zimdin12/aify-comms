@@ -71,6 +71,8 @@ async def spawn_created(db, machine_id: str, now: str) -> None:
         if held is None:
             continue
         settled = await _spawn(db, row, held, now)
+        # ONE SPAWN PER CREATION: both callers hold the write lock, and its consequence leaves `spawn pending` in
+        # the transaction that inserts `spawn-<id>`, so no later call can find this row owed and insert again.
         await db.execute("UPDATE definition_requests SET consequence = ? WHERE id = ?", (settled, row["id"]))
 
 

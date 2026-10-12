@@ -38,6 +38,7 @@ from __future__ import annotations
 from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.events import _append_dispatch_event
 from service.clock import now as _now
+from service.lifecycle_models import OPEN_STATUSES
 
 #: Terminal run statuses. A control cannot be applied to a run in any of these states.
 #:
@@ -50,8 +51,9 @@ from service.clock import now as _now
 #: deterministic order; same pattern as `claim_receipts._UNSTARTED_TERMINAL_STATUSES`.
 _ENDED_RUN_STATUSES = tuple(sorted(_DISPATCH_TERMINAL_STATUSES))
 
-#: Control statuses that are still awaiting settlement.
-_UNSETTLED_CONTROL_STATUSES = ("pending", "claimed")
+#: Control statuses that are still awaiting settlement: the words a lifecycle or definition request waits in
+#: too, so one owner holds them (`test_status_set_literal_twins_are_frozen.py`).
+_UNSETTLED_CONTROL_STATUSES = OPEN_STATUSES
 
 #: Recorded as the settling actor. Named rather than left empty so the audit trail distinguishes "the
 #: service closed this because it had become impossible" from "an actor settled it" and from the

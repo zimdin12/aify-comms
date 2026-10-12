@@ -10,11 +10,10 @@ from fastapi import HTTPException
 
 from service.api_core import agent_lifecycle_requests as lifecycle
 from service.api_core import partial_status_shadow as shadow
-from service.api_core.definition_requests import OPEN_SQL
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import require_lifecycle
 from service.clock import now
-from service.lifecycle_models import LAUNCHING_ACTIONS
+from service.lifecycle_models import LAUNCHING_ACTIONS, OPEN_SQL
 
 
 def _fresh_publishers(machine_id, view, at):
@@ -64,10 +63,11 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False)
     await db.execute('BEGIN IMMEDIATE')
     try:
         # A REPEAT OF WHAT IS ALREADY WAITING is that request, not an error: a second Start clicked while the
-        # first is still queued answered 409 "open lifecycle request". Another action waiting is still refused.
+        # first is still queued answered 409 "open lifecycle request". Another action waiting is still refused,
+        # and so is a Recreate behind a waiting Restart: that restart keeps the conversation the caller asked to drop.
         waiting = await (await db.execute(
-            f"SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND action=? AND status IN {OPEN_SQL}",
-            (agent_id, action))).fetchone()
+            f"SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND action=? AND fresh_context=? "
+            f"AND status IN {OPEN_SQL}", (agent_id, action, int(fresh_context)))).fetchone()
         queued = (await lifecycle.lifecycle_request_by_id(db, waiting['id']) if waiting
                   else await lifecycle.admit_lifecycle(db, agent_id, body, proof, now()))
         await db.commit()

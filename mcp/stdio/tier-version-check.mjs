@@ -33,8 +33,12 @@
  * host tier over a retired environment bridge (external review, Round 8 H4). An older aify-env sends
  * no kind, so a legacy bridge that started later takes the row and becomes the only party allowed to
  * claim a spawn.
+ *
+ * 0.9.0 -- the lifecycle queue (D9) and the creation request (D8). aify-env 0.8.7 claims no lifecycle
+ * request, so every start, stop and restart of a defined agent waits unclaimed, and it refuses a creation
+ * as "not defined on this host", so no spawn of a new id ever starts (read from 0.8.7's source, 2026-10-11).
  */
-export const MINIMUM_AIFY_ENV_VERSION = "0.6.2";
+export const MINIMUM_AIFY_ENV_VERSION = "0.9.0";
 
 /** `1.2.3` -> [1,2,3]; anything unparseable -> null, which callers must treat as "cannot tell". */
 export function parseVersion(text) {

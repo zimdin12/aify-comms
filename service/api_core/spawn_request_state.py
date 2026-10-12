@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 
 from service.clock import ISO_SECONDS
+from service.lifecycle_models import LAUNCHING_ACTIONS, OPEN_SQL
 
 #: How long a queued or claimed spawn_request is taken as evidence that a worker is coming.
 #:
@@ -68,4 +69,19 @@ async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
         """,
         (agent_id, cutoff),
     )).fetchone()
-    return bool(row)
+    return bool(row) or await lifecycle_start_in_flight(db, agent_id, cutoff)
+
+
+async def lifecycle_start_in_flight(db, agent_id: str, cutoff: str) -> bool:
+    """True when the agent's host has a start, restart or spawn queued for it since `cutoff` (D9, D8).
+
+    THE OTHER WAY A WORKER IS COMING. A spawn's lifecycle request is queued when the host's definition
+    lands, and a message sent in the seconds before the host claims it used to cold-start a legacy spawn
+    beside it: a second worker, or the first already running and the spawn's brief never sent (review of
+    0.9, M1). Counted here, a message waits for that worker instead of starting another."""
+    launching = ", ".join("?" for _ in LAUNCHING_ACTIONS)
+    row = await (await db.execute(
+        f"SELECT id FROM agent_lifecycle_requests WHERE agent_id = ? AND status IN {OPEN_SQL} "
+        f"AND action IN ({launching}) AND COALESCE(NULLIF(claimed_at, ''), created_at) >= ? LIMIT 1",
+        (agent_id, *LAUNCHING_ACTIONS, cutoff))).fetchone()
+    return row is not None

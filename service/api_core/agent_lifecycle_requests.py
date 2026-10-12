@@ -11,7 +11,7 @@ from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core import definition_requests as definitions
 from service.api_core.lifecycle_launch import settle_unstarted
 from service.api_core.agent_remove import remove_agent
-from service.lifecycle_models import ACTIONS, TERMINAL
+from service.lifecycle_models import ACTIONS, OPEN_SQL, TERMINAL
 
 
 
@@ -76,7 +76,7 @@ async def admit_lifecycle(db, agent_id, body, proof, now):
 async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifetime, fresh_context, intent, now, brief=''):
     """Insert one request for the definition `held`, after its caller has judged who may ask. 409 while the
     agent has another one open."""
-    waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN ('pending','claimed')", (held['agent_id'],))).fetchone()
+    waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN " + OPEN_SQL, (held['agent_id'],))).fetchone()
     if waiting:
         raise HTTPException(409, f"agent has an open lifecycle request {waiting['id']}")
     await db.execute('INSERT INTO agent_lifecycle_requests (id,agent_id,machine_id,store_id,expected_incarnation,expected_revision,expected_lifetime,action,requested_by,fresh_context,intent,brief,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -88,7 +88,7 @@ async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now):
     if why:
         raise HTTPException(409, f'lifecycle claim refused: {why}')
     store = await (await db.execute('SELECT store_id FROM definition_stores WHERE machine_id=?', (machine_id,))).fetchone()
-    rows = await (await db.execute("SELECT * FROM agent_lifecycle_requests WHERE machine_id=? AND status IN ('pending','claimed') ORDER BY created_at,id", (machine_id,))).fetchall()
+    rows = await (await db.execute("SELECT * FROM agent_lifecycle_requests WHERE machine_id=? AND status IN " + OPEN_SQL + " ORDER BY created_at,id", (machine_id,))).fetchall()
     found = []
     for row in rows:
         held = await (await db.execute('SELECT * FROM agent_definitions WHERE agent_id=?', (row['agent_id'],))).fetchone()

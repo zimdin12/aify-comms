@@ -51,7 +51,7 @@ router = domain_router()
 @router.post("/agents/{agent_id}/control")
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
     validate_sender(req.from_agent)
-    # `dashboard` starts REPLACE a live instance, and an interrupt or stop records an omitted name as it.
+    # An omitted name is recorded as `dashboard`, which needs the operator key once one is set.
     actor = recorded_operator_actor(req.from_agent, request, action="controlling an agent as the operator")
     action = str(req.action or "").strip().lower()
     if action not in {"interrupt", "stop", "resume", "start"}:

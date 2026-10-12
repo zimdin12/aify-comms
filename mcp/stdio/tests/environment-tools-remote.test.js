@@ -474,6 +474,8 @@ test("the reply names the queued definition request and its status (D8: defined 
   });
   assert.match(text(result), /Definition request: defreq-77 \[pending\]/);
   assert.match(text(result), /asked the host of env-wsl to define "new-agent" \(claude-code, \/home\/dev\)/);
+  // The route service/routers/definition_requests.py serves, so a caller can learn what the host did.
+  assert.match(text(result), /GET \/api\/v1\/agent-definitions\/new-agent\/requests/);
 });
 
 test("a service that returns NO definition request still reports something followable", async () => {

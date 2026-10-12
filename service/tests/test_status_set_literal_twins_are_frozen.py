@@ -69,15 +69,16 @@ FROZEN: dict[str, dict] = {
     # interchangeable, but the STATUS WORDS are one vocabulary: adding a third unsettled state (say
     # `applying`) would have to reach every site here or each would silently keep the old meaning —
     # which is exactly the `lost` incident this file was written from, in eight more places.
-    "_UNSETTLED_CONTROL_STATUSES": {
-        "owner": "service/reconcilers/stuck_controls.py",
+    #
+    # OWNED BY `lifecycle_models.OPEN_STATUSES` since 0.9: `agent_lifecycle_requests` and `definition_requests`
+    # use the same two words for a request not yet settled, and `_UNSETTLED_CONTROL_STATUSES` is now that
+    # tuple. Two literal owners of one set made every twin ambiguous, and this gate attributed none.
+    # schema.py's one-open partial index is DDL, so it cannot interpolate.
+    "OPEN_STATUSES": {
+        "owner": "service/lifecycle_models.py",
         "values": ["claimed", "pending"],
-        #: AND A THIRD TABLE, 0.9 D9a: `agent_lifecycle_requests` uses the same two words for a lifecycle
-        #: request not yet settled, in its claim queries and in schema.py's one-open partial index (DDL,
-        #: so it cannot interpolate). A third unsettled state must reach these two as well.
         "hardcoded_in": [
             "service/api_core/active_run_discard.py",
-            "service/api_core/agent_lifecycle_requests.py",
             "service/api_core/superseded_bridge_stops.py",
             "service/reconcilers/terminal_controls.py",
             "service/schema.py",

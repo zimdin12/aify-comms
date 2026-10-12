@@ -18,6 +18,15 @@ that keeps the agent's id is refused. One with a new successor id still works, a
 host. Native compaction (`/compact/native`) is unaffected. The planned fix is a fresh-context lifecycle `restart`
 that carries the handoff brief (0.9.1).
 
+## A creation its host claimed and never reported holds the id (0.9 D8, 2026-10-11)
+
+A spawn of a new id queues a creation on one host. Until that host reports it, another spawn of the id is
+refused 409 naming the waiting request. A host that claims it and then crashes is handed it again on its next
+claim, and a host whose store is replaced has it superseded. A host that never comes back leaves it `claimed`,
+so the id cannot be spawned anywhere. It is deliberately not timed out: the host may already have applied it,
+and a second creation elsewhere would leave two hosts defining one id. Spawn under another id, or bring that
+host back. Found by the 0.9 self-review (M3).
+
 ## A lifecycle action that ends `execution-unknown` keeps its agent reserved (0.9 D9a, 2026-10-10)
 
 aify-env records every lifecycle action in `~/.aify/agent-lifecycle.json` before it acts. When the
