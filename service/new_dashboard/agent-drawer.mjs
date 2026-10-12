@@ -26,6 +26,7 @@ import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
 import { herdrSpaceButton, startOffer } from './agent-click-handlers.mjs';
+import { AGENT_MODEL_ID, loadAgentModel, modelRowBeforeAnswer } from './agent-model.mjs';
 import { AGENT_PROCESSES_ID, loadAgentProcesses, processesReadFailed } from './agent-processes.mjs';
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
@@ -128,6 +129,7 @@ export function openAgentDrawer(agentId) {
       <dl class="chat-kv agent-drawer-kv">
         ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
         ${row('Mode', esc(mode))}
+        ${row('Model', `<span id="${AGENT_MODEL_ID}">${modelRowBeforeAnswer(id, agent.runsWith)}</span>`)}
         ${row('Environment', esc((env && (env.label || env.id)) || sessionEnvironmentId(session) || '—'))}
         ${row('Workspace', esc((session && session.workspace) || agent.cwd || '—'))}
         ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
@@ -163,6 +165,8 @@ export function openAgentDrawer(agentId) {
   // else in this drawer stays true whether that read succeeds or not.
   // A panel showing a FAILED read is read again too: an offline agent's drawer never changes (0.7.1 C7).
   if (!refreshing || changed || processesReadFailed(byId(AGENT_PROCESSES_ID))) loadAgentProcesses(id, { api, byId });
+  // 0.9.1 3B: the model its session runs, asked of its host on the same terms; a repaint resets the row, so it asks again.
+  if (!refreshing || changed) loadAgentModel(id, { api, byId, runsWith: agent.runsWith });
   fillAgentRuns(id, { byId });
   fillSessionSharing(id, { byId, agents: state.agents });
 }

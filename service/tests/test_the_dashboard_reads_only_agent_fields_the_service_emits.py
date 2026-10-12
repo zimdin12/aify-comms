@@ -55,7 +55,9 @@ DASH = SERVICE / "new_dashboard"
 
 #: Every function that contributes a key to the agent payload. Named rather than discovered because
 #: "which functions build this payload" is a fact about the route, not something a scan can infer.
-ASSEMBLY = {"_agent_record_to_dict", "_enforce_live_worker_gate", "_enforce_env_reachable_gate"}
+#: `list_agents` is the roster route itself: it adds `definition` and `runsWith` (P0 C12) after the record is built, and
+#: the dashboard's drawer reads `runsWith` (0.9.1 3B). Scanning it also counts its envelope key `agents` as emitted.
+ASSEMBLY = {"_agent_record_to_dict", "_enforce_live_worker_gate", "_enforce_env_reachable_gate", "list_agents"}
 
 #: Property names that are JavaScript, not payload fields.
 JS_BUILTINS = {"length", "map", "filter", "forEach", "id", "name", "type", "value"}
