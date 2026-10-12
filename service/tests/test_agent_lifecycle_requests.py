@@ -171,18 +171,19 @@ class LifecycleRequests(FastApiTestCase):
 
     def test_the_operator_key_locks_only_what_cannot_be_undone(self):
         """Steven, 2026-10-11: the operator key is an optional lock on irreversible actions. With one set, the
-        API key may still start, stop, restart and spawn a defined agent as itself; kill and delete, and any
-        word outside the vocabulary, need the key; and naming the operator needs its proof whatever the
-        action. Each action is asked on its own request id, so the one open request per agent decides nothing."""
+        API key may still start, stop, restart, kill and spawn a defined agent as itself (a killed agent starts
+        again); delete, and any word outside the vocabulary, need the key; and naming the operator needs its
+        proof whatever the action. Each action is asked on its own request id, so the one open request per
+        agent decides nothing."""
         self._app.state.config.operator_key = 'fixture-key'
         for action in ('start','stop','restart','spawn','kill','delete','pause'):
             with self.subTest(action=action):
                 self.sql('DELETE FROM agent_lifecycle_requests')
                 answered = self.ask(action=action, requestId=f'peer-{action}', requestedBy='peer')
-                if action in ('start','stop','restart','spawn'):
+                if action in ('start','stop','restart','spawn','kill'):
                     self.assertEqual(answered.status_code, 200, answered.text)
                 else:
-                    self.refused(answered, 403, 'kill, delete and any unknown lifecycle action require a valid '
+                    self.refused(answered, 403, 'delete, and any unknown lifecycle action, need a valid '
                                                 'X-Aify-Operator-Key header')
                 self.assertEqual(self.ask(action=action, requestId=f'op-{action}', requestedBy='operator').status_code,
                                  403, 'naming the operator needs its proof whatever the action')
@@ -248,7 +249,7 @@ class LifecycleRequests(FastApiTestCase):
     def test_each_refusal_names_its_cause(self):
         # Submission, in the order admit checks it.
         self._app.state.config.operator_key = 'fixture-key'
-        self.refused(self.ask(action='kill'), 403, 'kill, delete and any unknown lifecycle action require a valid')
+        self.refused(self.ask(action='delete'), 403, 'delete, and any unknown lifecycle action, need a valid')
         self._app.state.config.operator_key = ''
         self.refused(self.ask(requestedBy=''), 422, 'requestedBy: explicitly name a nonempty caller actor string')
         self.refused(self.ask(requestId='-x'), 422,

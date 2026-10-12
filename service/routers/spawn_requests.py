@@ -246,8 +246,8 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     env_problems = spawn_env_problems(req.envVars)
     if env_problems:
         raise HTTPException(400, "; ".join(env_problems))
-    # The creator is the brief's sender once the worker is up (running_spawn.py), and `dashboard`
-    # makes the start REPLACE a live instance: an unproven operator claim goes no further.
+    # The creator asks the host to define the agent and is the brief's sender once its worker is up (D8):
+    # an unproven operator claim goes no further.
     created_by = recorded_operator_actor(req.createdBy, request, action="spawning as the operator")
     # A SPAWN'S OWN ENVIRONMENT IS THE OPERATOR'S once a key is set (Steven, 2026-10-04): HERMES_COMMAND and
     # PI_COMMAND pick the program a launcher runs, past aify-env's launcher allowlist. With no key the API

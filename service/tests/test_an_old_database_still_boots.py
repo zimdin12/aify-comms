@@ -79,3 +79,26 @@ class AnOldDatabaseStillBootsTests(unittest.TestCase):
                 booted.close()
             self.assertIn("source_message_id", columns)
             self.assertIn("idx_dispatch_controls_source_message", indexes, "the index must still be created")
+
+    def test_a_database_whose_lifecycle_requests_predate_the_brief_boots_with_it(self):
+        """D9a made agent_lifecycle_requests without `brief`; D8 added it. A database from between them gains it."""
+        previous = db_module._db_path
+        self.addCleanup(setattr, db_module, "_db_path", previous)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "old.db"
+            asyncio.run(db_module.init_db(path))
+            old = sqlite3.connect(path)
+            try:
+                old.execute("ALTER TABLE agent_lifecycle_requests DROP COLUMN brief")
+                old.commit()
+                columns = {row[1] for row in old.execute("PRAGMA table_info(agent_lifecycle_requests)")}
+            finally:
+                old.close()
+            self.assertNotIn("brief", columns, "control: the database has the old shape")
+            asyncio.run(db_module.init_db(path))
+            booted = sqlite3.connect(path)
+            try:
+                columns = {row[1] for row in booted.execute("PRAGMA table_info(agent_lifecycle_requests)")}
+            finally:
+                booted.close()
+            self.assertIn("brief", columns)

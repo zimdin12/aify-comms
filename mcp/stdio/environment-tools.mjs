@@ -185,7 +185,8 @@ export function registerEnvironmentTools(server, z) {
           text:
             `Queued: asked the host of ${env.id} to define "${agentId}" (${resolvedRuntime}, ${selectedWorkspace || "default workspace"}); ` +
             `it is spawned once that host has defined it. Definition request: ${req.id || "unknown"} [${req.status || "pending"}]. ` +
-            `Not confirmation: comms_agent_info shows whether it started.`,
+            `Not confirmation: comms_agent_info shows whether it started, and GET /api/v1/agent-definitions/${agentId}/requests ` +
+            `what the host did with the request (a refusal says why, and its consequence names the spawn).`,
         }],
       };
     }

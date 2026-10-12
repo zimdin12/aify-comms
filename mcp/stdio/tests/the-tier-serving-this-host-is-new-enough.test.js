@@ -50,7 +50,8 @@ test("versions compare by number, not by string", () => {
 test("a tier at the minimum passes, and so does a NEWER one", () => {
   // The independence the three-repo split exists for: aify-env moving ahead is normal and must not
   // be reported as a problem.
-  for (const version of [MINIMUM_AIFY_ENV_VERSION, "0.7.0", "1.0.0"]) {
+  const [major, minor] = parseVersion(MINIMUM_AIFY_ENV_VERSION);
+  for (const version of [MINIMUM_AIFY_ENV_VERSION, `${major}.${minor + 1}.0`, `${major + 1}.0.0`]) {
     const verdict = tierVersionVerdict({ environments: [row("e1", { version })], isLive: allLive });
     assert.equal(verdict.ok, true, `aify-env ${version} was reported as too old`);
   }

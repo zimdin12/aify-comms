@@ -52,6 +52,11 @@ class StaleSpawnRequestTests(unittest.IsolatedAsyncioTestCase):
             )
             """
         )
+        # The other way a worker is coming (M1), read by the same predicate: empty here.
+        await self.db.execute(
+            "CREATE TABLE agent_lifecycle_requests (id TEXT, agent_id TEXT, status TEXT, action TEXT, "
+            "claimed_at TEXT, created_at TEXT)"
+        )
         await self.db.commit()
 
     async def asyncTearDown(self):

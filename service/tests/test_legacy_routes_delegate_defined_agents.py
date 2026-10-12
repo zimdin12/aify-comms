@@ -11,6 +11,7 @@ import asyncio
 import sqlite3
 
 import service.api_core.dispatch_start as dispatch_start
+import service.api_core.spawn_request_state as spawn_request_state
 from service.db import get_db
 from service.tests._base import FastApiTestCase
 from service.tests.published_state import publish
@@ -70,9 +71,11 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
                 self.queued(call(), action, lifetime)
         self.assertEqual(len(self.sql("SELECT id FROM agents WHERE id = 'coder'")), 1, "its host removes it")
 
-    def test_an_agent_without_the_operator_key_restarts_and_stops_but_does_not_kill(self):
-        """Steven, 2026-10-11: the operator key locks what cannot be undone. A manager's comms_restart and stop of
-        a defined agent, which send only the API key, still queue; its kill is refused and queues nothing."""
+    def test_an_agent_without_the_operator_key_restarts_stops_and_kills(self):
+        """Steven, 2026-10-11: the operator key locks what cannot be undone. A manager's restart, stop and kill of
+        a defined agent, sent with only the API key, still queue; a killed agent starts again. The delete the key
+        does lock is proven on the lifecycle route (test_agent_lifecycle_requests.py): the legacy DELETE records
+        its caller as the dashboard, whose name needs the key on its own."""
         self._app.state.config.operator_key = "fixture-key"
         publish(self, A["machine"], {"coder": ("L1", "idle")})
         self.queued(self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "manager"}),
@@ -81,14 +84,26 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
         self.queued(self.client.post("/api/v1/agents/coder/control", json={"action": "stop", "from_agent": "manager"}),
                     "stop", "L1")
         self.sql("DELETE FROM agent_lifecycle_requests")
-        killed = self.client.post("/api/v1/agents/coder/stop-worker", json={})
-        self.assertEqual(killed.status_code, 403, killed.text)
-        self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
+        self.queued(self.client.post("/api/v1/agents/coder/stop-worker", json={"requestedBy": "manager"}), "kill", "L1")
 
     def test_recreate_is_a_restart_into_a_fresh_conversation(self):
         publish(self, A["machine"], {"coder": ("L1", "idle")})
         self.queued(self.client.post("/api/v1/sessions/sess-1/control", json={"action": "recreate", "from_agent": "dashboard"}),
                     "restart", "L1", fresh=True)
+
+    def test_a_repeat_is_the_request_already_waiting_and_a_recreate_is_not_a_restart(self):
+        publish(self, A["machine"], {"coder": ("L1", "idle")})
+        control = lambda action: self.client.post("/api/v1/sessions/sess-1/control",
+                                                  json={"action": action, "from_agent": "dashboard"})
+        first = control("restart")
+        self.queued(first, "restart", "L1")
+        again = control("restart")
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual((again.json()["alreadyQueued"], again.json()["request"]["id"]),
+                         (True, first.json()["request"]["id"]))
+        refused = control("recreate")
+        self.assertEqual(refused.status_code, 409, "the waiting restart keeps the conversation a recreate drops")
+        self.assertEqual(len(self.sql("SELECT id FROM agent_lifecycle_requests")), 1)
 
     def test_without_fresh_state_from_its_host_nothing_is_queued_or_done(self):
         for applied_at in (None, "2000-01-01T00:00:00Z"):
@@ -147,3 +162,27 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
         self.assertEqual(self.sql("SELECT id FROM spawn_requests"), [])
         publish(self, A["machine"], {"coder": (None, "available")})
         self.assertTrue(self.cold_start([]), "control: started again, a message starts it")
+
+    def test_a_message_waits_for_the_start_its_host_has_queued(self):
+        """Review of 0.9, M1: a message sent before the host claims a queued start cold-started a legacy spawn
+        beside it. It now waits for that start, and is held as deliverable rather than refused."""
+        self.sql("UPDATE agent_sessions SET status = 'stopped'")
+        publish(self, A["machine"], {"coder": (None, "available")})
+        self.queued(self.client.post("/api/v1/agents/coder/control", json={"action": "start", "from_agent": "dashboard"}),
+                    "start", None)
+        reasons: list[str] = []
+        self.assertFalse(self.cold_start(reasons))
+        self.assertIn("ALREADY IN FLIGHT", reasons[0])
+        self.assertEqual(self.sql("SELECT id FROM spawn_requests"), [])
+        self.assertTrue(self.claimable(), "the queued start is the backing a refused cold start looks for")
+        self.sql("UPDATE agent_lifecycle_requests SET status = 'done'")
+        self.assertFalse(self.claimable(), "control: a settled start backs nothing")
+
+    def claimable(self):
+        async def run():
+            db = await get_db()
+            try:
+                return await spawn_request_state._has_claimable_spawn_request(db, "coder")
+            finally:
+                await db.close()
+        return asyncio.run(run())

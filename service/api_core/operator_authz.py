@@ -176,7 +176,7 @@ def require_lifecycle(body: dict, request) -> LifecycleProof:
     # THE KEY LOCKS WHAT CANNOT BE UNDONE (`IRREVERSIBLE_ACTIONS`); the API key may ask anything else as its
     # caller. An action outside the vocabulary needs the key too, so an unknown word fails closed.
     if key and body.get("action") not in API_KEY_ACTIONS and not operator_privilege_granted(request, key):
-        raise HTTPException(403, f"{', '.join(IRREVERSIBLE_ACTIONS)} and any unknown lifecycle action require a valid "
+        raise HTTPException(403, f"{' and '.join(IRREVERSIBLE_ACTIONS)}, and any unknown lifecycle action, need a valid "
                                  f"X-Aify-Operator-Key header")
     return LifecycleProof(lifecycle_actor(body))
 

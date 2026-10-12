@@ -19,6 +19,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
+from service.api_core.spawn_request_state import lifecycle_start_in_flight
 from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.dead_terminal_spawn_query import spawn_worker_ended_sql
 from service.api_core.records import _environment_record_to_dict
@@ -421,7 +422,7 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
         """,
         (agent_id, running_cutoff, *ended_params),
     )).fetchone()
-    return bool(row)
+    return bool(row) or await lifecycle_start_in_flight(db, agent_id, running_cutoff)
 
 
 async def _select_online_environment_for_runtime(

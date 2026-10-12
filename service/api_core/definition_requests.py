@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 
+from service.lifecycle_models import OPEN_SQL
 from service.api_core.agent_remove import remove_agent
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.definition_guard import defined_on
@@ -27,8 +28,6 @@ from service.api_core.serialization import _iso_add_seconds
 
 #: C4: a request no host claims in this time expires.
 REQUEST_TTL_SECONDS = 600
-#: The statuses a request is still waiting in, a definition's or a lifecycle one's. One per agent at a time.
-OPEN_SQL = "('pending', 'claimed')"
 _FINISHED = ("done", "refused", "expired")
 #: The agent fields a patch may set: every C1 field but the id, which names the file.
 EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field != "id")
