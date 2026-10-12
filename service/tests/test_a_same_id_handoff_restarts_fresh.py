@@ -92,6 +92,17 @@ class ASameIdHandoffRestartsFresh(FastApiTestCase):
         self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
         self.nothing_spawned_or_defined()
 
+    def test_a_handoff_asking_for_another_workspace_or_environment_is_refused_and_nothing_is_queued(self):
+        # Review of 0.9.1 R5: these answered 200 and restarted the agent in its definition's place anyway.
+        for over, says in (({"workspace": "/elsewhere"}, "change the workspace there first"),
+                           ({"environmentId": "nowhere"}, "; a handoff restarts it there, not in environment nowhere")):
+            with self.subTest(over=over):
+                answer = self.handoff(COMPACT_TOOL, **over)
+                self.assertEqual(answer.status_code, 409, answer.text)
+                self.assertIn(says, answer.json()["detail"])
+                self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
+        self.assertEqual(self.handoff(COMPACT_TOOL, workspace="/WORK/").status_code, 200, "the same path spelled otherwise")
+
     def test_a_handoff_behind_a_waiting_restart_is_refused_not_merged(self):
         """The waiting request would never deliver this brief, so it is not answered as that request."""
         waiting = self.client.post("/api/v1/agents/coder/lifecycle-requests", json={

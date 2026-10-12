@@ -21,7 +21,8 @@ const config = [
 ].join("\n");
 
 test("THE CURRENT COMMAND of each aify hook is read from config.yaml, and nothing else is", () => {
-  assert.deepEqual(Object.keys(currentCommands(config)).sort(), ["aify-turn-end.sh", "aify-turn-start.sh"]);
+  assert.deepEqual(Object.keys(currentCommands(config)).sort(),
+    ["c:/h/agent-hooks/aify-turn-end.sh", "c:/h/agent-hooks/aify-turn-start.sh"]);
 });
 
 test("AN APPROVED HOOK keeps its approval under its new command, for the same event only", () => {
@@ -32,6 +33,19 @@ test("AN APPROVED HOOK keeps its approval under its new command, for the same ev
   const added = carried(approvals, currentCommands(config), "now", () => "mtime");
   assert.deepEqual(added, [{ approved_at: "now", command: `${GIT} "C:\\h\\agent-hooks\\aify-turn-start.sh"`,
     event: "pre_llm_call", script_mtime_at_approval: "mtime" }]);
+});
+
+test("AN APPROVAL FOR ANOTHER FILE OF THE SAME NAME is not carried, and that file's entry is not folded into ours", () => {
+  // Review of 0.9.1 R4: both matched on the basename alone.
+  const elsewhere = { event: "pre_llm_call", command: 'bash "D:\\mine\\aify-turn-start.sh"' };
+  assert.deepEqual(carried([elsewhere], currentCommands(config), "now", () => null), []);
+  const two = [
+    "hooks:",
+    "  pre_llm_call:",
+    `    - command: ${JSON.stringify(`${GIT} "C:\\h\\agent-hooks\\aify-turn-start.sh"`)}`,
+    `    - command: ${JSON.stringify('bash "D:\\mine\\aify-turn-start.sh"')}`,
+  ].join("\n");
+  assert.equal(withoutDuplicateHooks(two).removed, 0);
 });
 
 test("A HOOK NEVER APPROVED gets no approval, and one already carried is not added twice", () => {

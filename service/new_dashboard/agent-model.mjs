@@ -42,6 +42,8 @@ export function renderAgentModel(runsWith, actual, { error = '' } = {}) {
 //: again, instead of blinking back to "asking". The setting is never kept: it is always the record's current one.
 //: ponytail: one entry per agent opened this page load.
 const answers = new Map();
+//: The newest ask per agent. A repaint asks again while an older ask is still out, and the older one can answer last.
+const asks = new Map();
 
 /** The row to paint before the host answers: the current setting beside the last answer, else "asking". */
 export function modelRowBeforeAnswer(agentId, runsWith) {
@@ -54,13 +56,15 @@ export async function loadAgentModel(agentId, { api, byId, runsWith } = {}) {
   const id = String(agentId || '').trim();
   const host = typeof byId === 'function' ? byId(AGENT_MODEL_ID) : null;
   if (!host || !id || typeof api !== 'function') return;
+  const ask = (asks.get(id) ?? 0) + 1;
+  asks.set(id, ask);
   let answer;
   try {
     answer = { actual: (await api(`/agents/${encodeURIComponent(id)}/model`))?.actual ?? null, error: '' };
   } catch (err) {
     answer = { actual: null, error: String(err?.message || err) };
   }
-  if (String(state?.inspector?.agentId || '') !== id) return;
+  if (asks.get(id) !== ask || String(state?.inspector?.agentId || '') !== id) return;
   answers.set(id, answer);
   paintIfChanged(host, renderAgentModel(runsWith, answer.actual, { error: answer.error }));
 }

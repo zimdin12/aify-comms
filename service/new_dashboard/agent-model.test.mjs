@@ -59,3 +59,19 @@ test("A REPAINTED DRAWER KEEPS THE LAST ANSWER while it asks again, rather than 
   assert.doesNotMatch(modelRowBeforeAnswer("kept", set("")), /asking/);
   assert.match(modelRowBeforeAnswer("kept", set("sonnet")), /set: sonnet/, "a changed setting was hidden behind the kept row");
 });
+
+test("AN OLDER ASK THAT ANSWERS LAST does not overwrite the newer answer", async () => {
+  // Review of 0.9.1 R6: two repaints ask twice; the first ask's late answer painted over the second's.
+  const host = panel();
+  state.inspector = { ...state.inspector, kind: "agent", agentId: "raced" };
+  const pending = [];
+  const api = () => new Promise((resolve) => pending.push(resolve));
+  const first = loadAgentModel("raced", { byId: () => host, runsWith: set(""), api });
+  const second = loadAgentModel("raced", { byId: () => host, runsWith: set(""), api });
+  pending[1]({ actual: { model: "newer" } });
+  await second;
+  pending[0]({ actual: { model: "older" } });
+  await first;
+  assert.match(host.innerHTML, /newer/);
+  assert.doesNotMatch(host.innerHTML, /older/);
+});

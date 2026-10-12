@@ -264,7 +264,8 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
             brief = ({"subject": req.subject or f"Handoff {req.agentId}", "body": req.initialMessage,
                       "priority": req.priority or "normal"} if str(req.initialMessage or "").strip() else None)
             restarted = await restart_with_brief(db, req.agentId, runtime=normalized_runtime, brief=brief,
-                                                 actor=created_by, request=request)
+                                                 actor=created_by, request=request, workspace=req.workspace or "",
+                                                 environment_id=req.environmentId or "")
             if restarted:
                 return {"ok": True, "spawnRequest": None, "definitionRequest": None,
                         "lifecycleRequest": restarted["request"]}

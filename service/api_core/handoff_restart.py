@@ -24,11 +24,18 @@ def same_id_handoff(agent_id: str, metadata: dict | None) -> bool:
     return meta.get("compactMode") == "handoff" and source == agent_id
 
 
-async def restart_with_brief(db, agent_id: str, *, runtime: str, brief: dict | None, actor: str, request) -> dict | None:
+def _same_path(a: str, b: str) -> bool:
+    """PURE: one directory however it is spelled (slashes, case, a trailing slash)."""
+    norm = lambda p: str(p or "").replace("\\", "/").rstrip("/").lower()
+    return norm(a) == norm(b)
+
+
+async def restart_with_brief(db, agent_id: str, *, runtime: str, brief: dict | None, actor: str, request,
+                             workspace: str = "", environment_id: str = "") -> dict | None:
     """Queue the fresh-context restart of a defined `agent_id` carrying `brief`, or None when no host defines it.
 
-    A handoff asking for another runtime than the definition's is refused rather than restarted as the old one:
-    the runtime is changed in the definition, on its host."""
+    A handoff asking for another runtime, workspace or environment than the definition's is refused rather than
+    restarted as the old one (review of 0.9.1, R5): those are changed in the definition, on its host."""
     try:
         binding = await start_binding(db, agent_id)
     except StartRefused as refused:
@@ -38,5 +45,13 @@ async def restart_with_brief(db, agent_id: str, *, runtime: str, brief: dict | N
     if runtime and runtime != binding.runtime:
         raise HTTPException(409, f'Agent "{agent_id}" is defined to run {binding.runtime} on {binding.machine_id}; '
                                  f'a handoff restarts it from that definition, so change the runtime there first')
+    if workspace and not _same_path(workspace, binding.workspace):
+        raise HTTPException(409, f'Agent "{agent_id}" is defined to work in {binding.workspace}; a handoff restarts it '
+                                 f'from that definition, so change the workspace there first')
+    if environment_id:
+        row = await (await db.execute("SELECT machine_id FROM environments WHERE id = ?", (environment_id,))).fetchone()
+        if row is None or str(row["machine_id"] or "").lower() != str(binding.machine_id).lower():
+            raise HTTPException(409, f'Agent "{agent_id}" is defined on {binding.machine_id}; a handoff restarts it '
+                                     f'there, not in environment {environment_id}')
     return await delegate(db, agent_id, "restart", actor, request, fresh_context=True,
                           brief=json.dumps(brief) if brief else "")

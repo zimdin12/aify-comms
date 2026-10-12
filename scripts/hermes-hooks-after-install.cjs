@@ -17,7 +17,12 @@
 const fs = require("fs");
 const path = require("path");
 
-const scriptOf = (command) => (String(command).match(/(aify-[a-z-]+\.sh)"?\s*$/) || [])[1];
+//: The aify hook script a command runs, by its whole path: a basename alone let an approval move to another file of the
+//: same name, and folded the operator's own copy elsewhere into ours.
+const scriptOf = (command) => {
+  const m = String(command).match(/(?:"([^"]*aify-[a-z-]+\.sh)"|(\S*aify-[a-z-]+\.sh))\s*$/);
+  return m ? (m[1] || m[2]).replace(/\\/g, "/").toLowerCase() : undefined;
+};
 
 /** The aify script a config line's quoted `command:` names, or undefined. */
 function scriptOnLine(line) {
