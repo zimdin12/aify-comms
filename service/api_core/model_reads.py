@@ -73,6 +73,10 @@ class ModelReads:
         reads = (self._open.get(read_id) for read_id in self._unclaimed.pop(str(machine_id).lower(), []))
         return [{"readId": read.id, "agents": read.agents} for read in reads if read and not read.answered.done()]
 
+    def waiting(self, machine_id: str) -> bool:
+        """Whether a read waits for this machine's host. Hands nothing out."""
+        return bool(self._unclaimed.get(str(machine_id).lower()))
+
     def answer(self, machine_id: str, read_id: str, results: Any, read_at: str) -> bool:
         """Settle a read from its own machine's host. False when nobody waits for it any more, or it is not that host's."""
         read = self._open.get(read_id)

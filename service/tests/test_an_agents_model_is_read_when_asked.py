@@ -165,6 +165,67 @@ class AnAgentsModelIsReadWhenAsked(FastApiTestCase):
                          f"the proofless claim was handed the read queued after enrollment: {claimed.text}")
         self.assertIn("unknown", asked.json()["actual"])
 
+    def park_the_claims_first_attempt_close(self):
+        """Patch the router so the held claim's first attempt parks in `db.close()`; returns (parked, release)."""
+        from service.routers import model_reads as router
+        real_get_db = router.get_db
+        closes, parked, release = [], asyncio.Event(), asyncio.Event()
+
+        async def get_db():
+            db = await real_get_db()
+            close = db.close
+
+            async def parked_close():
+                closes.append(1)
+                if len(closes) == 2:  # the first close is the claim's admission proof
+                    parked.set()
+                    await release.wait()
+                await close()
+            db.close = parked_close
+            return db
+
+        router.get_db = get_db
+        self.addCleanup(setattr, router, "get_db", real_get_db)
+        return parked, release
+
+    def test_a_read_asked_while_a_healthy_claim_closes_its_database_is_still_handed_out(self):
+        # Review of 0.9.1 F3, third pass: the read notified nobody (the held claim listens only after an empty attempt
+        # returns), so the healthy host slept past it and the asker got unknown.
+        parked, release = self.park_the_claims_first_attempt_close()
+
+        async def scenario(client):
+            held = asyncio.create_task(client.post(f"{API}/environments/{A['env']}/model-reads/claim",
+                                                   json={"bridgeId": A["bridge"], "machineId": A["machine"], "waitMs": 10_000}))
+            await asyncio.wait_for(parked.wait(), 5)
+            asking = asyncio.create_task(client.get(f"{API}/agents/coder/model"))
+            await asyncio.sleep(0.1)
+            release.set()
+            # Well inside the asker's 3 s: a claim that slept past the read would come back only at its 10 s deadline.
+            claimed = await asyncio.wait_for(held, 2.5)
+            asking.cancel()
+            return claimed
+        claimed = self.run_against_the_app(scenario)
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertEqual(len(claimed.json()["reads"]), 1, "the healthy host slept past the read")
+
+    def test_a_claims_proof_is_judged_under_the_write_lock(self):
+        # Review of 0.9.1 F3, third pass: judged unlocked, a heartbeat could enroll a machine between the proof's reads
+        # and the dequeue. `judge_host_proof` asks its caller to hold the write lock.
+        from service.routers import model_reads as router
+        real_proof = router._proven_host
+        held = []
+
+        async def proof(db, environment, machine_id, request):
+            held.append(bool(getattr(db, "in_transaction", False)))
+            return await real_proof(db, environment, machine_id, request)
+
+        router._proven_host = proof
+        self.addCleanup(setattr, router, "_proven_host", real_proof)
+        answer = self.client.post(f"{API}/environments/{A['env']}/model-reads/claim",
+                                  json={"bridgeId": A["bridge"], "machineId": A["machine"], "waitMs": 0})
+        self.assertEqual(answer.status_code, 200, answer.text)
+        self.assertEqual(held, [True, True], "admission and attempt each judged under the lock")
+
     def test_no_handle_or_a_shared_handle_is_unknown_and_no_host_is_asked(self):
         self.agent("idle", handle="")
         self.agent("twin", handle="sess-1")

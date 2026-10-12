@@ -53,16 +53,20 @@ async def agent_model(agent_id: str):
 
 
 async def _host_machine(environment_id: str, machine_id: Any, request: Request, then=None):
-    """The proved host's machine id, or `then(machine)` run straight after the proof. Nothing awaits between the two,
-    so no enrollment or new work can land in between (review of 0.9.1, F3: the dequeue once followed `db.close()`)."""
+    """The proved host's machine id, or `then(machine)` run straight after the proof. The write lock is held from before
+    the proof is read until after `then`, as `judge_host_proof` asks, so no heartbeat can enroll a machine between its
+    judging and the dequeue (review of 0.9.1, F3: the dequeue once followed `db.close()`, then a second machine's read)."""
     db = await get_db()
     try:
+        await db.execute("BEGIN IMMEDIATE")
         environment = await _environment(db, environment_id)
         if environment is None:
             raise HTTPException(404, f"Environment '{environment_id}' not found")
         await _proven_host(db, environment, str(machine_id or ''), request)
         machine = str(environment.get("machine_id") or "")
-        return then(machine) if then else machine
+        answer = then(machine) if then else machine
+        await db.rollback()
+        return answer
     finally:
         await db.close()
 
@@ -74,8 +78,12 @@ async def claim_model_reads(environment_id: str, body: ModelReadClaim, request: 
     async def claimed() -> dict:
         # PROVED AGAIN IN THE SAME STEP AS THE DEQUEUE: a claim held while its host enrolled would otherwise take work on
         # the proof it had when it started, which an enrolled host no longer accepts.
-        return {"ok": True, "reads": await _host_machine(environment_id, body.machineId, request,
-                                                         then=model_reads.MODEL_READS.claim)}
+        while True:
+            reads = await _host_machine(environment_id, body.machineId, request, then=model_reads.MODEL_READS.claim)
+            # A read asked while this attempt was closing its database woke nobody: the held claim listens only once an
+            # empty attempt has returned. So it goes again rather than sleep past that read.
+            if reads or not model_reads.MODEL_READS.waiting(machine):
+                return {"ok": True, "reads": reads}
 
     # NO FALLBACK RE-CHECK: a read only ever arrives through `ask`, which notifies this scope, so the held claim wakes
     # for it at once and otherwise sleeps out its wait.

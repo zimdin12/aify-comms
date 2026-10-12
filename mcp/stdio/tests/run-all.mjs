@@ -72,8 +72,9 @@ for (const name of Object.keys(inherited)) if (/^(AIFY_)?HERDR_/i.test(name)) de
 const childEnv = { ...inherited, TMPDIR: tempRoot, TEMP: tempRoot, TMP: tempRoot };
 
 /** Kill what the run left running, then remove the whole root. Called on every exit path, including the failing one. */
-//: Every test file this run spawned: what one leaves running still names it as its parent after it exits.
-const spawned = new Set();
+//: Every test file this run spawned, pid -> `{ exitedAt }`: what one leaves running still names it as its parent after it
+//: exits, and was born before that exit (a later holder of the pid had its children after).
+const spawned = new Map();
 
 function removeTempRoot() {
   sweepLeftBehind(basename(tempRoot), { owners: spawned });
@@ -120,7 +121,10 @@ function runOne(file) {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...childEnv, TMPDIR: fileTemp, TEMP: fileTemp, TMP: fileTemp },
     });
-    if (child.pid) spawned.add(child.pid);
+    const life = { exitedAt: undefined };
+    if (child.pid) spawned.set(child.pid, life);
+    // `exit`, not `close`: close waits for every holder of the pipes, which can be the very leftovers swept for.
+    child.on("exit", () => { life.exitedAt = Date.now(); });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");

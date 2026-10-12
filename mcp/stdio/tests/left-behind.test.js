@@ -15,12 +15,12 @@ const ROOT = "aify-comms-testrun-AbC123";
 
 test("ONLY WHAT NAMES THE ROOT is found, outermost first, and never the runner itself", () => {
   const processes = [
-    { pid: 10, ppid: 7, commandLine: `bash /tmp/${ROOT}/f-x/stub-bin/codex app-server` },
+    { pid: 10, ppid: 7, createdAt: 50, commandLine: `bash /tmp/${ROOT}/f-x/stub-bin/codex app-server` },
     { pid: 11, ppid: 10, commandLine: `node C:\\Temp\\${ROOT}\\f-x\\serve.js` },
     { pid: 12, ppid: 1, commandLine: "bash /tmp/aify-comms-testrun-Other9/f-y/stub-bin/codex" },
     { pid: 13, ppid: 1, commandLine: `node run-all.mjs ${ROOT}` },
   ];
-  assert.deepEqual(leftBehind(processes, ROOT, 13, new Set([7])).map((p) => p.pid), [10, 11]);
+  assert.deepEqual(leftBehind(processes, ROOT, 13, new Map([[7, { exitedAt: 100 }]])).map((p) => p.pid), [10, 11]);
 });
 
 test("NAMING THE ROOT IS NOT OWNERSHIP: a viewer someone opened on the run's log, and a longer root, are left alone", () => {
@@ -37,11 +37,22 @@ test("NAMING THE ROOT IS NOT OWNERSHIP: a viewer someone opened on the run's log
 test("A VIEWER WHOSE OWN SHELL IS GONE is still not the run's, nor is its child", () => {
   // Review of 0.9.1 F1, second pass: an absent parent was taken as ownership.
   const processes = [
-    { pid: 10, ppid: 7, commandLine: `bash /tmp/${ROOT}/f-x/stub-bin/codex` },
+    { pid: 10, ppid: 7, createdAt: 50, commandLine: `bash /tmp/${ROOT}/f-x/stub-bin/codex` },
     { pid: 20, ppid: 88, commandLine: `node C:/tools/view-log.mjs C:/scratch/${ROOT}/stdout.raw` },
     { pid: 21, ppid: 20, commandLine: `node C:/tools/pager.mjs C:/scratch/${ROOT}/stdout.raw` },
   ];
-  assert.deepEqual(leftBehind(processes, ROOT, 999, new Set([7])).map((p) => p.pid), [10]);
+  assert.deepEqual(leftBehind(processes, ROOT, 999, new Map([[7, { exitedAt: 100 }]])).map((p) => p.pid), [10]);
+});
+
+test("A LATER HOLDER OF A RECORDED PID owns nothing, and a birth nobody could read is never the run's", () => {
+  // Review of 0.9.1 F1, third pass: test file 7 exits; a shell later takes pid 7 and starts a viewer on the run's log.
+  const processes = [
+    { pid: 10, ppid: 7, createdAt: 50, commandLine: `bash /tmp/${ROOT}/f-x/stub-bin/codex` },
+    { pid: 20, ppid: 7, createdAt: 5_000, commandLine: `node C:/tools/view-log.mjs C:/scratch/${ROOT}/stdout.raw` },
+    { pid: 21, ppid: 20, createdAt: 5_100, commandLine: `node C:/tools/pager.mjs C:/scratch/${ROOT}/stdout.raw` },
+    { pid: 30, ppid: 7, createdAt: NaN, commandLine: `bash /tmp/${ROOT}/f-y/stub-bin/codex` },
+  ];
+  assert.deepEqual(leftBehind(processes, ROOT, 999, new Map([[7, { exitedAt: 100 }]])).map((p) => p.pid), [10]);
 });
 
 test("A NAME THAT IS NOT A RUN ROOT sweeps nothing, an empty one above all", () => {
