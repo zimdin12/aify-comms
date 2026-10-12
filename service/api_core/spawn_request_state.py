@@ -69,19 +69,22 @@ async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
         """,
         (agent_id, cutoff),
     )).fetchone()
-    return bool(row) or await lifecycle_start_in_flight(db, agent_id, cutoff)
+    return bool(row) or await lifecycle_start_in_flight(db, agent_id)
 
 
-async def lifecycle_start_in_flight(db, agent_id: str, cutoff: str) -> bool:
-    """True when the agent's host has a start, restart or spawn queued for it since `cutoff` (D9, D8).
+async def lifecycle_start_in_flight(db, agent_id: str) -> bool:
+    """True while the agent's host has a start, restart or spawn open for it (D9, D8).
 
     THE OTHER WAY A WORKER IS COMING. A spawn's lifecycle request is queued when the host's definition
     lands, and a message sent in the seconds before the host claims it used to cold-start a legacy spawn
     beside it: a second worker, or the first already running and the spawn's brief never sent (review of
-    0.9, M1). Counted here, a message waits for that worker instead of starting another."""
+    0.9, M1). Counted here, a message waits for that worker instead of starting another.
+
+    NOT AGED (pre-tag review of 0.9, F3): an open request stays claimable until its host reports it, and nothing else
+    settles it, so one older than a spawn's claim window still brings a worker; aged out, a message started a second."""
     launching = ", ".join("?" for _ in LAUNCHING_ACTIONS)
     row = await (await db.execute(
         f"SELECT id FROM agent_lifecycle_requests WHERE agent_id = ? AND status IN {OPEN_SQL} "
-        f"AND action IN ({launching}) AND COALESCE(NULLIF(claimed_at, ''), created_at) >= ? LIMIT 1",
-        (agent_id, *LAUNCHING_ACTIONS, cutoff))).fetchone()
+        f"AND action IN ({launching}) LIMIT 1",
+        (agent_id, *LAUNCHING_ACTIONS))).fetchone()
     return row is not None

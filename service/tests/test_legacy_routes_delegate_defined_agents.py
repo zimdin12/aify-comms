@@ -178,6 +178,84 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
         self.sql("UPDATE agent_lifecycle_requests SET status = 'done'")
         self.assertFalse(self.claimable(), "control: a settled start backs nothing")
 
+    def test_an_old_start_still_waiting_is_still_the_worker_coming(self):
+        """Pre-tag review of 0.9, F3: a queued start older than a spawn's claim window stopped counting while its host
+        could still claim it, so a message started a second worker beside it. Both open statuses, aged an hour."""
+        self.sql("UPDATE agent_sessions SET status = 'stopped'")
+        publish(self, A["machine"], {"coder": (None, "available")})
+        self.queued(self.client.post("/api/v1/agents/coder/control", json={"action": "start", "from_agent": "dashboard"}),
+                    "start", None)
+        for status, claimed_at in (("pending", ""), ("claimed", "2026-01-01T00:00:00Z")):
+            with self.subTest(status=status):
+                self.sql("UPDATE agent_lifecycle_requests SET status = ?, created_at = '2026-01-01T00:00:00Z', claimed_at = ?",
+                         (status, claimed_at))
+                reasons: list[str] = []
+                self.assertFalse(self.cold_start(reasons), reasons)
+                self.assertEqual(self.sql("SELECT id FROM spawn_requests"), [])
+
+    def test_a_repeat_is_answered_while_its_hosts_state_is_stale_and_a_new_action_is_not(self):
+        """Pre-tag review of 0.9, F4: the running lifetime is named only for a NEW request, so a stale mirror refused
+        a repeat of the request already waiting."""
+        publish(self, A["machine"], {"coder": ("L1", "idle")})
+        control = lambda action: self.client.post("/api/v1/sessions/sess-1/control",
+                                                  json={"action": action, "from_agent": "dashboard"})
+        first = control("restart")
+        self.queued(first, "restart", "L1")
+        publish(self, A["machine"], {"coder": ("L1", "idle")}, applied_at="2000-01-01T00:00:00Z")
+        again = control("restart")
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json()["request"]["id"], first.json()["request"]["id"])
+        stop = self.client.post("/api/v1/agents/coder/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stop.status_code, 409, "a new action still needs the host's fresh state")
+
+    def test_an_undefined_agents_delete_needs_the_operator_key_too(self):
+        """Pre-tag review of 0.9, F6: an undefined agent's delete skipped the key a defined agent's delete needs."""
+        self.sql("INSERT INTO agents (id, role, name, runtime, registered_at, last_seen) "
+                 "VALUES ('loose', 'coder', 'loose', 'claude-code', 'now', 'now')")
+        self._app.state.config.operator_key = "fixture-key"
+        refused = self.client.delete("/api/v1/agents/loose")
+        self.assertEqual(refused.status_code, 403, refused.text)
+        self.assertIn("X-Aify-Operator-Key", refused.text)
+        self.assertEqual(len(self.sql("SELECT id FROM agents WHERE id = 'loose'")), 1, "refused, so still there")
+        removed = self.client.delete("/api/v1/agents/loose", headers={"X-Aify-Operator-Key": "fixture-key"})
+        self.assertEqual(removed.status_code, 200, removed.text)
+        self.assertEqual(self.sql("SELECT id FROM agents WHERE id = 'loose'"), [], "control: the key removes it")
+
+    def test_a_console_never_starts_a_worker_for_an_agent_no_host_defines(self):
+        """Pre-tag review of 0.9, F2: typing into the console of an undefined agent whose session reads running started
+        `claude-aify --aify-agent <id>` with no definition. The defined agent beside it is the control."""
+        self.client.post("/api/v1/environments/heartbeat", json={
+            "id": A["env"], "machineId": A["machine"], "os": "win32", "kind": "win32", "bridgeId": A["bridge"],
+            "cwdRoots": ["/work"], "runtimes": RUNTIMES,
+            "metadata": {"terminal": True, "pty": True, "terminalRuntimes": ["claude-code"]}}).raise_for_status()
+        self.sql("INSERT INTO agents (id, role, name, runtime, session_mode, registered_at, last_seen) "
+                 "VALUES ('loose', 'coder', 'loose', 'claude-code', 'managed', 'now', 'now')")
+        self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, started_at, last_seen) "
+                 "VALUES ('sess-loose', 'loose', ?, 'claude-code', 'managed-warm', 'running', 'now', 'now')", (A["env"],))
+        typed = lambda agent: self.client.post(f"/api/v1/agents/{agent}/console/input",
+                                               json={"from": agent, "text": "status", "enter": True})
+        refused = typed("loose")
+        self.assertEqual(refused.status_code, 200, refused.text)
+        self.assertFalse(refused.json()["ok"])
+        self.assertIn('no host defines "loose"', refused.json()["message"])
+        self.assertEqual(self.sql("SELECT agent_id FROM terminal_sessions"), [])
+        # CONTROL: a defined agent's session, made by its real cold start, recovers through the same console, and the
+        # launch its host reads carries the definition, which is what the host admits a defined start by.
+        self.sql("UPDATE agent_sessions SET status = 'stopped' WHERE id = 'sess-1'")
+        publish(self, A["machine"], {"coder": (None, "available")})
+        self.assertTrue(self.cold_start([]))
+        [spawn] = self.sql("SELECT id, definition_store_id FROM spawn_requests")
+        self.assertEqual(spawn["definition_store_id"], "s1")
+        self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_request_id, "
+                 "started_at, last_seen) VALUES ('sess-2', 'coder', ?, 'claude-code', 'managed-warm', 'running', ?, 'now', 'now')",
+                 (A["env"], spawn["id"]))
+        typed("coder")
+        [terminal] = self.sql("SELECT id, agent_id FROM terminal_sessions")
+        self.assertEqual(terminal["agent_id"], "coder", "control: the defined agent's console starts its worker")
+        launch = self.client.get(f"/api/v1/terminals/{terminal['id']}/launch")
+        self.assertEqual(launch.status_code, 200, launch.text)
+        self.assertEqual(launch.json()["launch"]["definition"]["storeId"], "s1")
+
     def claimable(self):
         async def run():
             db = await get_db()

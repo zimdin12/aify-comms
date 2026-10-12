@@ -1806,10 +1806,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         session_handle: str = "thread-1",
         role: str = "coder",
         initial_message: str = "",
-        defined: bool = False,
+        defined: bool = True,
     ):
-        """A managed agent with a running session. Undefined by default once running: an agent that was running
-        before D8 with no definition, so its stop and console paths are the service's own, not its host's."""
+        """A managed agent with a running session, defined on its host: since D8 only a defined agent's console is started
+        for it (pre-tag review of 0.9, F2). `defined=False` is an agent running from before D8 with no definition, whose
+        stop and console paths are the service's own, not its host's."""
         self._heartbeat_environment(
             terminal=terminal,
             pty=terminal,
@@ -3851,6 +3852,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtime="claude-code",
             terminal_runtimes=["claude-code"],
             session_handle="claude-managed-1",
+            defined=False,
         )
         # Spawn a managed PTY (the kind of wrapper aify-comms creates).
         started = self.client.post(
@@ -6087,7 +6089,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # defines is started (a defined one's go to its host's lifecycle queue,
         # test_legacy_routes_delegate_defined_agents.py), so for one running from before D8 both are refused,
         # and the refusal leaves the session, the agent's native handle and the spawn requests as they were.
-        session_id = self._create_running_session(agent_id="restart-coder", session_handle="thread-old")
+        session_id = self._create_running_session(agent_id="restart-coder", session_handle="thread-old", defined=False)
         for action in ("restart", "recreate"):
             with self.subTest(action=action):
                 answered = self.client.post(
@@ -10532,7 +10534,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # run and mark the agent stopped while the host TUI keeps running.
         session = self._create_running_session(
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
-            session_handle="aify-console-agent",
+            session_handle="aify-console-agent", defined=False,
         )
         now = _now()
         self._execute(
@@ -12300,11 +12302,11 @@ class ApiV2RegressionTests(FastApiTestCase):
     # persist the PTY root pid (terminal_sessions.process_id) and surface
     # it on the stop control so ANY live host bridge can kill-by-pid.
 
-    def _start_console_terminal(self, *, agent_id: str) -> str:
+    def _start_console_terminal(self, *, agent_id: str, defined: bool = True) -> str:
         """Create a real managed PTY terminal_sessions row via the production
         /console/start path (so all FK-bound rows exist), returning its id."""
         session_id = self._create_running_session(
-            agent_id=agent_id, terminal=True, runtime="claude-code"
+            agent_id=agent_id, terminal=True, runtime="claude-code", defined=defined
         )
         started = self.client.post(
             f"/api/v1/sessions/{session_id}/console/start",
@@ -12337,7 +12339,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         """Part 3: the stop control emitted by _request_stop_agent_terminals
         carries the terminal's stored process_id as `pid`, so a bridge that
         never owned the PTY can still kill the orphan by pid."""
-        terminal_id = self._start_console_terminal(agent_id="term-stop-pid")
+        terminal_id = self._start_console_terminal(agent_id="term-stop-pid", defined=False)
         # Persist a known PTY root pid (as the bridge would on attach).
         self._execute(
             "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",

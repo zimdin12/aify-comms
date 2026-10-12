@@ -7,6 +7,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 from __future__ import annotations
 
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
+from service.api_core.definition_start import start_refusal
 from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.terminal_text import _ANSI_RE, _CTRL_RE
 import asyncio
@@ -298,10 +299,12 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
             )
             await db.commit()
             if not started:
+                refusal = await start_refusal(db, agent_id)
                 return {
                     "ok": False,
                     "live": False,
-                    "message": f"{agent_id} has no live console; send a message to start it first.",
+                    "message": f"{agent_id} has no live console; "
+                    + (f"{refusal}." if refusal else "send a message to start it first."),
                 }
             # Re-resolve via runtime_state (autostart publishes the pointer).
             terminal = await _resolve_live_console_terminal(db, agent_id)

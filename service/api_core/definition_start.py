@@ -87,6 +87,14 @@ async def start_binding(db, agent_id: str) -> Optional[StartBinding]:
     return binding_for(agent_id, definition, agent)
 
 
+async def start_refusal(db, agent_id: str) -> str:
+    """Why `agent_id` may not be started now, or "" when its definition allows it (D8, C6, C7)."""
+    try:
+        return "" if await start_binding(db, agent_id) is not None else undefined_refusal(agent_id)
+    except StartRefused as refused:
+        return str(refused)
+
+
 def spec_columns(binding: StartBinding) -> dict[str, Any]:
     """PURE: every spawn spec column but its identity, workspace and timestamps, from the definition.
     Nothing comes from an earlier spec or from the service's managed defaults: an empty model or effort

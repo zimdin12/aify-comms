@@ -27,6 +27,7 @@ from typing import Any
 
 from service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL
 from service.api_core.capabilities import _default_console_argv, _environment_supports_terminal
+from service.api_core.definition_start import start_refusal
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import _normalize_runtime
@@ -74,6 +75,11 @@ async def _ensure_managed_pty_for_dispatch(
         return active
     normalized_runtime = _normalize_runtime(runtime or "")
     if normalized_runtime not in LAUNCHABLE_RUNTIMES:
+        return None
+    # D8 HOLDS HERE TOO (pre-tag review of 0.9, F2). This starts a process for a session marked running whose worker
+    # has gone, so for an agent no host defines it is the birth the cold start refuses. Every caller reads None as
+    # "nothing could be started".
+    if await start_refusal(db, agent_id):
         return None
 
     if wanted_session:
