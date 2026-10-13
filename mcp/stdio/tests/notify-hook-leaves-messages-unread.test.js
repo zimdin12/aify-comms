@@ -34,7 +34,7 @@ function standInService(messages) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, seen })));
 }
 
-function runHook({ url, scratch, claude, sessionId }) {
+function runHook({ url, scratch, claude, sessionId, payload = {} }) {
   const env = {
     PATH: process.env.PATH,
     SystemRoot: process.env.SystemRoot || "",
@@ -53,7 +53,7 @@ function runHook({ url, scratch, claude, sessionId }) {
     child.stdout.on("data", (d) => { out += d; });
     child.on("error", reject);
     child.on("exit", (code) => resolve({ code, out: out.trim() }));
-    child.stdin.end(JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Read", ...(sessionId ? { session_id: sessionId } : {}) }));
+    child.stdin.end(JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Read", ...(sessionId ? { session_id: sessionId } : {}), ...payload }));
   });
 }
 
@@ -104,6 +104,27 @@ test("the hook acts for AIFY_AGENT_ID, never for a dead agent's binding file und
     seen.length = 0;
     await runHook({ url, scratch, claude: true });
     assert.deepEqual(seen, [], "a parent-pid binding was taken as this hook's agent");
+  } finally {
+    server.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a subagent's tool call leaves the parent's notices, rate and heartbeat alone", async () => {
+  // comms-senior-dev, 2026-10-13: a child carrying agent_id got the parent's notice and wrote the parent's
+  // seen record, so the parent's own next poll showed nothing.
+  const { server, seen } = await standInService([MESSAGE]);
+  const scratch = scratchFor("parent");
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const child = await runHook({ url, scratch, claude: true, sessionId: "s-1", payload: { agent_id: "subagent-1", agent_type: "Explore" } });
+    assert.equal(child.out, "", `the child was shown the parent's message: ${child.out}`);
+    assert.deepEqual(seen, [], "the child polled or heartbeated as the parent");
+    assert.deepEqual(fs.readdirSync(scratch).filter((f) => f.startsWith("aify-notify-")), [], "the child wrote the parent's rate or seen file");
+
+    // CONTROL: a root session started with --agent has agent_type and no agent_id, and is the parent itself.
+    const root = await runHook({ url, scratch, claude: true, sessionId: "s-1", payload: { agent_type: "reviewer" } });
+    assert.match(root.out, /please look at/, "a root --agent session lost its notice");
   } finally {
     server.close();
     fs.rmSync(scratch, { recursive: true, force: true });

@@ -45,6 +45,11 @@ async function readHookPayload() {
 }
 const hookPayload = await readHookPayload();
 
+// A subagent or in-process teammate fires its parent's hooks under the parent's AIFY_AGENT_ID, and Claude Code
+// names it with agent_id (a root `--agent` session carries only agent_type). Its notice would reach the child and
+// be recorded as shown to the parent, so the parent's own next tool call surfaces it instead.
+if (String(hookPayload?.agent_id || "").trim()) process.exit(0);
+
 // The agent id is the one the launcher exports and the harness hands to its hooks. The hook once read the
 // binding file keyed by its parent pid instead, which proves nothing about the process now holding that
 // pid: on Windows the parent is a shell, and on 2026-10-13 no live agent's hook found itself while two dead
