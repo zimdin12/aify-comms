@@ -99,11 +99,11 @@ test("the hook acts for AIFY_AGENT_ID, never for a dead agent's binding file und
     assert.ok(seen.some((u) => u.startsWith("/api/v1/messages/inbox/live-agent?")), `control: the hook ran for its own agent: ${JSON.stringify(seen)}`);
     assert.ok(!seen.some((u) => u.includes("dead-agent")), `the hook acted for the dead agent: ${JSON.stringify(seen)}`);
 
-    // No launcher identity: on Windows the parent is always a shell, so the binding file is not read at all.
+    // No launcher identity: a parent-pid binding proves nothing about who holds that pid now, so it is not read.
     AGENT_OF.delete(scratch);
     seen.length = 0;
     await runHook({ url, scratch, claude: true });
-    if (process.platform === "win32") assert.deepEqual(seen, [], "on Windows a parent-pid binding is a stale file, never this hook's agent");
+    assert.deepEqual(seen, [], "a parent-pid binding was taken as this hook's agent");
   } finally {
     server.close();
     fs.rmSync(scratch, { recursive: true, force: true });

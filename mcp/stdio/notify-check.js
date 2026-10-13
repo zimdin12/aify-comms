@@ -12,7 +12,6 @@ import path from "path";
 import { createHash } from "crypto";
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
-import { readAgentBindingFile } from "./binding-file.js";
 import { envAgentId } from "./bound-agent-id.mjs";
 import { collectUnseen, hookOutput, inboxUrl, noticeText, rememberSeen, seenForSession, seenRecord } from "./notify-notice.mjs";
 
@@ -46,13 +45,11 @@ async function readHookPayload() {
 }
 const hookPayload = await readHookPayload();
 
-// The agent id: the launcher exports AIFY_AGENT_ID and the harness hands it to its hooks. The binding
-// file server.js wrote, keyed by the parent this hook and that bridge share, covers a session started
-// without a launcher. Not on Windows: the harness runs the hook through bash, so the parent is a shell
-// pid that matched only stale files left by dead pids: on 2026-10-13 no live agent's hook found itself,
-// and two dead agents stayed available, their last_seen matching this hook's rate files to the second.
-const agentId = envAgentId()
-  || (process.platform === "win32" ? "" : readAgentBindingFile({ pid: process.ppid || "", dir: tmpDir }).agentId);
+// The agent id is the one the launcher exports and the harness hands to its hooks. The hook once read the
+// binding file keyed by its parent pid instead, which proves nothing about the process now holding that
+// pid: on Windows the parent is a shell, and on 2026-10-13 no live agent's hook found itself while two dead
+// agents stayed available, their last_seen matching this hook's rate files to the second.
+const agentId = envAgentId();
 if (!agentId) process.exit(0);
 
 // At most one check every 10 seconds per agent.
