@@ -27,9 +27,9 @@ Codex tool call, against 85-105 ms for bash and node (2026-10-13). Claude and Co
 **A definition flipped to resident is followed (0.9.2).** The flip is the operator's deliberate switch, so the
 record switches and the resident it asks for is adopted, not parked as a candidate
 (`follow_definition_mode` in `service/api_core/session_mode_switch.py`). It switches when the resident registers, never
-at the definition push: registration marks the agent driving in the same request, a few milliseconds after the switch
-commits, while a push-time switch left it resident and not driving until the bridge came, and a hermes delivery loop claiming then was released and exited. A
-running or stopping managed terminal still parks it: two drivers on one agent is what parking prevents. The parked
+at the definition push: registration commits the switch together with the bridge that drives it, while a push-time
+switch left it resident and not driving until the bridge came, and a hermes delivery loop claiming then was released
+and exited. A running or stopping managed terminal still parks it: two drivers on one agent is what parking prevents. The parked
 resident is adopted when that terminal reports its end (`adopt_parked_resident`). A flip to managed governs
 the next start, which the host makes.
 

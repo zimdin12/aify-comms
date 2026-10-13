@@ -1,8 +1,8 @@
 """Switching an agent between resident and managed: the one place the switch is applied.
 
 The operator's switch for an agent no host defines (`PATCH /agents/{id}/session-mode`) and a defined agent whose
-definition now asks for another mode (registration and definition push) both apply it here, so the two cannot
-drift (status fix A, 0.9.2: a definition flipped to resident left the record managed and parked the resident).
+definition now asks for another mode (at its resident's registration, or when its managed worker's terminal ends
+with a resident parked) both apply it here, so the two cannot drift (status fix A, 0.9.2: a definition flipped to resident left the record managed and parked the resident).
 """
 from __future__ import annotations
 
