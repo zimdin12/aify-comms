@@ -37,34 +37,24 @@ def _read_hermes_wrapper() -> str:
     return launcher("hermes")
 
 
-# --- P1: kill-prior reaps the prior resume-TUI -----------------------------
+# --- P1: kill-prior leaves TUI windows to the lease ---------------------------
 
 
-def test_bash_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
-    """bash aify_hermes_kill_prior must reap a prior `hermes --tui --resume
-    <pinnedSession>` matched on the EXACT pinned handle, gated to the pre-spawn
-    call (exclude_pid empty)."""
+def test_bash_kill_prior_ends_no_tui_by_its_session_id():
+    """aify_hermes_kill_prior ends this agent's previous delivery loop and nothing matched by a session id. A previous
+    launch's TUI is ended by the agent lease, as part of that launch's tree; a hermes window nothing launched for the
+    agent, an operator's own on the same session included, is left alone (0.9.2 review, the operator's ruling). It used
+    to read the session marker and pass `--resume-id`, which matched any `hermes --tui --resume <id>` on the host."""
     text = _read_hermes_wrapper()
     fn_idx = text.find("aify_hermes_kill_prior() {")
     assert fn_idx > 0, "aify_hermes_kill_prior helper not found"
-    # Bound by the sentinel comment that follows the function, not a fixed char window
-    # (the function grows; a fixed window silently dropped the new matcher out of view).
+    # Bound by the sentinel comment that follows the function, not a fixed char window.
     fn_end = text.find("# Pre-warm the bridge before ANY interactive TUI launch", fn_idx)
     assert fn_end > fn_idx, "could not bound aify_hermes_kill_prior (sentinel missing)"
     fn = text[fn_idx:fn_end]
-    # MC3 (2026-06-06): match the prior TUI by its REAL resume id from the session marker
-    # (the launch resumes the real timestamp id, not the retired aify-<agent> key).
-    assert "readSessionIdMarker" in fn, (
-        "kill-prior must read the real session id from the marker to match the prior TUI"
-    )
-    # Matches the resume-TUI on the EXACT real id (not a broad --tui).
-    assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <realId>`"
-    # PRE-spawn only: the resume-TUI reap is gated behind the empty-exclude_pid
-    # guard so the post-spawn call never kills the TUI we just exec'd.
-    assert 'if [ -z "$exclude_pid" ]' in fn, (
-        "the resume-TUI reap must be gated to the pre-spawn call (exclude_pid empty)"
-    )
-    # Scoped: never a blanket `pkill -f 'hermes --tui'` with no handle.
+    assert 'aify-hermes-reap-prior.mjs" --agent "$agent_id"' in fn, "kill-prior no longer reaps the previous loop"
+    assert "--resume-id" not in fn, "kill-prior still targets TUIs by their session id"
+    assert "readSessionIdMarker" not in fn
     assert "pkill -f \"hermes --tui\"" not in fn
     assert "pkill -f 'hermes --tui'" not in fn
 
