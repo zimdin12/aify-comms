@@ -361,23 +361,23 @@ async def _outside_its_environment(db, agent_row) -> str:
     started elsewhere (0.9.2 status fix C, Steven: "should not be available if env does not allow running")."""
     # A DEFINED agent's own workspace: aify-env starts only definitions (0.9 D8), and the definition, not the record's
     # cwd, is what it is started from. An undefined agent is not started for its own reason.
-    definition = await (await db.execute(
-        "SELECT body, machine_id FROM agent_definitions WHERE agent_id = ?", (agent_row["id"],))).fetchone()
-    workspace = str(_json_loads_or(definition["body"], {}).get("workspace") or "") if definition else ""
-    if not workspace:
-        return ""
     # THE ENVIRONMENT THAT WOULD START IT: the one its last start was bound to, else the newest on the machine that holds
     # its definition, since that host's aify-env is what starts definitions. The binding alone missed every agent defined
-    # but never started, which is when the operator tries to start one (whole-diff review of 0.9.2).
-    state = agent_row["runtime_state"] if "runtime_state" in agent_row.keys() else ""
+    # but never started, which is when the operator tries to start one (whole-diff review of 0.9.2). ONE round trip, and
+    # none for a record with neither a binding nor a machine (the status path's per-agent cost is held by a test).
+    keys = agent_row.keys()
+    state = agent_row["runtime_state"] if "runtime_state" in keys else ""
     environment_id = str(_json_loads_or(state, {}).get("environmentId") or "").strip()
-    env = None
-    if environment_id:
-        env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
-    if env is None:
-        env = await (await db.execute("SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC LIMIT 1",
-                                      (definition["machine_id"],))).fetchone()
-    if env is None:
+    if not environment_id and not str((agent_row["machine_id"] if "machine_id" in keys else "") or "").strip():
+        return ""
+    env = await (await db.execute(
+        "SELECT d.body AS body, e.id AS id, e.os AS os, e.kind AS kind, e.machine_id AS machine_id, e.metadata AS metadata "
+        "FROM agent_definitions d JOIN environments e ON e.id = COALESCE("
+        "(SELECT id FROM environments WHERE id = ?), "
+        "(SELECT id FROM environments WHERE machine_id = d.machine_id ORDER BY last_seen DESC LIMIT 1)) "
+        "WHERE d.agent_id = ?", (environment_id, agent_row["id"]))).fetchone()
+    workspace = str(_json_loads_or(env["body"], {}).get("workspace") or "") if env else ""
+    if not workspace:
         return ""
     metadata = _json_loads_or(env["metadata"], {})
     if not outside_launch_roots(workspace, {"id": env["id"], "os": env["os"], "kind": env["kind"],
