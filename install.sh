@@ -1057,10 +1057,8 @@ shell_quote() {
 
 hook_command_for_node_script() {
   local node_script="$1"
-  if is_git_bash_windows; then
-    printf 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath $env:USERPROFILE; & node %s"' "$(shell_quote "$node_script")"
-    return
-  fi
+  # No PowerShell wrapper on Windows: Claude and Codex run hooks through Git Bash, and a PowerShell start cost ~0.85 s
+  # on every tool call (measured 2026-10-13: 929-943 ms against 85-105 ms for bash and node).
   if command -v env >/dev/null 2>&1 && env --help 2>/dev/null | grep -q -- ' -C'; then
     printf 'env -C "$HOME" node %s' "$(shell_quote "$node_script")"
     return
