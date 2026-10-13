@@ -364,13 +364,16 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             if overlap > 0:
                 working_min[a] = working_min.get(a, 0.0) + overlap / 60.0
 
-        # Last-worked + currently-working across ALL runs (not just the window). Same
+        # Last-worked across ALL runs (not just the window), from RECORDED finishes only. Same
         # COALESCE(started_at, claimed_at) work-start proxy as the working-minutes query —
         # gating on started_at IS NOT NULL hid every production run (started_at unpopulated).
+        # An unfinished run used to count as finishing NOW, so any stale claimed or delivered row made
+        # an idle agent "worked 0m ago" (2026-10-14 audit, L6). Working now is the derived status
+        # (`workingNow` on the board), and an agent with no recorded finish has no last-worked time.
         lw_c = await db.execute(
-            "SELECT target_agent, MAX(COALESCE(finished_at, ?)) AS lw "
-            "FROM dispatch_runs WHERE COALESCE(started_at, claimed_at) IS NOT NULL GROUP BY target_agent",
-            (now_iso,),
+            "SELECT target_agent, MAX(finished_at) AS lw FROM dispatch_runs "
+            "WHERE COALESCE(started_at, claimed_at) IS NOT NULL AND COALESCE(finished_at, '') != '' "
+            "GROUP BY target_agent",
         )
         last_worked = {}
         for r in await lw_c.fetchall():
