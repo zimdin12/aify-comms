@@ -41,6 +41,7 @@ from service.api_core.capabilities import (
     _row_capabilities,
 )
 from service.api_core.serialization import _json_loads_or
+from service.api_core.workspace import outside_advertised_roots
 from service.clock import iso_to_epoch as _iso_to_epoch
 # The six process probes and their two staleness constants left for `live_process_probes.py` in
 # v0.5.4. This module is their only reader and now their CALLER — the direction the split made
@@ -351,4 +352,25 @@ async def _agent_config_defect(db, agent_row, mode: str, *, missing_handle: bool
     runtime = _normalize_runtime(agent_row["runtime"] or "") if "_normalize_runtime" in globals() else str(agent_row["runtime"] or "").strip().lower()
     if runtime not in _LAUNCHABLE_RUNTIMES:
         return f"runtime {runtime or '(unset)'!r} cannot be launched — no adapter can start it"
-    return ""
+    return await _outside_its_environment(db, agent_row)
+
+
+async def _outside_its_environment(db, agent_row) -> str:
+    """Why this managed agent's environment will refuse to start it, or "". aify-env starts work only below the
+    folder it was started in and advertises that; a workspace outside it is refused on every start until aify-env is
+    started elsewhere (0.9.2 status fix C, Steven: "should not be available if env does not allow running")."""
+    state = agent_row["runtime_state"] if "runtime_state" in agent_row.keys() else ""
+    environment_id = str(_json_loads_or(state, {}).get("environmentId") or "").strip()
+    if not environment_id:
+        return ""
+    env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+    if env is None:
+        return ""
+    metadata = _json_loads_or(env["metadata"], {})
+    workspace = str(agent_row["cwd"] or "")
+    if not outside_advertised_roots(workspace, {"id": env["id"], "os": env["os"], "kind": env["kind"],
+                                                "machineId": env["machine_id"], "metadata": metadata}):
+        return ""
+    roots = ", ".join(metadata.get("advertisedCwdRoots") or [])
+    return (f"its workspace {workspace} is outside the folder aify-env was started in ({roots}); "
+            "start aify-env from a folder that contains it")

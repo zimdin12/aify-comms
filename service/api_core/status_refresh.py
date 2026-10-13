@@ -99,7 +99,10 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
             # Drop the stale reason on disagreement so the note never mismatches the
             # status. (Cosmetic-only: dispatch keys on worker_present, not reason.)
             if _derived != _legacy_status:
-                cache["reason"] = ""
+                # ...except that a `misconfigured` agent's inputs name its defect, which describes the derived status
+                # itself; say it, rather than nothing (0.9.2 fix C).
+                defect = getattr(cache["status_inputs"], "config_defect", "") if _derived == "misconfigured" else ""
+                cache["reason"] = f"Cannot be started: {defect}." if defect else ""
             cache["status"] = _derived
         except Exception:
             logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)

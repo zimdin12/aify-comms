@@ -108,3 +108,28 @@ def _workspace_for_environment(environment: dict[str, Any], requested_workspace:
     if not workspace and workspace_root:
         workspace = workspace_root
     return workspace, workspace_root
+
+
+def workspace_within_roots(workspace: str, roots, *, windows: bool) -> bool:
+    """PURE. aify-env's containment rule (its `workspaceWithinRoots`), the same law here: is
+    `workspace` one of `roots` or below one? Case-folded on Windows only; the separator stops `/home/bo` admitting
+    `/home/bob`."""
+    def normalise(value) -> str:
+        slashed = str(value or "").replace("\\", "/")
+        text = slashed.rstrip("/") or ("/" if slashed.startswith("/") else "")
+        return text.lower() if windows else text
+    target = normalise(workspace)
+    if not target:
+        return False
+    for root in roots or []:
+        base = normalise(root)
+        if base and (target == base or target.startswith("/" if base == "/" else base + "/")):
+            return True
+    return False
+
+
+def outside_advertised_roots(workspace: str, environment: dict[str, Any]) -> bool:
+    """Whether `environment` advertised the folders it starts work in and `workspace` lies outside all of them. No
+    advertised roots is no evidence, so False (0.9.2 status fix C)."""
+    roots = (environment.get("metadata") or {}).get("advertisedCwdRoots") or []
+    return bool(roots) and not workspace_within_roots(workspace, roots, windows=_environment_uses_windows_paths(environment))
