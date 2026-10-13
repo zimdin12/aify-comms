@@ -197,7 +197,7 @@ def _hermes_config(other: str = "") -> str:
 OTHER_ENTRY = '    - matcher: ".*"\n      command: "echo mine"\n      timeout: 5\n'
 
 
-def _remove(root: Path) -> None:
+def _remove(root: Path, expect: int = 0) -> None:
     script = root.parent / "remove.sh"
     script.write_text(
         f'hermes_config_root() {{ printf "%s" "{_posix(root)}"; }}\n'
@@ -206,7 +206,7 @@ def _remove(root: Path) -> None:
         encoding="utf-8",
     )
     result = subprocess.run([_bash(), _posix(script)], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == expect, result.stderr
 
 
 def test_the_removal_takes_the_entry_and_its_emptied_event_and_nothing_else():
@@ -233,3 +233,50 @@ def test_the_removal_takes_the_entry_and_its_emptied_event_and_nothing_else():
         kept = config.read_text(encoding="utf-8")
         assert "  post_tool_call:\n" + OTHER_ENTRY + "  pre_llm_call:" in kept, kept
         assert "aify-notify" not in kept, kept
+
+
+# comms-senior-dev, 2026-10-13: a blank line inside the entry ended it early, the event header went, and the
+# entry's remaining keys landed on the hook before it -- on_session_end's command became aify-notify.sh.
+FOREIGN_BEFORE = 'hooks:\n  on_session_end:\n    - command: "echo foreign-hook"\n      timeout: 99\n'
+FOREIGN_AFTER = '  pre_llm_call:\n    - command: "echo another-hook"\n      timeout: 77\n'
+
+
+def _removed(entry: str) -> tuple[str, bool]:
+    with tempfile.TemporaryDirectory(prefix="aify-hermesblank-") as tmp:
+        root = Path(tmp) / "hermes"
+        (root / "agent-hooks").mkdir(parents=True)
+        (root / "agent-hooks" / "aify-notify.sh").write_text("node notify-check.js\n", encoding="utf-8")
+        config = root / "config.yaml"
+        config.write_text(FOREIGN_BEFORE + "  post_tool_call:\n" + entry + FOREIGN_AFTER, encoding="utf-8")
+        _remove(root)
+        return config.read_text(encoding="utf-8"), (root / "agent-hooks" / "aify-notify.sh").exists()
+
+
+def test_blank_and_comment_lines_inside_the_entry_are_part_of_it():
+    for name, entry in {
+        "blank after the dash": '    - matcher: ".*"\n\n      command: "bash aify-notify.sh"\n      timeout: 3\n',
+        "blank before the last key": '    - matcher: ".*"\n      command: "bash aify-notify.sh"\n\n      timeout: 3\n',
+        "a comment inside": '    - matcher: ".*"\n      # ours\n      command: "bash aify-notify.sh"\n      timeout: 3\n',
+    }.items():
+        after, script_left = _removed(entry)
+        assert after == FOREIGN_BEFORE + FOREIGN_AFTER, f"{name}: the foreign hooks changed:\n{after}"
+        assert not script_left, name
+
+
+def test_a_blank_line_after_the_entry_belongs_to_the_file_not_the_entry():
+    # CONTROL for the rule above: a blank line that no later key of the entry follows is left where it was.
+    after, _ = _removed('    - matcher: ".*"\n      command: "bash aify-notify.sh"\n      timeout: 3\n\n')
+    assert after == FOREIGN_BEFORE + "\n" + FOREIGN_AFTER, after
+
+
+def test_an_entry_it_cannot_place_is_left_whole_and_its_script_kept():
+    with tempfile.TemporaryDirectory(prefix="aify-hermesodd-") as tmp:
+        root = Path(tmp) / "hermes"
+        (root / "agent-hooks").mkdir(parents=True)
+        (root / "agent-hooks" / "aify-notify.sh").write_text("node notify-check.js\n", encoding="utf-8")
+        config = root / "config.yaml"
+        odd = FOREIGN_BEFORE + '  post_tool_call:\n    command: "bash aify-notify.sh"\n' + FOREIGN_AFTER
+        config.write_text(odd, encoding="utf-8")
+        _remove(root, expect=1)
+        assert config.read_text(encoding="utf-8") == odd
+        assert (root / "agent-hooks" / "aify-notify.sh").exists(), "the hook left in place lost its script"

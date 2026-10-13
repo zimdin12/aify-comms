@@ -1441,29 +1441,42 @@ remove_hermes_notify_hook() {
   # Hermes has no notify hook: it drops a post_tool_call hook's output (invoke_hook's return is unused, and
   # stdout that is not JSON is discarded), and the bridge heartbeats on its own. All the hook did was poll the
   # inbox and, on Windows, heartbeat whichever dead agent's binding file matched a shell's pid (2026-10-13).
-  # So an earlier install's entry and script go, and post_tool_call too once nothing is left under it.
+  # So an earlier install's entry goes, then its script, and post_tool_call too once nothing is left under it.
   local config_root="$(hermes_config_root)"
+  if [ -f "$config_root/config.yaml" ]; then
+    MSYS_NO_PATHCONV=1 node -e '
+      const fs = require("fs");
+      const file = process.argv[1];
+      const lines = fs.readFileSync(file, "utf8").replace(/\s*$/, "").split(/\r?\n/);
+      const at = lines.findIndex((line) => /^[ \t]*(- )?command:.*aify-notify\.sh/.test(line));
+      if (at < 0) process.exit(0);
+      const indent = (line) => line.match(/^[ \t]*/)[0].length;
+      const quiet = (line) => !line.trim() || line.trim().startsWith("#");
+      // The list item that owns the command: walk up past its sibling keys, blank lines and comments.
+      let start = at;
+      while (!/^[ \t]*- /.test(lines[start])) {
+        start -= 1;
+        if (start < 0 || (!quiet(lines[start]) && indent(lines[start]) < indent(lines[at]) && !/^[ \t]*- /.test(lines[start]))) {
+          console.error("aify-notify entry is not a list item; left in place");
+          process.exit(3);
+        }
+      }
+      // It ends after its last line indented deeper than its "- "; blank and comment lines inside it are its own.
+      let end = start + 1;
+      for (let i = start + 1; i < lines.length && (quiet(lines[i]) || indent(lines[i]) > indent(lines[start])); i += 1) {
+        if (!quiet(lines[i])) end = i + 1;
+      }
+      lines.splice(start, end - start);
+      const event = start - 1;
+      let next = start;
+      while (next < lines.length && quiet(lines[next])) next += 1;
+      const emptied = /^[ \t]*post_tool_call:[ \t]*$/.test(lines[event] || "")
+        && !(next < lines.length && indent(lines[next]) > indent(lines[event]));
+      if (emptied) lines.splice(event, 1);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+    ' "$(path_for_node "$config_root/config.yaml")" || return 1
+  fi
   rm -f "$config_root/agent-hooks/aify-notify.sh"
-  [ -f "$config_root/config.yaml" ] || return 0
-  MSYS_NO_PATHCONV=1 node -e '
-    const fs = require("fs");
-    const file = process.argv[1];
-    const lines = fs.readFileSync(file, "utf8").replace(/\s*$/, "").split(/\r?\n/);
-    const at = lines.findIndex((line) => /^[ \t]*(- )?command:.*aify-notify\.sh/.test(line));
-    if (at < 0) process.exit(0);
-    const indent = (line) => line.match(/^[ \t]*/)[0].length;
-    // The entry is its "- " line and every line indented under it.
-    let start = at;
-    while (start > 0 && !/^[ \t]*- /.test(lines[start])) start -= 1;
-    let end = start + 1;
-    while (end < lines.length && lines[end].trim() && indent(lines[end]) > indent(lines[start])) end += 1;
-    lines.splice(start, end - start);
-    const event = start - 1;
-    const emptied = /^[ \t]*post_tool_call:[ \t]*$/.test(lines[event] || "")
-      && !(start < lines.length && lines[start].trim() && indent(lines[start]) > indent(lines[event]));
-    if (emptied) lines.splice(event, 1);
-    fs.writeFileSync(file, lines.join("\n") + "\n");
-  ' "$(path_for_node "$config_root/config.yaml")"
 }
 
 agent_state_hook_command() {
@@ -2002,7 +2015,10 @@ bash "$SCRIPT_DIR/scripts/hook-installed.sh" "$CLIENT" "$_hook_root" >/dev/null 
 
 if [ "$CLIENT" = "hermes" ]; then
   echo "[4/4] No notification hook for hermes: it drops post_tool_call output, and the bridge heartbeats itself."
-  [ "$_hook_present" != true ] || { remove_hermes_notify_hook && echo "  Removed the one an earlier install added."; }
+  if [ "$_hook_present" = true ]; then
+    if remove_hermes_notify_hook; then echo "  Removed the one an earlier install added."
+    else echo "  Left an aify-notify entry it could not place; remove it by hand (docs/UNINSTALL.md)."; fi
+  fi
 elif [ "$WITH_HOOK" = true ] || [ "$_hook_present" = true ]; then
   [ "$WITH_HOOK" = true ] && _hook_verb="Installing" || _hook_verb="Refreshing the already-installed"
   echo "[4/4] $_hook_verb notification hook for $CLIENT..."
