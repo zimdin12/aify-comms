@@ -219,6 +219,15 @@ test("channel actions are confirmed where they are destructive", async () => {
   } finally { h.restore(); }
 });
 
+test("a confirmed channel delete names its actor, which the service requires", async () => {
+  // Without `requestedBy` the endpoint refuses with 400 (routers/channels.py), so every delete failed.
+  const h = withMessages({ confirm: true });
+  try {
+    await chatChannelAction("delete", "general");
+    assert.deepEqual(mutating(h), ["DELETE /channels/general?requestedBy=dashboard"]);
+  } finally { h.restore(); }
+});
+
 test("an unknown channel action sends nothing", async () => {
   const h = withMessages({ confirm: true });
   try {

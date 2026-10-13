@@ -155,8 +155,9 @@ export async function chatChannelAction(action, name) {
   const identity = state.chat.identity;
   try {
     if (action === 'delete') {
-      if (!await uiConfirm(`Delete channel #${name}? This removes the channel and its membership for everyone.`, { tone: 'danger' })) return;
-      await api(`/channels/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      if (!await uiConfirm(`Delete channel #${name}? This removes the channel, its membership and every message posted to it, for everyone.`, { tone: 'danger' })) return;
+      // `requestedBy` is mandatory (routers/channels.py); without it every delete was refused with 400.
+      await api(`/channels/${encodeURIComponent(name)}?requestedBy=dashboard`, { method: 'DELETE' });
       if (state.chat.selected === `channel:${name}`) chatController.close();
       await chatLoadChannels();
       chatController.render();

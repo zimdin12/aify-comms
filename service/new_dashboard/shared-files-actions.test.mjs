@@ -222,7 +222,8 @@ test("confirming deletes THAT file and then refreshes the list", async () => {
 
   const del = SEEN.find((r) => r.method === "DELETE");
   assert.ok(del, "no DELETE was sent after confirming");
-  assert.equal(del.url, "/api/v1/shared/gone.txt");
+  // The service refuses a delete that names no actor (routers/shared.py), so the URL must carry one.
+  assert.equal(del.url, "/api/v1/shared/gone.txt?requestedBy=dashboard");
   assert.ok(SEEN.some((r) => r.method === "GET" && r.url === "/api/v1/shared"),
     "the list was not reloaded, so the deleted row would stay on screen");
 });
@@ -232,7 +233,7 @@ test("a filename needing encoding is encoded into the path", async () => {
   respond({ ok: true, files: [] });
   state.files = [];
   await withDialog({ "files-list": fakeNode() }, true, () => deleteSharedFile("a b/c.txt"));
-  assert.equal(SEEN.find((r) => r.method === "DELETE").url, "/api/v1/shared/a%20b%2Fc.txt");
+  assert.equal(SEEN.find((r) => r.method === "DELETE").url, "/api/v1/shared/a%20b%2Fc.txt?requestedBy=dashboard");
 });
 
 test("the row button takes its target from the dataset and swallows the failure", async () => {
@@ -246,7 +247,7 @@ test("the row button takes its target from the dataset and swallows the failure"
     () => deleteSharedFileFromRow({ dataset: { fileDelete: "boom.txt" } }),
     () => SEEN.some((r) => r.method === "DELETE"),
   );
-  assert.equal(SEEN.find((r) => r.method === "DELETE").url, "/api/v1/shared/boom.txt",
+  assert.equal(SEEN.find((r) => r.method === "DELETE").url, "/api/v1/shared/boom.txt?requestedBy=dashboard",
     "the dataset value did not become the target");
 });
 

@@ -138,7 +138,8 @@ export async function attachChatFile(file) {
 }
 export async function deleteSharedFile(name) {
   if (!(await uiConfirm(`Delete shared file "${name}"? This removes it for everyone.`, { tone: 'danger', confirmLabel: 'Delete' }))) return;
-  await api(`/shared/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  // `requestedBy` is mandatory (routers/shared.py); the dashboard is an operator surface, as for unsend.
+  await api(`/shared/${encodeURIComponent(name)}?requestedBy=dashboard`, { method: 'DELETE' });
   await loadFiles();
   renderFiles();
   toast(`Deleted ${name}`, 'ok');
