@@ -641,3 +641,40 @@ test("DELETING A SESSION RECORD NAMES WHICH ONE", async () => {
   assert.match(dialog, /s1/, "the confirmation named no session");
   assert.match(dialog, /coder/, "…nor its agent");
 });
+
+// --- what the service answered is what the operator is told (2026-10-14 audit, D8, D9) ------------
+
+import { modeSwitchMessage, sessionHandleNote } from "./agent-session-actions.mjs";
+
+test("a session handle the service did not adopt is said, not reported as updated (D8)", () => {
+  assert.match(sessionHandleNote({ state: "session-collision", pendingSessionId: "h2", collisionWith: "other", sessionHandle: "h1" }),
+    /not changed: h2 belongs to other; still h1/);
+  assert.match(sessionHandleNote({ state: "session-changed", pendingSessionId: "h2", sessionHandle: "h1" }), /waiting for confirmation/);
+  assert.equal(sessionHandleNote({ ok: true, sessionHandle: "h2" }), "", "CONTROL: an adopted handle needs no note");
+});
+
+test("a mode switch that changed nothing says so, and a warning and takeover command are shown (D9)", () => {
+  assert.deepEqual(modeSwitchMessage("a1", { changed: false }, "managed"), { text: "a1 is already managed; nothing changed", tone: "info" });
+  const switched = modeSwitchMessage("a1", { changed: true, warning: "worker stopped", resumeCommand: "codex resume t1" }, "resident");
+  assert.equal(switched.text, "Switched a1 to resident. worker stopped. Take over with: codex resume t1");
+  assert.equal(switched.tone, "warn");
+  assert.deepEqual(modeSwitchMessage("a1", { changed: true }, "resident"), { text: "Switched a1 to resident", tone: "ok" }, "CONTROL: a plain switch");
+});
+
+test("THE HANDLERS USE THOSE MESSAGES: a refused handle and an unchanged mode are what the toast says", async () => {
+  const h = withActions({ confirm: true, fields: { "edit-agent-id": "coder", "edit-agent-desc": "", "edit-agent-handle": "h2" } });
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  const answer = (body) => ({ ok: true, status: 200, statusText: "OK", json: async () => body, text: async () => JSON.stringify(body) });
+  try {
+    state.agents = [{ id: "coder", sessionHandle: "h1", description: "" }];
+    globalThis.fetch = async () => answer({ ok: true, state: "session-collision", pendingSessionId: "h2", collisionWith: "other", sessionHandle: "h1" });
+    await submitAgentEdit("coder");
+    globalThis.fetch = async () => answer({ ok: true, changed: false, mode: "managed" });
+    await switchAgentSessionMode("coder", "managed");
+    const said = created.map((el) => el.textContent).filter(Boolean);
+    assert.ok(said.some((t) => /Session handle not changed: h2 belongs to other/.test(t)), `the refused handle read as updated: ${said}`);
+    assert.ok(said.some((t) => /coder is already managed; nothing changed/.test(t)), `an unchanged mode read as switched: ${said}`);
+  } finally { h.restore(); }
+});

@@ -86,9 +86,34 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
   renderSessionRail();
   renderSessionWorkspace();
   chatController.render();
-  toast(`Switched ${agentId} to ${updatedMode}`, 'ok');
+  const said = modeSwitchMessage(agentId, body, updatedMode);
+  toast(said.text, said.tone);
   refreshSoon();
   return body;
+}
+
+/**
+ * What a mode switch answer means. `changed: false` is no switch at all, and the service's warning and
+ * takeover command were dropped while every answer read "Switched" (2026-10-14 audit, D9).
+ */
+export function modeSwitchMessage(agentId, body, mode) {
+  if (body?.changed === false) return { text: `${agentId} is already ${mode}; nothing changed`, tone: 'info' };
+  const parts = [`Switched ${agentId} to ${mode}`];
+  if (body?.warning) parts.push(String(body.warning));
+  if (body?.resumeCommand) parts.push(`Take over with: ${body.resumeCommand}`);
+  return { text: parts.join('. '), tone: body?.warning ? 'warn' : 'ok' };
+}
+
+/** What happened to a requested session handle the service did not simply take; "" when it was taken. */
+export function sessionHandleNote(answer) {
+  const kept = String(answer?.sessionHandle || '');
+  if (answer?.state === 'session-collision') {
+    return `Session handle not changed: ${answer.pendingSessionId || 'it'} belongs to ${answer.collisionWith || 'another agent'}${kept ? `; still ${kept}` : ''}`;
+  }
+  if (answer?.state === 'session-changed') {
+    return `Session handle waiting for confirmation (Details); still ${kept || 'the current one'}`;
+  }
+  return '';
 }
 
 export async function submitAgentEdit(agentId) {
@@ -104,8 +129,11 @@ export async function submitAgentEdit(agentId) {
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
     }
+    // A handle the service did not adopt is said, beside whatever else was saved (2026-10-14 audit, D8).
+    let handleNote = '';
     if (handle !== String(agent.sessionHandle || '')) {
-      await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
+      const changed = await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
+      handleNote = sessionHandleNote(changed);
     }
     const envId = byId('edit-agent-env')?.value.trim() || '';
     const runtime = byId('edit-agent-runtime')?.value.trim() || '';
@@ -127,7 +155,7 @@ export async function submitAgentEdit(agentId) {
     if (willRename) {
       await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
     }
-    toast(requested || 'Agent updated', 'ok');
+    toast([requested || 'Agent updated', handleNote].filter(Boolean).join('. '), handleNote ? 'warn' : 'ok');
     closeInspector();
     await refresh();
   } catch (err) { toast(`Edit failed: ${err?.message || err}`, 'error'); }
