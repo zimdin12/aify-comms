@@ -34,7 +34,7 @@ function standInService(messages) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, seen })));
 }
 
-function runHook({ url, scratch, claude, sessionId, payload = {} }) {
+function runHook({ url, scratch, claude, sessionId, payload = {}, urlName = "AIFY_SERVER_URL" }) {
   const env = {
     PATH: process.env.PATH,
     SystemRoot: process.env.SystemRoot || "",
@@ -42,7 +42,7 @@ function runHook({ url, scratch, claude, sessionId, payload = {} }) {
     USERPROFILE: scratch,
     TEMP: scratch,
     TMP: scratch,
-    AIFY_SERVER_URL: url,
+    [urlName]: url,
     AIFY_SERVICE_REGISTRY: path.join(scratch, "no-registry.json"),
   };
   if (AGENT_OF.get(scratch)) env.AIFY_AGENT_ID = AGENT_OF.get(scratch);
@@ -104,6 +104,21 @@ test("the hook acts for AIFY_AGENT_ID, never for a dead agent's binding file und
     seen.length = 0;
     await runHook({ url, scratch, claude: true });
     assert.deepEqual(seen, [], "a parent-pid binding was taken as this hook's agent");
+  } finally {
+    server.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a Claude agent launched by claude-aify finds its service through AIFY_COMMS_URL", async () => {
+  // claude-aify exports only AIFY_COMMS_URL, so the hook stopped before reading anything (2026-10-14, live).
+  const { server, seen } = await standInService([MESSAGE]);
+  const scratch = scratchFor("launched");
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const { out } = await runHook({ url, scratch, claude: true, urlName: "AIFY_COMMS_URL" });
+    assert.match(out, /please look at/, `no notice with only AIFY_COMMS_URL: ${JSON.stringify(seen)}`);
+    assert.ok(seen.some((u) => u.startsWith("/api/v1/messages/inbox/launched?")), JSON.stringify(seen));
   } finally {
     server.close();
     fs.rmSync(scratch, { recursive: true, force: true });

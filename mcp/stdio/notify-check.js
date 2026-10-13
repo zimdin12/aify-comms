@@ -18,7 +18,10 @@ import { collectUnseen, hookOutput, inboxUrl, noticeText, rememberSeen, seenForS
 // Settings env first: the endpoint and the key may only be named in ~/.claude/settings.local.json.
 loadSettingsEnv();
 
-const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
+// AIFY_COMMS_URL last: it is the only one claude-aify exports into the harness, so without it every
+// launched Claude agent's hook stopped here (2026-10-14), as agent-state-event.mjs already allows for.
+const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL
+  || process.env.AIFY_COMMS_URL || "";
 if (!SERVER_URL) process.exit(0);
 // The same resolution every other bridge component uses: an exported key first, then the credential
 // the service registry names for THIS endpoint (and only this one).
