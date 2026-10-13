@@ -17,7 +17,7 @@
 // at least one name app.js itself declared, which a module extracted from app.js cannot import back.
 
 
-import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
+import { messageId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
 import { fillHandoffBrief } from './handoff-brief.mjs';
 import { findLoadedMessage } from './message-store.mjs';
@@ -81,7 +81,6 @@ export function openMessageDetail(msgId) {
         ${row('Priority', esc(m.priority || 'normal'))}
         ${row('Read', m.read === false ? 'unread' : 'read')}
         ${row('When', esc(relTime(m.timestamp || m.createdAt)) + ' ago')}
-        ${messageRunId(m) ? row('Run', esc(messageRunId(m))) : ''}
       </dl>
       ${m.subject ? `<h4 class="an-h">${esc(m.subject)}</h4>` : ''}
       <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>

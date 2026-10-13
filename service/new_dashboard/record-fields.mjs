@@ -1,7 +1,6 @@
 // Reading a field off an API record when the API returns it under several names.
 //
-// Nine functions, and the subject is exactly that: `messageRunId` looks for `dispatchRunId`,
-// `dispatch_run_id`, `runId`, `run_id`, `contractRunId` AND `contract_run_id`, because the payloads this
+// Every function here has that one subject: a field read under each name it arrives as, because the payloads this
 // dashboard consumes come from routes written at different times and the same field arrives camelCased,
 // snake_cased, or under a legacy alias. Every one of these is a place where reading the field directly
 // would have worked for one payload shape and silently produced '' for another.
@@ -39,10 +38,6 @@ export function sessionRuntime(session) {
 
 export function messageId(message) {
   return messageIdOf(message);
-}
-
-export function messageRunId(message) {
-  return String(message?.dispatchRunId || message?.dispatch_run_id || message?.runId || message?.run_id || message?.contractRunId || message?.contract_run_id || '');
 }
 
 export function contractCategory(c) {

@@ -20,7 +20,6 @@ import {
   environmentRoots,
   messageId,
   messageIdOf,
-  messageRunId,
   runPendingControlCount,
   runTargetAgent,
   sessionAgentId,
@@ -56,20 +55,6 @@ test("messageIdOf returns empty for a missing, null or empty record", () => {
 test("messageId delegates to messageIdOf", () => {
   assert.equal(messageId({ message_id: "z" }), messageIdOf({ message_id: "z" }));
   assert.equal(messageId(null), "");
-});
-
-test("messageRunId searches all six run-id aliases", () => {
-  const aliases = [
-    "dispatchRunId", "dispatch_run_id", "runId", "run_id", "contractRunId", "contract_run_id",
-  ];
-  for (const key of aliases) {
-    assert.equal(messageRunId({ [key]: "r1" }), "r1", `${key} must be recognised`);
-  }
-});
-
-test("messageRunId returns empty when a message belongs to no run", () => {
-  // '' means "not part of a run", which the UI treats differently from a run that exists but is unknown.
-  for (const record of [null, undefined, {}, { id: "m1" }]) assert.equal(messageRunId(record), "");
 });
 
 // WHAT THE TWO SENTINELS COST, so the next person to add a display default to a data reader has the

@@ -145,8 +145,7 @@ export function subjectIsEchoOfBody(subject, body) {
 
 export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const id = String(m.id || m.messageId || '');
-  const runId = String(m.dispatchRunId || m.dispatch_run_id || m.runId || m.run_id || '');
-  const woke = !!runId || m.dispatchRequested || m.dispatch_requested;
+  const woke = m.dispatchRequested || m.dispatch_requested;
   const priority = String(m.priority || '').toLowerCase();
   const mine = String(m.from || '') === String(identity);
   const readOnly = String(identity) === 'all';
@@ -155,9 +154,7 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
     woke ? '<span class="msg-badge woke">woke</span>' : '<span class="msg-badge stored">stored</span>',
     m.type ? `<span class="msg-badge type t-${esc(m.type)}">${esc(m.type)}</span>` : '',
     (priority === 'high' || priority === 'urgent') ? `<span class="msg-badge p-${esc(priority)}">${esc(priority)}</span>` : '',
-    (m.expectsReply || m.expects_reply) && m.read === false ? '<span class="msg-badge await">awaiting</span>' : '',
   ].join('');
-  const runChip = runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : '';
   // Reply / read-toggle / unsend all operate on state.messages (DM store); channel messages
   // live in state.chat.channelMessages and use fan-out read ids, so those controls would be
   // dead/incorrect on channel rows — only show them for DMs.
@@ -168,7 +165,7 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const unsendBtn = (mine && !isChannel && !readOnly) ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
   // The ⋯ detail lookup only searches the DM store, so it's dead on channel rows — DMs only.
   const detail = !isChannel ? `<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>` : '';
-  const actions = `${runChip}${reply}${readToggle}${unsendBtn}${detail}`;
+  const actions = `${reply}${readToggle}${unsendBtn}${detail}`;
   return `<article class="chat-msg${m.read === false ? ' chat-msg-unread' : ''}${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>${foreignSenderChip(m)}
       <span class="chat-msg-badges">${badges}${actions}</span>

@@ -295,7 +295,6 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("/dispatch/runs/${encodeURIComponent(runId)}/events", script)
         self.assertIn("params.set('limit', String(Math.min(limit, RUN_INSPECTOR_EVENT_LIMIT)))", script)
         self.assertIn("source: 'chat'", script)
-        self.assertIn("data-run-chip", script)
         self.assertIn("data-run-inspector", script)
         self.assertIn("renderStatusChip(run.status", script)
         self.assertIn("function runInspectorCapabilities", script)

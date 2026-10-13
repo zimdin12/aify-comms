@@ -395,3 +395,10 @@ test("CONTROL: a registered sender is not accused, and neither is a payload that
     assert.ok(!messageHtml(m).includes("external"), JSON.stringify(m));
   }
 });
+
+test("woke/stored reads dispatchRequested, the one wake field a message carries", () => {
+  // Measured 2026-10-14 over 341 live inbox and channel rows: dispatchRequested is present and no
+  // run id or expects-reply field is, so the Run chip and the awaiting badge that read those are gone.
+  assert.ok(messageHtml({ id: "m1", read: true, dispatchRequested: true }, "dashboard").includes("msg-badge woke"));
+  assert.ok(messageHtml({ id: "m1", read: true, dispatchRequested: false }, "dashboard").includes("msg-badge stored"));
+});

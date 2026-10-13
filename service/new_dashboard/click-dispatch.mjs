@@ -335,11 +335,6 @@ export function dispatchClick(event) {
     requestBulkSessionControl(bulkSessionButton.dataset.bulkSessionAction);
     return;
   }
-  const runChip = event.target.closest('[data-run-chip]');
-  if (runChip) {
-    openRunInspector({ runId: runChip.dataset.runChip, source: 'chat', sourceMessageId: runChip.dataset.messageId || '' });
-    return;
-  }
   const runInspectorButton = event.target.closest('[data-run-inspector]');
   if (runInspectorButton) {
     openRunInspector({ runId: runInspectorButton.dataset.runInspector, source: runInspectorButton.dataset.runSource || 'programmatic' });

@@ -685,15 +685,6 @@ small, .subtle { color: var(--muted); }
   padding: 10px;
   border-radius: var(--radius-control);
 }
-.run-chip {
-  min-height: 28px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border-color: rgba(111,180,255,.38);
-  color: var(--blue);
-  background: rgba(111,180,255,.08);
-  font-size: 12px;
-}
 .run-inspector { display: grid; gap: 12px; padding-bottom: 8px; }
 .run-inspector-header {
   /* FLEX-WRAP, not a rigid 5-col grid (2026-07-13): in the narrow inspector drawer the fixed
@@ -1689,7 +1680,6 @@ button.ghost:hover { background: var(--panel-2); }
 .msg-badge.t-error { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 .msg-badge.p-high { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
 .msg-badge.p-urgent { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
-.msg-badge.await { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
 .msg-badge.woke { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
 
 /* E5 — custom form controls + scrollbars. */
