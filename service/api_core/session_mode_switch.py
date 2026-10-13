@@ -185,6 +185,24 @@ async def follow_definition_mode(db, agent_id: str, *, now: str) -> dict[str, An
     when there is nothing to do or the switch is refused (an active run); the next registration asks again."""
     if await defined_mode(db, agent_id) != "resident":
         return None
+    # THE CHECK AND THE SWITCH HOLD THE WRITE LOCK TOGETHER: a managed terminal committed between "no worker drives it"
+    # and the switch would be stopped under the resident it was just told to make way for (0.9.2 review, A race). A
+    # caller already in a transaction has written, so it holds the lock; otherwise this takes it and commits.
+    own = not db.in_transaction
+    if own:
+        await db.execute("BEGIN IMMEDIATE")
+    try:
+        result = await _follow_under_lock(db, agent_id, now=now)
+    except BaseException:
+        if own:
+            await db.rollback()
+        raise
+    if own:
+        await db.commit()
+    return result
+
+
+async def _follow_under_lock(db, agent_id: str, *, now: str) -> dict[str, Any] | None:
     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if row is None or _normalize_session_mode(row["session_mode"] or "resident") == "resident":
         return None

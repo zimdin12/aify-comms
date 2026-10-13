@@ -63,6 +63,41 @@ class ADefinitionFlippedToResidentIsFollowed(FastApiTestCase):
         state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"] or ""
         self.assertNotIn("manualResidentCandidate", state, "the resident was parked as a candidate")
 
+    def test_a_managed_terminal_cannot_commit_between_the_check_and_the_switch(self):
+        # 0.9.2 review, A race: registration read "no managed worker", an independent writer committed a running
+        # managed terminal before the switch, and the switch then stopped it under the resident.
+        from unittest import mock
+
+        from service.api_core import session_mode_switch
+
+        self.sql("UPDATE agent_definitions SET body = json_set(body, '$.mode', 'resident') WHERE agent_id = 'lead'")
+        original = session_mode_switch.managed_worker_drives
+        raced = {}
+
+        async def drives_then_a_writer_races(db, agent_id):
+            answer = await original(db, agent_id)
+            other = sqlite3.connect(self._db_path, timeout=0.2)
+            try:
+                other.execute(
+                    "INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, "
+                    "workspace, command, argv, status, requested_by, created_at, updated_at) VALUES ('term-race', "
+                    "'sess-race', 'lead', ?, ?, 'claude-code', '/workspace', 'claude', '[]', 'running', 'dashboard', "
+                    "'2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')", (ENV["environment_id"], ENV["bridge_id"]))
+                other.commit()
+                raced["committed"] = True
+            except sqlite3.OperationalError as error:
+                raced["refused"] = str(error)
+            finally:
+                other.close()
+            return answer
+
+        with mock.patch.object(session_mode_switch, "managed_worker_drives", drives_then_a_writer_races):
+            self.register_resident()
+        self.assertIn("refused", raced, "a managed terminal committed between the check and the switch")
+        self.assertIn("locked", raced["refused"])
+        self.assertEqual(self.mode(), "resident")
+        self.assertEqual(self.sql("SELECT id FROM terminal_sessions WHERE agent_id = 'lead'"), [])
+
     def test_a_managed_worker_not_yet_gone_still_parks_the_resident(self):
         # Two drivers on one agent is what the parking protects against, and a definition flip does not change that.
         # `stopping` is not gone: the stop was requested and no host has confirmed the departure (0.9.2 review, A P1).
