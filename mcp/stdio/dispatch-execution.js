@@ -1,4 +1,5 @@
 import { normalizeRuntime } from "./runtimes.js";
+import { WRAPPER_SET_UNKNOWN } from "./managed-wrapper-settings.js";
 // MUST stay in sync with service-side _NATIVE_MANAGED_RUNTIMES in
 // service/api_core/runtime.py (it was in service/routers/api_v2.py until the v0.5 domain
 // extraction; that file is now 53 lines of include_router calls). When a runtime is added here, the bridge's
@@ -21,11 +22,12 @@ export function supportedExecutionModes(info = {}, options = {}) {
   // instead. Without this gate, both bridges race to claim the same run.
   const managedViaWrapperRuntimes = (options && options.managedViaWrapperRuntimes) || null;
   const wrapperEligible = runtime === "codex" || runtime === "hermes";
-  const isWrapperBacked = wrapperEligible && managedViaWrapperRuntimes && (
+  // Unknown claims nothing that could be the wrapper child's (managed-wrapper-settings.js).
+  const isWrapperBacked = wrapperEligible && (managedViaWrapperRuntimes === WRAPPER_SET_UNKNOWN || (managedViaWrapperRuntimes && (
     typeof managedViaWrapperRuntimes.has === "function"
       ? managedViaWrapperRuntimes.has(runtime)
       : Array.isArray(managedViaWrapperRuntimes) && managedViaWrapperRuntimes.includes(runtime)
-  );
+  )));
   const modes = [];
   if (
     sessionMode === "managed" &&

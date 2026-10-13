@@ -100,13 +100,17 @@ test("`managed_via_wrapper: true` means EVERY wrapper-backed runtime", async () 
   assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())].sort(), ["codex", "hermes"]);
 });
 
-test("a comma-separated STRING is NOT the contract, and fails silently — as does an absent setting", async () => {
-  // I wrote this suite against a string first. The parser takes an ARRAY or the literal `true`; a string
-  // yields an empty set, which is the "skip nothing" value — so the mistake reads as a working cache
-  // serving a dangerous default, with nothing erroring. Read the callee's schema before writing the call.
+test("a comma-separated STRING or an absent setting is a FAILED read, not an empty set", async () => {
+  // The parser takes an ARRAY, `true` or `false`. A string used to yield an empty set, the "skip nothing"
+  // value, so a malformed answer read as a working cache serving a dangerous default (2026-10-14, S1). It is
+  // now treated as a failed read: the last valid set is kept (a cold cache stays unknown; see
+  // an-unknown-wrapper-set-claims-no-wrapper-run.test.js).
+  freshlyServing({ settings: { managed_via_wrapper: ["hermes"] } });
+  assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], ["hermes"], "control: a valid answer is used");
+
   freshlyServing({ settings: { managed_via_wrapper: "hermes,codex" } });
-  assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], []);
+  assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], ["hermes"], "a malformed answer replaced the last valid set");
 
   freshlyServing({ settings: {} });
-  assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], [], "an absent setting is also empty");
+  assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], ["hermes"], "an absent setting replaced the last valid set");
 });

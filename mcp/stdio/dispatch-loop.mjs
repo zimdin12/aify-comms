@@ -22,6 +22,7 @@ import { __markControllerStart } from "./controller-activity.mjs";
 import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
 import { readManagedViaWrapperRuntimes } from "./managed-wrapper-cache.mjs";
+import { WRAPPER_SET_UNKNOWN } from "./managed-wrapper-settings.js";
 import { ensureRequiredReplyHandoff } from "./required-reply-handoff.mjs";
 import { residentRuntimeBindingLost } from "./resident-binding-health.mjs";
 import { buildRunCallbacks } from "./run-callbacks.mjs";
@@ -133,7 +134,7 @@ export async function runDispatchPass({
       if (error?.status === 404 || error?.status === 410) state.agentRevision = undefined;
     });
 
-    const managedViaWrapperRuntimes = await readManagedViaWrapperRuntimes().catch(() => null);
+    const managedViaWrapperRuntimes = await readManagedViaWrapperRuntimes().catch(() => WRAPPER_SET_UNKNOWN);
     let executionModes = supportedExecutionModes(state.info, { managedViaWrapperRuntimes });
     // When this bridge IS the wrapper child for a managed agent (env
     // AIFY_MANAGED_VIA_WRAPPER=1 set by server.js when it spawned the

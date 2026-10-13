@@ -7,12 +7,13 @@
 // bridge claim work belonging to a wrapper's child during any blip on /settings.
 
 import { httpCall } from "./aify-service-endpoint.mjs";
-import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
+import { WRAPPER_SET_UNKNOWN, managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
 
 // Unified-backing refactor 2026-05-24: read the `managed_via_wrapper` setting
 // so the dispatch loop knows which runtimes to skip claiming for (the
 // wrapper's child bridge claims those). 5s cache to avoid hammering /settings.
-let _managedViaWrapperCache = { fetchedAt: 0, runtimes: new Set() };
+// Unknown until a read succeeds: a cold bridge whose first read fails must not read that as "none".
+let _managedViaWrapperCache = { fetchedAt: 0, runtimes: WRAPPER_SET_UNKNOWN };
 export async function readManagedViaWrapperRuntimes() {
   if (Date.now() - _managedViaWrapperCache.fetchedAt < 5000) {
     return _managedViaWrapperCache.runtimes;
@@ -20,6 +21,7 @@ export async function readManagedViaWrapperRuntimes() {
   try {
     const resp = await httpCall("GET", "/settings");
     const set = managedViaWrapperRuntimesFromSettingsResponse(resp);
+    if (set === WRAPPER_SET_UNKNOWN) return _managedViaWrapperCache.runtimes; // malformed: as a failed read
     _managedViaWrapperCache = { fetchedAt: Date.now(), runtimes: set };
     return set;
   } catch (_) {

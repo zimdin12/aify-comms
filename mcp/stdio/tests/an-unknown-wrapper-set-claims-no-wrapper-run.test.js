@@ -1,0 +1,54 @@
+#!/usr/bin/env node
+// A bridge that cannot read managed_via_wrapper claims no wrapper-eligible managed run (2026-10-14 audit, S1).
+//
+// The cache started as an empty set and the parser read an absent or malformed answer as empty, and an empty
+// set means "nothing is wrapper-backed": a bridge whose first /settings read failed claimed and spawned managed
+// codex and hermes runs itself, racing the wrapper child that owns them. Driven against a stand-in service.
+
+import assert from "node:assert/strict";
+import http from "node:http";
+
+const answers = [];
+const server = http.createServer((req, res) => {
+  const next = answers.shift() || { status: 500, body: {} };
+  res.writeHead(next.status, { "content-type": "application/json" });
+  res.end(JSON.stringify(next.body));
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.2", resolve));
+process.env.AIFY_SERVER_URL = `http://127.0.0.2:${server.address().port}`;
+process.env.CLAUDE_MCP_SERVER_URL = "";
+process.env.AIFY_SERVICE_REGISTRY = `${process.env.TEMP || "/tmp"}/no-such-aify-registry-${process.pid}.json`;
+process.env.AIFY_API_KEY = "";
+
+const { WRAPPER_SET_UNKNOWN, managedViaWrapperRuntimesFromSettingsResponse: parse } = await import("../managed-wrapper-settings.js");
+const { readManagedViaWrapperRuntimes } = await import("../managed-wrapper-cache.mjs");
+const { supportedExecutionModes } = await import("../dispatch-execution.js");
+const managedCodex = (set) => supportedExecutionModes({ sessionMode: "managed", runtime: "codex", capabilities: [] }, { managedViaWrapperRuntimes: set });
+
+try {
+  // The parser: only a real answer is a set.
+  assert.equal(parse({}), WRAPPER_SET_UNKNOWN, "an absent setting is unknown, not empty");
+  assert.equal(parse({ settings: { managed_via_wrapper: "yes" } }), WRAPPER_SET_UNKNOWN, "a malformed setting is unknown");
+  assert.deepEqual([...parse({ settings: { managed_via_wrapper: [] } })], [], "CONTROL: a valid empty list is empty");
+  assert.deepEqual([...parse({ managed_via_wrapper: false })], [], "CONTROL: an explicit false is empty");
+  assert.deepEqual([...parse({ settings: { managed_via_wrapper: ["codex"] } })], ["codex"]);
+
+  // The cache, cold: a failed first read, then a malformed one, are both unknown.
+  answers.push({ status: 500, body: {} });
+  assert.equal(await readManagedViaWrapperRuntimes(), WRAPPER_SET_UNKNOWN, "a failed first read must not read as none");
+  answers.push({ status: 200, body: { ok: true } });
+  assert.equal(await readManagedViaWrapperRuntimes(), WRAPPER_SET_UNKNOWN, "a malformed answer must not read as none");
+  // Recovery: the first valid answer is used.
+  answers.push({ status: 200, body: { settings: { managed_via_wrapper: ["hermes"] } } });
+  assert.deepEqual([...(await readManagedViaWrapperRuntimes())], ["hermes"]);
+
+  // The gate: unknown claims no managed codex run; a known answer decides as before.
+  assert.deepEqual(managedCodex(WRAPPER_SET_UNKNOWN), [], "an unknown set claimed a wrapper-eligible managed run");
+  assert.deepEqual(managedCodex(new Set()), ["managed"], "CONTROL: a known empty set still claims");
+  assert.deepEqual(managedCodex(new Set(["codex"])), [], "CONTROL: a wrapper-backed runtime is left to the wrapper child");
+  assert.deepEqual(supportedExecutionModes({ sessionMode: "managed", runtime: "pi", capabilities: [] }, { managedViaWrapperRuntimes: WRAPPER_SET_UNKNOWN }),
+    ["managed"], "CONTROL: a runtime no wrapper backs is unaffected by unknown");
+} finally {
+  server.close();
+}
+console.log("an-unknown-wrapper-set-claims-no-wrapper-run.test.js: all assertions passed");
