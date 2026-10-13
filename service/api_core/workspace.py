@@ -113,7 +113,8 @@ def _workspace_for_environment(environment: dict[str, Any], requested_workspace:
 def workspace_within_roots(workspace: str, roots, *, windows: bool) -> bool:
     """PURE. aify-env's containment rule (its `workspaceWithinRoots`), the same law here: is
     `workspace` one of `roots` or below one? Case-folded on Windows only; the separator stops `/home/bo` admitting
-    `/home/bob`."""
+    `/home/bob`. Deliberately NOT `_workspace_root_for`, which also resolves `..`: this predicts what aify-env will
+    refuse, so it must judge exactly as aify-env does, whatever spawn-time validation does."""
     def normalise(value) -> str:
         slashed = str(value or "").replace("\\", "/")
         text = slashed.rstrip("/") or ("/" if slashed.startswith("/") else "")
