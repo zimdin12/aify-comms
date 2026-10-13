@@ -51,8 +51,7 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         super().setUp()
         self.client.post("/api/v1/environments/heartbeat", json={
             "id": "win32:host:default", "machineId": "win32:host", "os": "win32", "kind": "win32",
-            "bridgeId": "env-bridge", "cwdRoots": ["C:/Docker/aify-comms"], "runtimes": [],
-            "metadata": {}}).raise_for_status()  # recorded as metadata.advertisedCwdRoots, as aify-env's are
+            "runtimes": [], "metadata": {"launchRoots": ["C:/Docker/aify-comms"]}}).raise_for_status()  # as aify-env sends it
         db = sqlite3.connect(self._db_path)
         try:
             for agent_id, cwd in (("outside", "C:/Docker/aify-dashboard"), ("inside", "C:/Docker/aify-comms/x")):
@@ -93,3 +92,45 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         status, note = self.status("inside")
         self.assertEqual(status, "available")
         self.assertNotIn("outside the folder", note)
+
+    def beat(self, **body):
+        self.client.post("/api/v1/environments/heartbeat", json={
+            "id": "win32:host:default", "machineId": "win32:host", "os": "win32", "kind": "win32", **body}).raise_for_status()
+
+    def test_roots_a_caller_sent_as_cwdroots_are_no_evidence(self):
+        # 0.9.2 review: cwdRoots are the service's policy, and aify-env never sends them, so the value some caller left
+        # in advertisedCwdRoots said nothing about where aify-env starts work.
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute("UPDATE environments SET metadata = json_remove(metadata, '$.launchRoots') WHERE id = 'win32:host:default'")
+            db.commit()
+        finally:
+            db.close()
+        self.beat(cwdRoots=["C:/Docker/aify-comms"], runtimes=[])
+        self.assertEqual(self.status("outside")[0], "available")
+
+    def test_a_bridge_beat_without_the_bound_keeps_it(self):
+        self.beat(bridgeId="some-bridge", runtimes=[], metadata={})
+        self.assertEqual(self.status("outside")[0], "misconfigured", "a bridge heartbeat erased aify-env's bound")
+
+
+    def test_aify_envs_own_heartbeat_body_carries_the_bound_the_status_reads(self):
+        """Both ends of the field: the body aify-env's daemon builds, posted as it is, makes the status judge."""
+        repo = next((r for r in ENV_REPOS if (r / "lib" / "advertise.mjs").is_file()), None)
+        if repo is None or shutil.which("node") is None:
+            self.skipTest("no aify-env checkout with lib/advertise.mjs, or no node")
+        script = (f"import({json.dumps((repo / 'lib' / 'advertise.mjs').as_uri())}).then(m => console.log(JSON.stringify("
+                  "m.environmentAdvertisement({ hostname: 'host', kind: 'win32', os: 'win32', machineId: 'win32:host', "
+                  "launchRoots: ['C:/Docker/aify-comms'] }))))")
+        run = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        body = json.loads(run.stdout)
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute("UPDATE environments SET metadata = '{}' WHERE id = 'win32:host:default'")
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.status("outside")[0], "available", "the control: no bound, no judgement")
+        self.client.post("/api/v1/environments/heartbeat", json={"id": "win32:host:default", **body}).raise_for_status()
+        self.assertEqual(self.status("outside")[0], "misconfigured")

@@ -128,8 +128,9 @@ def workspace_within_roots(workspace: str, roots, *, windows: bool) -> bool:
     return False
 
 
-def outside_advertised_roots(workspace: str, environment: dict[str, Any]) -> bool:
-    """Whether `environment` advertised the folders it starts work in and `workspace` lies outside all of them. No
-    advertised roots is no evidence, so False (0.9.2 status fix C)."""
-    roots = (environment.get("metadata") or {}).get("advertisedCwdRoots") or []
+def outside_launch_roots(workspace: str, environment: dict[str, Any]) -> bool:
+    """Whether `environment`'s aify-env reported the folders it starts work in (`metadata.launchRoots`, from its own
+    heartbeat) and `workspace` lies outside all of them. No report is no evidence, so False (0.9.2 status fix C). Not
+    `advertisedCwdRoots`: that is whatever cwdRoots a caller last sent, which aify-env never sends."""
+    roots = (environment.get("metadata") or {}).get("launchRoots") or []
     return bool(roots) and not workspace_within_roots(workspace, roots, windows=_environment_uses_windows_paths(environment))

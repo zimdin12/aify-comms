@@ -423,6 +423,10 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                 if not (isinstance(key, str) and key.startswith("bridge"))
             }
         next_metadata = {**metadata, "advertisedCwdRoots": advertised_roots}
+        # WHERE THE HOST'S aify-env WILL START WORK, which only aify-env reports. Kept when another caller (a bridge)
+        # beats without it, so the status that reads it does not flicker with whoever spoke last.
+        if "launchRoots" not in next_metadata and "launchRoots" in existing_metadata:
+            next_metadata["launchRoots"] = existing_metadata["launchRoots"]
         # WHEN A BRIDGE LAST SPOKE, which is a different question from when this ROW was last written.
         # Only a bridge sends a `bridgeId`, so only a bridge sets this; an advertisement from aify-env
         # preserves it below rather than refreshing it. Without the split, a host with no bridge reads

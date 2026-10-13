@@ -41,7 +41,7 @@ from service.api_core.capabilities import (
     _row_capabilities,
 )
 from service.api_core.serialization import _json_loads_or
-from service.api_core.workspace import outside_advertised_roots
+from service.api_core.workspace import outside_launch_roots
 from service.clock import iso_to_epoch as _iso_to_epoch
 # The six process probes and their two staleness constants left for `live_process_probes.py` in
 # v0.5.4. This module is their only reader and now their CALLER — the direction the split made
@@ -374,9 +374,9 @@ async def _outside_its_environment(db, agent_row) -> str:
     if env is None:
         return ""
     metadata = _json_loads_or(env["metadata"], {})
-    if not outside_advertised_roots(workspace, {"id": env["id"], "os": env["os"], "kind": env["kind"],
+    if not outside_launch_roots(workspace, {"id": env["id"], "os": env["os"], "kind": env["kind"],
                                                 "machineId": env["machine_id"], "metadata": metadata}):
         return ""
-    roots = ", ".join(metadata.get("advertisedCwdRoots") or [])
+    roots = ", ".join(metadata.get("launchRoots") or [])
     return (f"its workspace {workspace} is outside the folder aify-env was started in ({roots}); "
             "start aify-env from a folder that contains it")

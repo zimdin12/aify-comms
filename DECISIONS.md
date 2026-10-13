@@ -26,13 +26,19 @@ Codex tool call, against 85-105 ms for bash and node (2026-10-13). Claude and Co
 
 **A definition flipped to resident is followed (0.9.2).** The flip is the operator's deliberate switch, so the
 record switches and the resident it asks for is adopted, not parked as a candidate
-(`follow_definition_mode` in `service/api_core/session_mode_switch.py`). A running managed terminal still parks it: two
-drivers on one agent is what parking prevents. A flip to managed governs the next start, which the host makes.
+(`follow_definition_mode` in `service/api_core/session_mode_switch.py`). It switches when the resident registers, never
+at the definition push: registration marks the agent driving in the same request, while a push-time switch left it
+resident and not driving until the bridge came, and a hermes delivery loop claiming then was released and exited. A
+running managed terminal still parks it: two drivers on one agent is what parking prevents. A flip to managed governs
+the next start, which the host makes.
 
 **An agent its environment will not start reads `misconfigured`, with the reason (0.9.2).** aify-env starts work
 only below the folder it was started in. A managed agent whose workspace is outside it read `available`, which
 promises a cold start, and every start was refused. `_agent_config_defect` names it and the status note says
-"Cannot be started: …". aify-env also warns at startup and in `aify-env doctor` (`agents-outside-roots`).
+"Cannot be started: …". aify-env also warns at startup and in `aify-env doctor` (`agents-outside-roots`). The folder
+is the one aify-env reports in its own heartbeat (`metadata.launchRoots`), kept across other callers' heartbeats;
+`cwdRoots` is the service's policy, which aify-env never sends, so it says nothing about where aify-env starts work.
+No report means no judgement.
 
 **A transcript tail found at boot is not a turn (0.9.2).** A session resumed after a kill had a user-role tail
 from before it started, and the detector re-asserted `working` every 45 s for ever. The detector remembers the
