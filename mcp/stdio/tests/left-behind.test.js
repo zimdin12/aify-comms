@@ -20,7 +20,7 @@ test("ONLY WHAT NAMES THE ROOT is found, outermost first, and never the runner i
     { pid: 12, ppid: 1, commandLine: "bash /tmp/aify-comms-testrun-Other9/f-y/stub-bin/codex" },
     { pid: 13, ppid: 1, commandLine: `node run-all.mjs ${ROOT}` },
   ];
-  assert.deepEqual(leftBehind(processes, ROOT, 13, new Map([[7, { exitedAt: 100 }]])).map((p) => p.pid), [10, 11]);
+  assert.deepEqual(leftBehind(processes, ROOT, 13, new Map([[7, { startedAt: 30, exitedAt: 100 }]])).map((p) => p.pid), [10, 11]);
 });
 
 test("NAMING THE ROOT IS NOT OWNERSHIP: a viewer someone opened on the run's log, and a longer root, are left alone", () => {
@@ -41,7 +41,7 @@ test("A VIEWER WHOSE OWN SHELL IS GONE is still not the run's, nor is its child"
     { pid: 20, ppid: 88, commandLine: `node C:/tools/view-log.mjs C:/scratch/${ROOT}/stdout.raw` },
     { pid: 21, ppid: 20, commandLine: `node C:/tools/pager.mjs C:/scratch/${ROOT}/stdout.raw` },
   ];
-  assert.deepEqual(leftBehind(processes, ROOT, 999, new Map([[7, { exitedAt: 100 }]])).map((p) => p.pid), [10]);
+  assert.deepEqual(leftBehind(processes, ROOT, 999, new Map([[7, { startedAt: 30, exitedAt: 100 }]])).map((p) => p.pid), [10]);
 });
 
 test("A LATER HOLDER OF A RECORDED PID owns nothing, and a birth nobody could read is never the run's", () => {
@@ -52,7 +52,21 @@ test("A LATER HOLDER OF A RECORDED PID owns nothing, and a birth nobody could re
     { pid: 21, ppid: 20, createdAt: 5_100, commandLine: `node C:/tools/pager.mjs C:/scratch/${ROOT}/stdout.raw` },
     { pid: 30, ppid: 7, createdAt: NaN, commandLine: `bash /tmp/${ROOT}/f-y/stub-bin/codex` },
   ];
-  assert.deepEqual(leftBehind(processes, ROOT, 999, new Map([[7, { exitedAt: 100 }]])).map((p) => p.pid), [10]);
+  assert.deepEqual(leftBehind(processes, ROOT, 999, new Map([[7, { startedAt: 30, exitedAt: 100 }]])).map((p) => p.pid), [10]);
+});
+
+test("A FORMER OR LATER HOLDER OF A RECORDED PID owns nothing, on Windows to the millisecond", () => {
+  // Review of 0.9.1 F1, fourth pass. A: a shell held pid 7 before the run's test did, and its viewer survives it.
+  // B: a shell takes pid 7 one millisecond after the test exits; Windows births are exact, so no slack lets it in.
+  const owners = new Map([[7, { startedAt: 30, exitedAt: 100 }]]);
+  const before = [
+    { pid: 10, ppid: 7, createdAt: 50, commandLine: `bash /tmp/${ROOT}/f-x/stub-bin/codex` },
+    { pid: 20, ppid: 7, createdAt: 10, commandLine: `node C:/tools/view-log.mjs C:/scratch/${ROOT}/stdout.raw` },
+    { pid: 21, ppid: 20, createdAt: 11, commandLine: `node C:/tools/pager.mjs C:/scratch/${ROOT}/stdout.raw` },
+  ];
+  assert.deepEqual(leftBehind(before, ROOT, 999, owners).map((p) => p.pid), [10]);
+  const after = [before[0], { ...before[1], createdAt: 102 }, { ...before[2], createdAt: 103 }];
+  assert.deepEqual(leftBehind(after, ROOT, 999, owners, { birthSlackMs: 0 }).map((p) => p.pid), [10]);
 });
 
 test("A NAME THAT IS NOT A RUN ROOT sweeps nothing, an empty one above all", () => {

@@ -17,27 +17,29 @@ import { PS_UTF8_PRELUDE } from "../win32-text.js";
 //: else, an empty name above all, would match every process on the machine.
 const RUN_ROOT = /^aify-comms-testrun-[A-Za-z0-9]{6,}$/;
 
-//: How far a recorded birth may trail its parent's exit: `ps` reports whole seconds of age, so a POSIX birth reads up to
-//: a second late. ponytail: a pid reused within this second, whose new holder starts a child naming the run root inside
-//: it, would still pass.
-const BIRTH_SLACK_MS = 1_000;
+//: How far a recorded birth may trail its parent's exit. Windows reports births exactly, so none; `ps` reports whole
+//: seconds of age, so a POSIX birth reads up to a second late. ponytail: a pid reused between its file's exit and the
+//: runner seeing it (plus that second on POSIX), whose new holder starts a child naming the run root, would still pass.
+const BIRTH_SLACK_MS = process.platform === "win32" ? 0 : 1_000;
 
 /**
  * The run's own processes that name `rootName`, outermost first, never `selfPid`. PURE.
  *
  * Naming the root is not ownership: a log viewer someone opened on this run's output names it too, and its parent can be
- * gone, or be a later process that took a recorded pid. A named process is the run's when its parent is `selfPid`, is
- * one of `owners` (pid -> that test file's `{ exitedAt }`) and the process was born before the file exited, or is another
- * of the run's named processes. A birth the listing could not read is never ownership (review of 0.9.1, F1). A stub whose
+ * gone, or be another process that held a recorded pid before or after. A named process is the run's when its parent is
+ * `selfPid`, is one of `owners` (pid -> that test file's `{ startedAt, exitedAt }`) and the process was born while that
+ * file lived, or is another of the run's named processes. A birth the listing could not read is never ownership (review of 0.9.1, F1). A stub whose
  * launcher exited first is missed: missing one is the safe way to be wrong.
  */
-export function leftBehind(processes, rootName, selfPid, owners = new Map()) {
+export function leftBehind(processes, rootName, selfPid, owners = new Map(), { birthSlackMs = BIRTH_SLACK_MS } = {}) {
   if (!RUN_ROOT.test(String(rootName || ""))) throw new Error(`refusing to sweep for ${JSON.stringify(rootName)}: not a run root`);
   const names = new RegExp(`${rootName}(?![A-Za-z0-9])`);
   const named = new Map(processes.filter((p) => p.pid !== selfPid && names.test(String(p.commandLine || ""))).map((p) => [p.pid, p]));
   const bornToOwner = (p) => {
     const owner = owners.get(p.ppid);
-    return Boolean(owner) && Number.isFinite(p.createdAt) && p.createdAt <= (owner.exitedAt ?? Infinity) + BIRTH_SLACK_MS;
+    // Born after the runner asked for the file (its children cannot be older) and before the runner saw it exit.
+    return Boolean(owner) && Number.isFinite(p.createdAt) && p.createdAt >= owner.startedAt
+      && p.createdAt <= (owner.exitedAt ?? Infinity) + birthSlackMs;
   };
   const ours = (p, seen = new Set()) => {
     if (p.ppid === selfPid || bornToOwner(p)) return true;
