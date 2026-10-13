@@ -55,6 +55,7 @@ If the tuple conflicts, stop and diagnose through `aify-comms-debug`.
 1. Read `comms_agent_info` and `comms_run_status` where a dispatch run exists.
 2. Confirm the live session, terminal, environment, bridge instance, and current turn.
 3. Use `comms_run_interrupt` for that exact dispatch run, or `comms_interrupt` for the current managed console turn.
+   A run still `queued` (nothing claimed it) is cancelled outright.
 4. Do not repeat the control blindly; a replacement turn may now own the terminal.
 5. Verify native turn end plus converged run/agent/session state.
 
@@ -76,8 +77,14 @@ Report each state separately; later states do not follow from earlier ones:
 | Service current | `/version` or served checksum matches the intended SHA |
 | Behavior proven | the real runtime/provider path produced the expected result |
 
-A healthy endpoint is not deployment proof. A rebuilt image is not a recreated
-container. A copied file is not a reloaded long-running process.
+### Delivery claims
+
+| Claim | Minimum evidence |
+|---|---|
+| Sent | the send's message id; an ack names what was created, not what arrived |
+| Delivered | `comms_run_status` reads delivered for each distinct run; messages merged into one run are each checked too |
+| Stored as meant | `comms_inbox(agentId="<recipient>", messageId="<id>", peek=true)` shows its sender, `inReplyTo` and content |
+| Acted on | the recipient's own reply or output: delivery is not action |
 
 ## Install Or Update
 

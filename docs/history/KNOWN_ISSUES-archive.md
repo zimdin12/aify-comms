@@ -6,6 +6,20 @@ it was traced and how it was fixed, not as instruction: where an entry here disa
 KNOWN_ISSUES.md or with the code, those are right. Relative links were rewritten for this location.
 Where an open item was condensed into KNOWN_ISSUES.md, its full original text is here.
 
+## Reply reminders piled up on requests their target never received (2026-10-13; fixed in 0.9.4)
+
+dashboard-senior-dev had no delivery loop and read online. A request to it went unanswered from 02:06Z, and by 15:41Z
+the overdue sweep (`service/api_core/dispatch_sweeps.py`) had stored 79 "Reminder: reply overdue" messages, each
+subject nesting the previous. Each dispatch was refused `buffer_full` and the message stored anyway: the sweep's
+preflight (`_preflight_live_send_recipients`) passed, and the send then failed. `comms_run_interrupt` cannot cancel a
+queued run ("not active"); unsending the source message did. Wanted: no reminder while the target has no live loop, or
+a cap per run; a subject built from the original request, not the last reminder; and interrupt for a queued run.
+Reported by dashboard-manager; the nesting cause is not yet traced.
+
+Measured before the fix: in the retained events (2026-10-10 to 10-13), 98 of the 147 reminders went to two runs their
+target never claimed. The "subjects nest" part did not reproduce: no stored subject is a reminder of a reminder. Fixed
+by: a `queued` run is not overdue (`_contract_state`), and `comms_run_interrupt` cancels a queued run in the service.
+
 ## The v0.2 backlog note that opened this file
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](../../docs/V0.2_PLAN.md)** with their traces attached — including a behaviour change awaiting an operator decision (managed codex auto-approves all command/file approvals). The compaction item there is superseded: the service answers no compaction dialog. This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](../../docs/V0.2_SPEC.md)**.

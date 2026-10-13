@@ -18,7 +18,9 @@ kept as evidence. Last reviewed 2026-10-13.
   loses its resume. Unset on this host at every level (2026-10-13), so it cannot trigger here.
 - **aify-wrapper W1:** `--check` exits before the settings fallback and does not say which model it would pass.
 - **Model reads for one agent are not coalesced:** 64 concurrent asks were 64 host reads in review; each waits at
-  most 3 s, so it is bounded, not shared.
+  most 3 s, so it is bounded, not shared. Measured live 2026-10-13: the only caller is the dashboard's agent drawer,
+  the host answered 9 reads in about 3.5 h, and one read costs about 1 ms (the last 256 KB of a transcript). Not worth
+  coalescing unless something starts asking on a timer.
 - **The test runner's leftover sweep (F1), accepted by the lead:** a child of a recorded test file counts as the
   run's only when born between the runner asking for that file and its exit. A pid a stranger takes and returns
   inside one spawn call, having named the run root, would still pass. Closing it needs each file's native birth
@@ -34,14 +36,6 @@ kept as evidence. Last reviewed 2026-10-13.
   for Windows. The dev reproduced it with a fake table, not on the live host. A recheck of the table before the kill only
   narrows it; closing it needs a handle-bound kill (open the process, check its creation time, terminate that
   handle). Unlike F1 above, this is a production caller, not the test runner.
-- **Reply reminders pile up on an agent that cannot take them (found 2026-10-13).** dashboard-senior-dev had no delivery
-  loop and read online. A request to it went unanswered from 02:06Z, and by 15:41Z the overdue sweep
-  (`service/api_core/dispatch_sweeps.py`) had stored 79 "Reminder: reply overdue" messages, each subject nesting the
-  previous. Each dispatch was refused `buffer_full` and the message stored anyway: the sweep's preflight
-  (`_preflight_live_send_recipients`) passed, and the send then failed. `comms_run_interrupt` cannot cancel a
-  queued run ("not active"); unsending the source message did. Wanted: no reminder while the target has no live
-  loop, or a cap per run; a subject built from the original request, not the last reminder; and interrupt for a
-  queued run. Reported by dashboard-manager; the nesting cause is not yet traced.
 
 ## A creation its host claimed and never reported holds the id (0.9 D8, 2026-10-11)
 

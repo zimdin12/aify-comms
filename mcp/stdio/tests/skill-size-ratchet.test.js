@@ -73,7 +73,11 @@ const CEILINGS = {
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
   // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
   // 9_286 -> 9_284 and 10_062 -> 10_059 on 2026-09-28: `shell` now says background WORK (hermes too), paid in-row.
-  "aify-comms/references/operations.md": 9_284,
+  // 9_284 -> 9_679 on 2026-10-13, a raise the operator approved ("that wording fix is reasonable"): a Delivery
+  // claims table (sent / delivered / stored as meant / acted on), proposed by comms-senior-dev, and the queued-run
+  // cancel line for comms_run_interrupt. Part paid for by cutting three sentences that restated the Deployment
+  // claims table's first line.
+  "aify-comms/references/operations.md": 9_679,
   "aify-comms/references/teamwork.md": 14_364,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
