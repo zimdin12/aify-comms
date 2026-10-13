@@ -41,7 +41,7 @@ import { deleteSharedFileFromRow } from './shared-files.mjs';
 import { state } from './state.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { toast } from './ui.js';
-import { closeWorkContract, remindWorkContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';
+import { closeWorkContract, remindOneContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';
 import { applyContractView, applyWorkView, jumpFromDiagnostic, toggleDiagnosticSelection } from './work-loop-panels.mjs';
 
 let chatController = { renderConversation() {} };
@@ -372,7 +372,7 @@ export function dispatchClick(event) {
   const closeContractButton = event.target.closest('[data-close-contract]');
   if (closeContractButton) { closeWorkContract(closeContractButton.dataset.closeContract); return; }
   const remindContractButton = event.target.closest('[data-remind-contract]');
-  if (remindContractButton) { remindWorkContract(remindContractButton.dataset.remindContract); return; }
+  if (remindContractButton) { remindOneContract(remindContractButton.dataset.remindContract); return; }
   const steerRunButton = event.target.closest('[data-steer-run]');
   if (steerRunButton) { requestRunControl(steerRunButton.dataset.steerRun); return; }
   const sessionControlButton = event.target.closest('[data-session-control]');

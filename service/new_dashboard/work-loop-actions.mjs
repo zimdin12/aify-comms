@@ -154,8 +154,23 @@ export async function remindWorkContract(runId, refreshAfter = true) {
   // that have one; the click handler reads an attribute that is always written), so it was latent —
   // but "reachable only through the paths we happen to have" is the state a guard exists to remove.
   if (!runId) return;
-  await api(`/contracts/reminders/run?runId=${encodeURIComponent(runId)}`, { method: 'POST' });
+  const body = await api(`/contracts/reminders/run?runId=${encodeURIComponent(runId)}`, { method: 'POST' });
   if (refreshAfter) await refresh();
+  // A 200 is not a reminder: the service skips a busy or gone target and says so in `skipped`.
+  // Counted as reminded only when it is listed as reminded, so a missing answer is not a success.
+  const skip = (body?.skipped || []).find((s) => s?.runId === runId);
+  if (skip) throw new Error(skip.reason || 'skipped by the service');
+  if (!(body?.reminded || []).some((r) => r?.runId === runId)) throw new Error('the service did not report it as reminded');
+}
+
+/** The single Remind button: the same call, with a toast saying what the service did. */
+export async function remindOneContract(runId) {
+  try {
+    await remindWorkContract(runId);
+    toast('Reminder sent.', 'ok');
+  } catch (err) {
+    toast(`Not reminded: ${err?.message || err}`, 'warn');
+  }
 }
 
 /**

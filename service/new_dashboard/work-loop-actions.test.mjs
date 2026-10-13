@@ -15,6 +15,7 @@ import {
   closeWorkContract,
   initWorkLoopActions,
   loadContractsForState,
+  remindOneContract,
   remindWorkContract,
   renderContracts,
   renderDiagnosticsBulkToolbar,
@@ -46,7 +47,7 @@ function makeDialog(answer) {
   return overlay;
 }
 
-function withWorkLoop({ confirm = true, failing = [] } = {}) {
+function withWorkLoop({ confirm = true, failing = [], skipping = [] } = {}) {
   const els = new Map();
   const sent = [];
   const toasts = [];
@@ -74,6 +75,14 @@ function withWorkLoop({ confirm = true, failing = [] } = {}) {
       return { ok: false, status: 409, statusText: "Conflict", text: async () => JSON.stringify({ error: "already closed" }) };
     }
     const payload = { ok: true, contracts: [], runs: [], repaired: 3 };
+    // The reminder route's real answer: one run is reminded, or skipped with a reason, never both.
+    const remindOf = /reminders\/run\?runId=([^&]+)/.exec(String(url));
+    if (remindOf) {
+      const runId = decodeURIComponent(remindOf[1]);
+      Object.assign(payload, skipping.includes(runId)
+        ? { reminded: [], skipped: [{ runId, reason: "target is busy" }] }
+        : { reminded: [{ runId }], skipped: [] });
+    }
     return { ok: true, status: 200, statusText: "OK", json: async () => payload, text: async () => JSON.stringify(payload) };
   };
   setApiBase("");
@@ -516,5 +525,27 @@ test("BULK CLOSE NAMES THE PAGE THE NAV CALLS 'Work', in the question and in wha
     const recorded = h.sent.map((r) => String(r.body || "")).join(" ");
     assert.match(recorded, /Closed from Work by dashboard operator/);
     assert.doesNotMatch(`${asked} ${recorded}`, /[Dd]iagnostics/);
+  } finally { h.restore(); }
+});
+
+test("a reminder the service SKIPPED is not counted as reminded, and says why", async () => {
+  const h = withWorkLoop({ confirm: true, skipping: ["c1"] });
+  try {
+    select([{ kind: "contract", id: "c1" }, { kind: "contract", id: "c2" }]);
+    await requestBulkDiagnosticAction("remind");
+    assert.equal(h.sent.length, 2);
+    assert.ok(h.toasts.some((t) => /1 of 2 reminded, 1 failed: target is busy/.test(t.text)), JSON.stringify(h.toasts));
+    assert.deepEqual([...state.selectedDiagnosticIds], ["contract:c1"], "the skipped one stays selected for a retry");
+  } finally { h.restore(); }
+});
+
+test("the single Remind button says what the service did", async () => {
+  const h = withWorkLoop({ confirm: true, skipping: ["c1"] });
+  try {
+    await remindOneContract("c1");
+    await remindOneContract("c2");
+    const said = h.toasts.map((t) => t.text);
+    assert.ok(said.some((t) => /^Not reminded: target is busy$/.test(t)), JSON.stringify(said));
+    assert.ok(said.some((t) => /^Reminder sent\.$/.test(t)), `control: a reminded one reads as sent: ${JSON.stringify(said)}`);
   } finally { h.restore(); }
 });
