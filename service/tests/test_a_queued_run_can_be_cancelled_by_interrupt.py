@@ -67,6 +67,36 @@ class AQueuedRunCanBeCancelledByInterrupt(FastApiTestCase):
         self.assertEqual(run["summary"], "Cancelled before delivery.")
         self.assertNotIn("operator", run["summary"])
 
+    def test_a_cancel_landing_inside_the_queued_backstop_pass_stays_cancelled(self):
+        # The backstop reads its candidates, then awaits per run before writing `failed`; a cancel in between was
+        # overwritten, given a "failed" event and mirrored to the sender (0.9.4 review).
+        from unittest import mock
+        from service.api_core.dispatch_run_state import cancel_queued_dispatch_run
+        from service.db import get_db
+        from service.reconcilers import undeliverable_queued_runs as backstop
+
+        self._seed("run-b", "queued")
+
+        async def cancel_meanwhile(db, *args, **kwargs):
+            self.assertTrue(await cancel_queued_dispatch_run(db, "run-b", summary="Cancelled before delivery."))
+            return False
+
+        async def sweep():
+            db = await get_db()
+            try:
+                await db.execute("UPDATE dispatch_runs SET requested_at = '2026-01-01T00:00:00Z' WHERE id = 'run-b'")
+                with mock.patch.object(backstop, "_agent_has_live_claimer", cancel_meanwhile):
+                    reaped = await backstop._reap_undeliverable_queued_runs(db, backstop_seconds=30)
+                await db.commit()
+                return reaped
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(sweep()), [])
+        run = self._run("run-b")
+        self.assertEqual(run["status"], "cancelled")
+        self.assertNotIn("failed", run["events"])
+
     def test_a_running_run_still_gets_a_control_for_its_bridge(self):
         # CONTROL: the existing interrupt path is unchanged.
         self._seed("run-r", "running")

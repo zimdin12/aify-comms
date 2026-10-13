@@ -268,16 +268,18 @@ async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int]
             f"Restart the agent's worker (managed: respawn its delivery loop / "
             f"console; resident: relaunch its *-aify wrapper), then resend."
         )
-        await db.execute(
+        cur = await db.execute(
             """
             UPDATE dispatch_runs
             SET status = 'failed',
                 error_text = ?,
                 finished_at = COALESCE(finished_at, ?)
-            WHERE id = ?
+            WHERE id = ? AND status = 'queued'
             """,
             (reason, now, run_id),
         )
+        if (cur.rowcount or 0) == 0:
+            continue  # claimed, cancelled or unsent since the read above
         await _append_dispatch_event(db, run_id, "failed", reason)
         await _mirror_undeliverable_queued_run_to_sender(db, row, reason=reason)
         await _invalidate_agent_live_state(db, target_agent)
