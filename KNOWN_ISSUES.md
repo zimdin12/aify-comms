@@ -31,11 +31,17 @@ kept as evidence. Last reviewed 2026-10-13.
 - **A hermes relaunch on Windows kills by number, not by the process it saw (aify-wrapper, W-new-2).** The kill-prior
   reap picks the previous delivery loop from one process-table snapshot and ends it with a numeric `taskkill /F
   /PID`. If that loop exits after the snapshot and its pid is reused, the new holder of the pid is killed. The
-  snapshot's CIM query may take up to its 20 s timeout, so the window is not known to be short; how often a loop
-  exits inside it is unmeasured. The exposure is new on Windows in 0.9.2: the pkill path before it never ran on Git
-  for Windows. The dev reproduced it with a fake table, not on the live host. A recheck of the table before the kill only
-  narrows it; closing it needs a handle-bound kill (open the process, check its creation time, terminate that
-  handle). Unlike F1 above, this is a production caller, not the test runner.
+  exposure is new on Windows in 0.9.2: the pkill path before it never ran on Git for Windows. The dev reproduced it
+  with a fake table, not on the live host. The lease's own stops (`agent-lease.mjs` lines 200 and 301) kill from an
+  earlier table through the same `killTree` (`process-identity.mjs`, the Windows branch), so they share it.
+
+  Measured on this host 2026-10-13, which is why it stays deferred: from a row being read to the kill took 0.4 to
+  0.65 s typically and 1.26 s at worst (10 `processTable` runs), while no pid of 13,014 freed in 120 s came back
+  sooner than 1.5 s (median 15 s). The window can still reach the 20 s query timeout on a stalled host, and how often
+  a loop exits inside it is unmeasured. The fix belongs in `killTree`'s Windows branch, covering both callers: one
+  PowerShell that opens the process, reads `.Handle`, checks the start time, then `Kill()`s that handle. It was
+  prototyped under PowerShell 5.1 and 7 and costs about 0.37 s per kill that has a target. Node cannot hold a
+  process handle without a native addon. Unlike F1 above, this is a production caller, not the test runner.
 
 ## A creation its host claimed and never reported holds the id (0.9 D8, 2026-10-11)
 
