@@ -225,10 +225,11 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         success_rate = round((runs_completed_n / runs_finished_n) * 100, 1) if runs_finished_n else None
 
         # Open + overdue reply contracts fleet-wide (NOT windowed — what's outstanding right now).
-        # Overdue = an unanswered required reply whose run was requested more than 30 min ago.
+        # Overdue = an unanswered required reply its target received, requested longer ago than the reminder window
+        # (a queued run was never delivered; `_contract_state` says the same).
         contracts_c = await db.execute(
             """
-            SELECT requested_at FROM dispatch_runs
+            SELECT requested_at, status FROM dispatch_runs
             WHERE require_reply = 1
               AND status IN ('queued', 'claimed', 'running', 'delivered')
               AND COALESCE(result_message_id, '') = ''
@@ -242,7 +243,7 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         overdue_cut = now_s - reply_reminder_minutes(settings) * 60
         overdue_reply_contracts = sum(
             1 for r in contract_rows
-            if (_iso_to_epoch(r["requested_at"]) or now_s) < overdue_cut
+            if r["status"] != "queued" and (_iso_to_epoch(r["requested_at"]) or now_s) < overdue_cut
         )
 
         fleet_median_reply = await _fleet_median_reply_minutes(db, run_where, run_params)
@@ -388,12 +389,12 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
         # Open + overdue reply contracts, fleet-wide, right now. The window is the operator's
         # `reply_reminder_minutes`, the same one the reminder sweep and the Work Loop use.
         owed_c = await db.execute(
-            "SELECT requested_at FROM dispatch_runs WHERE require_reply=1 "
+            "SELECT requested_at, status FROM dispatch_runs WHERE require_reply=1 "
             "AND status IN ('queued','claimed','running','delivered') AND COALESCE(result_message_id,'')=''"
         )
         owed = await owed_c.fetchall()
         overdue_cut = now_s - reply_reminder_minutes(settings) * 60
-        overdue = sum(1 for r in owed if (_iso_to_epoch(r["requested_at"]) or now_s) < overdue_cut)
+        overdue = sum(1 for r in owed if r["status"] != "queued" and (_iso_to_epoch(r["requested_at"]) or now_s) < overdue_cut)
 
         return {
             "ok": True,

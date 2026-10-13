@@ -126,7 +126,7 @@ async def list_work_contracts(
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status = 'queued'")
         elif normalized_state == "overdue":
             reminder_minutes = reply_reminder_minutes(settings)
-            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('completed','failed','cancelled') AND datetime(r.requested_at) <= datetime('now', ?)")
+            where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('queued','completed','failed','cancelled') AND datetime(r.requested_at) <= datetime('now', ?)")
             params.append(f"-{reminder_minutes} minutes")
         elif normalized_state == "seen":
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('queued','claimed','running','completed','failed','cancelled') AND COALESCE(rr.read_at, '') != ''")

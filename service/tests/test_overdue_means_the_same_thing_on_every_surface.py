@@ -69,7 +69,7 @@ class OverdueMeansTheSameThingOnEverySurfaceTests(FastApiTestCase):
                     "message_type, subject, body, priority, status, require_reply, requested_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     ("run-owed", "msg-owed", "operator", "overdue-target", "request",
-                     "please answer", "body", "normal", "queued", 1, requested),
+                     "please answer", "body", "normal", "delivered", 1, requested),
                 )
                 await db.commit()
             finally:
@@ -137,6 +137,23 @@ class OverdueMeansTheSameThingOnEverySurfaceTests(FastApiTestCase):
             "the surfaces disagree about how many replies are overdue, so the operator reads two "
             f"different numbers for one question: {counts}",
         )
+
+    def test_a_run_its_target_never_received_is_overdue_on_no_surface(self) -> None:
+        """A queued run was never delivered, so no surface may call it overdue (2026-10-13: the reminder sweep stopped,
+        and the three counts had to stop with it or the operator reads two numbers again)."""
+        self._execute_sql("UPDATE dispatch_runs SET status = 'queued' WHERE id = 'run-owed'")
+        counts = {"contracts": self._contracts_overdue(), "analytics": self._analytics_overdue(),
+                  "pulse": self._pulse_overdue()}
+        self.assertEqual(set(counts.values()), {0}, f"a queued run read overdue somewhere: {counts}")
+
+    def _execute_sql(self, sql: str) -> None:
+        import sqlite3
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute(sql)
+            db.commit()
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

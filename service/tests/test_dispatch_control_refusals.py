@@ -126,13 +126,17 @@ class DispatchControlRefusalTests(FastApiTestCase):
     def test_a_control_is_refused_unless_the_run_is_claimed_or_running(self):
         """The whole status vocabulary, not one example. Against a queued run there is nothing to
         interrupt; against a finished one the control would sit `pending` with no claimer, which
-        strands the run rather than closing it."""
+        strands the run rather than closing it. An interrupt on a queued run is the one exception: the
+        service cancels it (test_a_queued_run_can_be_cancelled_by_interrupt.py)."""
         for status in RUN_STATUSES_THAT_REFUSE:
-            with self.subTest(status=status):
-                self._seed_run(f"run-{status}", status)
-                response = self._control(f"run-{status}", {"action": "interrupt", "from_agent": "op"})
-                self.assertEqual(response.status_code, 409, response.text)
-                self.assertEqual(response.json()["detail"], f"Run 'run-{status}' is not active")
+            for action in ("interrupt", "steer"):
+                if (action, status) == ("interrupt", "queued"):
+                    continue
+                with self.subTest(status=status, action=action):
+                    self._seed_run(f"run-{status}-{action}", status)
+                    response = self._control(f"run-{status}-{action}", {"action": action, "from_agent": "op"})
+                    self.assertEqual(response.status_code, 409, response.text)
+                    self.assertEqual(response.json()["detail"], f"Run 'run-{status}-{action}' is not active")
 
     def test_a_control_is_accepted_for_every_ACTIVE_status(self):
         for status in RUN_STATUSES_THAT_ACCEPT_A_CONTROL:

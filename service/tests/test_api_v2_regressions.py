@@ -9292,7 +9292,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             createMessage=True,
         )
         run_id = created["runs"][0]["runId"]
-        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z', status = 'delivered' WHERE id = ?", (run_id,))
 
         response = self.client.get("/api/v1/contracts?limit=10")
         self.assertEqual(response.status_code, 200, response.text)
@@ -9350,7 +9350,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             createMessage=True,
         )
         run_id = created["runs"][0]["runId"]
-        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z', status = 'delivered' WHERE id = ?", (run_id,))
 
         response = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
         self.assertEqual(response.status_code, 200, response.text)
@@ -9409,7 +9409,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             createMessage=True,
         )
         run_id = created["runs"][0]["runId"]
-        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z', status = 'delivered' WHERE id = ?", (run_id,))
 
         response = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
         self.assertEqual(response.status_code, 200, response.text)
@@ -9439,7 +9439,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         run_id = created["runs"][0]["runId"]
         overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
-        self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
+        self._execute("UPDATE dispatch_runs SET requested_at = ?, status = 'delivered' WHERE id = ?", (overdue_at, run_id))
         for idx in range(3):
             self._execute(
                 "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",

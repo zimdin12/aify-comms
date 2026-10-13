@@ -88,7 +88,8 @@ async def request_dispatch_control(run_id: str, req: DispatchControlRequest, req
             if await cancel_queued_dispatch_run(db, run_id, summary=f"Cancelled before delivery by {by}."):
                 await db.commit()
                 return {"ok": True, "runId": run_id, "action": action, "status": "cancelled"}
-            raise HTTPException(409, f"Run '{run_id}' was claimed or settled while cancelling; interrupt it again")
+            # Claimed or settled meanwhile: judged below as the run it now is.
+            run = await (await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))).fetchone()
         if run["status"] not in {"claimed", "running"}:
             raise HTTPException(409, f"Run '{run_id}' is not active")
 

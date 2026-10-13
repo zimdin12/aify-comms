@@ -43,7 +43,7 @@ def row(**over):
         "message_type": "request",
         "subject": "Ship the thing",
         "priority": "high",
-        "status": "queued",
+        "status": "delivered",
         "runtime": "claude-code",
         "require_reply": 1,
         "result_message_id": "",
@@ -165,7 +165,7 @@ def test_the_identifying_fields_are_passed_straight_through():
     assert serialised["type"] == "request"
     assert serialised["subject"] == "Ship the thing"
     assert serialised["priority"] == "high"
-    assert serialised["status"] == "queued"
+    assert serialised["status"] == "delivered"
     assert serialised["runtime"] == "claude-code"
     assert serialised["requireReply"] is True
 
