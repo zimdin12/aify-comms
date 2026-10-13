@@ -189,6 +189,21 @@ export function blockerText(blocker) {
   return id ? `waiting behind run ${id}${status ? ` (${status})` : ''}` : '';
 }
 
+// NO HOST DEFINES IT, so the service refuses every start, restart and reset (definition_start.undefined_refusal,
+// D8). The buttons were offered anyway and answered 409 (2026-10-14 audit, D7). Only an empty state means
+// undefined: a record from a service without the field is left to the service to judge.
+export function undefinedStartRefusal(agent) {
+  if (!agent || agent.definitionState !== '') return '';
+  return `no host defines ${agent.id || 'this agent'}; define it on its host (aify-env agents import --write), then start it`;
+}
+
+/** The attributes for a start, restart or reset button: disabled with the reason when it would be refused. */
+export function startRefusedAttrs(agent, title = '') {
+  const why = undefinedStartRefusal(agent);
+  if (why) return ` disabled title="${esc(why)}"`;
+  return title ? ` title="${esc(title)}"` : '';
+}
+
 export function runStatusContext(run) {
   const blockerReason = String(blockerText(run?.blockedByActiveRun) || run?.blockedBy || run?.error || '').trim();
   return {

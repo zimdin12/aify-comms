@@ -20,6 +20,7 @@ import { state } from './state.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
+import { startRefusedAttrs } from './status.js';
 
 let chatController = { render() {}, renderRail() {}, renderConversation() {} };
 let refreshSoon = () => {};
@@ -145,7 +146,7 @@ export function mountChatConsole(agentId, hostEl) {
       // Cold-start itself was never broken — there was simply no button. Give it one.
       : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
         + `<p>${esc(agentId)} has no worker running. Start one now — it resumes the agent's saved session if it has one, so its conversation is kept. (Sending a message also starts it.)</p>`
-        + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}">Start agent</button></div></div>`;
+        + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}"${startRefusedAttrs(agent)}>Start agent</button></div></div>`;
     return;
   }
   renderSessionConsole(session, hostEl, { source: 'chat' });

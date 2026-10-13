@@ -209,3 +209,22 @@ test("no call site pre-escapes a label into the chip", () => {
   assert.ok(callSites >= 10, `only ${callSites} call sites found; the scan has drifted`);
   assert.deepEqual(offenders, [], "a caller escapes a label the chip escapes again");
 });
+
+test("an agent no host defines is offered no start, restart or reset (D7)", async () => {
+  // The service refuses every start of it (definition_start.undefined_refusal); the buttons answered 409.
+  const { undefinedStartRefusal, startRefusedAttrs } = await import('./status.js');
+  const { startOffer } = await import('./agent-click-handlers.mjs');
+  const undefinedAgent = { id: 'loner', sessionMode: 'managed', status: 'available', definitionState: '' };
+  assert.match(undefinedStartRefusal(undefinedAgent), /no host defines loner/);
+  assert.match(startRefusedAttrs(undefinedAgent), /^ disabled title="no host defines loner/);
+  assert.deepEqual(startOffer(undefinedAgent).start, false);
+  assert.match(startOffer(undefinedAgent).why, /no host defines/);
+
+  // CONTROLS: a defined agent, and a record from a service that does not send the field, are left alone.
+  const defined = { ...undefinedAgent, definitionState: 'defined' };
+  assert.equal(startRefusedAttrs(defined), '');
+  assert.equal(startOffer(defined).start, true);
+  const older = { id: 'old', sessionMode: 'managed', status: 'available' };
+  assert.equal(undefinedStartRefusal(older), '');
+  assert.equal(startRefusedAttrs(older, 'hint'), ' title="hint"');
+});

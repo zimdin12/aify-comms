@@ -21,7 +21,7 @@
 import { continueCliDetails, resumeMachineNote } from './cli-resume.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { state, inspectorOpening } from './state.mjs';
-import { renderStatusChip, statusWhyContext } from './status.js';
+import { renderStatusChip, startRefusedAttrs, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
@@ -62,8 +62,8 @@ export function openAgentDrawer(agentId) {
   // none it switched pages onto whatever session was selected before, often another agent's.
   const actions = [
     canStart ? `<button class="primary" data-agent-action="start" data-agent-id="${esc(id)}">Start</button>` : '',
-    sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
-    sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}" title="Restart with a FRESH context (discards native session)">Reset</button>` : '',
+    sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}"${startRefusedAttrs(agent)}>Restart</button>` : '',
+    sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}"${startRefusedAttrs(agent, 'Restart with a FRESH context (discards native session)')}>Reset</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,

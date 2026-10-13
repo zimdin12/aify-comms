@@ -10,7 +10,7 @@
 
 import { api } from './api-client.mjs';
 import { requestedInAifyEnv } from './definition-request-note.mjs';
-import { resolveStatus } from './status.js';
+import { resolveStatus, undefinedStartRefusal } from './status.js';
 import { toast } from './ui.js';
 import { esc } from './util.js';
 import { state } from './state.mjs';
@@ -31,6 +31,8 @@ export function startOffer(agent) {
   if (mode !== 'managed') {
     return { start: false, why: 'resident: its terminal is the CLI you launched. Switch it to managed to start it here.' };
   }
+  const undefinedAgent = undefinedStartRefusal(agent);
+  if (undefinedAgent) return { start: false, why: undefinedAgent };
   if (status === 'stopped' || status === 'available') return { start: true, why: '' };
   if (status === 'starting') return { start: false, why: 'already starting' };
   if (status === 'misconfigured') return { start: false, why: 'misconfigured: fix its configuration first' };
