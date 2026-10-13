@@ -178,4 +178,33 @@ const USER_PENDING = { lastRole: "user", lastStopReason: null, pendingToolUse: f
   assert.equal(d.observe(USER_PENDING), "start", "(l) human answered (tool_result) -> new turn START");
 }
 
+// (m) A TAIL FOUND AT BOOT IS NO EVIDENCE OF A TURN NOW (2026-10-13). A session resumed after a kill
+//     ends on the user message it never answered; judged by structure it re-asserted working every 45 s
+//     for ever (dashboard-manager, in_turn from 2026-10-12T20:26Z). Real summaries, from both adapters.
+{
+  const { summarizeTranscriptTail } = await import("../adapters/claude.js");
+  const { summarizeCodexRolloutTail } = await import("../adapters/codex.js");
+  const claudeUser = (uuid, text) => JSON.stringify({ type: "user", uuid, message: { role: "user", content: text } });
+  const stale = summarizeTranscriptTail(claudeUser("u-before-kill", "do the thing"));
+  assert.equal(stale.lastEntry, "u-before-kill", "(m) the claude summary names the entry that decided it");
+  const d = makeTurnEndDetector();
+  for (let i = 0; i < 3; i++) assert.equal(d.observe(stale), null, `(m) boot tail still last, tick ${i} -> no START`);
+  const fresh = summarizeTranscriptTail(`${claudeUser("u-before-kill", "do the thing")}\n${claudeUser("u-now", "and this")}`);
+  assert.equal(d.observe(fresh), "start", "(m) a user line written after boot -> START as before");
+
+  const codexStarted = (ts) => JSON.stringify({ timestamp: ts, type: "event_msg", payload: { type: "task_started" } });
+  const codexStale = summarizeCodexRolloutTail(codexStarted("2026-10-12T20:26:01Z"));
+  assert.equal(codexStale.lastEntry, "2026-10-12T20:26:01Z", "(m) the codex summary names the entry that decided it");
+  const c = makeTurnEndDetector();
+  assert.equal(c.observe(codexStale), null, "(m) codex boot tail -> no START");
+  assert.equal(c.observe(summarizeCodexRolloutTail(codexStarted("2026-10-13T01:00:00Z"))), "start", "(m) codex new turn -> START");
+
+  // An ENDED boot tail still clears (proof of idle), and nothing unreadable at boot sets a watermark.
+  const ended = makeTurnEndDetector();
+  assert.equal(ended.observe({ ...ENDED("end_turn"), lastEntry: "a1" }), "end", "(m) ended boot tail -> END");
+  const blind = makeTurnEndDetector();
+  assert.equal(blind.observe(null), null, "(m) unreadable at boot");
+  assert.equal(blind.observe({ ...USER_PENDING, lastEntry: "u1" }), "start", "(m) first readable tail after a blind boot is new work");
+}
+
 console.log("turn-end-detector.test.js: all assertions passed");

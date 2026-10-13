@@ -1511,8 +1511,8 @@ agent_state_hook_command() {
 }
 
 install_codex_turn_hooks() {
-  # Claude Code's event schema. Interrupt fires INSTEAD of Stop on a cancelled turn; PermissionRequest
-  # waits for an approval, PostToolUse follows the tool. All five are events in codex-cli 0.154.0.
+  # Claude Code's event schema. Interrupt fires INSTEAD of Stop on a cancelled turn; SessionStart opens an idle
+  # session; PermissionRequest waits for an approval, PostToolUse follows the tool. All six are codex-cli events.
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local hooks_file="$codex_home/hooks.json"
   mkdir -p "$codex_home"
@@ -1552,6 +1552,7 @@ install_codex_turn_hooks() {
     wire('UserPromptSubmit', startCmd);
     wire('Stop', endCmd);
     wire('Interrupt', endCmd);
+    wire('SessionStart', endCmd);
     wire('PermissionRequest', blockedCmd);
     wire('PostToolUse', unblockedCmd);
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
@@ -1761,11 +1762,9 @@ install_claude_turn_end_hook() {
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
     const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'claude-stop-gate.js', 'agent-state-event.mjs'];
-    const wireTurnEnd = (eventKey, matcher = '', command = gateCommand) => {
+    const wireTurnEnd = (eventKey, matcher = '', command = gateCommand, alongside = false) => {
       if (!Array.isArray(settings.hooks[eventKey])) settings.hooks[eventKey] = [];
-      settings.hooks[eventKey] = settings.hooks[eventKey].filter(
-        h => !OURS.some(marker => JSON.stringify(h).includes(marker))
-      );
+      if (!alongside) settings.hooks[eventKey] = settings.hooks[eventKey].filter(h => !OURS.some(m => JSON.stringify(h).includes(m)));
       const group = {
         hooks: [{ type: 'command', command, timeout: 3, async: true }]
       };
@@ -1778,6 +1777,8 @@ install_claude_turn_end_hook() {
     // "compact". Clear the old turn there; if Claude continues the same logical
     // turn, the next real PostToolUse re-asserts /turn-start immediately.
     wireTurnEnd('SessionStart', 'compact');
+    // A started/resumed/cleared session is idle. Ungated: a resumed-after-kill tail reads in flight to the gate.
+    wireTurnEnd('SessionStart', 'startup|resume|clear', endCommand, true);
     // An API error ends the turn with StopFailure and no Stop. No transcript gate: the turn is over.
     wireTurnEnd('StopFailure', '', endCommand);
     wireTurnEnd('PermissionRequest', '', blockedCommand);
