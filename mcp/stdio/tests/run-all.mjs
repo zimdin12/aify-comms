@@ -116,12 +116,16 @@ function runOne(file) {
     // ITS OWN TEMP ROOT. `os.tmpdir()` reads these at CALL time, in this process and in every
     // launcher, bridge and daemon the test spawns, so one variable isolates a whole tree.
     const fileTemp = mkdtempSync(join(tempRoot, `f-`));
+    // As late as the runner can ask: a child of this file cannot be born before this instant. ponytail: a pid that a
+    // stranger takes and gives back inside this one spawn call, having named this file's new temp folder, would still
+    // pass; closing that needs each file's native birth, one process-table read per file (review of 0.9.1, F1).
+    const askedAt = Date.now();
     const child = spawn(process.execPath, [file], {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...childEnv, TMPDIR: fileTemp, TEMP: fileTemp, TMP: fileTemp },
     });
-    const life = { startedAt, exitedAt: undefined };
+    const life = { startedAt: askedAt, exitedAt: undefined };
     if (child.pid) spawned.set(child.pid, life);
     // `exit`, not `close`: close waits for every holder of the pipes, which can be the very leftovers swept for.
     child.on("exit", () => { life.exitedAt = Date.now(); });
