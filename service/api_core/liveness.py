@@ -359,18 +359,24 @@ async def _outside_its_environment(db, agent_row) -> str:
     """Why this managed agent's environment will refuse to start it, or "". aify-env starts work only below the
     folder it was started in and advertises that; a workspace outside it is refused on every start until aify-env is
     started elsewhere (0.9.2 status fix C, Steven: "should not be available if env does not allow running")."""
-    state = agent_row["runtime_state"] if "runtime_state" in agent_row.keys() else ""
-    environment_id = str(_json_loads_or(state, {}).get("environmentId") or "").strip()
-    if not environment_id:
-        return ""
     # A DEFINED agent's own workspace: aify-env starts only definitions (0.9 D8), and the definition, not the record's
     # cwd, is what it is started from. An undefined agent is not started for its own reason.
     definition = await (await db.execute(
-        "SELECT body FROM agent_definitions WHERE agent_id = ?", (agent_row["id"],))).fetchone()
+        "SELECT body, machine_id FROM agent_definitions WHERE agent_id = ?", (agent_row["id"],))).fetchone()
     workspace = str(_json_loads_or(definition["body"], {}).get("workspace") or "") if definition else ""
     if not workspace:
         return ""
-    env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+    # THE ENVIRONMENT THAT WOULD START IT: the one its last start was bound to, else the newest on the machine that holds
+    # its definition, since that host's aify-env is what starts definitions. The binding alone missed every agent defined
+    # but never started, which is when the operator tries to start one (whole-diff review of 0.9.2).
+    state = agent_row["runtime_state"] if "runtime_state" in agent_row.keys() else ""
+    environment_id = str(_json_loads_or(state, {}).get("environmentId") or "").strip()
+    env = None
+    if environment_id:
+        env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+    if env is None:
+        env = await (await db.execute("SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC LIMIT 1",
+                                      (definition["machine_id"],))).fetchone()
     if env is None:
         return ""
     metadata = _json_loads_or(env["metadata"], {})

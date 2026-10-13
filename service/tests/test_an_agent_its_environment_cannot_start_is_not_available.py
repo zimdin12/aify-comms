@@ -134,3 +134,40 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         self.assertEqual(self.status("outside")[0], "available", "the control: no bound, no judgement")
         self.client.post("/api/v1/environments/heartbeat", json={"id": "win32:host:default", **body}).raise_for_status()
         self.assertEqual(self.status("outside")[0], "misconfigured")
+
+
+class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
+    """Whole-diff review of 0.9.2: only a stored environmentId was read, and a definition published but never started
+    has none, so it read available while every start of it would be refused. Published the real way, as aify-env does."""
+
+    ENV = {"environment_id": "win32:fixture:default", "machine_id": "win32:fixture", "bridge_id": "env-bridge"}
+
+    def setUp(self):
+        super().setUp()
+        self.client.post("/api/v1/environments/heartbeat", json={
+            "id": self.ENV["environment_id"], "machineId": self.ENV["machine_id"], "os": "win32", "kind": "win32",
+            "bridgeId": self.ENV["bridge_id"], "runtimes": [],
+            "metadata": {"terminal": True, "pty": True, "terminalRuntimes": ["hermes"], "launchRoots": ["C:/allowed"]},
+        }).raise_for_status()
+
+    def status_of(self, workspace):
+        from service.tests.defined_agents import _defined_on, definition_entry, publish
+        _defined_on(self, self.ENV["machine_id"])["lead"] = definition_entry(
+            "lead", runtime="hermes", workspace=workspace, mode="managed", revision=1)
+        publish(self, **self.ENV)
+        db = sqlite3.connect(self._db_path)
+        try:
+            state = db.execute("SELECT runtime_state FROM agents WHERE id = 'lead'").fetchone()[0]
+        finally:
+            db.close()
+        self.assertNotIn("environmentId", json.loads(state or "{}"), "the fixture is no longer an unbound agent")
+        agent = self.client.get("/api/v1/agents").json()["agents"]["lead"]
+        return agent["status"], agent.get("statusNote") or ""
+
+    def test_outside_the_folder_it_reads_misconfigured(self):
+        status, note = self.status_of("C:/work")
+        self.assertEqual(status, "misconfigured", note)
+        self.assertIn("outside the folder aify-env was started in (C:/allowed)", note)
+
+    def test_inside_the_folder_it_stays_available(self):
+        self.assertEqual(self.status_of("C:/allowed/work")[0], "available")
