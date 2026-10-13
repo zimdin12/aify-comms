@@ -323,9 +323,6 @@ test("a section that throws EVERY time is retried every time", () => {
 // terminal, the runtime pills, the workspace roots and five metadata keys. A field the renderer
 // reads and the signature omits makes the section go blind: the datum changes, the memo sees an
 // identical signature, and the screen keeps the old answer with nothing saying it is stale.
-// `staleBridgeBadge` was the casualty — a badge added specifically because "nothing on any screen
-// said so" when a bridge ran 231 commits behind the service, rendered from `metadata.bridgeBuild`,
-// which the signature did not carry. It could not appear.
 //
 // These are BEHAVIOURAL: each case mutates one field and asserts the signature moves. A test that
 // read the signature's source text would pass on a signature that named a field it never used.
@@ -334,7 +331,7 @@ const envWith = (over) => ({
   id: 'env-1', status: 'online', label: 'box', kind: 'windows', os: 'win32',
   machineId: 'win32:box', terminal: true, pty: true,
   runtimes: [{ runtime: 'claude-code', available: true }], cwdRoots: ['/a'],
-  metadata: { bridgeBuild: 'aaaaaaa', unknownProcesses: 0, terminalReason: '', manual: false, manualRoots: [] },
+  metadata: { terminalReason: '', manual: false, manualRoots: [] },
   ...over,
 });
 
@@ -353,8 +350,6 @@ test("every environment field renderRuntime reads moves the signature", () => {
     os: { os: 'linux' },
     machineId: { machineId: 'linux:box' },
     terminal: { terminal: false },
-    'metadata.bridgeBuild': { metadata: { ...envWith({}).metadata, bridgeBuild: 'bbbbbbb' } },
-    'metadata.unknownProcesses': { metadata: { ...envWith({}).metadata, unknownProcesses: 6 } },
     'metadata.terminalReason': { metadata: { ...envWith({}).metadata, terminalReason: 'no pty' } },
     'metadata.manualRoots': { metadata: { ...envWith({}).metadata, manualRoots: ['/z'] } },
     runtimes: { runtimes: [{ runtime: 'codex', available: false }] },

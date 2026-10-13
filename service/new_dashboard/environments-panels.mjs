@@ -54,7 +54,6 @@ import { renderStatusChip, resolveStatus, spawnClaim, statusWhyContext } from '.
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime, relTimeHtml } from './util.js';
-import { serviceBuildShort } from './version-badge.mjs';
 
 /**
  * ` · last seen 83d ago`, for an environment that is not answering. Empty for everything else.
@@ -106,17 +105,6 @@ export function staleDefinitionsBadge(env) {
   const title = 'These agent definitions still govern as last pushed. aify-env on that machine pushes '
     + 'every minute while it runs: check it is running and current (aify-env doctor there).';
   return `<span class="mb mb-warn" title="${esc(title)}">${esc(notice)}</span>`;
-}
-
-export function staleBridgeBadge(env, serviceBuild = serviceBuildShort()) {
-  const bridgeBuild = String((env && env.metadata && env.metadata.bridgeBuild) || '').trim();
-  const service = String(serviceBuild || '').trim();
-  if (!bridgeBuild || !service || bridgeBuild === service) return '';
-  const title = `This environment's bridge is running build ${bridgeBuild}; the service was built `
-    + `from ${service}. Bridge changes since then are NOT live here. Relaunch the environment `
-    + `bridge to pick them up -- reinstalling alone does not, because a running bridge keeps the `
-    + `code it loaded at boot.`;
-  return `<span class="mb mb-warn" title="${esc(title)}">bridge build ${esc(bridgeBuild)} \u2260 service ${esc(service)}</span>`;
 }
 
 /**
@@ -177,33 +165,11 @@ export function terminalReasonNote(env) {
   return `<p class="subtle env-terminal-reason">No terminal: ${esc(reason)}</p>`;
 }
 
-/**
- * A badge when this environment is running processes the bridge does not know about.
- *
- * THE NUMBER THAT WOULD HAVE SHOWN THE ORPHAN. The operator watched a live PTY under aify-env --
- * `claude-aify --aify-agent ef-manager`, pid 155844 -- that no screen would display, and asked for
- * exactly this: "aify-env side running process visibility, to catch orphans like that".
- *
- * ZERO AND ABSENT ARE DIFFERENT, and only one of them is a fact. A bridge that reached aify-env and
- * accounts for everything reports 0; a bridge that could not ask reports nothing at all, and a card
- * showing "0 unknown" for the second would be claiming knowledge nobody has. Neither renders a
- * badge -- the difference matters to what we DO NOT say.
- */
-export function unknownProcessBadge(env) {
-  const count = env?.metadata?.unknownProcesses;
-  if (typeof count !== 'number' || !Number.isFinite(count) || count < 1) return '';
-  const noun = count === 1 ? 'process' : 'processes';
-  const title = `aify-env on this host is running ${count} ${noun} that the bridge has no terminal `
-    + `for. They hold a session nothing can address and nothing will reap. Run `
-    + `aify-comms doctor: it names them under env-processes.`;
-  return `<span class="mb mb-warn" title="${esc(title)}">${count} unaccounted ${esc(noun)}</span>`;
-}
-
 export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
-      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${staleCodeBadge(env)}${unknownProcessBadge(env)}${staleDefinitionsBadge(env)}</p>
+      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleCodeBadge(env)}${staleDefinitionsBadge(env)}</p>
       ${terminalReasonNote(env)}
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}

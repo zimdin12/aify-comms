@@ -10,19 +10,6 @@ import { apiOrigin } from './api-client.mjs';
 import { byId } from './ui.js';
 import { esc } from './util.js';
 
-// WHAT THE SERVICE IS BUILT FROM, remembered by the module that already fetches it.
-//
-// It lives here rather than in `state` because this module is the only thing that reads `/version`, so it is state with an owner rather than state at large.
-//
-// EMPTY UNTIL A FETCH SUCCEEDS, and empty is never compared against. A reader that treated the
-// absence of a build as a mismatch would warn on every dashboard load before the first poll.
-let serviceBuild = '';
-
-/** The service's short build sha, or '' if `/version` has not answered yet. */
-export function serviceBuildShort() {
-  return serviceBuild;
-}
-
 export async function loadVersionBadge() {
   const badge = byId('version-badge');
   if (!badge) return;
@@ -32,8 +19,6 @@ export async function loadVersionBadge() {
     const v = await res.json();
     const behind = Number(v?.update?.behind_by || 0);
     const short = esc(v.sha_short || v.sha || '?');
-    // Recorded before the badge is painted, so a reader that runs in the same tick sees it.
-    serviceBuild = String(v.sha_short || v.sha || '').trim();
     const branch = esc(v.branch || '');
     badge.textContent = behind > 0 ? `${short} · ${behind} behind` : short;
     badge.classList.toggle('behind', behind > 0);
@@ -43,11 +28,5 @@ export async function loadVersionBadge() {
   } catch (_) {
     badge.textContent = '';
     badge.title = 'Build version unavailable';
-    // FORGOTTEN TOO. The badge blanks itself here rather than leaving the last good value on screen,
-    // for the reason this file opens with: the failure that matters is showing something REASSURING
-    // when it knows nothing. The remembered build is read by `staleBridgeBadge` to decide whether a
-    // bridge is on a different build, so keeping a stale one would have it compare against a service
-    // sha that may no longer be what is running. Empty is never compared against.
-    serviceBuild = '';
   }
 }

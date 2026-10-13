@@ -67,10 +67,7 @@ export function renderSection(key, signature, renderFn) {
 // `[id, status, label]`, while the sections they gate render a good deal more than that. A field the
 // renderer reads and the signature omits makes that section go BLIND: the data changes, the memo
 // sees an identical signature, and the screen keeps showing the old answer with nothing indicating
-// it is stale. `staleBridgeBadge` is the sharpest case — it exists because an operator restarted
-// aify-env twice against a bridge 231 commits behind the service and "nothing on any screen said
-// so", and it is rendered from `metadata.bridgeBuild`, which `_envSig` did not carry. The badge
-// built to end that silence could not appear.
+// it is stale.
 //
 // RELATIVE TIMES ARE DELIBERATELY NOT SOLVED HERE. `offlineAge` renders "last seen 4m ago", which
 // must change as the clock advances even when no datum does. No signature can express that: adding
@@ -88,7 +85,7 @@ export const _envSig = () => state.environments.map((e) => [
   // The metadata keys `environments-panels.mjs` actually reads. The blob is NOT stringified whole:
   // it also carries `bridgeLastSeen`, which is rewritten every 30 seconds by the environment
   // heartbeat, so a whole-blob signature would repaint both environment sections on every poll.
-  e.metadata?.bridgeBuild, e.metadata?.unknownProcesses, e.metadata?.terminalReason,
+  e.metadata?.terminalReason,
   e.metadata?.manual, JSON.stringify(e.metadata?.manualRoots ?? null),
   // Runtime pills and workspace roots are rendered per environment and change when a host is
   // re-described — which, since aify-env began advertising, happens without the status moving.
