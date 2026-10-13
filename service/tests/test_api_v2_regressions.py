@@ -5630,6 +5630,29 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(spec["environment_id"], "linux:new-host:default")
         self.assertEqual(spec["workspace"], "/newroot/project")
 
+    def test_an_unchanged_assignment_leaves_a_running_agent_alone(self):
+        # The dashboard's edit form re-posted the current environment on every Save, which marked the
+        # running session lost and the agent offline when only its description changed (2026-10-14, D3).
+        self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])
+        self._register("steady", role="coder", runtime="codex", cwd="/newroot/project", sessionMode="resident")
+        body = {"environmentId": "linux:new-host:default", "runtime": "codex", "workspace": "/newroot/project"}
+        self.assertEqual(self.client.post("/api/v1/agents/steady/environment", json=body).status_code, 200)
+        self._execute("UPDATE agent_sessions SET status = 'running' WHERE agent_id = ?", ("steady",))
+        self._execute("UPDATE agents SET status = 'working' WHERE id = ?", ("steady",))
+
+        again = self.client.post("/api/v1/agents/steady/environment", json=body)
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertIs(again.json().get("changed"), False)
+        self.assertEqual(self._fetchone("SELECT status FROM agent_sessions WHERE agent_id = ?", ("steady",))["status"], "running")
+        self.assertEqual(self._fetchone("SELECT status FROM agents WHERE id = ?", ("steady",))["status"], "working")
+
+        # CONTROL: a real change on the same environment still applies.
+        moved = self.client.post("/api/v1/agents/steady/environment", json={**body, "workspace": "/newroot/other"})
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertNotIn("changed", moved.json())
+        self.assertEqual(self._fetchone("SELECT cwd FROM agents WHERE id = ?", ("steady",))["cwd"], "/newroot/other")
+        self.assertEqual(self._fetchone("SELECT status FROM agent_sessions WHERE agent_id = ?", ("steady",))["status"], "lost")
+
     def test_assign_agent_environment_adopts_resident_agent_with_session_record(self):
         self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])
         self._register(

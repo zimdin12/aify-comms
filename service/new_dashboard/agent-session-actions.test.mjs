@@ -565,6 +565,28 @@ test("submitAgentEdit sends only the fields that changed, and a declined rename 
   } finally { declined.restore(); }
 });
 
+test("SAVE DOES NOT RE-ASSIGN THE ENVIRONMENT THE FORM PRESELECTED (2026-10-14, D3)", async () => {
+  // The service marks a running session lost and the agent offline on an assignment, so re-posting the
+  // current environment on every Save knocked a working agent over when only its description changed.
+  const kept = { "edit-agent-id": "coder", "edit-agent-desc": "new words", "edit-agent-handle": "",
+    "edit-agent-env": "env-1", "edit-agent-runtime": "codex", "edit-agent-workspace": "/w" };
+  const managed = [{ id: "coder", runtime: "codex", cwd: "/w", runtimeState: { environmentId: "env-1" } }];
+  const same = withActions({ confirm: true, fields: kept });
+  state.agents = managed;
+  try {
+    await submitAgentEdit("coder");
+    assert.deepEqual(mutating(same), ["PATCH /agents/coder/description"]);
+  } finally { same.restore(); }
+
+  // CONTROL: another environment is a real request.
+  const moved = withActions({ confirm: true, fields: { ...kept, "edit-agent-env": "env-2" } });
+  state.agents = managed;
+  try {
+    await submitAgentEdit("coder");
+    assert.deepEqual(mutating(moved), ["PATCH /agents/coder/description", "POST /agents/coder/environment"]);
+  } finally { moved.restore(); }
+});
+
 // --- a failed mode switch is a toast, not a JSON drawer (v0.7 C16) ------------------------------------
 
 test("A MODE SWITCH THAT CANNOT REACH THE SERVICE SAYS SO IN A TOAST, not a JSON drawer", async () => {

@@ -116,6 +116,29 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         latest_session_handle = str((latest_session["session_handle"] if latest_session else "") or "").strip()
         agent_runtime_state = _json_loads_or(agent["runtime_state"], {})
         state_handle = _runtime_handle_from_state(previous_runtime, agent_runtime_state)
+        # AN UNCHANGED ASSIGNMENT CHANGES NOTHING. The dashboard's edit form re-posted the current
+        # environment on every Save, and the rewrite below marked running sessions lost and the agent
+        # offline even when only its description had changed (2026-10-14 audit, D3). Compared on the
+        # whole resolved assignment, so a same-environment change of workspace, model or config applies.
+        if (
+            str(agent["session_mode"] or "") == "managed"
+            and latest_session is not None
+            and str(latest_session["environment_id"] or "") == environment_id
+            and previous_runtime == runtime
+            and str(agent["cwd"] or "") == workspace
+            and str(agent["model"] or "") == model
+            and _json_loads_or(agent["runtime_config"], {}) == runtime_config
+            and _normalize_machine_id(agent["machine_id"] or "") == _normalize_machine_id(environment.get("machineId"))
+        ):
+            return {
+                "ok": True,
+                "agentId": agent_id,
+                "environmentId": environment_id,
+                "runtime": runtime,
+                "workspace": workspace,
+                "spawnSpecId": str(latest_session["spawn_spec_id"] or ""),
+                "changed": False,
+            }
         preserve_handle = ""
         if previous_runtime == runtime:
             preserve_handle = str(agent["session_handle"] or latest_session_handle or state_handle or "").strip()

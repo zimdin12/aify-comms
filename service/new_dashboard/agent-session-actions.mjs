@@ -108,10 +108,16 @@ export async function submitAgentEdit(agentId) {
       await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
     }
     const envId = byId('edit-agent-env')?.value.trim() || '';
+    const runtime = byId('edit-agent-runtime')?.value.trim() || '';
+    const workspace = byId('edit-agent-workspace')?.value.trim() || '';
+    // The form preselects the CURRENT environment, runtime and workspace, so posting whenever one is
+    // selected re-assigned the agent on every Save (2026-10-14 audit, D3). Only a change is a request.
+    const currentEnv = String(agent.runtimeState?.environmentId || agent.runtimeConfig?.environmentId || '');
+    const assignmentChanged = envId !== currentEnv
+      || runtime !== String(agent.runtime || 'generic')
+      || workspace !== String(agent.cwd || '');
     let requested = '';
-    if (envId) {
-      const runtime = byId('edit-agent-runtime')?.value.trim() || '';
-      const workspace = byId('edit-agent-workspace')?.value.trim() || '';
+    if (envId && assignmentChanged) {
       const body = { environmentId: envId };
       if (runtime) body.runtime = runtime;
       if (workspace) body.workspace = workspace;
