@@ -198,7 +198,8 @@ test("a rollout's tail is summarised into the detector's shape", async () => {
   clearSessions();
   writeRollout(`rollout-${ID}.jsonl`, { content: `${TASK_STARTED}\n${TASK_COMPLETE}\n` });
   const tail = await adapter().transcriptTail({ sessionId: ID });
-  assert.deepEqual(tail, { lastRole: "assistant", lastStopReason: "end_turn", pendingToolUse: false });
+  // `lastEntry` names the deciding line, so the turn detector can tell a tail it found at boot from new work.
+  assert.deepEqual(tail, { lastRole: "assistant", lastStopReason: "end_turn", pendingToolUse: false, lastEntry: TASK_COMPLETE });
 });
 
 test("an EMPTY rollout is the zero summary, not null", async () => {
@@ -271,7 +272,7 @@ test("the summariser is reachable on its own and agrees with the tail read", () 
   // It is exported and tested elsewhere; asserted here only so the two halves of this path are known
   // to compose — the file read produces exactly what the summariser consumes.
   assert.deepEqual(summarizeCodexRolloutTail(`${TASK_STARTED}\n`),
-    { lastRole: "user", lastStopReason: null, pendingToolUse: false });
+    { lastRole: "user", lastStopReason: null, pendingToolUse: false, lastEntry: TASK_STARTED });
 });
 
 test.after(() => {

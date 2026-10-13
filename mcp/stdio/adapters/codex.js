@@ -221,13 +221,15 @@ export function summarizeCodexRolloutTail(text) {
     if (!o || typeof o !== "object") continue;
     const payload = o.payload && typeof o.payload === "object" ? o.payload : null;
     const ptype = payload ? payload.type : null;
+    // Which entry decided this summary, so the detector can tell a tail it found at boot from new work.
+    const lastEntry = String(o.timestamp || line);
     if (o.type === "event_msg") {
       if (CODEX_TERMINAL_EVENTS.has(ptype)) {
         // task_complete or an abnormal end (abort/error) → the turn yielded.
-        return { lastRole: "assistant", lastStopReason: "end_turn", pendingToolUse: false };
+        return { lastRole: "assistant", lastStopReason: "end_turn", pendingToolUse: false, lastEntry };
       }
       if (ptype === "task_started") {
-        return { lastRole: "user", lastStopReason: null, pendingToolUse: false };
+        return { lastRole: "user", lastStopReason: null, pendingToolUse: false, lastEntry };
       }
       if (CODEX_BOOKKEEPING_EVENTS.has(ptype)) continue; // skip, keep walking
       continue; // any other event_msg: not a turn-state edge, keep walking
@@ -236,10 +238,10 @@ export function summarizeCodexRolloutTail(text) {
       if (ptype === "message") {
         const role = payload.role === "assistant" ? "assistant" : "user";
         // An assistant message with no following task_complete is still mid-turn.
-        return { lastRole: role, lastStopReason: null, pendingToolUse: role === "assistant" };
+        return { lastRole: role, lastStopReason: null, pendingToolUse: role === "assistant", lastEntry };
       }
       // function_call / function_call_output / reasoning / local_shell_call / etc.
-      return { lastRole: "assistant", lastStopReason: null, pendingToolUse: true };
+      return { lastRole: "assistant", lastStopReason: null, pendingToolUse: true, lastEntry };
     }
     // session metadata header or unknown line type -> not turn-state, keep walking
   }

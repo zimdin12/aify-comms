@@ -315,8 +315,10 @@ export function summarizeTranscriptTail(text) {
     // last REAL message. A genuine prompt that merely CARRIES a system-reminder still has its
     // own text, so it is untouched.
     if (role === "user" && isBookkeepingUserMessage(msg)) continue;
+    // Which entry decided this summary, so the detector can tell a tail it found at boot from new work.
+    const lastEntry = String(obj.uuid || obj.timestamp || line);
     if (role === "user" && isInterruptMarker(msg)) {
-      return { lastRole: "user", lastStopReason: null, pendingToolUse: false, pendingToolNames: [], interrupted: true };
+      return { lastRole: "user", lastStopReason: null, pendingToolUse: false, pendingToolNames: [], interrupted: true, lastEntry };
     }
     const stopReason = msg && typeof msg.stop_reason !== "undefined" ? msg.stop_reason : null;
     let pendingToolUse = false;
@@ -333,7 +335,7 @@ export function summarizeTranscriptTail(text) {
         }
       }
     }
-    return { lastRole: role, lastStopReason: stopReason ?? null, pendingToolUse, pendingToolNames };
+    return { lastRole: role, lastStopReason: stopReason ?? null, pendingToolUse, pendingToolNames, lastEntry };
   }
   return empty;
 }

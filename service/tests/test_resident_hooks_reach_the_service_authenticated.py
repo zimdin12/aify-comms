@@ -280,7 +280,6 @@ CLAUDE_WIRING = {
     "UserPromptSubmit": 'agent-state-event.mjs" turn-start',
     "PostToolUse": 'agent-state-event.mjs" turn-start',
     "Stop": "claude-stop-gate.js",
-    "SessionStart": "claude-stop-gate.js",
     "StopFailure": 'agent-state-event.mjs" turn-end',
     "PermissionRequest": 'agent-state-event.mjs" blocked',
 }
@@ -289,6 +288,7 @@ CODEX_WIRING = {
     "UserPromptSubmit": 'agent-state-event.mjs" turn-start',
     "Stop": 'agent-state-event.mjs" turn-end',
     "Interrupt": 'agent-state-event.mjs" turn-end',
+    "SessionStart": 'agent-state-event.mjs" turn-end',
     "PermissionRequest": 'agent-state-event.mjs" blocked',
     "PostToolUse": 'agent-state-event.mjs" unblocked',
 }
@@ -305,7 +305,13 @@ def test_claude_hooks_replace_the_curl_entries_once_and_keep_the_users(installed
         _one_aify(_commands(hooks.get(event)), needle)
         # In the background, so a prompt and a tool call never wait on the service (hook_event_order.py).
         assert _aify_hook(hooks[event]).get("async") is True, event
-    assert [g.get("matcher") for g in hooks["SessionStart"]] == ["compact"]
+    # Compaction may continue the turn, so it is gated; a started, resumed or cleared session is idle, and a
+    # session resumed after a kill ends on a user message the gate would read as a turn in flight (2026-10-13).
+    starts = {g.get("matcher"): _commands([g]) for g in hooks["SessionStart"]}
+    assert set(starts) == {"compact", "startup|resume|clear"}, starts
+    _one_aify(starts["compact"], "claude-stop-gate.js")
+    _one_aify(starts["startup|resume|clear"], 'agent-state-event.mjs" turn-end')
+    assert all(h.get("async") is True for g in hooks["SessionStart"] for h in g["hooks"])
     assert "echo mine" in _commands(hooks["PostToolUse"])
     assert "echo mine" in _commands(hooks["PermissionRequest"])
 

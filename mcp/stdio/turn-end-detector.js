@@ -112,19 +112,31 @@ export function makeTurnEndDetector() {
   // detector booted). An "unknown" tick never changes `last`, preserving the
   // edge across a transient unreadable read.
   let last = null;
+  // THE TAIL THIS DETECTOR FOUND AT BOOT (its `lastEntry`), or null when it found none. An in-flight
+  // tail still ending in that entry was written before this session: a session resumed after a kill
+  // ends on the user message it never answered, and judged by structure alone it re-asserted
+  // working every 45 s for ever (dashboard-manager, in_turn from 2026-10-12T20:26Z). It is no
+  // evidence of a turn now; anything written after boot is judged as before.
+  let booted = false;
+  let bootEntry = null;
 
   return {
     // observe(summary): feed one structural tail summary
-    // ({ lastRole, lastStopReason, pendingToolUse } | null). Returns a directive
+    // ({ lastRole, lastStopReason, pendingToolUse, lastEntry } | null). Returns a directive
     // exactly on a transition tick:
     //   "start" -> POST /turn-start (set working)
     //   "end"   -> POST /turn-end   (clear working)
     //   null    -> no action this tick.
     observe(summary) {
       const state = classify(summary);
+      if (!booted) {
+        booted = true;
+        bootEntry = state === "unknown" ? null : (summary.lastEntry ?? null);
+      }
       // Unknown / unreadable: not evidence of anything. Do not fire and do not
       // change last state (edge-preservation across a transient).
       if (state === "unknown") return null;
+      if (state === "in-flight" && bootEntry !== null && summary.lastEntry === bootEntry) return null;
       if (state === last) return null; // steady state -> idempotent, no fire.
       // A real transition: record it and emit the matching directive once.
       last = state;
