@@ -100,7 +100,7 @@ every run for that agent.
   [install.claude.md](install.claude.md#windows).
 - The bridge runtime, copied to `~/.aify-comms` (`AIFY_HOME` overrides). An edit under `mcp/stdio/`
   reaches agents only after `install.sh` re-runs and the agents relaunch.
-- Turn hooks in `$CODEX_HOME/hooks.json`: `UserPromptSubmit` (start), `Stop` and `Interrupt` (end),
+- Turn hooks in `$CODEX_HOME/hooks.json`: `UserPromptSubmit` (start), `Stop`, `Interrupt` and `SessionStart` (end),
   `PermissionRequest` (blocked) and `PostToolUse` (unblocked), posting through
   `agent-state-event.mjs`, which carries the API key. Codex runs hooks only with `hooks = true` under
   `[features]` in `config.toml`; the installer writes it, and renames an older `codex_hooks` key.

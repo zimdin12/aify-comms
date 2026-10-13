@@ -128,7 +128,7 @@ The dashboard is the operator. Answer a dashboard message with `comms_send(to="d
 
 ## Compacting
 
-- `comms_compact(from="<your-id>", targetAgentId="...")` defaults to `mode="handoff"`: a fresh session told its old session id and to read its last `recentMessages` (10) messages; same agent ID unless `newAgentId`. A defined agent into its own id restarts from its definition; another runtime, workspace or environment is refused.
+- `comms_compact(from="<your-id>", targetAgentId="...")` defaults to `mode="handoff"`: a fresh session told its old session id and to read its last `recentMessages` (10) messages; same agent ID unless `newAgentId`. A defined agent into its own id restarts from its definition; another runtime, workspace or host is refused.
 - `mode="native"` types the runtime's own `/compact` (hermes `/compress`) into a managed, idle agent's console and keeps its session. Caveats: `references/leading-a-team.md`.
 
 ## Tool Map

@@ -102,7 +102,8 @@ many start at once, leaving the channel server unregistered and messages undeliv
   point at that copy, so an edit under `mcp/stdio/` reaches agents only after `install.sh` re-runs and
   the agents relaunch.
 - Turn hooks in `~/.claude/settings.json`, always: `UserPromptSubmit` and `PostToolUse` (turn start),
-  `Stop` through `claude-stop-gate.js`, `SessionStart` on compact and `StopFailure` (turn end), and
+  `Stop` through `claude-stop-gate.js`, `SessionStart` (compact, startup, resume, clear) and `StopFailure`
+  (turn end), and
   `PermissionRequest` (blocked). They post through `agent-state-event.mjs`, which carries the API key,
   and do nothing in a session without `AIFY_AGENT_ID`. The bridge also reads the transcript to set and
   clear `working` when a hook does not fire.

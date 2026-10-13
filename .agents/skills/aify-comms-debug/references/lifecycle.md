@@ -15,8 +15,8 @@ console: use its run interrupt, or relaunch it from its own terminal.
 
 ## Lifecycle verbs
 
-For a DEFINED agent (0.9) start, stop, restart, reset, kill, spawn and delete are requests its host
-claims: one `agent_lifecycle_requests` row each, outcome `done`, `refused` (reason named) or `failed`.
+For a DEFINED agent start, stop, restart, reset, kill, spawn and delete are requests its host
+claims: one `agent_lifecycle_requests` row each, status `done`, `refused` or `failed`, why in `outcome`.
 
 | Verb | Meaning |
 |---|---|

@@ -64,7 +64,7 @@ const CEILINGS = {
   // a nested `claude` without your identity.
   // 12_720 -> 12_592 -> 12_578 on 2026-09-27 (0.7.5): the tool map lost the three tools the operator
   // removed, and the Compacting section names the native mode in place of the mode="internal" caveat.
-  "aify-comms/SKILL.md": 10_693,
+  "aify-comms/SKILL.md": 10_686,
   "aify-comms/references/building-software.md": 3_948,
   // 15_758 -> 15_819 on 2026-09-27 (0.7.5), a raise: the operator asked for native compaction, and
   // the compact bullet now describes two modes and when native is refused instead of one mode and a
@@ -95,7 +95,7 @@ const CEILINGS = {
   "aify-comms-debug/references/dispatch-delivery.md": 6_774,
   "aify-comms-debug/references/dispatch-launch.md": 5_031,
   "aify-comms-debug/references/hermes.md": 8_847,
-  "aify-comms-debug/references/lifecycle.md": 6_459,
+  "aify-comms-debug/references/lifecycle.md": 6_455,
   "aify-comms-debug/references/pi.md": 2_152,
   "aify-comms-debug/references/status-model.md": 10_059,
 };

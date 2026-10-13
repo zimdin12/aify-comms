@@ -41,9 +41,10 @@ is the one aify-env reports in its own heartbeat (`metadata.launchRoots`), kept 
 No report means no judgement.
 
 **A transcript tail found at boot is not a turn (0.9.2).** A session resumed after a kill had a user-role tail
-from before it started, and the detector re-asserted `working` every 45 s for ever. The detector remembers the
-entry it saw at boot and starts nothing from it; Claude `SessionStart` (startup, resume, clear) and Codex
-`SessionStart` end any open turn.
+from before it started, and the detector re-asserted `working` every 45 s for ever. The detector reads the tail
+when it arms and starts nothing from an in-flight entry it found then, until the tail moves; an ended tail holds
+nothing back. A turn genuinely in flight at that moment is held back too, which cannot be told apart from an
+abandoned one. Claude `SessionStart` (startup, resume, clear) and Codex `SessionStart` end any open turn.
 
 ## aify-env owns the agents; this service holds a copy (2026-09-30, 0.8)
 
