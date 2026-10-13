@@ -5,8 +5,8 @@ test_install_hermes_session_rediscover.py — we pin the emitted code shape
 because a real hermes gateway can't be spun up in CI.
 
 Covers:
-  P1 — kill-prior must ALSO reap the prior `hermes --tui --resume <pinned>`
-       visible TUI, scoped to the EXACT pinned resume handle, PRE-spawn ONLY.
+  P1 — kill-prior ends no TUI by its session id: a previous launch's TUI is the
+       lease's to end, and a window nothing launched for the agent is left alone.
   P3 — the resident branch must tear down its api_server daemon when the
        resident TUI exits (no bare `exec`/Invoke that skips the teardown).
 """
