@@ -34,6 +34,14 @@ kept as evidence. Last reviewed 2026-10-13.
   for Windows. The dev reproduced it with a fake table, not on the live host. A recheck of the table before the kill only
   narrows it; closing it needs a handle-bound kill (open the process, check its creation time, terminate that
   handle). Unlike F1 above, this is a production caller, not the test runner.
+- **Reply reminders pile up on an agent that cannot take them (found 2026-10-13).** dashboard-senior-dev had no delivery
+  loop and read online. A request to it went unanswered from 02:06Z, and by 15:41Z the overdue sweep
+  (`service/api_core/dispatch_sweeps.py`) had stored 79 "Reminder: reply overdue" messages, each subject nesting the
+  previous. Each dispatch was refused `buffer_full` and the message stored anyway: the sweep's preflight
+  (`_preflight_live_send_recipients`) passed, and the send then failed. `comms_run_interrupt` cannot cancel a
+  queued run ("not active"); unsending the source message did. Wanted: no reminder while the target has no live
+  loop, or a cap per run; a subject built from the original request, not the last reminder; and interrupt for a
+  queued run. Reported by dashboard-manager; the nesting cause is not yet traced.
 
 ## A creation its host claimed and never reported holds the id (0.9 D8, 2026-10-11)
 
