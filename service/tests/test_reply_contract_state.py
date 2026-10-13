@@ -34,7 +34,7 @@ def row(**over):
     bottom, which pins the fact that they are the only two fields read without a `keys()` guard."""
     base = {
         "requested_at": iso(NOW - 60),  # one minute old: not yet overdue at the 10-minute default
-        "status": "queued",
+        "status": "delivered",  # received by its target: a queued run is never overdue (test below)
         "result_message_id": "",
         "require_reply": 1,
         "reminder_count": 0,
@@ -108,6 +108,16 @@ def test_overdue_needs_all_four_conditions():
     for terminal in ("completed", "failed", "cancelled"):
         assert state(requested_at=old, status=terminal)["overdue"] is False, terminal
     assert state()["overdue"] is False, "one minute old is not overdue at a 10-minute threshold"
+
+
+def test_a_run_its_target_never_received_is_never_overdue():
+    """A QUEUED run was never delivered, so a reminder only joins the same undelivered queue. Two never-claimed runs
+    drew 98 of the 147 reminders in the 2026-10-10..13 events (79 against dashboard-senior-dev, which had no loop)."""
+    old = iso(NOW - 24 * 3600)
+    assert state(requested_at=old, status="queued")["overdue"] is False
+    assert state(requested_at=old, status="queued")["state"] == "queued"
+    for received in ("delivered", "claimed", "running"):
+        assert state(requested_at=old, status=received)["overdue"] is True, f"CONTROL: {received} is still chased"
 
 
 def test_overdue_fires_exactly_at_the_threshold_not_after():
@@ -191,7 +201,7 @@ def test_the_feature_switch_beats_everything():
 def test_a_contract_that_is_not_overdue_reports_its_state_as_the_reason():
     ok, why = _contract_reminder_due(row(), settings=settings(), now_s=NOW)
     assert ok is False
-    assert why == "contract state is queued", "the reason names the state, which is what makes it debuggable"
+    assert why == "contract state is sent", "the reason names the state, which is what makes it debuggable"
 
 
 def test_max_count_stops_the_nudging():

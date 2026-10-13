@@ -327,10 +327,14 @@ def _contract_state(row, *, settings: dict[str, Any], now_s: Optional[float] = N
     else:
         state = "sent"
 
+    # A QUEUED run is not overdue: its target never received the request, and a reminder only merges into the same
+    # undelivered queue. Two never-claimed runs drew 98 of the 147 reminders in the 2026-10-10..13 events, one of
+    # them 79 in 13 h against an agent with no delivery loop (dashboard-senior-dev).
     overdue = bool(
         reply_expected
         and not result_message_id
         and status not in _DISPATCH_TERMINAL_STATUSES
+        and status != "queued"
         and age_minutes >= reminder_minutes
     )
     if overdue:
