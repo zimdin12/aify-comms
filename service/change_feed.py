@@ -52,8 +52,9 @@ LIVENESS_WRITES: Mapping[str, Optional[frozenset]] = {
     "claimer_leases": None,
     # One row per flushed output chunk, read only by a console that already streams the output.
     "terminal_events": None,
-    # The heartbeat: `last_seen`, and `status` through a CASE that keeps it unless it was stopped.
-    "agents": frozenset({"last_seen", "status"}),
+    # The heartbeat: `last_seen`, and `status` through a CASE that keeps it unless it was stopped. And the
+    # presence stamp every turn boundary writes, which only the away briefing reads.
+    "agents": frozenset({"last_seen", "status", "last_present_at"}),
     "agent_sessions": frozenset({"last_seen", "telemetry"}),
     "environments": frozenset({"last_seen", "metadata", "cwd_roots"}),
     # The streamed tail and its activity reading. A status change on a terminal is NOT here.

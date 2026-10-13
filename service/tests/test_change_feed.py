@@ -160,6 +160,14 @@ class TheClassifierReadsWritesTheWaySQLiteDoes(unittest.TestCase):
         self.assertFalse(operator.liveness, "a status the operator set was classed as a heartbeat")
         self.assertFalse(written_table("INSERT INTO agents (id) VALUES (?)").liveness, "a new agent is not liveness")
 
+    def test_the_presence_stamp_is_liveness(self):
+        # Every turn boundary and presence touch stamps it; as a real change it made each open dashboard
+        # refetch six panels about 1.3 times a second (measured live 2026-10-14: 26 of 29 events in 20 s).
+        stamps = [sql for _, sql in _write_literals() if "SET last_present_at = ?" in sql]
+        self.assertTrue(stamps, "control: the presence stamp was not found in the service")
+        for sql in stamps:
+            self.assertTrue(written_table(sql).liveness, sql)
+
 
 class _Manager:
     def __init__(self):
