@@ -140,6 +140,10 @@ async def health(request: Request = None):
         _config = get_config()
         payload["version"] = _config.version
         payload["build"] = _config.build_short
+        # WHETHER THE OPERATOR GATE IS ON, never the key. The dashboard offers an irreversible action
+        # (agent Delete) only when it can prove the operator; with no OPERATOR_KEY set there is nothing
+        # to prove, and it had no way to know that except by mirroring this service's .env.
+        payload["operatorGate"] = bool(str(getattr(_config, "operator_key", "") or ""))
         # ONLY WHEN IT HAPPENED, so the ordinary payload does not grow a field that is always empty.
         # A build identity supplied by the environment is not evidence of what is running: no
         # comparison against a checkout can prove anything about a sha a human typed. Doctor's
