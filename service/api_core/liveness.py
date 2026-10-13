@@ -363,11 +363,17 @@ async def _outside_its_environment(db, agent_row) -> str:
     environment_id = str(_json_loads_or(state, {}).get("environmentId") or "").strip()
     if not environment_id:
         return ""
+    # A DEFINED agent's own workspace: aify-env starts only definitions (0.9 D8), and the definition, not the record's
+    # cwd, is what it is started from. An undefined agent is not started for its own reason.
+    definition = await (await db.execute(
+        "SELECT body FROM agent_definitions WHERE agent_id = ?", (agent_row["id"],))).fetchone()
+    workspace = str(_json_loads_or(definition["body"], {}).get("workspace") or "") if definition else ""
+    if not workspace:
+        return ""
     env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
     if env is None:
         return ""
     metadata = _json_loads_or(env["metadata"], {})
-    workspace = str(agent_row["cwd"] or "")
     if not outside_advertised_roots(workspace, {"id": env["id"], "os": env["os"], "kind": env["kind"],
                                                 "machineId": env["machine_id"], "metadata": metadata}):
         return ""

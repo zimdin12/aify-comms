@@ -60,6 +60,11 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
                            "registered_at, last_seen) VALUES (?, 'coder', ?, 'claude-code', 'managed', ?, 'win32:host', "
                            "?, '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')",
                            (agent_id, agent_id, cwd, json.dumps({"environmentId": "win32:host:default"})))
+                # Defined on that host: aify-env starts only definitions, and judges the definition's workspace.
+                db.execute("INSERT INTO agent_definitions (agent_id, machine_id, store_id, incarnation, revision, "
+                           "definition_digest, body, available, unavailable_reason, host_state, host_problems, "
+                           "updated_at) VALUES (?, 'win32:host', 's', 1, 1, 'd', ?, 1, '', 'valid', '[]', "
+                           "'2026-10-13T00:00:00Z')", (agent_id, json.dumps({"mode": "managed", "workspace": cwd})))
             db.commit()
         finally:
             db.close()
@@ -73,6 +78,16 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         status, note = self.status("outside")
         self.assertEqual(status, "misconfigured")
         self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+
+    def test_an_undefined_agent_is_not_judged_by_its_record_cwd(self):
+        # aify-env never starts it, for its own reason; its record's cwd is no definition's workspace.
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute("DELETE FROM agent_definitions WHERE agent_id = 'outside'")
+            db.commit()
+        finally:
+            db.close()
+        self.assertNotIn("outside the folder", self.status("outside")[1])
 
     def test_one_inside_them_stays_available(self):
         status, note = self.status("inside")
