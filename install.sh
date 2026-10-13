@@ -1437,70 +1437,33 @@ install_codex_hook() {
 hermes_hook_bash() {
   if is_git_bash_windows; then printf '"%s"' "$(cygpath -m "$(command -v bash)")"; else printf bash; fi
 }
-install_hermes_hook() {
+remove_hermes_notify_hook() {
+  # Hermes has no notify hook: it drops a post_tool_call hook's output (invoke_hook's return is unused, and
+  # stdout that is not JSON is discarded), and the bridge heartbeats on its own. All the hook did was poll the
+  # inbox and, on Windows, heartbeat whichever dead agent's binding file matched a shell's pid (2026-10-13).
+  # So an earlier install's entry and script go, and post_tool_call too once nothing is left under it.
   local config_root="$(hermes_config_root)"
-  local config_file="$config_root/config.yaml"
-  local hook_dir="$config_root/agent-hooks"
-  local hook_path="$hook_dir/aify-notify.sh"
-  local node_notify_script=""
-  local hook_command_path=""
-  local hook_command=""
-  mkdir -p "$hook_dir"
-  touch "$config_file"
-  node_notify_script="$(path_for_node "$AIFY_BRIDGE_DIR/notify-check.js")"
-
-  cat > "$hook_path" <<EOF
-#!/usr/bin/env bash
-node $(shell_quote "$node_notify_script")
-EOF
-  chmod +x "$hook_path"
-  hook_command_path="$(path_for_node "$hook_path" | sed 's#\\\\#/#g')"
-  hook_command="$(hermes_hook_bash) \"$hook_command_path\""
-
+  rm -f "$config_root/agent-hooks/aify-notify.sh"
+  [ -f "$config_root/config.yaml" ] || return 0
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
     const file = process.argv[1];
-    const hookCommand = process.argv[2];
-    let text = "";
-    try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
-    let lines = text.replace(/\s*$/, "").split(/\r?\n/);
-    const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
-    let replaced = false;
-    lines = lines.map((line) => {
-      const m = line.match(/^([ \t]*)command:[ \t]*.*aify-notify\.sh/);
-      if (m) {
-        replaced = true;
-        // Preserve the existing command line indentation. Hardcoding a fixed
-        // indent corrupts blocks whose matcher/timeout siblings use a different
-        // indent (observed: a 2-space "- matcher" item with 4-space keys got a
-        // 6-space command -> "mapping values are not allowed here").
-        return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
-      }
-      return line;
-    });
-    if (replaced) {
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-      process.exit(0);
-    }
-    const entry = [
-      "    - matcher: \".*\"",
-      commandLine,
-      "      timeout: 3",
-    ];
-    const postIndex = lines.findIndex((line) => /^[ \t]*post_tool_call:[ \t]*$/.test(line));
-    if (postIndex >= 0) {
-      lines.splice(postIndex + 1, 0, ...entry);
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-      process.exit(0);
-    }
-    const hooksIndex = lines.findIndex((line) => /^[ \t]*hooks:[ \t]*$/.test(line));
-    if (hooksIndex >= 0) {
-      lines.splice(hooksIndex + 1, 0, "  post_tool_call:", ...entry);
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-      process.exit(0);
-    }
-    fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}hooks:\n  post_tool_call:\n${entry.join("\n")}\n`);
-  ' "$(path_for_node "$config_file")" "$hook_command"
+    const lines = fs.readFileSync(file, "utf8").replace(/\s*$/, "").split(/\r?\n/);
+    const at = lines.findIndex((line) => /^[ \t]*(- )?command:.*aify-notify\.sh/.test(line));
+    if (at < 0) process.exit(0);
+    const indent = (line) => line.match(/^[ \t]*/)[0].length;
+    // The entry is its "- " line and every line indented under it.
+    let start = at;
+    while (start > 0 && !/^[ \t]*- /.test(lines[start])) start -= 1;
+    let end = start + 1;
+    while (end < lines.length && lines[end].trim() && indent(lines[end]) > indent(lines[start])) end += 1;
+    lines.splice(start, end - start);
+    const event = start - 1;
+    const emptied = /^[ \t]*post_tool_call:[ \t]*$/.test(lines[event] || "")
+      && !(start < lines.length && lines[start].trim() && indent(lines[start]) > indent(lines[event]));
+    if (emptied) lines.splice(event, 1);
+    fs.writeFileSync(file, lines.join("\n") + "\n");
+  ' "$(path_for_node "$config_root/config.yaml")"
 }
 
 agent_state_hook_command() {
@@ -1606,7 +1569,7 @@ EOF
         const m = line.match(/^([ \t]*(?:- )?)command:[ \t]*/);
         if (m && (line.includes("/" + script) || line.includes("\\" + script))) {
           replaced = true;
-          // Preserve existing indentation — see aify-notify replace above.
+          // Keep the existing indent: a fixed one broke a 2-space "- " item with 4-space keys ("mapping values are not allowed here").
           return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
         }
         return line;
@@ -2037,7 +2000,10 @@ echo "  Done."
 _hook_root=""; [ "$CLIENT" != "hermes" ] || _hook_root="$(hermes_config_root 2>/dev/null || true)"
 bash "$SCRIPT_DIR/scripts/hook-installed.sh" "$CLIENT" "$_hook_root" >/dev/null 2>&1 && _hook_present=true || _hook_present=false
 
-if [ "$WITH_HOOK" = true ] || [ "$_hook_present" = true ]; then
+if [ "$CLIENT" = "hermes" ]; then
+  echo "[4/4] No notification hook for hermes: it drops post_tool_call output, and the bridge heartbeats itself."
+  [ "$_hook_present" != true ] || { remove_hermes_notify_hook && echo "  Removed the one an earlier install added."; }
+elif [ "$WITH_HOOK" = true ] || [ "$_hook_present" = true ]; then
   [ "$WITH_HOOK" = true ] && _hook_verb="Installing" || _hook_verb="Refreshing the already-installed"
   echo "[4/4] $_hook_verb notification hook for $CLIENT..."
   # Derived, not listed: whichever install_<client>_hook exists runs, so a fourth client needs a

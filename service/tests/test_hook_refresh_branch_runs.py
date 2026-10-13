@@ -100,8 +100,8 @@ def test_a_client_with_no_installer_says_so_instead_of_failing():
     """The dispatch is derived from which install_<client>_hook exists. A client without one must
     report it, not crash a run that has already copied the bridge."""
     with tempfile.TemporaryDirectory(prefix="aify-hookbranch5-") as tmp:
-        out = _run("hermes", True, Path(tmp), config=None)
-        assert "not implemented for hermes" in out, out
+        out = _run("opencode", True, Path(tmp), config=None)
+        assert "not implemented for opencode" in out, out
         assert "STUB-RAN" not in out
 
 
@@ -128,7 +128,7 @@ def test_a_config_root_containing_a_space_still_finds_the_hook():
 
 def test_a_hermes_root_containing_a_space_is_passed_whole():
     """hermes is the case that matters: its root is PASSED, not derived, so it is the only one that
-    travels through that argument at all."""
+    travels through that argument at all. A hook found there is an earlier install's, and is removed."""
     with tempfile.TemporaryDirectory(prefix="aify-hermesspace-") as tmp:
         home = Path(tmp)
         root = home / "hermes config"
@@ -141,7 +141,7 @@ def test_a_hermes_root_containing_a_space_is_passed_whole():
             'CLIENT="hermes"\n'
             "WITH_HOOK=false\n"
             f'hermes_config_root() {{ printf "%s" "{_posix(root)}"; }}\n'
-            'install_hermes_hook() { echo "STUB-RAN hermes"; }\n'
+            'remove_hermes_notify_hook() { echo "STUB-RAN hermes"; }\n'
             + hook_branch() + "\n",
             encoding="utf-8",
         )
@@ -153,3 +153,83 @@ def test_a_hermes_root_containing_a_space_is_passed_whole():
         assert "STUB-RAN hermes" in result.stdout, (
             f"a hermes root with a space must be passed whole: {result.stdout}"
         )
+
+
+def test_hermes_gets_no_notify_hook_even_when_asked():
+    """Hermes drops a post_tool_call hook's output and the bridge heartbeats on its own, so the hook only
+    polled the inbox and, on Windows, kept dead agents available (2026-10-13). `--with-hook` adds nothing."""
+    with tempfile.TemporaryDirectory(prefix="aify-hookbranch6-") as tmp:
+        out = _run("hermes", True, Path(tmp), config=None)
+        assert "No notification hook for hermes" in out, out
+        assert "Installing" not in out and "STUB-RAN" not in out, out
+
+
+def _removal() -> str:
+    """install.sh's remove_hermes_notify_hook, lifted verbatim."""
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    start = text.index("remove_hermes_notify_hook() {")
+    return text[start:text.index("\n}\n", start) + 3]
+
+
+HOOKS_BEFORE = (
+    "hooks:\n"
+    "  on_session_end:\n"
+    '    - command: "bash \\"C:/h/agent-hooks/aify-turn-end.sh\\""\n'
+    "      timeout: 3\n"
+)
+# The entry as install.sh wrote it on this host: Git Bash by path, the script as a native path.
+NOTIFY_ENTRY = (
+    '    - matcher: ".*"\n'
+    '      command: "\\"C:/Program Files/Git/usr/bin/bash.exe\\" \\"C:\\\\h\\\\agent-hooks\\\\aify-notify.sh\\""\n'
+    "      timeout: 3\n"
+)
+HOOKS_AFTER = (
+    "  pre_llm_call:\n"
+    '    - command: "bash \\"C:/h/agent-hooks/aify-turn-start.sh\\""\n'
+    "      timeout: 3\n"
+)
+
+
+def _hermes_config(other: str = "") -> str:
+    return HOOKS_BEFORE + "  post_tool_call:\n" + other + NOTIFY_ENTRY + HOOKS_AFTER
+
+
+OTHER_ENTRY = '    - matcher: ".*"\n      command: "echo mine"\n      timeout: 5\n'
+
+
+def _remove(root: Path) -> None:
+    script = root.parent / "remove.sh"
+    script.write_text(
+        f'hermes_config_root() {{ printf "%s" "{_posix(root)}"; }}\n'
+        'path_for_node() { printf "%s" "$1"; }\n'
+        + _removal() + "\nremove_hermes_notify_hook\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run([_bash(), _posix(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_removal_takes_the_entry_and_its_emptied_event_and_nothing_else():
+    with tempfile.TemporaryDirectory(prefix="aify-hermesremove-") as tmp:
+        root = Path(tmp) / "hermes"
+        (root / "agent-hooks").mkdir(parents=True)
+        (root / "agent-hooks" / "aify-notify.sh").write_text("node notify-check.js\n", encoding="utf-8")
+        config = root / "config.yaml"
+        config.write_text(_hermes_config(), encoding="utf-8")
+
+        _remove(root)
+        after = config.read_text(encoding="utf-8")
+        assert "aify-notify" not in after, after
+        assert "post_tool_call" not in after, f"an event left with no entry stays behind: {after}"
+        assert after == HOOKS_BEFORE + HOOKS_AFTER, f"every other line is kept as it was: {after}"
+        assert not (root / "agent-hooks" / "aify-notify.sh").exists()
+
+        _remove(root)
+        assert config.read_text(encoding="utf-8") == after, "a second run changes nothing"
+
+        # CONTROL: somebody else's post_tool_call entry keeps the event and itself.
+        config.write_text(_hermes_config(OTHER_ENTRY), encoding="utf-8")
+        _remove(root)
+        kept = config.read_text(encoding="utf-8")
+        assert "  post_tool_call:\n" + OTHER_ENTRY + "  pre_llm_call:" in kept, kept
+        assert "aify-notify" not in kept, kept

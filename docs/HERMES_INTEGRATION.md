@@ -53,7 +53,7 @@ Primary upstream references:
 - Messenger delivery through the per-agent gateway-host delivery loop, whether the Console is open or closed.
 - Resident wrapper: `hermes-aify`.
 - MCP server registration in `~/.hermes/config.yaml`.
-- Optional post-tool notification hook using `~/.hermes/agent-hooks/aify-notify.sh`.
+- No post-tool notification hook (see Hooks below).
 
 Managed Hermes is wrapper-backed by default (`managed_via_wrapper=["codex","hermes"]`): the bridge owns a `hermes-aify` PTY whose visible TUI attaches to the per-agent gateway host. Delivery is owned by the per-agent `hermes-managed-host.js run <agent>` loop (a `channel-sidecar` bridge), **not** by the wrapper PTY's in-process bridge — the server excludes Hermes from wrapper-child channel/resident claims (`wrapperChildExecutionModes`) so the wrapper child cannot race the loop and fabricate a reply. The browser Console renders the real wrapper TUI.
 
@@ -131,7 +131,7 @@ The installer:
 - registers `aify-comms` as a Hermes MCP server in `~/.hermes/config.yaml`
 - installs `hermes-aify`
 - loads the durable Hermes shim from `integrations/hermes-aify-plugin`
-- with `--with-hook`, installs `~/.hermes/agent-hooks/aify-notify.sh` and adds a `post_tool_call` shell hook
+- removes the `post_tool_call` notify hook (`agent-hooks/aify-notify.sh`) an earlier `--with-hook` install added
 
 Relaunch any running Hermes terminals after updating.
 
@@ -229,17 +229,7 @@ substitute.
 
 ## Hooks
 
-Hermes shell hooks are configured under `hooks:` in `~/.hermes/config.yaml`. With `--with-hook`, aify-comms installs a post-tool hook that checks for unread aify messages after Hermes tool calls:
-
-```yaml
-hooks:
-  post_tool_call:
-    - matcher: ".*"
-      command: "bash \"$HOME/.hermes/agent-hooks/aify-notify.sh\""
-      timeout: 3
-```
-
-The hook is intentionally non-blocking. It is for notifications and heartbeats, not primary message delivery.
+Hermes shell hooks are configured under `hooks:` in `~/.hermes/config.yaml`. aify-comms installs the turn-state hooks there, and no notification hook: Hermes drops a `post_tool_call` hook's output (`invoke_hook`'s return is unused, and stdout that is not JSON is discarded), and the bridge heartbeats on its own. The notify hook it once installed only polled the inbox and, on Windows, heartbeated a dead agent whose stale binding file matched a shell's pid (2026-10-13), so `install.sh` removes it. Messages reach Hermes by dispatch.
 
 ## MCP
 

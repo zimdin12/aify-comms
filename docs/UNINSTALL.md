@@ -175,7 +175,7 @@ In `config.yaml` (YAML), remove:
 - the hook entries whose command runs `agent-hooks/aify-turn-start.sh`, `aify-turn-end.sh`,
   `aify-blocked.sh` or `aify-unblocked.sh` (under `pre_llm_call`, `on_session_end`,
   `pre_approval_request` and `post_approval_response`);
-- with `--with-hook`, the `hooks.post_tool_call` entry that runs `agent-hooks/aify-notify.sh`.
+- from an install before 0.9.4 that used `--with-hook`, the `hooks.post_tool_call` entry that runs `agent-hooks/aify-notify.sh`.
 
 Then remove the files the installer wrote there (set `HERMES_ROOT` to the config root first):
 

@@ -1167,7 +1167,7 @@ an indicator to compensate for it.
 
 ## The unread-notification hook is opt-in and fires after every tool call
 
-**Decision.** `install.sh --with-hook` installs `notify-check.js` as a post-tool hook: `PostToolUse` with matcher `.*` on Claude and Codex (`install_claude_hook`, `install_codex_hook`), and `post_tool_call` with matcher `.*` on Hermes (`install_hermes_hook`). Once installed, a later `install.sh` run refreshes it even without the flag (`scripts/hook-installed.sh`). OpenCode has no hook. The script reads the inbox with `peek`, so it never marks a message read; it rate-limits itself to one inbox check per agent every 10 seconds and sends a liveness-only heartbeat; it never sets `turn_busy`.
+**Decision.** `install.sh --with-hook` installs `notify-check.js` as a post-tool hook: `PostToolUse` with matcher `.*` on Claude and Codex (`install_claude_hook`, `install_codex_hook`), and none on Hermes, which drops a `post_tool_call` hook's output and whose bridge heartbeats itself (2026-10-13; `remove_hermes_notify_hook` takes out an earlier one). Once installed, a later `install.sh` run refreshes it even without the flag (`scripts/hook-installed.sh`). OpenCode has no hook. The script reads the inbox with `peek`, so it never marks a message read; it rate-limits itself to one inbox check per agent every 10 seconds and sends a liveness-only heartbeat; it never sets `turn_busy`.
 
 **Why every tool, not `Bash`.** The matcher was once `Bash`, so an agent working only through Edit/Read/Write never checked its inbox. The rate limit bounds the cost of firing on every tool.
 

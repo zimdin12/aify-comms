@@ -87,9 +87,11 @@ def test_an_unknown_client_is_refused_rather_than_answered(tmp_path):
 
 def test_every_client_install_sh_can_hook_is_covered_here():
     """Derived from install.sh rather than listed, so a fourth hookable client cannot arrive without
-    either a detector branch or a red test."""
+    either a detector branch or a red test. A client whose earlier hook install.sh removes needs one too:
+    the detector is how it finds that hook."""
     text = (REPO / "install.sh").read_text(encoding="utf-8")
-    hookable = set(re.findall(r"install_([a-z]+)_hook\(\)", text))
+    hookable = set(re.findall(r"(?:install_([a-z]+)_hook|remove_([a-z]+)_notify_hook)\(\)", text))
+    hookable = {name for pair in hookable for name in pair if name}
     assert hookable, "found no install_<client>_hook functions; the derivation is broken"
     assert hookable == set(CLIENTS), f"install.sh hooks {hookable}, the detector covers {set(CLIENTS)}"
 
@@ -142,5 +144,5 @@ def test_install_sh_passes_hermes_its_resolved_root():
     text = (REPO / "install.sh").read_text(encoding="utf-8")
     assert '_hook_root="$(hermes_config_root' in text, "hermes must be asked, not assumed"
     assert 'local config_root="$(hermes_config_root)"' in text, (
-        "and install_hermes_hook must write to that same root"
+        "and remove_hermes_notify_hook must edit that same root"
     )
