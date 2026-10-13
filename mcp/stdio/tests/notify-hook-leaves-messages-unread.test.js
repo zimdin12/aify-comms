@@ -45,6 +45,7 @@ function runHook({ url, scratch, claude, sessionId }) {
     AIFY_SERVER_URL: url,
     AIFY_SERVICE_REGISTRY: path.join(scratch, "no-registry.json"),
   };
+  if (AGENT_OF.get(scratch)) env.AIFY_AGENT_ID = AGENT_OF.get(scratch);
   if (claude) env.CLAUDE_PROJECT_DIR = scratch;
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SCRIPT], { env, cwd: scratch });
@@ -56,11 +57,11 @@ function runHook({ url, scratch, claude, sessionId }) {
   });
 }
 
+// The hook finds its agent through AIFY_AGENT_ID, which the launcher exports into the harness.
+const AGENT_OF = new Map();
 function scratchFor(agentId) {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aify-notify-"));
-  // The hook finds its agent through the binding file its parent's bridge wrote, keyed by the
-  // hook's PARENT pid -- which, for this spawn, is this test process.
-  fs.writeFileSync(path.join(scratch, `aify-agent-${process.pid}`), JSON.stringify({ agentId, pid: process.pid }));
+  AGENT_OF.set(scratch, agentId);
   return scratch;
 }
 
@@ -79,6 +80,30 @@ test("the hook reads the inbox with peek, so nothing is marked read by the hook"
     assert.equal(inbox.length, 1, `one inbox read expected, saw ${JSON.stringify(seen)}`);
     assert.match(inbox[0], /[?&]peek=(1|true)(&|$)/, inbox[0]);
     assert.match(inbox[0], /\/inbox\/hooked%20agent\?/, "the agent id is URL-encoded");
+  } finally {
+    server.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("the hook acts for AIFY_AGENT_ID, never for a dead agent's binding file under its parent pid", async () => {
+  // 2026-10-13: the harness runs the hook through bash, so its parent pid is a shell's, and a stale
+  // `aify-agent-<pid>` left by a dead bridge matched it: the hook read that agent's inbox and its
+  // heartbeat kept the dead agent available. Here the stale file sits under this test's pid, the parent.
+  const { server, seen } = await standInService([MESSAGE]);
+  const scratch = scratchFor("live-agent");
+  fs.writeFileSync(path.join(scratch, `aify-agent-${process.pid}`), JSON.stringify({ agentId: "dead-agent", pid: process.pid }));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await runHook({ url, scratch, claude: true });
+    assert.ok(seen.some((u) => u.startsWith("/api/v1/messages/inbox/live-agent?")), `control: the hook ran for its own agent: ${JSON.stringify(seen)}`);
+    assert.ok(!seen.some((u) => u.includes("dead-agent")), `the hook acted for the dead agent: ${JSON.stringify(seen)}`);
+
+    // No launcher identity: on Windows the parent is always a shell, so the binding file is not read at all.
+    AGENT_OF.delete(scratch);
+    seen.length = 0;
+    await runHook({ url, scratch, claude: true });
+    if (process.platform === "win32") assert.deepEqual(seen, [], "on Windows a parent-pid binding is a stale file, never this hook's agent");
   } finally {
     server.close();
     fs.rmSync(scratch, { recursive: true, force: true });
