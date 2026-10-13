@@ -457,7 +457,7 @@ keys do not restore its size, which is the old last-resize-wins behaviour. What 
 it, opening or refreshing a dashboard console still takes the size, and what already reached herdr's
 scrollback stays. Live only after an aify-env restart.
 
-## A herdr pane's rows can land one column left on Windows (open; fix planned: set the console flag in-process)
+## A herdr pane's rows can land one column left on Windows (fixed in aify-env 3fcd5c9; live after an aify-env restart, not yet seen in a live pane)
 
 Leftover letters inside words ("bot-" for "both") and stray box-drawing at column 0, in herdr panes
 only; the dashboard console of the same agent is clean. The agent's PTY is a ConPTY, which moves the
@@ -469,8 +469,10 @@ the column; any write through `process.stdout`, or with the flag clear, loses it
 tried four times and withdrawn (aify-env 1736898): an LF and its replacements differ under some parser
 modes (reverse-wrap, the order of BS and LF), so a translation changes some streams. Setting the flag
 from a PowerShell helper worked, but Windows Defender blocked the pattern (`Trojan:Win32/SuspExec.SE`),
-so it was not shipped. The fix planned for a later 0.7.x sets the flag in-process (koffi, optional, like
-node-pty) and writes raw.
+so it was not shipped. aify-env 3fcd5c9 (0.9.2) sets the flag and UTF-8 in-process through koffi (an
+optional dependency, like node-pty), writes raw, and hands the console back on detach, a failed write and
+exit; without koffi, or on a console that refuses, output is as before. Its test drives a real Windows
+pseudo-console and fails with each part removed. Close this once a live herdr pane is seen clean.
 
 ## The session list calls a starting session with no terminal yet `stopped` (review, 2026-09-30)
 
