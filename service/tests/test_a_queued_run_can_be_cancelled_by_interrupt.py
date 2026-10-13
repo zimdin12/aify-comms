@@ -58,6 +58,15 @@ class AQueuedRunCanBeCancelledByInterrupt(FastApiTestCase):
         self.assertIn("cancelled", run["events"])
         self.assertEqual(run["controls"], 0, "a control was queued for a bridge that is not running the run")
 
+    def test_an_unnamed_cancel_is_not_attributed_to_the_operator(self):
+        # comms_run_interrupt sends from_agent="" when its optional `from` is omitted, an agent's ordinary call.
+        self._seed("run-u", "queued")
+        answer = self.client.post("/api/v1/dispatch/runs/run-u/control", json={"action": "interrupt"})
+        self.assertEqual(answer.json()["status"], "cancelled", answer.text)
+        run = self._run("run-u")
+        self.assertEqual(run["summary"], "Cancelled before delivery.")
+        self.assertNotIn("operator", run["summary"])
+
     def test_a_running_run_still_gets_a_control_for_its_bridge(self):
         # CONTROL: the existing interrupt path is unchanged.
         self._seed("run-r", "running")

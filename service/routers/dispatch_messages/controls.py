@@ -84,8 +84,9 @@ async def request_dispatch_control(run_id: str, req: DispatchControlRequest, req
         # A run nobody has claimed has no turn to interrupt, so the service cancels it itself. Before this, the only way
         # to stop one was to unsend its source message.
         if action == "interrupt" and run["status"] == "queued":
-            by = req.from_agent or "the operator"
-            if await cancel_queued_dispatch_run(db, run_id, summary=f"Cancelled before delivery by {by}."):
+            # An omitted name is an agent's ordinary call (above), so it names nobody rather than the operator.
+            by = f" by {req.from_agent}" if req.from_agent else ""
+            if await cancel_queued_dispatch_run(db, run_id, summary=f"Cancelled before delivery{by}."):
                 await db.commit()
                 return {"ok": True, "runId": run_id, "action": action, "status": "cancelled"}
             # Claimed or settled meanwhile: judged below as the run it now is.
