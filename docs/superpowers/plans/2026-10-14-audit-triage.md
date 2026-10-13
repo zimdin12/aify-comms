@@ -26,6 +26,18 @@ lead. **live** means it was reproduced against the running service, **code** mea
 | D14 | `/health` names whether the operator gate is on (promised to dashboard-manager) | n/a | feature, small |
 | D15 | Live pass: missing favicon (404), and the sign-in page's own 401 logged as a console error on every visit | live | cosmetic |
 
+### Live pass (added after the first triage message)
+
+| # | Finding | Evidence | Triage |
+|---|---|---|---|
+| L1 | One open tab refetches six panels on every `data_changed`; `agents` is listed as a real change about 1.3 times a second, so the tab makes about 8 API requests a second | live: 29 `data_changed` in 20 s, 26 naming `agents` as a table, not liveness (own websocket count) | fix: find the `agents` write outside the liveness columns; the dashboard should also coalesce |
+| L2 | Opening Sessions auto-mounts a managed console and focuses its input; a stray key goes to a live agent. The resize is by design (the console is the managed TUI; resident consoles are excluded, `xterm-mount.mjs:376`) | live (subagent network log) + code | discuss: no auto-focus |
+| L3 | A hermes gateway token is shown in plain text: a spawn request's stored `error` embeds the gateway JSON (`spawn_1790779653349_394e088b`, 10-01) | live: API scan, 1 of 500 rows | fix: redact at write and at display |
+| L4 | Successful spawns are recorded as failed: 89 of the last 120 read "Abandoned: claimed by a live bridge but never settled" | live: `spawn_1791918337937_17723494` failed while its session `sess_1791918337967_e0b2ac6f` is `running` and golf-senior-dev is working | fix: trace who should settle a started spawn (comms or aify-env) |
+| L5 | Analytics "Live agents" 42 against Chat's 28: it counts offline agents, but its tooltip says "live worker + fresh heartbeat" | code: `analytics.py:179-182` (subagent) | cosmetic |
+| L6 | "Worked 0m ago" for idle agents: last worked is `MAX(COALESCE(finished_at, now))` over every claimed run, so any stale unfinished run reads as now | code: `analytics.py:369-371` | fix |
+| L7 | Smaller display contradictions: leaderboard completed/total against its rate, message tile 1629 against the chart's 1617, a completed run's elapsed still counting, "triggered" showing the claim time, a session "online" in the list and "running" in its header, a doubled full stop, the quota tile's "5h — left" | live (subagent) | cosmetic, each checked when fixed |
+
 ## 0.9.6: docs, installer and labels tell the truth
 
 | # | Finding | Evidence | Triage |
