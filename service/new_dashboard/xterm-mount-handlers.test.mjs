@@ -216,7 +216,7 @@ function requestsTo(suffix) {
 
 let terminalSeq = 0;
 
-async function mount({ clientWidth = 800, clientHeight = 400, canInput = true } = {}) {
+async function mount({ clientWidth = 800, clientHeight = 400, canInput = true, focus } = {}) {
   const terminalId = `t${(terminalSeq += 1)}`;
   const container = makeEl("div");
   container.clientWidth = clientWidth;
@@ -227,7 +227,7 @@ async function mount({ clientWidth = 800, clientHeight = 400, canInput = true } 
   observers = [];
   fitCalls = 0;
   responder = () => ({});
-  await settle(mountXtermForTerminal(terminalId, "a1", container, { canInput },
+  await settle(mountXtermForTerminal(terminalId, "a1", container, { canInput, ...(focus === undefined ? {} : { focus }) },
     { resyncActiveConsole: async () => {} }));
   const term = FakeTerminal.last;
   assert.equal(term.opened, container, "the mount did not open a terminal on the container");
@@ -538,4 +538,17 @@ test("the wheel listener is registered NON-passively, or preventDefault would be
     "the wheel listener is passive, so its preventDefault() does nothing");
   assert.equal(state.activeXterm.wheelHandler, installed[0],
     "the handler kept for removal on dispose is not the one that was registered");
+});
+
+// ── focus: only when asked (2026-10-14 audit, L2) ───────────────────────────────────────────────
+
+test("a console mounted on page entry or by a poll does NOT take focus", async () => {
+  // A focused console takes the operator's next keystroke into a live agent.
+  const { term } = await mount();
+  assert.equal(term.focused, false, "a mount nobody asked to focus took the keyboard");
+});
+
+test("CONTROL: a console opened by a click (focus requested) takes focus", async () => {
+  const { term } = await mount({ focus: true });
+  assert.equal(term.focused, true);
 });

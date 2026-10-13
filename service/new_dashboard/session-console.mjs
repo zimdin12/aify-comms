@@ -303,7 +303,8 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // Sessions console can't fight over a duplicate element id.
   if (hasTerminal) {
     const container = host.querySelector('.xterm-host');
-    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container, { canInput: canConsoleInput }).catch(() => {});
+    // Chat's inline console is opened by a click on Console, so it takes focus; Sessions mounts on entry and polls.
+    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container, { canInput: canConsoleInput, focus: opts.source === 'chat' }).catch(() => {});
   } else {
     disposeActiveXterm();
   }

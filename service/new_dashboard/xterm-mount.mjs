@@ -24,7 +24,7 @@ import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 let _consoleMountGen = 0; // bumped per mount so a font-await-parked mount can detect supersession
 let consoleInputBlockedToastAt = 0;
 
-export async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}, { resyncActiveConsole }) {
+export async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true, focus = false } = {}, { resyncActiveConsole }) {
   if (!container || !terminalId) return;
   if (typeof window.Terminal === 'undefined') {
     // Non-xterm fallback: a scrolling text dump of the buffered output (parity with the old
@@ -474,5 +474,7 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
   // first, the two answer out of order, and the console ends on the OLDER snapshot with a cursor
   // to match. Ownership of the flag transfers here, and nothing after this point touches it.
   if (owed && stillMine()) resyncActiveConsole().catch(() => {});
-  term.focus();
+  // ONLY WHEN ASKED. Consoles are mounted by polls and page entry too, and a focused one takes the
+  // operator's next keystroke into a live agent (2026-10-14 audit, L2). A click focuses xterm itself.
+  if (focus) term.focus();
 }
