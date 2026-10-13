@@ -57,3 +57,10 @@ SESSION_MODES = frozenset(_CONTRACT["sessionModes"]["values"])
 SELF_REPORTED_STATUSES = tuple(_CONTRACT["selfReportedStatuses"]["values"])
 AGENT_STATUSES = tuple(_CONTRACT["agentStatuses"]["values"])
 AGENT_STATUS_MEANINGS = MappingProxyType(dict(_CONTRACT["agentStatuses"]["meanings"]))
+
+
+#: The harness a definition names, as the runtime this service files agents under. A leaf, so the definition modules
+#: that read it do not import one another to get it.
+HARNESS_RUNTIME = {"claude": "claude-code", "codex": "codex", "hermes": "hermes"}
+#: The other way: the harness a definition names for a runtime this service files agents under.
+RUNTIME_HARNESS = {runtime: harness for harness, runtime in HARNESS_RUNTIME.items()}

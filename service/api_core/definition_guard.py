@@ -9,6 +9,8 @@ between the check and the write.
 """
 from __future__ import annotations
 
+import json
+
 #: SQL, true inside an UPDATE of `agents` (or its ON CONFLICT branch) when a host defines that agent.
 DEFINED_SQL = "EXISTS (SELECT 1 FROM agent_definitions WHERE agent_definitions.agent_id = agents.id)"
 
@@ -24,3 +26,9 @@ async def defined_on(db, agent_id: str) -> str:
     row = await (await db.execute(
         "SELECT machine_id FROM agent_definitions WHERE agent_id = ?", (agent_id,))).fetchone()
     return str(row["machine_id"]) if row else ""
+
+
+async def defined_mode(db, agent_id: str) -> str:
+    """The mode this agent's definition asks for, or "" for an agent no host defines."""
+    row = await (await db.execute("SELECT body FROM agent_definitions WHERE agent_id = ?", (agent_id,))).fetchone()
+    return str(json.loads(row["body"] or "{}").get("mode") or "") if row else ""

@@ -21,7 +21,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from service.api_core.definition_push import HARNESS_RUNTIME
+from service.api_core.vocabulary import HARNESS_RUNTIME
 
 
 class StartRefused(Exception):

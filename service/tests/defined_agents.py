@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from service.api_core.definition_push import RUNTIME_HARNESS
+from service.api_core.vocabulary import RUNTIME_HARNESS
 from service.api_core.definition_snapshot import definition_digest, snapshot_digest
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 from service.api_core.settings import _load_settings

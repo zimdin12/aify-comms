@@ -23,11 +23,9 @@ from service.api_core.definition_snapshot import (
     PushOrder, canonical, fence_refusal, is_counter, push_order, snapshot_problems,
 )
 from service.api_core.operator_authz import is_operator_actor
+from service.api_core.session_mode_switch import follow_definition_mode
 
-#: The harness a definition names, as the runtime this service files agents under.
-HARNESS_RUNTIME = {"claude": "claude-code", "codex": "codex", "hermes": "hermes"}
-#: The other way: the harness a definition names for a runtime this service files agents under.
-RUNTIME_HARNESS = {runtime: harness for harness, runtime in HARNESS_RUNTIME.items()}
+from service.api_core.vocabulary import HARNESS_RUNTIME
 
 
 def push_body_problems(body: dict) -> list[str]:
@@ -236,6 +234,9 @@ async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict]
              "" if entry["available"] else entry["unavailableReason"], now),
         )
         await _ensure_agent_row(db, entry, machine_id, now)
+        # A FLIP TO RESIDENT IS THE OPERATOR'S SWITCH: the record follows it now, rather than reading managed until a
+        # resident registers and is parked (0.9.2 status fix A).
+        await follow_definition_mode(db, entry["id"], now=now)
         # DEFINED AGAIN: the removal's tombstone goes with it, or the worker's registration is refused.
         await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ? COLLATE NOCASE", (entry["id"],))
         result["applied"].append(entry["id"])

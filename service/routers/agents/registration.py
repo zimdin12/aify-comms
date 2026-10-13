@@ -68,6 +68,7 @@ from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime,
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.same_mode_bridge_gate import _enforce_same_mode_bridge_gate
 from service.api_core.serialization import _json_loads_or
+from service.api_core.session_mode_switch import follow_definition_mode
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -259,6 +260,10 @@ async def _register_agent(req: AgentRegister, request: Request):
                 db, req, request, row, console_terminal, terminal_id,
                 bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,
             ))
+        # A RESIDENT FOR AN AGENT DEFINED RESIDENT is adopted, not parked: the definition flip was the operator's switch
+        # (0.9.2 status fix A). Parked only while the record still says managed after that.
+        if row and normalized_session_mode == "resident" and await follow_definition_mode(db, req.agentId, now=now):
+            row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))).fetchone()
         fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
         # WHOSE ID THIS IS. `fresh_state` starts EMPTY and the upsert replaces `runtime_state`, so
         # taking `bridgeInstanceId` from the request meant a managed agent's own sidecar overwrote the

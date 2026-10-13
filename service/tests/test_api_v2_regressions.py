@@ -14,7 +14,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from service.api_core.definition_push import RUNTIME_HARNESS
+from service.api_core.vocabulary import RUNTIME_HARNESS
 from service.api_core.harness_defaults import defaulted_runtimes
 from service.db import get_db, init_db
 from service import main as service_main

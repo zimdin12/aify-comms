@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from service.api_core import agent_lifecycle_requests as lifecycle
 from service.api_core import definition_requests as requests
-from service.api_core.definition_push import RUNTIME_HARNESS
+from service.api_core.vocabulary import RUNTIME_HARNESS
 from service.api_core.definition_schema import agent_problems
 from service.api_core.serialization import _iso_add_seconds
 

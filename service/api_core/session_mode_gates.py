@@ -18,7 +18,7 @@ from service.api_core.agent_terminal_ops import _request_stop_agent_terminals
 from service.api_core.active_run_lookup import _get_blocking_active_run
 
 
-async def _enforce_switch_not_blocked_by_active_run(db, req, agent_id: str, new_mode: str, runtime: str,
+async def _enforce_switch_not_blocked_by_active_run(db, force: bool, agent_id: str, new_mode: str, runtime: str,
                                                     switch_warnings) -> None:
         """Refuse a mode switch that would interrupt live work — unless the operator forced it.
 
@@ -34,7 +34,7 @@ async def _enforce_switch_not_blocked_by_active_run(db, req, agent_id: str, new_
         warning instead, which is why `switch_warnings` is passed in rather than returned: it is a list
         the caller reports either way.
         """
-        if not req.force:
+        if not force:
             blocking = await _get_blocking_active_run(db, agent_id)
             if blocking:
                 raise HTTPException(

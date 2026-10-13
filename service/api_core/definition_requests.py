@@ -20,7 +20,7 @@ from service.lifecycle_models import OPEN_SQL
 from service.api_core.agent_remove import remove_agent
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.definition_guard import defined_on
-from service.api_core.definition_push import RUNTIME_HARNESS
+from service.api_core.vocabulary import RUNTIME_HARNESS
 from service.api_core.definition_schema import AGENT_FIELDS
 from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core.operator_authz import OperatorProof

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from service.api_core.definition_push import HARNESS_RUNTIME
+from service.api_core.vocabulary import HARNESS_RUNTIME
 from service.api_core.definition_schema import HARNESSES, MISSING, agent_problems
 from service.tests.test_agent_definition_push import ENV_REPOS, FIXTURE
 

@@ -18,7 +18,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from service.api_core.definition_push import FREE_SINCE, HARNESS_RUNTIME
+from service.api_core.definition_push import FREE_SINCE
+from service.api_core.vocabulary import HARNESS_RUNTIME
 from service.tests.test_agent_definition_push import ENV_REPOS
 
 REQUESTS_MODULE = Path("lib") / "agent-definition-requests.mjs"
