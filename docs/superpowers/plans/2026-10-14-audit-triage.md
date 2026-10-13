@@ -6,25 +6,29 @@ lead. **live** means it was reproduced against the running service, **code** mea
 **suspected** means it is not proven yet and will not be fixed until it is. Triage: **fix** (defect),
 **cosmetic** (a small mistake, fixed by judgment), **leave** (with a reason), **Steven** (needs his decision).
 
+**Agreed with comms-senior-dev on 2026-10-14** (its position: hermes scratch `202-audit-triage-discussion/TRIAGE-POSITION.md`).
+The amendments are folded into the rows below. S1 moved into 0.9.5. D6 is withdrawn.
+
 ## 0.9.5: the dashboard does what it says
 
 | # | Finding | Evidence | Triage |
 |---|---|---|---|
 | D1 | Channel Delete always 400: no `requestedBy` | live: 400 without, 404 with | fix |
 | D2 | Shared-file Delete always 400: no `requestedBy`; its test fakes success | live: 400 without, 200 with | fix + real-shape test |
-| D3 | Edit → Save always re-posts the current environment; for an undefined agent that marks running sessions `lost` and sets it offline, even when only the description changed | code: `inspector-forms.mjs:41` preselects, `agent-session-actions.mjs:110`, `environment_assignment.py:128-140` has no unchanged check | fix: post only when changed (dashboard), and make an unchanged assignment a no-op (service) |
-| D4 | Close on a dashboard-started run stores "Closed from run inspector by dashboard operator." as a reply from the agent | code: `run-inspector.mjs:307`, `dispatch_run_settlement.py:68`, `dashboard_run_report.py:214` (sender = target_agent) | fix: an operator close mirrors nothing |
+| D3 | Edit → Save always re-posts the current environment; for an undefined agent that marks running sessions `lost` and sets it offline, even when only the description changed | code: `inspector-forms.mjs:41` preselects, `agent-session-actions.mjs:110`, `environment_assignment.py:128-140` has no unchanged check | fix: the dashboard posts only on change; the service compares the whole resolved assignment (environment, workspace, runtime, model, runtimeConfig), so a same-environment change still applies. Operator proof and the defined-agent host path are kept; historical sessions are not rewritten |
+| D4 | Close on a dashboard-started run stores "Closed from run inspector by dashboard operator." as a reply from the agent | code: `run-inspector.mjs:307`, `dispatch_run_settlement.py:68`, `dashboard_run_report.py:214` (sender = target_agent) | fix: the operator-close intent is passed into settlement (the event is appended after settlement, `dispatch.py:330` vs `:350`). Only the fabricated agent message is suppressed; genuine results and ordinary completion are kept. Trace the other settlement paths that produce messages |
 | D5 | A queued run's blocker renders "[object Object]" | code: `records.py:285` is a dict, `status.js:161,182` stringifies it | fix |
-| D6 | Cancelling a queued run (0.9.4) sends no live update; open dashboards show it queued | code: `controls.py:86-91` has no broadcast | fix |
-| D7 | Start/Restart/Reset offered for agents no host defines; the service always 409s; `definitionState` is never read | code: grep 0 readers (control: `sessionHandle` found); `records.py:433` | fix: disable with the reason |
-| D8 | Session-handle edit toasts "Agent updated" when the service refused it as a collision | code: `session_handle_change.py:209`, result discarded | fix |
-| D9 | Session-mode switch ignores `changed:false`, `warning`, `resumeCommand`; always "Switched" | code: `session_mode.py:119-131` | fix |
+| D6 | ~~A queued cancel sends no live update~~ | withdrawn: pooled commits publish through `CHANGE_FEED` (`db.py:676`), and the dispatch tables refetch on `data_changed` | leave: unproven |
+| D7 | Start/Restart/Reset offered for agents no host defines; the service always 409s; `definitionState` is never read | code: grep 0 readers (control: `sessionHandle` found); `records.py:433` | fix: disable, showing the reason |
+| D8 | Session-handle edit toasts "Agent updated" when the service refused it as a collision | code: `session_handle_change.py:209`, result discarded | fix: say what was saved and what was refused (no invented rollback) |
+| D9 | Session-mode switch ignores `changed:false`, `warning`, `resumeCommand`; always "Switched" | code: `session_mode.py:119-131` | fix: tell a requested change from an applied one |
 | D10 | Remind on a contract that is not due does nothing; bulk says "N reminded" regardless | code: `dispatch_sweeps.py` returns reminded/skipped | fix: show what happened |
-| D11 | Message Run chip, "awaiting" badge and Run row never render: messages carry no run fields | live: inbox record keys | fix: remove the dead reads, or carry the run id (decide with dev) |
-| D12 | Two environment badges (`unknownProcesses`, env `bridgeBuild`) have no producer | code: 0 producers (control: `terminalReason` found in aify-env) | cosmetic: remove |
-| D13 | Labels that misdescribe: `contract_stale_hours`, `agent_liveness_seconds`, the model/effort hint, Remove agent, Unsend, the Overdue tile's "30 min" against a default of 10, the Failed tile counting cancelled runs, settings clamped silently | code (subagent; lead to spot-check each before editing) | cosmetic |
-| D14 | `/health` names whether the operator gate is on (promised to dashboard-manager) | n/a | feature, small |
-| D15 | Live pass: missing favicon (404), and the sign-in page's own 401 logged as a console error on every visit | live | cosmetic |
+| D11 | Message Run chip, "awaiting" badge and Run row never render: messages carry no run fields | live: inbox record keys | fix: remove the producerless chip, badge and Run row; `messageRunId` goes once its callers are closed; the message API is unchanged |
+| D12 | Two environment badges (`unknownProcesses`, env `bridgeBuild`) have no producer | code: 0 producers (control: `terminalReason` found in aify-env) | cosmetic: remove, after checking nested metadata |
+| D13 | Labels that misdescribe: `contract_stale_hours`, `agent_liveness_seconds`, the model/effort hint, Remove agent, Unsend, the Overdue tile's "30 min" against a default of 10, the Failed tile counting cancelled runs, settings clamped silently | code: Overdue tile and `contract_stale_hours` checked by the lead; the rest are spot-checked before editing | split: wording is cosmetic; the silent clamp and false success are fixes. Truthful labels, not changed semantics |
+| D14 | `/health` names whether the operator gate is on (promised to dashboard-manager) | n/a | feature, small: a boolean only, never the key |
+| D15 | Live pass: missing favicon (404), and the sign-in page's own 401 logged as a console error on every visit | live | cosmetic: handle only the expected sign-in 401 |
+| S1 | Moved here from 0.9.7 (see below) | | fix, own commit |
 
 ### Live pass (added after the first triage message)
 
@@ -47,15 +51,15 @@ lead. **live** means it was reproduced against the running service, **code** mea
 | X3 | DECISIONS.md:1204,1283 say an operator key is always generated | code: `config.py:82` defaults empty | fix |
 | X4 | KNOWN_ISSUES lists the `strictMcp` bug as open; it is fixed (a620a102) | code | fix |
 | X5 | Hermes `--with-hook` examples in install.sh usage, README, the install skill and HERMES_INTEGRATION | code | fix |
-| X6 | comms' own launcher renderer lacks `shopt -u patsub_replacement`: an `&` in a value corrupts the launcher | live: reproduced on bash 5.3.9 | fix: render through aify-wrapper's `render.sh` and delete the copy |
+| X6 | comms' own launcher renderer lacks `shopt -u patsub_replacement`: an `&` in a value corrupts the launcher | live: reproduced on bash 5.3.9 | fix (installer behaviour): use the pinned package's `render.sh` with a thin adapter. Keep template overrides and exit propagation. Test through the real renderer with an `&` value and a plain control |
 | X7 | Minor drift: HERMES_INTEGRATION's PYTHONPATH line, TARGET_ARCHITECTURE missing `aify-env agents`, the skill's removal scope, quoted error strings, AIFY_ENV_BOUNDARY saying aify-env must not derive status, the roadmap's "Finished" | code | cosmetic |
 
 ## 0.9.7: separation held where it does not need Steven
 
 | # | Finding | Evidence | Triage |
 |---|---|---|---|
-| S1 | With `/settings` unreadable, the bridge's wrapper cache is empty, so it spawns runtimes itself | code: `managed-wrapper-cache.mjs:15,25` | fix: fail closed (no spawn when unknown) |
-| S2 | "Routers hold HTTP only" has no test and is broken: `environments.py` heartbeat 333 lines, `analytics.py` 220 | code | move the two largest into api_core; add the rule's test with a frozen list |
+| S1 | With `/settings` unreadable, the bridge's wrapper cache is empty, so it spawns runtimes itself | code: `managed-wrapper-cache.mjs:15,25` | **in 0.9.5.** fix: "unknown" is distinct from an empty or disabled set, including absent or malformed responses. Refuse wrapper-eligible claims before taking ownership. The wrapper child and already-owned work keep running. Tests: failed first read, malformed response, valid empty and non-empty sets, recovery |
+| S2 | "Routers hold HTTP only" has no test and is broken: `environments.py` heartbeat 333 lines, `analytics.py` 220 | code | freeze executable SQL per handler first, then extract the two bodies in separate commits. Keep transaction order (BEGIN IMMEDIATE before proof; commit before cleanup and broadcast). api_core gets helpers, not the HTTP coordinator |
 | S3 | Screen rules duplicated in comms (`console_working.py` vs `terminal_text.py`), already drifted | code | fix: one owner |
 | S4 | Dead: `scripts/normalize_machine_id_casing.py`, `AIFY_COMMS_DELEGATE_SPAWNS`, test-only modules in the bridge copy | code | remove |
 | S5 | The reconciler-has-a-caller test counts comments | code | tighten |
