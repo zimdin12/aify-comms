@@ -63,16 +63,22 @@ class ADefinitionFlippedToResidentIsFollowed(FastApiTestCase):
         state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"] or ""
         self.assertNotIn("manualResidentCandidate", state, "the resident was parked as a candidate")
 
-    def test_a_running_managed_worker_still_parks_the_resident(self):
+    def test_a_managed_worker_not_yet_gone_still_parks_the_resident(self):
         # Two drivers on one agent is what the parking protects against, and a definition flip does not change that.
-        self.sql("INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, "
-                 "workspace, command, argv, status, requested_by, created_at, updated_at) VALUES "
-                 "('term-live', 'sess-live', 'lead', ?, ?, 'claude-code', '/workspace', 'claude', '[]', 'running', "
-                 "'dashboard', '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')",
-                 (ENV["environment_id"], ENV["bridge_id"]))
-        self.define(mode="resident", revision=2)
-        self.assertEqual(self.mode(), "managed", "a running managed worker was switched away under itself")
-        self.register_resident()
-        self.assertEqual(self.mode(), "managed")
-        state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"] or ""
-        self.assertIn("manualResidentCandidate", state)
+        # `stopping` is not gone: the stop was requested and no host has confirmed the departure (0.9.2 review, A P1).
+        for status in ("running", "stopping"):
+            with self.subTest(status=status):
+                self.sql("DELETE FROM terminal_sessions")
+                self.sql("UPDATE agents SET session_mode = 'managed', runtime_state = '{}' WHERE id = 'lead'")
+                self.sql("INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, "
+                         "workspace, command, argv, status, requested_by, created_at, updated_at) VALUES "
+                         "('term-live', 'sess-live', 'lead', ?, ?, 'claude-code', '/workspace', 'claude', '[]', ?, "
+                         "'dashboard', '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')",
+                         (ENV["environment_id"], ENV["bridge_id"], status))
+                self.define(mode="resident", revision=self.__dict__.setdefault("_rev", 1) + 1)
+                self.__dict__["_rev"] += 1
+                self.assertEqual(self.mode(), "managed", "a managed worker not yet gone was switched away under itself")
+                self.register_resident()
+                self.assertEqual(self.mode(), "managed")
+                state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"] or ""
+                self.assertIn("manualResidentCandidate", state)

@@ -23,7 +23,7 @@ from service.api_core.session_mode_gates import (
 )
 from service.api_core.session_mode_writes import _apply_session_mode_switch_to_agent
 from service.api_core.settings import _load_settings
-from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+from service.api_core.terminal_status import TERMINAL_STOPPABLE_STATUSES
 
 logger = logging.getLogger("aify_comms.api_core.session_mode_switch")
 
@@ -167,12 +167,13 @@ async def switch_session_mode(db, agent_id: str, row, new_mode: str, *, requeste
 
 
 async def managed_worker_drives(db, agent_id: str) -> bool:
-    """Whether a managed worker is running for this agent: a live terminal of its own. Not `driver_state`, which outlives
-    the worker, and not a channel bridge, which a resident Claude registers too."""
-    marks = ", ".join("?" * len(_TERMINAL_ACTIVE_STATUSES))
+    """Whether a managed worker may still run for this agent: a terminal of its own that is not yet gone, `stopping`
+    included, since a stop only requested is no departure its host confirmed (0.9.2 review, A P1). Not `driver_state`,
+    which outlives the worker, and not a channel bridge, which a resident Claude registers too."""
+    marks = ", ".join("?" * len(TERMINAL_STOPPABLE_STATUSES))
     row = await (await db.execute(
         f"SELECT 1 FROM terminal_sessions WHERE agent_id = ? AND status IN ({marks}) LIMIT 1",
-        (agent_id, *sorted(_TERMINAL_ACTIVE_STATUSES)))).fetchone()
+        (agent_id, *sorted(TERMINAL_STOPPABLE_STATUSES)))).fetchone()
     return row is not None
 
 
