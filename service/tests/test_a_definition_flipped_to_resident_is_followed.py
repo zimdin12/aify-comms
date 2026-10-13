@@ -49,10 +49,17 @@ class ADefinitionFlippedToResidentIsFollowed(FastApiTestCase):
         self.assertEqual(answer.status_code, 200, answer.text)
         return answer.json()
 
-    def test_a_push_flipping_the_definition_to_resident_switches_the_record(self):
-        self.assertEqual(self.mode(), "managed")
+    def test_a_push_does_not_switch_so_a_launch_loop_claiming_before_its_resident_registers_keeps_running(self):
+        # dashboard-senior-dev, 2026-10-13: the push switched the record to resident and not driving, the launcher's
+        # hermes delivery loop beat before the TUI's bridge registered, was told to release, and exited for good.
         self.define(mode="resident", revision=2)
-        self.assertEqual(self.mode(), "resident", "the record ignored the definition's flip")
+        self.assertEqual(self.mode(), "managed", "the push switched the record before any resident registered")
+        beat = self.client.post("/api/v1/agents/lead/heartbeat",
+                                json={"bridgeId": "loop-bridge", "bridgeKind": "channel-sidecar", "liveness": True})
+        self.assertEqual(beat.status_code, 200, beat.text)
+        self.assertFalse(beat.json().get("release"), "the launch's delivery loop was told to release")
+        self.register_resident()
+        self.assertEqual(self.mode(), "resident", "the resident's registration follows the flip")
 
     def test_a_resident_registering_for_an_agent_defined_resident_is_adopted_not_parked(self):
         # The order Steven hit: the definition says resident while the record still says managed.
