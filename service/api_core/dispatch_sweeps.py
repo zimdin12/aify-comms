@@ -214,7 +214,8 @@ async def _run_contract_reminders_once(
     settings = await _load_settings(db)
     where = [
         "AND COALESCE(r.result_message_id, '') = ''",
-        "AND r.status NOT IN ('completed','failed','cancelled')",
+        # Queued too: never due (reply_contract._contract_state), and the oldest-first limit below would fill with them.
+        "AND r.status NOT IN ('queued','completed','failed','cancelled')",
         "AND r.from_agent != r.target_agent",
         "AND r.target_agent != 'dashboard'",
     ]

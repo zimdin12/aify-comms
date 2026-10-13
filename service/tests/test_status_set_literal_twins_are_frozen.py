@@ -87,8 +87,8 @@ FROZEN: dict[str, dict] = {
     "_DISPATCH_TERMINAL_STATUSES": {
         "owner": "service/api_core/dispatch_state.py",
         "values": ["cancelled", "completed", "failed"],
+        # dispatch_sweeps.py left on 2026-10-13: its reminder filter also excludes 'queued', so it is no longer this set.
         "hardcoded_in": [
-            "service/api_core/dispatch_sweeps.py",
             "service/reconcilers/dispatch_lifecycle.py",
             "service/routers/contracts.py",
             "service/routers/dispatch_messages/handoff_repair.py",

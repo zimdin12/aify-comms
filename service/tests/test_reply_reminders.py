@@ -157,6 +157,19 @@ class ReplyReminderTests(FastApiTestCase):
 
     # --- tests -----------------------------------------------------------
 
+    def test_older_queued_runs_do_not_fill_the_window_ahead_of_an_overdue_one(self):
+        """A queued run is never due, and the sweep reads the OLDEST open contracts up to its limit, so queued
+        runs left by agents that never claim them crowded out every run that was due (0.9.4 review)."""
+        run_id = self._make_overdue_required_run("hermes")
+        older = _iso_from_ms(int((time.time() - 7200) * 1000))
+        for n in range(2):
+            self._execute(
+                "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, requested_at, message_type) VALUES (?,?,?,?,?,?)",
+                (f"never-claimed-{n}", "lead", "coder", "queued", older, "request"),
+            )
+        result = self._run_reminders(limit=2)
+        self.assertIn(run_id, [r["runId"] for r in result["reminded"]], result)
+
     def test_default_max_count_is_capped(self):
         """Out of the box the reminder count is bounded — never infinite."""
         cap = int(DEFAULT_SETTINGS.get("reply_reminder_max_count", 0) or 0)
