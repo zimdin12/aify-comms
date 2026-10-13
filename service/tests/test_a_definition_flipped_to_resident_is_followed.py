@@ -70,6 +70,30 @@ class ADefinitionFlippedToResidentIsFollowed(FastApiTestCase):
         state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"] or ""
         self.assertNotIn("manualResidentCandidate", state, "the resident was parked as a candidate")
 
+    def test_no_reader_sees_the_switch_before_the_resident_s_bridge_is_registered(self):
+        # Whole-diff review of 0.9.2: the switch committed on its own, and a hermes delivery loop claiming before the
+        # registration's bridge row landed read "resident, nobody driving", was told to release and exited.
+        from unittest import mock
+
+        from service.routers.agents import registration
+
+        self.sql("UPDATE agent_definitions SET body = json_set(body, '$.mode', 'resident') WHERE agent_id = 'lead'")
+        original = registration._upsert_registered_agent_row
+        seen = {}
+
+        async def upsert_after_a_reader_looks(*args, **kwargs):
+            other = sqlite3.connect(self._db_path, timeout=0.2)
+            try:
+                seen["mode"] = other.execute("SELECT session_mode FROM agents WHERE id = 'lead'").fetchone()[0]
+            finally:
+                other.close()
+            return await original(*args, **kwargs)
+
+        with mock.patch.object(registration, "_upsert_registered_agent_row", upsert_after_a_reader_looks):
+            self.register_resident()
+        self.assertEqual(seen.get("mode"), "managed", "a reader saw the switch before the bridge that drives it")
+        self.assertEqual(self.mode(), "resident", "CONTROL: the switch and the registration did commit")
+
     def test_a_managed_terminal_cannot_commit_between_the_check_and_the_switch(self):
         # 0.9.2 review, A race: registration read "no managed worker", an independent writer committed a running
         # managed terminal before the switch, and the switch then stopped it under the resident.

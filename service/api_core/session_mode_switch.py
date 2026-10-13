@@ -177,12 +177,16 @@ async def managed_worker_drives(db, agent_id: str) -> bool:
     return row is not None
 
 
-async def follow_definition_mode(db, agent_id: str, *, now: str) -> dict[str, Any] | None:
+async def follow_definition_mode(db, agent_id: str, *, now: str, hold: bool = False) -> dict[str, Any] | None:
     """Switch a defined agent to resident when its definition asks for resident and no managed worker drives it.
 
     The definition flip is the operator's deliberate switch, so the resident it asks for is adopted rather than parked as
     a candidate. Toward managed nothing is switched here: that mode governs the next start, which the host makes. None
-    when there is nothing to do or the switch is refused (an active run); the next registration asks again."""
+    when there is nothing to do or the switch is refused (an active run); the next registration asks again.
+
+    `hold`: a switch made here is left uncommitted for the caller to commit with its own writes. Registration holds it,
+    because committed alone the record read resident with no driving bridge, and a hermes delivery loop claiming in that
+    gap was told to release and exited (whole-diff review of 0.9.2)."""
     if await defined_mode(db, agent_id) != "resident":
         return None
     # THE CHECK AND THE SWITCH HOLD THE WRITE LOCK TOGETHER: a managed terminal committed between "no worker drives it"
@@ -197,7 +201,7 @@ async def follow_definition_mode(db, agent_id: str, *, now: str) -> dict[str, An
         if own:
             await db.rollback()
         raise
-    if own:
+    if own and not (hold and result):
         await db.commit()
     return result
 

@@ -261,8 +261,9 @@ async def _register_agent(req: AgentRegister, request: Request):
                 bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,
             ))
         # A RESIDENT FOR AN AGENT DEFINED RESIDENT is adopted, not parked: the definition flip was the operator's switch
-        # (0.9.2 status fix A). Parked only while the record still says managed after that.
-        if row and normalized_session_mode == "resident" and await follow_definition_mode(db, req.agentId, now=now):
+        # (0.9.2 status fix A). Parked only while the record still says managed after that. The switch is HELD open and
+        # commits below with this bridge's registration, so no claim can read the agent resident with nobody driving it.
+        if row and normalized_session_mode == "resident" and await follow_definition_mode(db, req.agentId, now=now, hold=True):
             row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))).fetchone()
         fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
         # WHOSE ID THIS IS. `fresh_state` starts EMPTY and the upsert replaces `runtime_state`, so
