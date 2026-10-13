@@ -34,7 +34,7 @@ from service.api_core.serialization import _row_require_reply
 from service.clock import iso_to_epoch as _iso_to_epoch
 
 
-async def _maybe_report_async_manager_result_to_dashboard(db, row) -> Optional[str]:
+async def _maybe_report_async_manager_result_to_dashboard(db, row, *, operator_closed: bool = False) -> Optional[str]:
     """Store manager/operator async run summaries in dashboard chat.
 
     The bridge already captures managed runtime final text as the run summary.
@@ -42,7 +42,7 @@ async def _maybe_report_async_manager_result_to_dashboard(db, row) -> Optional[s
     call comms_send(to="dashboard") after teammate replies arrive, so make the
     operator-visible report a backend invariant for manager-style coordinators.
     """
-    if not row:
+    if not row or operator_closed:
         return None
     if _row_require_reply(row):
         return None
@@ -60,7 +60,8 @@ async def _maybe_report_async_manager_result_to_dashboard(db, row) -> Optional[s
         return None
 
     event_cursor = await db.execute(
-        "SELECT 1 FROM dispatch_events WHERE run_id = ? AND event_type = 'dashboard_report' LIMIT 1",
+        # An operator's close is not the agent's report; a later repair pass finds it by its event.
+        "SELECT 1 FROM dispatch_events WHERE run_id = ? AND event_type IN ('dashboard_report', 'operator_closed') LIMIT 1",
         (row["id"],),
     )
     if await event_cursor.fetchone():
@@ -145,14 +146,17 @@ async def _maybe_report_async_manager_result_to_dashboard(db, row) -> Optional[s
     return message_id
 
 
-async def _mirror_dashboard_run_summary_to_chat(db, row) -> Optional[str]:
+async def _mirror_dashboard_run_summary_to_chat(db, row, *, operator_closed: bool = False) -> Optional[str]:
     """Persist dashboard-started managed run final text as a chat reply.
 
     Work Loop reply debt and operator-visible chat delivery are separate
     concerns. Routine dashboard `info` asks should not become contracts, but
     their managed runtime final text still needs to land in dashboard chat.
     """
-    if not row:
+    # AN OPERATOR'S CLOSE IS NOT THE AGENT'S REPLY. Its summary ("Closed from run inspector...") was
+    # stored as a response FROM the target agent (2026-10-14 audit, D4). The event that names the close
+    # is appended after settlement, so the caller passes the intent rather than this looking it up.
+    if not row or operator_closed:
         return None
     if str((row["from_agent"] if "from_agent" in row.keys() else "") or "").strip() != "dashboard":
         return None

@@ -9691,6 +9691,54 @@ class ApiV2RegressionTests(FastApiTestCase):
         event = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
         self.assertIsNone(event)
 
+    def test_an_operator_close_is_not_posted_as_the_agents_reply(self):
+        # Close on a dashboard-started run stored "Closed from run inspector by dashboard operator." as a
+        # response FROM the agent (2026-10-14 audit, D4). The close is sent exactly as run-inspector.mjs sends it.
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+
+        def run_from_dashboard(subject):
+            created = self._dispatch(from_agent="dashboard", to="coder", type="request", subject=subject,
+                                     body="please answer", mode="start_if_possible", createMessage=True)
+            return created["runs"][0]["runId"]
+
+        def replies_from_coder(summary):
+            return self._fetchall("SELECT id FROM messages WHERE from_agent = 'coder' AND to_agent = 'dashboard' AND body = ?",
+                                  (summary,))
+
+        closing = "Closed from run inspector by dashboard operator."
+        closed_run = run_from_dashboard("close me")
+        closed = self.client.patch(f"/api/v1/dispatch/runs/{closed_run}", json={
+            "status": "completed", "requireReply": False, "summary": closing,
+            "appendEvent": closing, "eventType": "operator_closed"})
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertEqual(replies_from_coder(closing), [], "the operator's close was posted as the agent's reply")
+
+        # CONTROL: an agent finishing a dashboard run with its own summary is still mirrored to chat.
+        finished_run = run_from_dashboard("finish me")
+        finished = self.client.patch(f"/api/v1/dispatch/runs/{finished_run}", json={"status": "completed", "summary": "done: 3 files"})
+        self.assertEqual(finished.status_code, 200, finished.text)
+        self.assertEqual(len(replies_from_coder("done: 3 files")), 1)
+
+    def test_an_operator_close_is_not_reported_as_a_managers_result(self):
+        # The manager report path fabricated the same way, and a later repair pass calls it without the
+        # close intent, so it also reads the stored operator_closed event.
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("boss", session_handle="boss-thread", bridge_id="boss-bridge", port=3)
+        self._execute("UPDATE agents SET role = 'manager' WHERE id = 'boss'")
+        created = self._dispatch(from_agent="lead", to="boss", type="info", subject="fyi", body="note",
+                                 mode="start_if_possible", createMessage=True)
+        run_id = created["runs"][0]["runId"]
+        closing = "Closed from Work Loop by dashboard operator."
+        closed = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={
+            "status": "completed", "requireReply": False, "summary": closing, "appendEvent": closing, "eventType": "operator_closed"})
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertEqual(self._fetchall("SELECT id FROM messages WHERE from_agent = 'boss' AND to_agent = 'dashboard'"), [])
+
+        repaired = self.client.post("/api/v1/dispatch/handoffs/repair", json={})
+        self.assertEqual(repaired.status_code, 200, repaired.text)
+        self.assertEqual(self._fetchall("SELECT id FROM messages WHERE from_agent = 'boss' AND to_agent = 'dashboard'"), [],
+                         "a repair pass reported the operator's close as the manager's result")
+
     def test_contracts_default_view_hides_operator_closed_and_failures(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)

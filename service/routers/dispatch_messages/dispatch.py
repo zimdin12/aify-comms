@@ -327,7 +327,8 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             params.append(run_id)
             await db.execute(f"UPDATE dispatch_runs SET {', '.join(updates)} WHERE id = ?", params)
             await _invalidate_agent_live_state(db, row["target_agent"])
-            await _settle_terminated_dispatch_run(db, run_id, effective_status, now, request)
+            await _settle_terminated_dispatch_run(db, run_id, effective_status, now, request,
+                                                  operator_closed=(req.eventType or "").strip() == "operator_closed")
 
         # MC1 (2026-06-06): only persist a status that is in the 8-status vocabulary.
         # Delivery PATCHes historically sent a non-vocab agentStatus:"active", which got

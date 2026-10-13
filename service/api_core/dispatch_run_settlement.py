@@ -43,17 +43,11 @@ async def _apply_pending_resident_takeover_if_ready(db, agent_id: str) -> bool:
 
 
 async def _settle_terminated_dispatch_run(db, run_id: str, effective_status,
-                                          now: str, request: Request) -> None:
+                                          now: str, request: Request, *, operator_closed: bool = False) -> None:
             """The run reached a terminal status. Settle everything that depended on it being live.
 
-            Called unconditionally and guarded INSIDE, which is what the block looked like before it
-            moved -- the extract-method gate splices this body back over its call site verbatim, so
-            hoisting the condition to the caller would break the round trip that proves the move
-            changed nothing.
-
-            Every argument is passed under the caller's own name for the same reason: inline-back does
-            not substitute arguments, so it refuses a call whose argument name differs from the
-            parameter it fills.
+            Called unconditionally and guarded INSIDE. `operator_closed` says the operator closed the
+            run, so nothing posts the operator's summary as the agent's reply (2026-10-14 audit, D4).
             """
             if effective_status in ("completed", "failed", "cancelled"):
                 await _fail_pending_controls_for_run(
@@ -65,14 +59,14 @@ async def _settle_terminated_dispatch_run(db, run_id: str, effective_status,
                 refreshed_cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
                 refreshed_row = await refreshed_cursor.fetchone()
                 mirrored_message_id = await _mirror_missing_dispatch_handoff(db, refreshed_row)
-                dashboard_message_id = await _mirror_dashboard_run_summary_to_chat(db, refreshed_row)
+                dashboard_message_id = await _mirror_dashboard_run_summary_to_chat(db, refreshed_row, operator_closed=operator_closed)
                 result_message_id = str((refreshed_row["result_message_id"] if refreshed_row else "") or mirrored_message_id or dashboard_message_id or "").strip()
                 await _close_steered_contracts_for_parent_run(
                     db,
                     refreshed_row,
                     result_message_id=result_message_id,
                 )
-                await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row)
+                await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row, operator_closed=operator_closed)
                 if refreshed_row:
                     # Send-deadlock fix (2026-06-02): an rr=0 channel/resident
                     # delivery that the bridge just marked completed is NOT
