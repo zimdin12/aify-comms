@@ -6,6 +6,39 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## 0.9.1 and 0.9.2: how an agent reads, starts and hooks (2026-10-12/13)
+
+**What a session actually runs is read when someone asks (Steven, choice B: "time based stuff is bad, it should
+be on demand").** `GET /agents/{id}/model` asks the agent's own host through a long-poll the host holds
+(`/environments/{id}/model-reads/claim`, proved per attempt under the write lock) and waits at most 3 s
+(`READ_WAIT_S`), then serves the last answer marked stale, else unknown. aify-env reads the transcript or
+hermes' state db, memoised by file size and mtime; a failed read is not memoised. No timer reads anything.
+
+**Hermes hooks name Git Bash by its absolute path.** Windows resolves a bare `bash` in System32 first, which is
+WSL's: every hook exited 127 and started WSL. `install.sh` writes `"<git>/usr/bin/bash.exe" "<hook>"` and carries
+an approval the operator already gave to the new command; it never approves a new one.
+
+**`install.cmd` runs `install.sh` with Git Bash from PowerShell or cmd,** where `bash` is WSL's and installed
+into WSL instead of for the host.
+
+**No PowerShell around a hook.** The notify hook ran `powershell.exe … node`: 929-943 ms on every Claude and
+Codex tool call, against 85-105 ms for bash and node (2026-10-13). Claude and Codex run hooks through Git Bash.
+
+**A definition flipped to resident is followed (0.9.2).** The flip is the operator's deliberate switch, so the
+record switches and the resident it asks for is adopted, not parked as a candidate
+(`follow_definition_mode` in `service/api_core/session_mode_switch.py`). A running managed terminal still parks it: two
+drivers on one agent is what parking prevents. A flip to managed governs the next start, which the host makes.
+
+**An agent its environment will not start reads `misconfigured`, with the reason (0.9.2).** aify-env starts work
+only below the folder it was started in. A managed agent whose workspace is outside it read `available`, which
+promises a cold start, and every start was refused. `_agent_config_defect` names it and the status note says
+"Cannot be started: …". aify-env also warns at startup and in `aify-env doctor` (`agents-outside-roots`).
+
+**A transcript tail found at boot is not a turn (0.9.2).** A session resumed after a kill had a user-role tail
+from before it started, and the detector re-asserted `working` every 45 s for ever. The detector remembers the
+entry it saw at boot and starts nothing from it; Claude `SessionStart` (startup, resume, clear) and Codex
+`SessionStart` end any open turn.
+
 ## aify-env owns the agents; this service holds a copy (2026-09-30, 0.8)
 
 **Decision.** Which agents exist on a host and how each launches is that host's: one definition file
@@ -222,7 +255,8 @@ console, then Enter: `/compact` for Claude Code and codex, `/compress` for herme
 runtime's own command table (the adapter names the source). It is refused for a resident (the console is
 the operator's terminal), a runtime with no verified command, a console with no TUI, and an agent not
 idle at its prompt, because typed mid-turn it queues behind the turn and typed over a dialog it answers
-it. **Handoff** still starts a fresh session from a spawn request, but its first message no longer pastes
+it. **Handoff** starts a fresh session (since 0.9 a new id is first defined on its host, and a defined agent into its
+own id is its host's fresh-context restart from its definition), and its first message no longer pastes
 ~24 message bodies: it names the previous session and native session id, where the transcript is when
 the runtime's layout says, and tells the agent to read its last N messages (default 10, asked in the
 dashboard) with `comms_inbox`.

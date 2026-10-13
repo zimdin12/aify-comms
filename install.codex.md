@@ -12,6 +12,8 @@ cd ~/aify-comms
 bash install.sh --client codex http://<service-host>:8800 --with-hook
 ```
 
+- On Windows from PowerShell or cmd, run `.\install.cmd` with the same arguments: a bare `bash` there is
+  WSL's and installs into WSL. `install.cmd` finds Git Bash and runs `install.sh` with it.
 - With no URL, `install.sh` asks for one when run in a terminal and otherwise uses
   `http://127.0.0.1:8800`.
 - It writes the service into `~/.aify/services.json`, which is how aify-env learns the service exists.

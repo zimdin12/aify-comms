@@ -127,6 +127,9 @@ Four things about this path are load-bearing and non-obvious:
   once lost a fleet.
 - **Cleanup keys on state, never on an event.** Many code paths can end a terminal; a cleanup hooked
   to one of them leaves the rest stranded. Reapers sweep for the *state*.
+- **A host answers questions about itself the same way: claimed, never pushed on a timer.** What a
+  session actually runs (`GET /agents/{id}/model`) is queued in memory (`service/api_core/model_reads.py`) for the
+  agent's host, which holds `/environments/{id}/model-reads/claim` and answers; the asker waits at most 3 s.
 
 ### Foreign text is untrusted, everywhere
 

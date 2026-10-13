@@ -590,3 +590,38 @@ the worker ran. It was left open because the bridge's virtual terminals were tho
 no proof; their handler had in fact had no production caller since 779099d7, and aify-env, the one reporter,
 sends its proof. Fixed in 25d9f325 (with bff298f1 and b5b5ed83): the route judges the proof of the machine the
 persisted control was queued for, under a write lock held from its first read to its commit.
+
+## A `claude` run from an agent's own shell took that agent over (2026-09-26; refused since 0.7.5)
+
+A child `claude` (`claude -p`, `claude mcp list`) inherits `AIFY_AGENT_ID` and the session id, so its
+aify-comms bridge registers as the parent agent with the same session handle and takes the session over.
+sc-manager did this four times on 2026-09-26, and each exit left it `stopped` for 2.5 hours. Since 0.7.4
+the exit sets the agent `offline` instead of stopping it, and the parent's bridge takes the session back on
+its next beat (`service/api_core/nested_session_handback.py`). A predecessor killed by a real relaunch never
+beats, so nothing is handed back and the agent reads `offline` rather than `stopped` until its next launch.
+The offer reaches every same-session bridge behind the lost one, so overlapping nested runs that exit
+oldest-first still hand back; and a child's bridge that crashes without reporting its loss gives the
+session back once it has not beaten for the resident lease and the parent's bridge beats (2026-09-29).
+Bridges beat every 60 s against a 150 s lease, so a live child must miss two beats first; the case
+that can still do it is a machine waking from sleep, where the parent may beat before a running child
+and take the session back from it (not observed).
+Since 0.7.5 the child's bridge registers the session Claude Code gave it rather than the parent's, so the
+service refuses it (409, a different handle against a live owner) and it takes nothing over
+(`sessionWhenStartedFromAClaudeShell` in `mcp/stdio/adapters/claude.js`). The signal was read from the
+claude.exe build of 2026-09-26, not observed on a running nested bridge: Claude Code puts `CLAUDE_PID` in
+every shell it runs and `CLAUDE_CODE_SESSION_ID` (its own session) in every stdio MCP server, and does not
+set `CLAUDE_PID` for an MCP server, so only a claude started from a Claude Code shell hands its bridge
+both. In a launcher-resumed session the two session ids were observed equal. ASSUMED, not checked: that a
+nested `claude` keeps that behaviour in other Claude Code versions, and the managed-agent registration
+path. With `env -u AIFY_AGENT_ID -u AIFY_COMMS_AGENT_ID claude ...` a bridge neither registers nor
+reports resident-lost (`auto-registration.mjs`, `server.js` `shutdownWithStatus`).
+
+## Attach and typing lag came from one icacls per credential read (aify-env 4044364)
+
+The daemon ran `icacls` on the stored key's file on every plugin call and every HTTP request, and on
+Windows the spawn runs on the event loop. A 30 s profile of the live daemon (2026-09-28) put 80% of
+the main thread in that spawn; `/health` stalled 250-300 ms about twice a second, up to 3 s, and every
+keystroke echo waited behind it, worse when agents produced more output. Now read once per change of
+the file (device, inode, ctime; 60 s TTL). Measured in a harness: loop delay max 567 ms before,
+17.7 ms after. Not yet measured on the live daemon, which needs an aify-env restart to load it.
+Moved here 2026-10-13: fixed in aify-env 4044364.

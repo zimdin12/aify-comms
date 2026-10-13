@@ -3,12 +3,26 @@
 What is open now: known limitations, deferred work, and things to watch. Complements
 [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Resolved
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
-kept as evidence. Last reviewed 2026-09-27.
+kept as evidence. Last reviewed 2026-10-13.
 
 - Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.
 - Deferred diagnostic privacy: fatal-line forwarding to spawn_requests.error is bounded but does not redact secrets or distinguish conversation text; inherited behavior, not a privacy guarantee.
 - A send to a WORKING managed hermes can be refused "Cannot start managed hermes for this agent: a spawn for this agent is ALREADY IN FLIGHT" (sc-coder-gpt, 2026-10-06 22:30Z, twice); the message is stored, `queueIfBusy=true` queued normally. The send tried to cold-start a busy agent. Reported by sc-manager, not yet traced; the lane was also calling the HTTP API directly at the time (possible confounder). Follow-up: that lane's hermes session (~47 h, 83 context compressions) had lost the comms MCP tools ("not available in this session"), which is why it fell back to raw HTTP. A `comms_restart` without fresh context brought the worker back; whether it restored the tools is unconfirmed. A long-lived hermes session losing its MCP tools after compression is its own defect to trace.
 - A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (sc-coder-gpt, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
+
+## Deferred by the 0.9.1 review (2026-10-13)
+
+- **aify-env ENV-3:** `aify-env agents --all` leaves out a member it cannot read, and an incomplete inventory reads
+  as "no definitions". A CLI behaviour change, not a small fix.
+- **aify-wrapper W2:** with `CLAUDE_CONFIG_DIR` set, resume validation checks only `$HOME`, so a relocated transcript
+  loses its resume. Unset on this host at every level (2026-10-13), so it cannot trigger here.
+- **aify-wrapper W1:** `--check` exits before the settings fallback and does not say which model it would pass.
+- **Model reads for one agent are not coalesced:** 64 concurrent asks were 64 host reads in review; each waits at
+  most 3 s, so it is bounded, not shared.
+- **The test runner's leftover sweep (F1), accepted by the lead:** a child of a recorded test file counts as the
+  run's only when born between the runner asking for that file and its exit. A pid a stranger takes and returns
+  inside one spawn call, having named the run root, would still pass. Closing it needs each file's native birth
+  (one process-table read per file) or a job object (`PROC_THREAD_ATTRIBUTE_JOB_LIST`).
 
 ## A creation its host claimed and never reported holds the id (0.9 D8, 2026-10-11)
 
@@ -245,30 +259,13 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   dedicated Windows Job isolation test timed out. Not classified: the harness difference is ASSUMED
   to be the cause, not shown.
 
-## A `claude` run from an agent's own shell took that agent over (2026-09-26; refused since 0.7.5)
+## A `claude` run from an agent's own shell: what refusing it (0.7.5) left open
 
-A child `claude` (`claude -p`, `claude mcp list`) inherits `AIFY_AGENT_ID` and the session id, so its
-aify-comms bridge registers as the parent agent with the same session handle and takes the session over.
-sc-manager did this four times on 2026-09-26, and each exit left it `stopped` for 2.5 hours. Since 0.7.4
-the exit sets the agent `offline` instead of stopping it, and the parent's bridge takes the session back on
-its next beat (`service/api_core/nested_session_handback.py`). A predecessor killed by a real relaunch never
-beats, so nothing is handed back and the agent reads `offline` rather than `stopped` until its next launch.
-The offer reaches every same-session bridge behind the lost one, so overlapping nested runs that exit
-oldest-first still hand back; and a child's bridge that crashes without reporting its loss gives the
-session back once it has not beaten for the resident lease and the parent's bridge beats (2026-09-29).
-Bridges beat every 60 s against a 150 s lease, so a live child must miss two beats first; the case
-that can still do it is a machine waking from sleep, where the parent may beat before a running child
-and take the session back from it (not observed).
-Since 0.7.5 the child's bridge registers the session Claude Code gave it rather than the parent's, so the
-service refuses it (409, a different handle against a live owner) and it takes nothing over
-(`sessionWhenStartedFromAClaudeShell` in `mcp/stdio/adapters/claude.js`). The signal was read from the
-claude.exe build of 2026-09-26, not observed on a running nested bridge: Claude Code puts `CLAUDE_PID` in
-every shell it runs and `CLAUDE_CODE_SESSION_ID` (its own session) in every stdio MCP server, and does not
-set `CLAUDE_PID` for an MCP server, so only a claude started from a Claude Code shell hands its bridge
-both. In a launcher-resumed session the two session ids were observed equal. ASSUMED, not checked: that a
-nested `claude` keeps that behaviour in other Claude Code versions, and the managed-agent registration
-path. With `env -u AIFY_AGENT_ID -u AIFY_COMMS_AGENT_ID claude ...` a bridge neither registers nor
-reports resident-lost (`auto-registration.mjs`, `server.js` `shutdownWithStatus`).
+Since 0.7.5 a child `claude`'s bridge registers the session Claude Code gave it and is refused 409 rather than
+taking its parent over. ASSUMED, not checked: that other Claude Code versions keep the `CLAUDE_PID` /
+`CLAUDE_CODE_SESSION_ID` behaviour that signal reads, and the managed registration path. Still possible: a machine
+waking from sleep lets the parent beat before a running child. `env -u AIFY_AGENT_ID -u AIFY_COMMS_AGENT_ID claude`
+registers nothing. Full trace in the archive.
 
 ## The resume-menu answer is tested against hand-written screens only (0.7.4)
 
@@ -460,7 +457,7 @@ keys do not restore its size, which is the old last-resize-wins behaviour. What 
 it, opening or refreshing a dashboard console still takes the size, and what already reached herdr's
 scrollback stays. Live only after an aify-env restart.
 
-## A herdr pane's rows can land one column left on Windows (open; fixed in a later 0.7.x)
+## A herdr pane's rows can land one column left on Windows (open; fix planned: set the console flag in-process)
 
 Leftover letters inside words ("bot-" for "both") and stray box-drawing at column 0, in herdr panes
 only; the dashboard console of the same agent is clean. The agent's PTY is a ConPTY, which moves the
@@ -474,15 +471,6 @@ modes (reverse-wrap, the order of BS and LF), so a translation changes some stre
 from a PowerShell helper worked, but Windows Defender blocked the pattern (`Trojan:Win32/SuspExec.SE`),
 so it was not shipped. The fix planned for a later 0.7.x sets the flag in-process (koffi, optional, like
 node-pty) and writes raw.
-
-## Attach and typing lag came from one icacls per credential read (aify-env 4044364)
-
-The daemon ran `icacls` on the stored key's file on every plugin call and every HTTP request, and on
-Windows the spawn runs on the event loop. A 30 s profile of the live daemon (2026-09-28) put 80% of
-the main thread in that spawn; `/health` stalled 250-300 ms about twice a second, up to 3 s, and every
-keystroke echo waited behind it, worse when agents produced more output. Now read once per change of
-the file (device, inode, ctime; 60 s TTL). Measured in a harness: loop delay max 567 ms before,
-17.7 ms after. Not yet measured on the live daemon, which needs an aify-env restart to load it.
 
 ## The session list calls a starting session with no terminal yet `stopped` (review, 2026-09-30)
 

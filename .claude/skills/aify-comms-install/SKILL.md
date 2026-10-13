@@ -55,6 +55,8 @@ For clients, run the same installer for a missing or outdated integration, once 
 bash install.sh --client <claude|codex|hermes> <endpoint> --with-hook
 ```
 
+From PowerShell or cmd use `.\install.cmd` with the same arguments: a bare `bash` there is WSL's.
+
 For a local service, preserve existing configuration; run setup only for first installation, then
 stamp and rebuild when selected. A running container may still need an update.
 For agent hosts, follow [aify-env's own guide](https://github.com/zimdin12/aify-env) and reviewed
@@ -63,9 +65,10 @@ aify-env's guide points to herdr's own installer after opt-in. aify-wrapper is a
 the client installer: run this installer before aify-wrapper's own, whose 0.8 launchers refuse resident
 launches without this bridge's definition reader.
 
-From 0.8, aify-env defines the agents it starts, not the aify-comms registry. With the new
-aify-env running, `aify-env agents import` is a dry run of what it would define; read it, `--write`,
-then `aify-env agents remove <id>` for each agent no longer run.
+aify-env defines the agents it starts, and since 0.9 a managed agent no host defines is never started.
+With the new aify-env running, `aify-env agents import` is a dry run; read it, `--write`, then
+`aify-env agents remove <id>` for each agent no longer run. Start aify-env from a folder containing every
+workspace (`C:\` on Windows): it starts nothing outside it.
 
 ## Verify and report pending restarts
 

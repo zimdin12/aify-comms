@@ -2,10 +2,8 @@
 
 ## Baseline
 
-Before changing state, read `comms_agent_info`; when a dispatch run exists, read
-`comms_run_status`. Record the current agent session, native handle, terminal,
-environment, bridge instance, and live process family. Current activity and process
-ancestry outrank stale database ownership.
+Before changing state, read `comms_agent_info` (and `comms_run_status` for a run). Record session, native
+handle, terminal, environment, bridge and live process; current activity outranks stale database ownership.
 
 ## Safe interruption: message vs run vs console
 
@@ -17,32 +15,41 @@ console: use its run interrupt, or relaunch it from its own terminal.
 
 ## Lifecycle verbs
 
+For a DEFINED agent (0.9) start, stop, restart, reset, kill, spawn and delete are requests its host
+claims: one `agent_lifecycle_requests` row each, outcome `done`, `refused` (reason named) or `failed`.
+
 | Verb | Meaning |
 |---|---|
-| Spawn | Create a new managed identity/backing. |
-| Stop | Halt backing and disable wake; preserve identity/spec/handle. |
-| Restart | Recreate backing and resume the stored native handle. |
-| Reset | Recreate backing with fresh native context. |
-| Resume wake (API) | Re-enable a stopped resident wake path without spawning managed backing. |
-| Pause for CLI (API) | Hand ownership to an operator-open terminal. |
-| Switch managed/resident | Explicitly change the delivery owner while preserving the handle. |
+| Spawn / Start | New or stopped identity gets backing; a defined one from its definition. |
+| Stop | Halt backing and disable wake; keep identity, definition, handle. |
+| Restart / Reset | New backing resuming the stored handle / with fresh native context. |
+| Resume wake / Pause for CLI (API) | Re-enable a stopped resident wake path / hand ownership to an operator terminal. |
+| Switch managed/resident | Change the delivery owner; for a defined agent, edits its definition. |
 | **Edit…** → *Native session handle* | Repair a known native resume target without starting work. |
 | Interrupt / Steer | Control one proven active turn. |
-| Remove | Tombstone the identity. |
-| Forget environment | Hide an offline execution target; agent history stays. |
+| Remove / Forget environment | Tombstone the identity / hide an offline execution target. |
 
 ## Restart acknowledged, but no new worker appears
 
-**Symptom:** Restart returns ok, the old backing dies, the agent settles at `available` instead of
-`online`, no new terminal is created, and the restart's own run reads `[FAILED]`.
+Restart returns ok, the agent settles at `available`, no new terminal appears, its run reads `[FAILED]`:
+a regression of one of two fixed causes. The run's `claimed_at` NULL (failed ~1 s in) means the rotation
+adopted the dying terminal; set (failed at 120/300 s) means the dying sidecar claimed the brief.
 
-Both known causes are fixed, so either is a regression. The failed run's `claimed_at` tells them
-apart: NULL (failed ~1s in) means the rotation adopted the terminal being killed; set (failed at
-120s/300s) means the dying sidecar claimed the brief.
-
-A new worker is not proof the restart worked: a cold start can produce one minutes later. Match
-the new terminal's `created_at` and `spawn_request_id` to your restart. A working restart can still
+A new worker is not proof the restart worked: a cold start can produce one minutes later. Match the
+new terminal to your restart: for a defined agent by its `agent_lifecycle_requests` row (its terminal
+row has no `spawn_request_id`), for an undefined one by `spawn_request_id`. A working restart can still
 record its run `failed`, because it killed the process that would reply; judge by the new backing.
+
+## Start refused by aify-env (0.9)
+
+The request row's `outcome`, or the status note, names it:
+
+| Reads | Cause | Remedy |
+|---|---|---|
+| `misconfigured`, note "Cannot be started: … outside the folder aify-env was started in" | workspace outside aify-env's start folder | operator restarts aify-env from a folder containing it (`C:\` on Windows); `aify-env doctor` row `agents-outside-roots` |
+| `automatic-agent-undefined` | no host defines the id | `aify-env agents import --write` on its host |
+| `automatic-definition-unavailable` | definition has problems or names no launch | `aify-env agents list`, fix it |
+| `agent-reserved` | an earlier action ended `execution-unknown` | KNOWN_ISSUES "execution-unknown keeps its agent reserved" |
 
 ## Start refused by the agent lease
 
@@ -64,6 +71,7 @@ automatic ones (cold start, backstop, `comms_spawn`, a Herdr restore, an id from
 - Pi (deprecated) is managed-only for triggerable delivery; managed OpenCode is unsupported. Presence metadata is not a resident wake path.
 - Resident→managed carries the native handle so Restart resumes the same context.
 - Registration records a candidate owner; it must not silently kill or displace a live managed worker.
+  A defined agent whose definition says resident adopts its resident unless a managed terminal runs (0.9.2).
 - Active work blocks ownership changes unless the operator forces them after proving the target.
 
 After switching, verify `sessionMode`, native handle, bridge identity, status, and one real send.
@@ -72,41 +80,29 @@ After switching, verify `sessionMode`, native handle, bridge identity, status, a
 
 | Evidence | Meaning | Action |
 |---|---|---|
-| `available` plus online capable environment | cold-startable | send once; watch claim/start evidence |
-| `offline` or no online host | no wake path | restore/bind an environment |
-| `stopped` | operator-disabled | Restart or Resume wake intentionally |
-| queued with no claimant | delivery owner missing/unready | inspect bridge, wrapper/sidecar, and capabilities |
-| completed without linked reply | runtime ended but contract remains open | obtain the real threaded result |
-| `steer=false` send, target already has queued work | ordering guard | inspect the existing contract rather than duplicating it |
+| `available`, capable environment online | cold-startable | send once; watch claim/start |
+| `offline` / `misconfigured` | no wake path / no start can reach it | bind an environment / see the table above |
+| `stopped` | operator-disabled | Restart or Resume wake |
+| queued, no claimant | delivery owner missing | inspect bridge, wrapper/sidecar, capabilities |
+| completed, no linked reply | contract still open | obtain the real threaded result |
+| `steer=false`, work already queued | ordering guard | inspect the existing contract |
 
-Queued, claimed, and delivered are not execution proof. If delivery is unclear, move
-to `dispatch-delivery.md`.
+Queued, claimed and delivered are not execution proof; see `dispatch-delivery.md`.
 
 ## Registration and bridge ownership
 
-**Healthy resident registration requires all of:** the real wrapper session, usable native
-handle, fresh wrapper bridge heartbeat, and runtime wake configuration.
-
-- Prefer `*-aify --aify-agent <id>` auto-registration.
-- Manual `comms_register` must run inside the exact visible session that should own delivery.
-- Raw `POST /api/v1/agents` writes metadata only; it cannot create the wrapper heartbeat or claim loop.
-- A 409 live-owner conflict is a safety result. Inspect both owners; do not force-register over current work.
-- A superseded bridge cannot claim new work or own new terminal controls.
-- Re-registering does not repair a dead process: relaunch the wrapper, then verify readback and delivery.
+A healthy resident needs its real wrapper session, a usable native handle, a fresh wrapper heartbeat and its
+runtime's wake configuration. Prefer `*-aify --aify-agent <id>`; a manual `comms_register` runs inside the
+session that should own delivery. A raw `POST /api/v1/agents` writes metadata only. A 409 live-owner conflict
+is a safety result: inspect both owners. Re-registering repairs no dead process: relaunch the wrapper.
 
 ## After the operator restarts aify-env or the service
 
-Identity, chat, spawn spec, and stored native handle remain. Afterwards:
-
-1. Verify service health and that aify-env is answering.
-2. Read each affected agent; do not assume old console/session rows are live.
-3. Restart managed agents only when needed, preserving handles.
-4. Relaunch resident wrappers from their real native sessions.
-5. Prove one send through each affected delivery shape before declaring recovery.
+Identity, chat, definition and stored handle remain. Verify health and that aify-env answers, read each
+affected agent (old console rows are history), restart managed agents only when needed, relaunch residents from
+their real sessions, and prove one send per delivery shape.
 
 ## Misleading console or session state
 
-A stopped/old terminal row is historical evidence, not the current owner. Browser Console must
-attach only to the terminal bound to the current agent session. When UI and API disagree, trust
-neither alone: correlate the API row, bridge heartbeat, terminal output, and live process. Repair
-the owning relationship, not the badge.
+An old terminal row is history, not the owner. When UI and API disagree, correlate the API row, bridge
+heartbeat, terminal output and live process; repair the owning relationship, not the badge.
