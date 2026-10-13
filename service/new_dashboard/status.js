@@ -158,7 +158,8 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
     if (runTargetAgent(item)) parts.push(`Target: ${runTargetAgent(item)}.`);
     if (item.requestedAt) parts.push(`Requested ${relTime(item.requestedAt)} ago.`);
     if (item.startedAt) parts.push(`Started ${relTime(item.startedAt)} ago.`);
-    if (item.error || item.blockedByActiveRun) parts.push(`Reason: ${item.error || item.blockedByActiveRun}.`);
+    const reason = item.error || blockerText(item.blockedByActiveRun);
+    if (reason) parts.push(`Reason: ${reason}.`);
   } else if (kind === 'contract') {
     parts.push(`Work Loop item ${item.subject || item.id || 'unknown'} is ${base.label}.`);
     if (item.targetAgentId) parts.push(`Target: ${item.targetAgentId}.`);
@@ -178,8 +179,18 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
   }
   return { ...context, label: context.label || base.label, why: parts.filter(Boolean).join(' ') };
 }
+// The service sends the blocking run as a record ({runId, status, subject, ...}); stringifying it showed
+// "[object Object]" (2026-10-14 audit, D5). A plain string, from an older service, is shown as it is.
+export function blockerText(blocker) {
+  if (!blocker) return '';
+  if (typeof blocker !== 'object') return String(blocker).trim();
+  const id = String(blocker.runId || '').trim();
+  const status = String(blocker.status || '').trim();
+  return id ? `waiting behind run ${id}${status ? ` (${status})` : ''}` : '';
+}
+
 export function runStatusContext(run) {
-  const blockerReason = String(run?.blockedByActiveRun || run?.blockedBy || run?.error || '').trim();
+  const blockerReason = String(blockerText(run?.blockedByActiveRun) || run?.blockedBy || run?.error || '').trim();
   return {
     label: run?.status || 'unknown',
     blockerReason,

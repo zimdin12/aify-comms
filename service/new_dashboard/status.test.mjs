@@ -145,6 +145,15 @@ test("runStatusContext surfaces a blocker ONLY when the status is actually block
   assert.deepEqual(running.badges, [], "…but a running run must NOT be badged blocked");
 });
 
+test("the blocker the service actually sends, a run record, reads as words, not [object Object] (D5)", () => {
+  // records.py serialises blockedByActiveRun as the active run's record (dispatch_text._format_dispatch_state).
+  const record = { runId: 'run_9', status: 'running', subject: 'build it', from: 'lead' };
+  const ctx = runStatusContext({ status: 'blocked', blockedByActiveRun: record });
+  assert.equal(ctx.blockerReason, 'waiting behind run run_9 (running)');
+  assert.doesNotMatch(statusWhyContext('run', { id: 'run_1', status: 'queued', blockedByActiveRun: record }).why, /\[object Object\]/);
+  assert.match(statusWhyContext('run', { id: 'run_1', status: 'queued', blockedByActiveRun: record }).why, /waiting behind run run_9/);
+});
+
 test("runStatusContext reads every spelling of a blocker and never returns undefined", () => {
   assert.equal(runStatusContext({ status: 'blocked', blockedBy: 'x' }).blockerReason, 'x');
   assert.equal(runStatusContext({ status: 'blocked', error: 'y' }).blockerReason, 'y');
