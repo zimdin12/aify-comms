@@ -158,7 +158,7 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_run_interrupt",
-    "Interrupt an active dispatched RUN. Returns a control request ID. No dispatched run? Use comms_interrupt.",
+    "Interrupt an active dispatched RUN, or cancel one still queued. No dispatched run? Use comms_interrupt.",
     {
       runId: z.string().describe("Dispatch run ID"),
       from: z.string().optional().describe("Your agent ID"),
@@ -172,6 +172,9 @@ export function registerDispatchTools(server, z) {
           from_agent: from || "",
           action: "interrupt",
         });
+        if (r.status === "cancelled") {
+          return { content: [{ type: "text", text: `${runId} was still queued, so it was cancelled before delivery.` }] };
+        }
         return {
           content: [{ type: "text", text: `Interrupt requested for ${runId}. Control ID: ${r.controlId}` }],
         };

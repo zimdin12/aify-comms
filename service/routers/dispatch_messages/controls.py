@@ -28,7 +28,7 @@ from service import longpoll
 from service.api_core.interrupt_notice import note_the_interrupt
 from service.api_core.claim_emptiness import dispatch_controls_is_empty
 from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
-from service.api_core.dispatch_run_state import _append_dispatch_control
+from service.api_core.dispatch_run_state import _append_dispatch_control, cancel_queued_dispatch_run
 from service.api_core.events import _append_dispatch_event
 from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.routing import domain_router
@@ -81,6 +81,14 @@ async def request_dispatch_control(run_id: str, req: DispatchControlRequest, req
         run = await cursor.fetchone()
         if not run:
             raise HTTPException(404, f"Run '{run_id}' not found")
+        # A run nobody has claimed has no turn to interrupt, so the service cancels it itself. Before this, the only way
+        # to stop one was to unsend its source message.
+        if action == "interrupt" and run["status"] == "queued":
+            by = req.from_agent or "the operator"
+            if await cancel_queued_dispatch_run(db, run_id, summary=f"Cancelled before delivery by {by}."):
+                await db.commit()
+                return {"ok": True, "runId": run_id, "action": action, "status": "cancelled"}
+            raise HTTPException(409, f"Run '{run_id}' was claimed or settled while cancelling; interrupt it again")
         if run["status"] not in {"claimed", "running"}:
             raise HTTPException(409, f"Run '{run_id}' is not active")
 

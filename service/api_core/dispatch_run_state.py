@@ -140,6 +140,18 @@ async def _mark_dispatch_run_answered(
 # should hold routes, and this is dispatch-run STATE — the same subject `_mark_dispatch_run_answered`
 # above already owns.
 
+async def cancel_queued_dispatch_run(db, run_id: str, *, summary: str) -> bool:
+    """Cancel one run its target has not claimed. False when it is no longer queued (claimed, or already settled)."""
+    cursor = await db.execute(
+        "UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id = ? AND status = 'queued'",
+        (summary, _now(), run_id),
+    )
+    if cursor.rowcount != 1:
+        return False
+    await _append_dispatch_event(db, run_id, "cancelled", summary)
+    return True
+
+
 async def _cancel_queued_dispatch_runs_for_message_ids(db, message_ids: list[str], *, chunk_size: int = 250) -> list[str]:
     pending = _dedupe_preserve([str(message_id or "").strip() for message_id in message_ids if str(message_id or "").strip()])
     if not pending:
