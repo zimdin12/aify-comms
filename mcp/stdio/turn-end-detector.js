@@ -131,7 +131,9 @@ export function makeTurnEndDetector() {
       const state = classify(summary);
       if (!booted) {
         booted = true;
-        bootEntry = state === "unknown" ? null : (summary.lastEntry ?? null);
+        // Only an IN-FLIGHT boot tail is a stale turn to ignore. An ended one suppresses nothing: Codex names an entry by
+        // its timestamp, and a new turn written in the same instant would otherwise read as the boot tail.
+        bootEntry = state === "in-flight" ? (summary.lastEntry ?? null) : null;
       }
       // Unknown / unreadable: not evidence of anything. Do not fire and do not
       // change last state (edge-preservation across a transient).

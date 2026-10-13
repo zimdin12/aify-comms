@@ -116,6 +116,10 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
     }
   };
 
+  // THE FIRST READ IS AT ARM, so the boot watermark is the tail as it stood when the loop armed. Read at the first
+  // interval instead, a prompt written in between was taken for boot history and never set working (review of
+  // 5aa67150).
+  void tick();
   const timer = setInterval(tick, intervalMs);
   if (typeof timer.unref === "function") timer.unref();
 

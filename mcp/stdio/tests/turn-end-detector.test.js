@@ -207,4 +207,12 @@ const USER_PENDING = { lastRole: "user", lastStopReason: null, pendingToolUse: f
   assert.equal(blind.observe({ ...USER_PENDING, lastEntry: "u1" }), "start", "(m) first readable tail after a blind boot is new work");
 }
 
+// (n) An ENDED boot tail sets no watermark: a new turn whose entry carries the same name (Codex names one by its
+//     timestamp, so two in one instant collide) still starts (review of 5aa67150).
+{
+  const d = makeTurnEndDetector();
+  assert.equal(d.observe({ ...ENDED("end_turn"), lastEntry: "2026-10-13T01:00:00Z" }), "end", "(n) ended boot tail -> END");
+  assert.equal(d.observe({ ...USER_PENDING, lastEntry: "2026-10-13T01:00:00Z" }), "start", "(n) same-instant new turn -> START");
+}
+
 console.log("turn-end-detector.test.js: all assertions passed");

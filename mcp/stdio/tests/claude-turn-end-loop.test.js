@@ -254,3 +254,25 @@ test("a loop with only postTurnEnd (no postTurnStart) still ENDs and never throw
   stop();
   assert.strictEqual(ends.length, 1, `still fires /turn-end once even without postTurnStart; got ${ends.length}`);
 });
+
+test("A PROMPT WRITTEN BETWEEN ARM AND THE FIRST INTERVAL SETS WORKING: the boot read happens at arm", async () => {
+  // Review of 5aa67150: the first read waited for the first interval, so a prompt written in between became the boot
+  // watermark and was suppressed for good.
+  let tail = { ...END_TURN, lastEntry: "a-before-arm" };
+  let reads = 0;
+  const starts = [];
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: TICK_MS,
+    readTranscript: async () => { reads += 1; return tail; },
+    postTurnStart: async () => { starts.push(1); },
+    postTurnEnd: async () => {},
+  });
+  tail = { ...USER_PENDING, lastEntry: "u-after-arm" }; // before any interval tick
+  const deadline = Date.now() + CONSUME_BOUND_MS;
+  try {
+    while (reads < 1 + SETTLE_TICKS && Date.now() < deadline) await new Promise((r) => setTimeout(r, TICK_MS));
+  } finally {
+    stop();
+  }
+  assert.strictEqual(starts.length, 1, `the prompt written after arm was taken for boot history; starts ${starts.length}`);
+});
