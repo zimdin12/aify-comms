@@ -16,6 +16,7 @@ import json
 from fastapi import HTTPException
 
 from service.api_core.events import _append_terminal_event
+from service.api_core.session_mode_switch import adopt_parked_resident
 from service.api_core.terminal_controls_io import _clear_console_terminal_binding
 from service.clock import now as _now
 from service.reconcilers.terminal_runs import _close_active_terminal_runs_for_terminal
@@ -169,4 +170,5 @@ async def _close_out_terminal_on_end_status(db, terminal, terminal_id: str, stat
                 (status, now, terminal["session_id"]),
             )
             await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
+            await adopt_parked_resident(db, terminal["agent_id"], now=now)
             await db.commit()

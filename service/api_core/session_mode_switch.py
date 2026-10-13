@@ -202,6 +202,17 @@ async def follow_definition_mode(db, agent_id: str, *, now: str) -> dict[str, An
     return result
 
 
+async def adopt_parked_resident(db, agent_id: str, *, now: str) -> dict[str, Any] | None:
+    """Follow the definition once a managed worker's terminal ends, when that worker kept a resident parked.
+
+    A resident registering while the worker was still `stopping` is parked as a candidate, and a resident bridge does not
+    register again on its own, so without this it read `available` until relaunched (whole-diff review of 0.9.2)."""
+    row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if row is None or not isinstance(_json_loads_or(row["runtime_state"], {}).get("manualResidentCandidate"), dict):
+        return None
+    return await follow_definition_mode(db, agent_id, now=now)
+
+
 async def _follow_under_lock(db, agent_id: str, *, now: str) -> dict[str, Any] | None:
     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if row is None or _normalize_session_mode(row["session_mode"] or "resident") == "resident":

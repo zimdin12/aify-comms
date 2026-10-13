@@ -124,3 +124,31 @@ class ADefinitionFlippedToResidentIsFollowed(FastApiTestCase):
                 self.assertEqual(self.mode(), "managed")
                 state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"] or ""
                 self.assertIn("manualResidentCandidate", state)
+
+    def test_the_parked_resident_is_adopted_when_the_managed_worker_s_terminal_ends(self):
+        # Whole-diff review of 0.9.2: the operator flips the definition, stops the worker and starts the resident within
+        # seconds; the resident is parked while the terminal is `stopping`, and nothing asked again once it ended.
+        self.sql("INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, "
+                 "command, argv, status, requested_by, created_at, updated_at) VALUES ('term-live', 'sess-live', 'lead', "
+                 "?, ?, 'claude-code', '/workspace', 'claude', '[]', 'stopping', 'dashboard', '2026-10-13T00:00:00Z', "
+                 "'2026-10-13T00:00:00Z')", (ENV["environment_id"], ENV["bridge_id"]))
+        self.define(mode="resident", revision=2)
+        self.register_resident()
+        self.assertEqual(self.mode(), "managed", "CONTROL: the resident is parked while the worker is stopping")
+        ended = self.client.post("/api/v1/terminals/term-live/output",
+                                 json={"bridgeId": ENV["bridge_id"], "output": "bye", "status": "stopped", "exitCode": 0})
+        self.assertEqual(ended.status_code, 200, ended.text)
+        self.assertEqual(self.mode(), "resident", "the parked resident was not adopted when the worker's terminal ended")
+        state = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")[0]["runtime_state"]
+        self.assertIn('"bridgeInstanceId": "resident-bridge"', state.replace('":"', '": "'))
+
+    def test_a_terminal_ending_with_no_parked_resident_switches_nothing(self):
+        self.sql("INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, "
+                 "command, argv, status, requested_by, created_at, updated_at) VALUES ('term-live', 'sess-live', 'lead', "
+                 "?, ?, 'claude-code', '/workspace', 'claude', '[]', 'running', 'dashboard', '2026-10-13T00:00:00Z', "
+                 "'2026-10-13T00:00:00Z')", (ENV["environment_id"], ENV["bridge_id"]))
+        self.define(mode="resident", revision=2)
+        ended = self.client.post("/api/v1/terminals/term-live/output",
+                                 json={"bridgeId": ENV["bridge_id"], "output": "bye", "status": "stopped", "exitCode": 0})
+        self.assertEqual(ended.status_code, 200, ended.text)
+        self.assertEqual(self.mode(), "managed", "a stopped managed agent with no resident waiting was switched")
