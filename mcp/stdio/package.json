@@ -1,6 +1,6 @@
 {
   "name": "aify-comms-mcp",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "MCP client for aify-comms inter-agent communication",
   "type": "module",
   "main": "server.js",
@@ -23,7 +23,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
     "@opencode-ai/sdk": "^1.4.3",
-    "aify-wrapper": "github:zimdin12/aify-wrapper#ab5ea23ca4d60879131eb60a4e164396a3f12efa",
+    "aify-wrapper": "github:zimdin12/aify-wrapper#af69d4b6907b8ce3c6fc2b3604588224eb63d7a6",
     "node-pty": "^1.1.0",
     "ws": "^8.18.3"
   }
