@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import re
 
+from service.secret_redaction import redact_secrets
+
 # THE ONE OWNER of "make terminal output plain text": CSI/OSC/DCS/APC/PM/SOS escapes, then stray
 # control bytes. It lives in this leaf because a service leaf may not import api_core, while api_core
 # may import a leaf -- so `api_core/terminal_text.py` imports both patterns from here.
@@ -192,6 +194,8 @@ def meaningful_failure_line(raw: str, *, max_chars: int = DEFAULT_MAX_CHARS) -> 
         # on reporting a spinner, and still a confident answer about nothing. If ANY line in the
         # recording is decoration then the terminal was drawing, and no line in it is an epitaph.
         chosen = lines[-1]
+    # Before it is stored as a cause: a launcher's ready line once carried a gateway token here.
+    chosen = redact_secrets(chosen)
     limit = max(16, int(max_chars or DEFAULT_MAX_CHARS))
     if len(chosen) > limit:
         return chosen[: limit - 1].rstrip() + "…"

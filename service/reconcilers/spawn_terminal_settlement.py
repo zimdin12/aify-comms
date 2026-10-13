@@ -40,6 +40,7 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 # always spelled it `_terminal_failure_line`, and keeping that spelling is what makes the moved
 # bodies byte-identical. Copying the reference without the alias resolves nowhere, and the
 # undefined-name sweep is what caught it here — the third alias it has caught in this series.
+from service.secret_redaction import redact_secrets
 from service.terminal_diagnostics import meaningful_failure_line as _terminal_failure_line
 from service.terminal_diagnostics import meaningful_lines as _meaningful_lines
 
@@ -215,7 +216,7 @@ async def _finalize_spawns_with_dead_terminals(
         died_epoch = _iso_to_epoch(str(row["died_at"] or ""))
         if not died_epoch or (now_epoch - died_epoch) < grace:
             continue  # too fresh, or death time undeterminable → leave it (conservative)
-        cause = _terminal_failure_line(str(row["terminal_output"] or "")) or str(row["terminal_error"] or "").strip()
+        cause = _terminal_failure_line(str(row["terminal_output"] or "")) or redact_secrets(str(row["terminal_error"] or "").strip())
         # THREE OUTCOMES, not two. "no output was recorded" was said whenever no cause could be
         # picked, including for a terminal that recorded plenty -- a drawing TUI whose screen holds
         # conversation and progress meters but no epitaph. Telling an operator nothing was recorded

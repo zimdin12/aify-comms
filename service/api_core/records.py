@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from service.secret_redaction import redact_secrets
 from service.api_core.terminal_tail_buffer import current_seq, current_tail
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.liveness import _agent_wake_mode
@@ -224,7 +225,7 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "createdAt": row["created_at"] or "",
         "updatedAt": row["updated_at"] or "",
         "stoppedAt": row["stopped_at"] or "",
-        "error": row["error"] or "",
+        "error": redact_secrets(row["error"] or ""),
         # HOW IT ENDED, and it was missing from this serialiser for a day. The columns landed on
         # 2026-08-26 with a producer and a writer, and `GET /agents/{id}/console` reads them -- but
         # THIS is the terminal record every other consumer gets: `GET /terminals/{id}`, the console
@@ -271,7 +272,7 @@ def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = Fa
         "requestedRuntime": row["requested_runtime"] or "",
         "subject": row["subject"],
         "summary": row["summary"] or "",
-        "error": row["error_text"] or "",
+        "error": redact_secrets(row["error_text"] or ""),
         "resultMessageId": row["result_message_id"] or "",
         "requireReply": _row_require_reply(row),
         "queueIfBusy": bool(row["queue_if_busy"]),

@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Request
 
+from service.secret_redaction import redact_secrets
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.serialization import _json_loads_or
 from service.api_core.ws import _get_ws
@@ -50,7 +51,7 @@ def _spawn_request_to_dict(row, spec: Optional[dict[str, Any]] = None) -> dict[s
         "processId": row["process_id"] or "",
         "sessionHandle": row["session_handle"] or "",
         "sessionId": row["session_id"] or "",
-        "error": row["error"] or "",
+        "error": redact_secrets(row["error"] or ""),
         "createdAt": row["created_at"] or "",
         "updatedAt": row["updated_at"] or "",
         "claimedAt": row["claimed_at"] or "",

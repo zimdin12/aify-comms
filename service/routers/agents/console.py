@@ -6,6 +6,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
+from service.secret_redaction import redact_secrets
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.definition_start import start_refusal
 from service.api_core.operator_authz import refuse_an_unproven_operator_claim
@@ -149,7 +150,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             if past is not None and (recorded.strip() or str(past["error"] or "").strip()):
                 tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
                 output = _terminal_failure_tail(recorded, max_lines=tail_lines)
-                cause = _terminal_failure_line(recorded) or str(past["error"] or "").strip()
+                cause = _terminal_failure_line(recorded) or redact_secrets(str(past["error"] or "").strip())
                 died_at = str(past["stopped_at"] or past["updated_at"] or "")
                 status = str(past["status"] or "").strip().lower() or "unknown"
                 return {
