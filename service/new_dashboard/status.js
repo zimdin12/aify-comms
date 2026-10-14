@@ -184,7 +184,7 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
 }
 // The service sends the blocking run as a record ({runId, status, subject, ...}); stringifying it showed
 // "[object Object]" (2026-10-14 audit, D5). A plain string, from an older service, is shown as it is.
-export function blockerText(blocker) {
+function blockerText(blocker) {
   if (!blocker) return '';
   if (typeof blocker !== 'object') return String(blocker).trim();
   const id = String(blocker.runId || '').trim();
