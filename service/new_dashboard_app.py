@@ -230,3 +230,10 @@ async def dashboard():
 @app.get("/favicon.svg", include_in_schema=False)
 async def favicon_svg():
     return FileResponse(Path(__file__).resolve().parent / "favicon.svg", media_type="image/svg+xml")
+
+
+# The sign-in page has no icon link, so the browser asks the origin for /favicon.ico: a 404 on every
+# visit until this answered (2026-10-14 audit, D15). The SVG under its own type, as service/main.py does.
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico():
+    return FileResponse(Path(__file__).resolve().parent / "favicon.svg", media_type="image/svg+xml")
