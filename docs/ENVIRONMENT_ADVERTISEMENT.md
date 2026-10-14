@@ -199,9 +199,9 @@ advertises its own version and fingerprint reports its own staleness by construc
 
 `environmentHeartbeatPayload` builds the id as `${kind}:${hostname}:default`, from `os.hostname()`
 raw, with `AIFY_ENVIRONMENT_ID` as an override. The live row is `windows:StevenZ-L:default` while its
-`machineId` is `win32:stevenz-l` — **raw casing in one field, lowercased in the other**, and this
-repo already carries `scripts/normalize_machine_id_casing.py`, so that difference has cost something
-before.
+`machineId` is `win32:stevenz-l` — **raw casing in one field, lowercased in the other**, and that
+difference has cost something before: a one-time migration lowercased every stored machine id
+(removed 2026-10-14, once no row of 36,079 needed it).
 
 An advertiser that re-derives any of that differently does not update the environment. It creates a
 SECOND row beside the real one, and both look plausible: same host, same runtimes, two ids. Nothing
