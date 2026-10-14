@@ -27,7 +27,8 @@ purpose, documented in CLAUDE.md, precisely so a 60s lag cannot show a dead term
 from __future__ import annotations
 
 import ast
-import re
+import io
+import tokenize
 import unittest
 from pathlib import Path
 
@@ -49,20 +50,29 @@ def reconciler_functions() -> dict[str, str]:
     return found
 
 
+def code_names(source: str) -> set[str]:
+    """The names a module's CODE uses: comments and strings (docstrings included) are not code, and a
+    name only mentioned in one kept a reconciler looking called (2026-10-14 audit, S5). The name a
+    `def` introduces is not a use of it."""
+    used: set[str] = set()
+    previous = None
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.NAME and previous != "def":
+            used.add(token.string)
+        if token.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT):
+            previous = token.string
+    return used
+
+
 def references(names: set[str]) -> dict[str, set[str]]:
-    """Where each name appears, excluding the line that defines it. Test files are marked."""
+    """Which files use each name in code. Test files are marked."""
     seen: dict[str, set[str]] = {name: set() for name in names}
     for path in SERVICE.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
         is_test = "tests" in path.parts
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            for name in names:
-                if name not in line:
-                    continue
-                if re.match(rf"\s*(async\s+)?def\s+{re.escape(name)}\b", line):
-                    continue
-                seen[name].add(("test:" if is_test else "") + path.name)
+        for name in names & code_names(path.read_text(encoding="utf-8", errors="replace")):
+            seen[name].add(("test:" if is_test else "") + path.name)
     return seen
 
 
@@ -76,6 +86,10 @@ class NoReconcilerIsDeadCode(unittest.TestCase):
 
     def test_the_scan_can_say_no(self):
         self.assertNotIn("_zzz_not_a_reconciler", reconciler_functions())
+
+    def test_a_mention_in_a_comment_or_string_is_not_a_use(self):
+        source = 'def _a():\n    """calls _b"""\n    # _c is called elsewhere\n    return _d()\n'
+        self.assertEqual(code_names(source) & {"_a", "_b", "_c", "_d"}, {"_d"})
 
     def test_every_reconciler_is_referenced_somewhere(self):
         functions = reconciler_functions()
