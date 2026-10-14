@@ -231,6 +231,8 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 updated_at = ?
             WHERE id = ? AND status = ? AND COALESCE(claimed_by_bridge_id, '') = ?
               AND COALESCE(finished_at, '') = ''
+              AND NOT (? AND EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = spawn_requests.session_id
+                                         AND s.status IN ('starting', 'running')))
             """,
             (
                 # NAME THE RULE THAT FIRED. The old text said the claiming bridge was no longer live,
@@ -262,6 +264,11 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 # was judged abandoned is no longer what is there (review of 0.8.6's reconciler delta).
                 str(row["status"] or ""),
                 bid,
+                # A STARTED SPAWN HAS NO STATUS PAST `running`: the settle route accepts nothing after it and
+                # sets no finish for it, so the ceiling failed EVERY successful spawn half an hour after its
+                # claim -- 288 rows from 2026-08-25 to 2026-10-13, 245 with a session, three of those still
+                # running (2026-10-14 audit, L4). On a live bridge, its live session is the settlement.
+                1 if stuck_status == "running" and bid in live_bridge_ids else 0,
             ),
         )
         if not settled.rowcount:

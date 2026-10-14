@@ -292,6 +292,54 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
                          "a booting worker on a live bridge lost its carve-out")
 
 
+    def _seed_session(self, spawn_id: str, status: str) -> None:
+        """The session a started spawn produced, linked from the spawn row as aify-env's report links it."""
+        registered = self.client.post("/api/v1/agents", json={
+            "agentId": f"agent-{spawn_id}", "role": "coder", "runtime": "claude-code", "sessionMode": "managed",
+        })
+        self.assertEqual(registered.status_code, 200, registered.text)
+        stamp = _ago(1)
+
+        async def go():
+            from service.db import get_db
+
+            db = await get_db()
+            try:
+                await db.execute(
+                    "INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, status, started_at, "
+                    "last_seen, spawn_request_id, spawn_spec_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (f"sess-{spawn_id}", f"agent-{spawn_id}", self.ENVIRONMENT, "claude-code", status, stamp, stamp,
+                     spawn_id, f"spec-{spawn_id}"),
+                )
+                await db.execute("UPDATE spawn_requests SET session_id = ? WHERE id = ?", (f"sess-{spawn_id}", spawn_id))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(go())
+
+    def test_A_STARTED_SPAWN_WHOSE_SESSION_RUNS_IS_NOT_ABANDONED(self) -> None:
+        """2026-10-14 audit, L4. `running` is the last status a spawn can report, so every successful
+        spawn was failed "never settled" half an hour after its claim while its worker ran on."""
+        self._seed("started-live", bridge=LIVE_BRIDGE, claimed_minutes_ago=CEILING_MINUTES * 4)
+        self._seed_session("started-live", "running")
+        self._reap()
+        self.assertEqual(self._row("started-live")["status"], "running", "a spawn whose worker runs was failed")
+
+    def test_a_started_spawn_whose_session_ENDED_is_still_failed(self) -> None:
+        """CONTROL: the shelter is the live session, not merely having had one."""
+        self._seed("started-ended", bridge=LIVE_BRIDGE, claimed_minutes_ago=CEILING_MINUTES * 4)
+        self._seed_session("started-ended", "ended")
+        self._reap()
+        self.assertEqual(self._row("started-ended")["status"], "failed")
+
+    def test_a_live_session_does_not_shelter_a_spawn_on_a_VANISHED_bridge(self) -> None:
+        """CONTROL: the orphan rule is unchanged; a dead claimer's spawn fails whatever its session says."""
+        self._seed("started-orphan", bridge="bridge-gone", claimed_minutes_ago=CEILING_MINUTES * 4)
+        self._seed_session("started-orphan", "running")
+        self._reap()
+        self.assertEqual(self._row("started-orphan")["status"], "failed")
+
 if __name__ == "__main__":
     import unittest
 
