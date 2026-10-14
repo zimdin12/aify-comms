@@ -200,8 +200,10 @@ aify-env is visible, not just a daemon. It can honestly show:
   which is what an activity animation may be driven by.
 
 The limit: aify-env knows **processes**, not agents. Alive is not the same as working. A managed-agent
-list may show what aify-env owns, annotated with what aify-comms reports when asked, and must not
-derive status of its own — deriving it in two places is how two answers start disagreeing.
+list may show what aify-env owns, annotated with what aify-comms reports when asked. Since 0.9 aify-env
+also publishes a status word for the agents it runs, as the shadow of the planned switch: the service's
+answer is still the one every screen shows, and `aify-comms doctor`'s `agent-state-shadow` compares the
+two rather than letting both be shown, since two answers shown side by side are how they start to disagree.
 
 ## Open question
 

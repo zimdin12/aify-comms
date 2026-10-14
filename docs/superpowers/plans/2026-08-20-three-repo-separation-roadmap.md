@@ -8,7 +8,7 @@ wrapper contract, a bridge census, dashboard tests, a bughunt and an e2e baselin
 but nothing an operator receives. The separation is the thing v0.6 was for, so it carries the same
 number and the tag waits for it.
 
-**Status.** Finished; kept as the record of the separation. Phases 6 and 7 met their gates, and Phase 8
+**Status.** Finished but for one gate clause, below; kept as the record of the separation. Phases 6 and 7 met their gates, and Phase 8
 moved both the execution and the claiming of spawns to aify-env (proven on real hardware 2026-09-03;
 v0.6.1 made the `aify-comms` command a verifier, and v0.6.3 deleted the environment-bridge code). The
 one gate clause still open is where the verifier lives; see

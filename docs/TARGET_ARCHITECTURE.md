@@ -39,7 +39,7 @@ resolve. Publishing is the operator's call, since it leaves the machine.
 ## Commands on PATH
 
 ```
-aify-env            the host tier; subcommands doctor, tui, attach, run, credential, herdr
+aify-env            the host tier; subcommands doctor, tui, attach, run, credential, herdr, agents
 claude-aify         launcher
 codex-aify          launcher
 hermes-aify         launcher
