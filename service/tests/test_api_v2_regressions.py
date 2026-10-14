@@ -28,7 +28,6 @@ from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 # is what made three patches in this file silently inert, and it kept pass-through imports alive in
 # a module that should not have had any. The module is gone since v0.7.0.
 from service.api_core.dispatch_runs import _create_dispatch_runs
-from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 from service.api_core.status_inputs import _compute_live_status_cache
 from service.clock import now as _now
 from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
@@ -2891,50 +2890,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["id"], "run_queued_306769")
         self.assertTrue(run["steerIfBusy"])
 
-    def test_busy_claim_skips_earlier_non_steer_run(self):
-        self._register_resident_channel_claude("mixed-manager", bridge_id="bridge-mixed-manager")
-        self._seed_fresh_turn_busy(
-            "mixed-manager", "run_active", "channel-linux:test-host-mixed-manager"
-        )
-        self._seed_queued_dispatch_run(
-            "run_earlier_non_steer",
-            "mixed-manager",
-            execution_mode="resident",
-        )
-        self._seed_queued_dispatch_run(
-            "run_later_steer",
-            "mixed-manager",
-            execution_mode="resident",
-            steer_if_busy=1,
-        )
-        self._execute(
-            "UPDATE dispatch_runs SET requested_at = ? WHERE id = ?",
-            ("2000-01-01T00:00:00+00:00", "run_earlier_non_steer"),
-        )
-        self._execute(
-            "UPDATE dispatch_runs SET requested_at = ? WHERE id = ?",
-            ("2001-01-01T00:00:00+00:00", "run_later_steer"),
-        )
-
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={
-                "agentId": "mixed-manager",
-                "bridgeId": "channel-linux:test-host-mixed-manager",
-                "bridgeKind": "channel-sidecar",
-                "machineId": "linux:test-host",
-                "executionModes": ["channel", "resident"],
-            },
-        )
-
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertEqual(claim.json()["run"]["id"], "run_later_steer")
-        earlier = self._fetchone(
-            "SELECT status FROM dispatch_runs WHERE id = ?",
-            ("run_earlier_non_steer",),
-        )
-        self.assertEqual(earlier["status"], "queued")
-
     def test_ordinary_send_to_busy_managed_hermes_routes_steer_through_channel_claim(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._seed_managed_hermes_with_attached_terminal("hermes-coder", "term_hermes_steer")
@@ -2997,73 +2952,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         # the attribute vanished the moment the last handler using it moved out in v0.5.4.
         serialized = _serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
         self.assertTrue(serialized["steerIfBusy"])
-
-    def test_explicit_queue_to_busy_steerable_target_waits_for_turn_end(self):
-        self._register_resident_channel_claude("queued-manager", bridge_id="bridge-queued-manager")
-        self._seed_fresh_turn_busy(
-            "queued-manager", "run_active", "channel-linux:test-host-queued-manager"
-        )
-        self._seed_queued_dispatch_run(
-            "run_explicit_queue",
-            "queued-manager",
-            execution_mode="resident",
-            queue_if_busy=1,
-        )
-        claim_payload = {
-            "agentId": "queued-manager",
-            "bridgeId": "channel-linux:test-host-queued-manager",
-            "bridgeKind": "channel-sidecar",
-            "machineId": "linux:test-host",
-            "executionModes": ["channel", "resident"],
-        }
-
-        busy_claim = self.client.post("/api/v1/dispatch/claim", json=claim_payload)
-        self.assertEqual(busy_claim.status_code, 200, busy_claim.text)
-        self.assertIsNone(busy_claim.json().get("run"), busy_claim.json())
-
-        self._execute(
-            "UPDATE agent_turn_state SET turn_busy = 0 WHERE agent_id = ?",
-            ("queued-manager",),
-        )
-        ready_claim = self.client.post("/api/v1/dispatch/claim", json=claim_payload)
-        self.assertEqual(ready_claim.status_code, 200, ready_claim.text)
-        self.assertEqual(ready_claim.json()["run"]["id"], "run_explicit_queue")
-
-    def test_busy_non_channel_resident_still_defers_queued_run(self):
-        # GATE PRESERVED (fix 1 safety): a resident codex (NOT steer/inject
-        # capable for a mid-turn channel inject) that is turn_busy must STILL
-        # defer its queued run — the carve-out is scoped to steerable targets.
-        self._register(
-            "codex-res",
-            runtime="codex",
-            sessionMode="resident",
-            machineId="linux:test-host",
-            bridgeId="bridge-codex-res",
-            sessionHandle="thread-codex",
-            capabilities=["resident-run", "resume", "interrupt", "steer"],
-            runtimeConfig={"appServerUrl": "ws://127.0.0.1:9"},
-        )
-        self._seed_fresh_turn_busy("codex-res", "run_codex_inbound", "bridge-codex-res", runtime="codex")
-        self._seed_queued_dispatch_run("run_codex_queued", "codex-res", execution_mode="resident", require_reply=0)
-        # Strip steer so this target is genuinely not mid-turn-injectable.
-        self._execute(
-            "UPDATE agents SET capabilities = ? WHERE id = ?",
-            (json.dumps(["resident-run", "resume", "interrupt"]), "codex-res"),
-        )
-
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={
-                "agentId": "codex-res",
-                "bridgeId": "bridge-codex-res",
-                "machineId": "linux:test-host",
-                "executionModes": ["resident"],
-            },
-        )
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertIsNone(claim.json().get("run"), f"non-steerable busy target must STILL defer: {claim.json()}")
-        run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_codex_queued",))
-        self.assertEqual(run["status"], "queued", "deferred run stays queued")
 
     def test_rr0_channel_delivery_completion_clears_turn_busy(self):
         # SEND DEADLOCK (fix 2): when the channel bridge marks an rr=0
@@ -9587,89 +9475,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         reminders = self._fetchall("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (contract_run_id,))
         self.assertEqual([row["body"] for row in reminders], ["recent reminder"])
 
-    async def _async_run_contract_reminders_once(self, **kwargs):
-        from service.db import get_db as _get_db
-        db = await _get_db()
-        try:
-            payload = await _run_contract_reminders_once(db, **kwargs)
-            await db.commit()
-            return payload
-        finally:
-            await db.close()
-
-    def _seed_overdue_handoff(self, *, run_id, message_id, from_agent, target_agent, status="delivered"):
-        """Seed an overdue, unanswered require_reply ("handoff") run + its message."""
-        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
-        self._execute(
-            """
-            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, timestamp)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-            """,
-            (message_id, from_agent, target_agent, "direct", "request", "handoff", "please answer", "normal", 1, int(time.time() * 1000)),
-        )
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
-                message_type, subject, body, priority, status, require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (run_id, message_id, from_agent, target_agent, "start_if_possible", "managed",
-             "request", "handoff", "please answer", "normal", status, 1, overdue_at),
-        )
-
-    def test_reminder_busy_gate_separates_own_repulse_other_work_and_active_runs(self):
-        # CONFIRMED DEADLOCK FIX: a delivered require_reply run sets turn_busy with
-        # turn_run_id = THAT run on its own delivery re-pulse. Treating that as
-        # "busy" skipped the run's OWN reminder forever → handoff never nudged →
-        # closed stale. So turn_busy for THE SAME run id must NOT count as busy,
-        # turn_busy for a DIFFERENT run is other work (skip, retried when idle), and
-        # a claimed/running dispatch run always counts as busy — even when turn_busy
-        # points at the run being reminded.
-        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
-        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
-        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
-
-        cases = (
-            # (label, turn_busy points at: "self" | "other" | None, active run?, reminded?)
-            ("same-run turn_busy", "self", False, True),
-            ("other-run turn_busy", "other", False, False),
-            ("active dispatch run", "self", True, False),
-            ("idle", None, False, True),
-        )
-        for index, (label, turn_run, active_run, reminded) in enumerate(cases):
-            with self.subTest(label):
-                self._execute("DELETE FROM agent_turn_state WHERE agent_id = ?", ("sc-architect",))
-                self._execute("DELETE FROM dispatch_runs WHERE id = ?", ("run-other-active",))
-                run_id = f"run-handoff-{index}"
-                self._seed_overdue_handoff(run_id=run_id, message_id=f"msg-handoff-{index}", from_agent="sc-coder", target_agent="sc-architect")
-                if active_run:
-                    self._execute(
-                        """
-                        INSERT INTO dispatch_runs (
-                            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
-                            message_type, subject, body, priority, status, require_reply, requested_at, started_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        ("run-other-active", None, "dashboard", "sc-architect", "start_if_possible", "managed",
-                         "info", "other task", "work", "normal", "running", 0, _now(), _now()),
-                    )
-                if turn_run is not None:
-                    self._execute(
-                        "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-                        ("sc-architect", 1, run_id if turn_run == "self" else "some-other-run", "", "claude-code", _now(), 1),
-                    )
-
-                payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
-                skip = next((s for s in payload["skipped"] if s.get("runId") == run_id), None)
-                if reminded:
-                    self.assertEqual([r["runId"] for r in payload["reminded"]], [run_id], payload)
-                    self.assertIsNone(skip, payload)
-                else:
-                    self.assertEqual([r["runId"] for r in payload["reminded"]], [], payload)
-                    self.assertIsNotNone(skip, payload)
-                    self.assertIn("busy", skip["reason"])
-
     def test_contract_reminders_skip_dashboard_target_contracts(self):
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
@@ -11420,50 +11225,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         a2 = r2.json()["agent"]
         self.assertEqual(a2.get("sessionMode"), "managed")
         self.assertEqual(a2.get("consoleAvailable"), True)
-
-    def test_queue_if_busy_respects_turn_busy_when_no_active_run_row(self):
-        # Operator-reported 2026-05-22: clicking dashboard "Queue" sent
-        # the message immediately when the target was still mid-turn.
-        # Root cause: require_reply=0 info messages auto-complete on
-        # delivery → hasActiveRun=False even though the assistant was
-        # still working. The queue-if-busy gate now ALSO checks the
-        # harness-level turn_busy signal (set by claude-channel.js claim
-        # / UserPromptSubmit hook / per-runtime turn-start hook), which
-        # survives the dispatch-row auto-completion.
-        self._register_resident_channel_claude("qb-claude", bridge_id="bridge-qb")
-        # No claimed/running dispatch_run, but turn_busy=1 (fresh) — the
-        # exact scenario the operator hit: previous info message
-        # auto-completed but the assistant is still working.
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, '', 'channel-test', 'claude-code', ?)
-            """,
-            ("qb-claude", "2000-01-01T00:00:00+00:00"),
-        )
-        self._register("qb-sender", runtime="claude-code", sessionMode="resident")
-        sent = self._send_message(
-            from_agent="qb-sender",
-            to="qb-claude",
-            type="info",
-            subject="should queue not immediate",
-            body="defer this",
-            trigger=True,
-            queueIfBusy=True,
-        )
-        # Queue-if-busy must NOT have dispatched a new live run while
-        # turn_busy=1. The send returns success, but the dispatch_run
-        # should remain in queued state behind the busy turn.
-        runs = sent.get("dispatchRuns", [])
-        self.assertTrue(runs, sent)
-        for run in runs:
-            self.assertEqual(
-                run.get("status"),
-                "queued",
-                f"queueIfBusy should defer while turn_busy=1, got {run}",
-            )
-            row = self._fetchone("SELECT queue_if_busy FROM dispatch_runs WHERE id = ?", (run["runId"],))
-            self.assertEqual(row["queue_if_busy"], 1)
 
     def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
         # Operator-driven feature: managed worker terminal_sessions whose

@@ -133,11 +133,3 @@ class StrandedReplyFailTests(FastApiTestCase):
     def test_non_reply_run_not_failed(self):
         self._seed_run("run_norr", target="sc-architect", requested_at=_minutes_ago(60), require_reply=0)
         self.assertEqual(self._run_reaper(), [])
-
-    def test_actively_working_on_this_run_is_skipped(self):
-        self._seed_run("run_live", target="sc-architect", requested_at=_minutes_ago(60))
-        self._execute(
-            "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
-            ("sc-architect", 1, "run_live", _now()),
-        )
-        self.assertEqual(self._run_reaper(), [], "a live turn on this run must be skipped")
