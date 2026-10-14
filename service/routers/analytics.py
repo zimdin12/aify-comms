@@ -111,10 +111,12 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
             for row in await all_time_c.fetchall()
         ]
 
+        # ONE WINDOW FOR THE PAGE, THE CHART'S OWN. The counts were a rolling now-minus-24h (30 d, 366 d)
+        # while the chart's buckets are hour-, day- and month-aligned, so the message tile read 1629 above a
+        # chart that summed to 1617 (2026-10-14 audit, L7). The window starts where the first bucket does.
         since_s_by_range = {
-            "hour": now_s - 24 * 3600,
-            "day": now_s - 30 * 86400,
-            "month": now_s - 366 * 86400,
+            key: int(_iso_to_epoch(series[0]["start"]))
+            for key, series in (("hour", hourly), ("day", daily), ("month", monthly)) if series
         }
         since_s = since_s_by_range.get(selected_range)
         run_where = ""
