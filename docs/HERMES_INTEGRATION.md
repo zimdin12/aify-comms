@@ -122,7 +122,7 @@ hermes config check
 From the aify-comms repo:
 
 ```bash
-bash install.sh --client hermes http://192.0.2.10:8800 --with-hook
+bash install.sh --client hermes http://192.0.2.10:8800
 ```
 
 The installer:

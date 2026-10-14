@@ -16,7 +16,7 @@ Hermes plugin, turn hooks and skills. The service must already be running (see
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client hermes http://<service-host>:8800 --with-hook
+bash install.sh --client hermes http://<service-host>:8800
 ```
 
 - On Windows from PowerShell or cmd, run `.\install.cmd` with the same arguments: a bare `bash` there is
@@ -146,8 +146,8 @@ restart that `hermes-aify`, and register again from inside it. Gateway host logs
   carries the API key. Hermes runs a shell hook only after its exact command is approved once
   (`hermes hooks list`). The bridge also sets and clears `working` from the gateway's own state,
   which covers a turn that ended without `on_session_end`, such as one ended by an API error.
-- With `--with-hook`, a `post_tool_call` hook running `notify-check.js`, which tells the agent about
-  unread messages without marking them read. Once installed, re-runs keep it.
+- No notification hook, with or without `--with-hook`: Hermes drops a `post_tool_call` hook's output, and
+  the bridge heartbeats itself. A re-run removes the one an earlier install added.
 
 ## OpenAI usage check
 

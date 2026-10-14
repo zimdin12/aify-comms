@@ -7,7 +7,7 @@
 #   bash install.sh --client claude
 #   bash install.sh --client codex
 #   bash install.sh --client codex http://localhost:8800 --with-hook
-#   bash install.sh --client hermes http://localhost:8800 --with-hook
+#   bash install.sh --client hermes http://localhost:8800
 
 set -euo pipefail
 
@@ -58,7 +58,7 @@ Examples:
   bash install.sh --client claude
   bash install.sh --client claude http://localhost:8800 --with-hook
   bash install.sh --client codex http://localhost:8800
-  bash install.sh --client hermes http://localhost:8800 --with-hook
+  bash install.sh --client hermes http://localhost:8800
 
   --env-endpoint <url>          the aify-env 'aify-comms doctor' asks (default http://127.0.0.1:8802).
                                 aify-env hosts every managed spawn. --delegate-spawns [url] is

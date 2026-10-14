@@ -44,7 +44,7 @@ spawn agents into workspaces, and give them work by messaging them.
 | command | what it does |
 |---|---|
 | `bash scripts/stamp.sh && docker compose up -d --build` | start or update the service (API `:8800`, dashboard `:8801`); the stamp is how `/version` and the doctor know which build is running |
-| `bash install.sh --client <claude\|codex\|hermes> http://<host>:8800 --with-hook` | install a client on this machine: launcher, MCP servers, notification hook, skills |
+| `bash install.sh --client <claude\|codex\|hermes> http://<host>:8800 --with-hook` | install a client on this machine: launcher, MCP servers, skills, and the notification hook (claude, codex) |
 | `aify-env` | run the host tier in the current directory (the directory is the allowed workspace root) |
 | `aify-env attach <agent>` | take over an agent's terminal; `Ctrl+]` detaches and leaves it running |
 | `claude-aify --aify-agent <id>` | open a resident agent in this terminal (same for `codex-aify`, `hermes-aify`) |
