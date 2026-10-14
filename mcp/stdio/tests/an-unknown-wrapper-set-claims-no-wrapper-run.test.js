@@ -32,6 +32,11 @@ try {
   assert.deepEqual([...parse({ settings: { managed_via_wrapper: [] } })], [], "CONTROL: a valid empty list is empty");
   assert.deepEqual([...parse({ managed_via_wrapper: false })], [], "CONTROL: an explicit false is empty");
   assert.deepEqual([...parse({ settings: { managed_via_wrapper: ["codex"] } })], ["codex"]);
+  // A member that is not a string is malformed, not empty (review of 0.9.5: [null] read as "none").
+  assert.equal(parse({ settings: { managed_via_wrapper: [null] } }), WRAPPER_SET_UNKNOWN, "[null] read as a valid empty set");
+  assert.equal(parse({ settings: { managed_via_wrapper: [1, "codex"] } }), WRAPPER_SET_UNKNOWN, "a non-string member was dropped silently");
+  assert.deepEqual([...parse({ settings: { managed_via_wrapper: ["codex", "a-newer-runtime"] } })], ["codex"],
+    "CONTROL: an unrecognised runtime NAME is still filtered, for a newer service");
 
   // The cache, cold: a failed first read, then a malformed one, are both unknown.
   answers.push({ status: 500, body: {} });
@@ -41,6 +46,15 @@ try {
   // Recovery: the first valid answer is used.
   answers.push({ status: 200, body: { settings: { managed_via_wrapper: ["hermes"] } } });
   assert.deepEqual([...(await readManagedViaWrapperRuntimes())], ["hermes"]);
+  // Warm: past the 5 s cache, a malformed [null] keeps the last valid set rather than replacing it.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 10_000;
+  try {
+    answers.push({ status: 200, body: { settings: { managed_via_wrapper: [null] } } });
+    assert.deepEqual([...(await readManagedViaWrapperRuntimes())], ["hermes"], "a warm [null] overwrote the last valid set");
+  } finally {
+    Date.now = realNow;
+  }
 
   // The gate: unknown claims no managed codex run; a known answer decides as before.
   assert.deepEqual(managedCodex(WRAPPER_SET_UNKNOWN), [], "an unknown set claimed a wrapper-eligible managed run");

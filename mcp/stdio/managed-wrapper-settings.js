@@ -11,6 +11,10 @@ export function managedViaWrapperRuntimesFromSettingsResponse(resp) {
   if (val === true) return new Set(WRAPPER_BACKED_RUNTIMES);
   if (val === false) return new Set();
   if (!Array.isArray(val)) return WRAPPER_SET_UNKNOWN;
+  // A member that is not a string is a malformed answer, not an empty one: `[null]` read as "no runtime
+  // is wrapper-backed" let this bridge claim native managed codex and hermes (review of 0.9.5). An
+  // unrecognised runtime NAME is still filtered out, for compatibility with a newer service.
+  if (!val.every((runtime) => typeof runtime === "string")) return WRAPPER_SET_UNKNOWN;
   return new Set(
     val
       .map((runtime) => String(runtime || "").trim().toLowerCase())
