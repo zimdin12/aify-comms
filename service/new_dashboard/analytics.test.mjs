@@ -241,3 +241,10 @@ test("the overdue tiles name the window the service counted with, never a litera
   assert.match(fleetPulseHtml({ overdueReplyContracts: 1, overdueAfterMinutes: 45, agents: [] }), /Overdue is over 45 min unanswered/);
   assert.doesNotMatch(opsKpisHtml({ overdueReplyContracts: 1, overdueAfterMinutes: 45 }) + fleetPulseHtml({ overdueAfterMinutes: 45, agents: [] }), /30 min/);
 });
+
+test('the capacity grid calls the live count live, and the wake-path count wakeable', () => {
+  // Live 2026-10-14: "Live agents 42" beside a pulse of 28 live. 42 was every agent with a wake path.
+  const html = healthGridHtml({ liveAgents: 42, onlineAgents: 28 });
+  assert.match(html, /<b>28<\/b><span>Live agents<\/span>/);
+  assert.match(html, /<b>42<\/b><span>Wakeable agents<\/span>/);
+});

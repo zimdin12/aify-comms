@@ -179,8 +179,9 @@ export function healthGridHtml(data = {}) {
   // in the KPI grid + the Environments page, so they're not duplicated here.
   const card = (n, l, tone, tip) => `<div class="health-card${tone ? ` ${tone}` : ''}"${tip ? ` title="${esc(tip)}"` : ''}><b>${esc(n)}</b><span>${esc(l)}</span></div>`;
   return `<div class="health-grid">`
-    + card(data.liveAgents || 0, 'Live agents', 'good', 'Agents with a live worker + fresh heartbeat right now.')
-    + card(data.onlineAgents || 0, 'Online agents', '', 'Agents ready for work right now (online or working).')
+    // `liveAgents` counts agents with a WAKE PATH, running or not (analytics.py); the live count is `onlineAgents`.
+    + card(data.onlineAgents || 0, 'Live agents', 'good', 'Any status except offline, stopped and misconfigured: the count the pulse calls live.')
+    + card(data.liveAgents || 0, 'Wakeable agents', '', 'Registered agents a message can wake (not message-only or disabled), whether or not they are running now.')
     + card(data.workingAgents || 0, 'Working now', 'warn', 'Agents currently mid-turn (actively running).')
     + card(data.onlineEnvironments || 0, 'Online envs', '', 'Environment bridges reachable right now (managed agents can be spawned on these).')
     + `</div>`;
