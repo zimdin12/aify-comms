@@ -123,28 +123,22 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         run_params: tuple[Any, ...] = ()
         spawn_where = ""
         spawn_params: tuple[Any, ...] = ()
-        message_count_where = message_where
-        message_count_params: tuple[Any, ...] = ()
         if since_s is not None:
             since_iso = _iso_from_ms(since_s * 1000)
-            since_ms = since_s * 1000
             run_where = "WHERE COALESCE(finished_at, requested_at) >= ?"
             run_params = (since_iso,)
             spawn_where = "WHERE updated_at >= ?"
             spawn_params = (since_iso,)
-            message_count_where = f"{message_where} AND timestamp >= ?"
-            message_count_params = (since_ms,)
 
         status_c = await db.execute(
             f"SELECT status, COUNT(*) as cnt FROM dispatch_runs {run_where} GROUP BY status",
             run_params,
         )
         runs_by_status = {row["status"]: row["cnt"] for row in await status_c.fetchall()}
-        message_total_c = await db.execute(
-            f"SELECT COUNT(*) FROM messages WHERE {message_count_where}",
-            message_count_params,
-        )
-        message_total = int((await message_total_c.fetchone())[0])
+        # THE TILE IS THE SUM OF THE SERIES IT IS SHOWN WITH, read in the same pass, so a message that
+        # commits between the two reads cannot land in one and not the other (review of 0.9.5, L7).
+        shown_series = {"hour": hourly, "day": daily, "month": monthly}.get(selected_range, all_time)
+        message_total = sum(int(bucket["count"]) for bucket in shown_series)
         spawn_status_c = await db.execute(
             f"SELECT status, COUNT(*) as cnt FROM spawn_requests {spawn_where} GROUP BY status",
             spawn_params,
