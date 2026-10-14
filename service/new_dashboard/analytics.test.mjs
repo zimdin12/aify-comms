@@ -248,3 +248,10 @@ test('the capacity grid calls the live count live, and the wake-path count wakea
   assert.match(html, /<b>28<\/b><span>Live agents<\/span>/);
   assert.match(html, /<b>42<\/b><span>Wakeable agents<\/span>/);
 });
+
+test('the leaderboard fraction is the population its rate is over', () => {
+  // 8 completed of 10 runs, 2 still open: the rate is 100% of FINISHED runs, so "8/10 100%" contradicted itself.
+  const html = agentLeaderboardHtml({ agentLeaderboard: [{ agent: 'a', completed: 8, failed: 0, total: 10, successRate: 100 }] });
+  assert.match(html, /8\/8 <b class="lb-sr good">100%<\/b>/);
+  assert.match(html, /10 runs in this window: 8 completed, 0 failed or cancelled, 2 not finished/);
+});

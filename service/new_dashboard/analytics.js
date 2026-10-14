@@ -260,9 +260,13 @@ export function agentLeaderboardHtml(data = {}) {
     const w = Math.max(3, Math.round((total / max) * 100));
     const sr = r.successRate;
     const srTone = sr == null ? '' : (sr >= 90 ? 'good' : sr >= 70 ? 'warn' : 'bad');
-    return `<div class="lb-row"><span class="lb-name clip">${esc(r.agent)}</span>`
+    // The fraction is the rate's own population, FINISHED runs; the bar and the tooltip are all of them.
+    const completed = Number(r.completed || 0);
+    const finished = completed + Number(r.failed || 0);
+    const tip = `${total} runs in this window: ${completed} completed, ${finished - completed} failed or cancelled, ${total - finished} not finished`;
+    return `<div class="lb-row" title="${esc(tip)}"><span class="lb-name clip">${esc(r.agent)}</span>`
       + `<span class="lb-track"><span class="lb-fill" style="width:${w}%"></span></span>`
-      + `<span class="lb-meta">${Number(r.completed || 0)}/${total}${sr == null ? '' : ` <b class="lb-sr ${srTone}">${sr}%</b>`}</span></div>`;
+      + `<span class="lb-meta">${completed}/${finished}${sr == null ? '' : ` <b class="lb-sr ${srTone}">${sr}%</b>`}</span></div>`;
   }).join('') + `</div>`;
 }
 
