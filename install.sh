@@ -477,11 +477,6 @@ render_wrapper_template() {
   # --emit-wrappers exits before the installer's npm step by design, so a fresh checkout must fetch
   # dependencies once before it can render.
   [ -f "$template" ] || { echo "missing template: $template — run 'npm install' in mcp/stdio" >&2; exit 1; }
-  # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked its
-  # `shopt -u patsub_replacement`, so on bash 5.2+ an `&` in a value became the placeholder (2026-10-14,
-  # X6). A template override is staged beside a copy of it, since render.sh reads `wrappers/` next to itself.
-  local stage; stage="$(mktemp -d)" && mkdir "$stage/wrappers" && cp "$template" "$stage/wrappers/$1" \
-    && cp "$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/render.sh" "$stage/render.sh" || exit 1
   # The AIFY-WRAPPER package's VERSION, beside the templates -- not aify-comms'. The launcher text comes
   # from that package, so only the package can say which build is installed; reading $SCRIPT_DIR/VERSION
   # made this field mean aify-comms here and aify-wrapper when aify-wrapper's own installer rendered the
@@ -516,6 +511,11 @@ render_wrapper_template() {
   # a prebuilt TUI bundle baked only when it exists — so they arrive from the caller rather than being
   # read here. Applied AFTER the fixed set so an extra can never shadow one of them. render.sh stages and
   # renames into place, refuses a leftover placeholder, and its exit status is the install's.
+  # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked its
+  # `shopt -u patsub_replacement`, so on bash 5.2+ an `&` in a value became the placeholder (2026-10-14,
+  # X6). Staged last, beside a copy of it (it reads `wrappers/` next to itself): a refusal above strands nothing.
+  local stage; stage="$(mktemp -d)" && mkdir "$stage/wrappers" && cp "$template" "$stage/wrappers/$1" \
+    && cp "$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/render.sh" "$stage/render.sh" || { rm -rf "${stage:-}"; exit 1; }
   local status=0; bash "$stage/render.sh" "$1" "$target" "${pairs[@]}" "${@:3}" || status=$?
   rm -rf "$stage"; [ "$status" -eq 0 ] || exit "$status"
 }

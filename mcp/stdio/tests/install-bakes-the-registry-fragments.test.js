@@ -28,10 +28,15 @@ function render(registryText, client = "claude") {
   const registry = path.join(dir, "services.json");
   fs.writeFileSync(registry, registryText);
   const out = path.join(dir, "out");
+  // Its own temp root, so whatever the installer leaves in it is this run's.
+  const temp = path.join(dir, "temp");
+  fs.mkdirSync(temp);
+  const posixTemp = temp.replace(/\\/g, "/");
   const result = spawnSync("bash", [INSTALL_SH, "--client", client, NOWHERE, "--emit-wrappers", out],
-    { encoding: "utf8", env: { ...RENDER_ENV, AIFY_SERVICE_REGISTRY: registry }, timeout: 180_000 });
+    { encoding: "utf8", env: { ...RENDER_ENV, AIFY_SERVICE_REGISTRY: registry, TMPDIR: posixTemp, TEMP: posixTemp, TMP: posixTemp },
+      timeout: 180_000 });
   const launcher = path.join(out, `${client}-aify`);
-  return { result, text: fs.existsSync(launcher) ? fs.readFileSync(launcher, "utf8") : null };
+  return { result, text: fs.existsSync(launcher) ? fs.readFileSync(launcher, "utf8") : null, left: fs.readdirSync(temp) };
 }
 
 /** The session fragment a rendered launcher carries: its one decode into the per-session config file. */
@@ -42,8 +47,9 @@ const sessionFragment = (text) => {
 };
 
 test("AN OPTED-IN SERVICE is baked into the launcher as the session fragment the pinned package computes", () => {
-  const { result, text } = render(JSON.stringify({ version: 1, services: { ...COMMS, "aify-dashboard": DASHBOARD } }));
+  const { result, text, left } = render(JSON.stringify({ version: 1, services: { ...COMMS, "aify-dashboard": DASHBOARD } }));
   assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(left, [], "CONTROL: a completed render removes its stage");
   const baked = sessionFragment(text);
   assert.ok(baked, "no session fragment found in the rendered launcher");
   const doc = JSON.parse(Buffer.from(baked, "base64").toString("utf8"));
@@ -105,8 +111,10 @@ test("A CODEX INSTALL bakes the codex words into its launcher: install.sh tells 
 });
 
 test("A REGISTRY THE PACKAGE REFUSES stops the install, and no launcher is written", () => {
-  const { result, text } = render("{not json");
+  const { result, text, left } = render("{not json");
   assert.equal(result.status, 78, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stderr, /is not usable/);
   assert.equal(text, null);
+  // Review of 0.9.5: the stage was made before the fragments were read, so the refusal stranded it.
+  assert.deepEqual(left, [], "the refused install left its render stage behind");
 });
