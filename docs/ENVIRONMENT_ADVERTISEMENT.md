@@ -187,9 +187,11 @@ one: a mechanism defending against a cost nobody had measured.
 Today the advertiser is per service. A second service on the same host needs its own bridge to learn
 the same facts, and the two can disagree about one machine.
 
-With aify-env advertising, one daemon tells every registered service the same answer, and it already
-knows whom to tell because it reads `~/.aify/services.json`. That is the environment tier's whole
-purpose, applied to the last job still being done per-service.
+With aify-env advertising, one daemon tells every registered service that has a route the same answer.
+It reads `~/.aify/services.json` to know whom to tell, and since 0.9.7 the route comes from the
+service's plugin or from the entry's own `"advertisement": {"path": "/..."}`. A service with neither is
+told nothing, and `"advertise": false` still opts out. That is the environment tier's whole purpose,
+applied to the last job still being done per-service.
 
 It also collapses a version-skew surface. `bridge-installed` and `bridge-current` exist because
 aify-comms ships host code whose staleness the service has to detect from a distance. A tier that
