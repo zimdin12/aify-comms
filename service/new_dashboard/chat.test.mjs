@@ -168,6 +168,14 @@ test("a failing mark-read never loses the sent message", () => withStubDocument(
     assert.equal(h.sent.length, 1, "the message was still sent");
 }));
 
+test("a REFUSED send (ok:false) keeps the composer text and the saved draft — the service stored nothing", () => withStubDocument(async () => {
+  const h = sendHarness({ sendMessage: async () => ({ ok: false, error: "recipient cannot start live work now" }) });
+  h.state.chat.drafts["dm:peer"] = "hello there";
+  await h.controller.send();
+  assert.equal(h.els["chat-composer-body"].value, "hello there", "the only copy of the message must survive a refusal");
+  assert.equal(h.state.chat.drafts["dm:peer"], "hello there", "the draft must survive a reload after a refusal");
+}));
+
 // ── open / close / pulse / analytics ────────────────────────────────────────
 //
 // The v0.6 Phase 3 census found these five never called by any test. They are the conversation

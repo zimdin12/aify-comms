@@ -524,6 +524,14 @@ export function createChatController(deps) {
         expectsReply: !!expectsReply, queueIfBusy: !!queueIfBusy, inReplyTo,
         type, priority, subject,
       });
+      // A REFUSED send is HTTP 200 with `ok: false`, and the service stored nothing. Clearing the box
+      // here destroyed the only copy of the operator's message (2026-10-14, a long message to a
+      // resident with no delivery path). Keep the text and the draft; say why it was refused.
+      if (response?.ok === false) {
+        const t = deliveryToastFor(response, id);
+        toast(`${t.text}. Your text is still in the box.`, 'error');
+        return;
+      }
       if (bodyEl) bodyEl.value = '';
       if (subjectEl) subjectEl.value = '';
       // Sent cleanly: drop the saved draft + reply context for this conversation.
