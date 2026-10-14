@@ -9,16 +9,20 @@ import assert from "node:assert/strict";
 import http from "node:http";
 
 const answers = [];
+const keyed = [];
 const server = http.createServer((req, res) => {
+  if (req.headers["x-api-key"] || req.headers.authorization) keyed.push(req.url);
   const next = answers.shift() || { status: 500, body: {} };
   res.writeHead(next.status, { "content-type": "application/json" });
   res.end(JSON.stringify(next.body));
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.2", resolve));
+// SEALED BEFORE THE BRIDGE MODULES LOAD (review of 0.9.5): every endpoint, fallback list and key a live
+// wrapper exports is deleted, so the deliberate 500 below can reach only this fixture, with no key.
+const { LIVE_ENV_CARRIERS } = await import("./_child-env.mjs");
+for (const name of LIVE_ENV_CARRIERS) delete process.env[name];
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${server.address().port}`;
-process.env.CLAUDE_MCP_SERVER_URL = "";
 process.env.AIFY_SERVICE_REGISTRY = `${process.env.TEMP || "/tmp"}/no-such-aify-registry-${process.pid}.json`;
-process.env.AIFY_API_KEY = "";
 
 const { WRAPPER_SET_UNKNOWN, managedViaWrapperRuntimesFromSettingsResponse: parse } = await import("../managed-wrapper-settings.js");
 const { readManagedViaWrapperRuntimes } = await import("../managed-wrapper-cache.mjs");
@@ -62,6 +66,7 @@ try {
   assert.deepEqual(managedCodex(new Set(["codex"])), [], "CONTROL: a wrapper-backed runtime is left to the wrapper child");
   assert.deepEqual(supportedExecutionModes({ sessionMode: "managed", runtime: "pi", capabilities: [] }, { managedViaWrapperRuntimes: WRAPPER_SET_UNKNOWN }),
     ["managed"], "CONTROL: a runtime no wrapper backs is unaffected by unknown");
+  assert.deepEqual(keyed, [], "a request carried a credential the seal should have removed");
 } finally {
   server.close();
 }
