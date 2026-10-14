@@ -15,6 +15,7 @@ import {
   renderStatusChip,
   resolveStatus,
   runStatusContext,
+  sentence,
   statusWhyContext,
 } from './status.js';
 
@@ -227,4 +228,15 @@ test("an agent no host defines is offered no start, restart or reset (D7)", asyn
   const older = { id: 'old', sessionMode: 'managed', status: 'available' };
   assert.equal(undefinedStartRefusal(older), '');
   assert.equal(startRefusedAttrs(older, 'hint'), ' title="hint"');
+});
+
+test("a service sentence that brings its own full stop does not get a second", () => {
+  // Live 2026-10-14: agents.status_note "Session handle set by bridge-heartbeat." read "bridge-heartbeat.."
+  const why = statusWhyContext("agent", { id: "a", status: "online", statusNote: "Session handle set by bridge-heartbeat." }).why;
+  assert.match(why, /Note: Session handle set by bridge-heartbeat\.(\s|$)/);
+  assert.doesNotMatch(why, /\.\./);
+  const run = statusWhyContext("run", { id: "r", status: "failed", error: "never settled; failed by reconcile." }).why;
+  assert.doesNotMatch(run, /\.\./);
+  assert.equal(sentence("no stop"), "no stop.", "control: a bare sentence still gets one");
+  assert.equal(sentence("asked?"), "asked?");
 });

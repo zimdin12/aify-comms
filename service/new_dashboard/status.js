@@ -44,6 +44,9 @@ export const LIVE_AGENT_STATUSES = AGENT_STATUSES.filter((s) => !NON_LIVE_AGENT_
 
 // Live, but with no worker attached yet: reachable in the sense that a send will land eventually,
 // which is not the same as being AT WORK. The summary tile counts the latter.
+/** Ends `text` with one full stop: service text often brings its own, and `${text}.` doubled it. PURE. */
+export const sentence = (text) => (/[.!?]$/.test(String(text).trimEnd()) ? String(text).trimEnd() : `${String(text).trimEnd()}.`);
+
 const LIVE_WITHOUT_A_WORKER = ['available', 'starting'];
 // `active` is the legacy cache's word for `online`; STATUS_KINDS still maps it, so an older payload
 // keeps counting. Everything else is derived, because the hand-typed copy of this set in
@@ -159,7 +162,7 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
     if (item.requestedAt) parts.push(`Requested ${relTime(item.requestedAt)} ago.`);
     if (item.startedAt) parts.push(`Started ${relTime(item.startedAt)} ago.`);
     const reason = item.error || blockerText(item.blockedByActiveRun);
-    if (reason) parts.push(`Reason: ${reason}.`);
+    if (reason) parts.push(sentence(`Reason: ${reason}`));
   } else if (kind === 'contract') {
     parts.push(`Work Loop item ${item.subject || item.id || 'unknown'} is ${base.label}.`);
     if (item.targetAgentId) parts.push(`Target: ${item.targetAgentId}.`);
@@ -168,7 +171,7 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
   } else if (kind === 'agent') {
     parts.push(`Agent ${item.id || 'unknown'} is ${base.label}.`);
     if (item.runtime) parts.push(`Runtime: ${item.runtime}.`);
-    if (item.statusNote) parts.push(`Note: ${item.statusNote}.`);
+    if (item.statusNote) parts.push(sentence(`Note: ${item.statusNote}`));
     if (item.lastSeen || item.last_seen) parts.push(`Last seen ${relTime(item.lastSeen || item.last_seen)} ago.`);
   } else if (kind === 'environment') {
     parts.push(`Environment ${item.label || item.id || 'unknown'} is ${base.label}.`);
