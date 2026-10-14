@@ -125,16 +125,24 @@ export async function submitAgentEdit(agentId) {
   // Confirm the rename UP FRONT — confirming after the other edits already fired left those
   // writes applied with no toast/refresh when the operator cancelled the rename prompt.
   if (willRename && !await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
+  // EACH STEP COMMITS ON ITS OWN. A later failure does not undo an earlier one, so a failure says what
+  // already landed and the screen is refreshed to show it (review of 0.9.5, D8). Nothing is rolled back.
+  const applied = [];
+  let step = 'description';
+  let handleNote = '';
   try {
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
+      applied.push('description');
     }
     // A handle the service did not adopt is said, beside whatever else was saved (2026-10-14 audit, D8).
-    let handleNote = '';
+    step = 'session handle';
     if (handle !== String(agent.sessionHandle || '')) {
       const changed = await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
       handleNote = sessionHandleNote(changed);
+      if (!handleNote) applied.push('session handle');
     }
+    step = 'environment';
     const envId = byId('edit-agent-env')?.value.trim() || '';
     const runtime = byId('edit-agent-runtime')?.value.trim() || '';
     const workspace = byId('edit-agent-workspace')?.value.trim() || '';
@@ -151,14 +159,21 @@ export async function submitAgentEdit(agentId) {
       if (workspace) body.workspace = workspace;
       requested = requestedInAifyEnv(
         await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) }), agentId);
+      applied.push('environment');
     }
+    step = 'rename';
     if (willRename) {
       await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
     }
+    step = 'refresh after saving';
     toast([requested || 'Agent updated', handleNote].filter(Boolean).join('. '), handleNote ? 'warn' : 'ok');
     closeInspector();
     await refresh();
-  } catch (err) { toast(`Edit failed: ${err?.message || err}`, 'error'); }
+  } catch (err) {
+    const landed = applied.length ? ` Already saved: ${applied.join(', ')}.` : '';
+    toast(`Edit stopped at the ${step}: ${err?.message || err}.${landed}${handleNote ? ` ${handleNote}.` : ''}`, 'error');
+    await refresh();
+  }
 }
 
 // Sticky session identity (governance): resolve a `session-changed` agent by

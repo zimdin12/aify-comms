@@ -678,3 +678,28 @@ test("THE HANDLERS USE THOSE MESSAGES: a refused handle and an unchanged mode ar
     assert.ok(said.some((t) => /coder is already managed; nothing changed/.test(t)), `an unchanged mode read as switched: ${said}`);
   } finally { h.restore(); }
 });
+
+test("A STEP THAT FAILS AFTER OTHERS LANDED SAYS WHAT LANDED, and the screen refreshes", async () => {
+  // Review of 0.9.5, D8: the description committed, the handle collided (200), the rename was refused
+  // (409), and the operator saw only "Edit failed" with no refresh. Nothing is rolled back; it is said.
+  const h = withActions({ confirm: true, fields: { "edit-agent-id": "coder2", "edit-agent-desc": "new words", "edit-agent-handle": "h2" } });
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  const answer = (status, body) => ({ ok: status < 400, status, statusText: String(status), json: async () => body, text: async () => JSON.stringify(body) });
+  try {
+    state.agents = [{ id: "coder", sessionHandle: "h1", description: "" }];
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/description")) return answer(200, { ok: true });
+      if (String(url).includes("/session-handle")) return answer(200, { ok: true, state: "session-collision", pendingSessionId: "h2", collisionWith: "other" });
+      if (String(url).includes("/rename")) return answer(409, { detail: "coder is defined on its host; rename it there" });
+      return answer(200, { ok: true });
+    };
+    await submitAgentEdit("coder");
+    const said = created.map((el) => el.textContent).filter(Boolean).join(" | ");
+    assert.match(said, /Edit stopped at the rename/);
+    assert.match(said, /Already saved: description/);
+    assert.match(said, /Session handle not changed: h2 belongs to other/, `the handle refusal was dropped: ${said}`);
+    assert.equal(h.calls.refresh, 1, "the screen was not refreshed to show what landed");
+  } finally { h.restore(); }
+});
