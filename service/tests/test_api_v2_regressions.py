@@ -5653,6 +5653,30 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(self._fetchone("SELECT cwd FROM agents WHERE id = ?", ("steady",))["cwd"], "/newroot/other")
         self.assertEqual(self._fetchone("SELECT status FROM agent_sessions WHERE agent_id = ?", ("steady",))["status"], "lost")
 
+    def test_an_ended_session_with_a_handle_does_not_stand_for_the_current_placement(self):
+        # Review of 0.9.5: the no-op read the row the handle preference picks, an ENDED session on A that
+        # kept its handle, so an assignment to A was answered changed:false while the agent ran on B.
+        for env_id in ("linux:test-host:a", "linux:test-host:b"):
+            self._heartbeat_environment(id=env_id, bridgeId=f"bridge-{env_id[-1]}", cwdRoots=["/root"])
+        self._register("mover", role="coder", runtime="codex", cwd="/root/project", sessionMode="resident")
+        to_a = {"environmentId": "linux:test-host:a", "runtime": "codex", "workspace": "/root/project"}
+        to_b = {**to_a, "environmentId": "linux:test-host:b"}
+        self.assertEqual(self.client.post("/api/v1/agents/mover/environment", json=to_b).status_code, 200)
+        self._execute("UPDATE agent_sessions SET status = 'running', session_handle = '', last_seen = '2026-10-14T00:00:00Z' "
+                      "WHERE agent_id = ? AND environment_id = ?", ("mover", "linux:test-host:b"))
+        # The history: an earlier session on A, ended, that kept its resume handle.
+        self._execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, status, session_handle, "
+                      "started_at, last_seen, spawn_request_id, spawn_spec_id) VALUES (?,?,?,?,?,?,?,?,NULL,NULL)",
+                      ("sess-old-a", "mover", "linux:test-host:a", "codex", "ended", "old-thread",
+                       "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z"))
+
+        running_on_b = self._fetchone("SELECT id FROM agent_sessions WHERE agent_id = ? AND status = 'running'", ("mover",))["id"]
+        back = self.client.post("/api/v1/agents/mover/environment", json=to_a)
+        self.assertEqual(back.status_code, 200, back.text)
+        self.assertNotIn("changed", back.json(), "a real retarget to A was answered as unchanged")
+        self.assertEqual(self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", (running_on_b,))["status"], "lost",
+                         "the session running on B was left running")
+
     def test_assign_agent_environment_adopts_resident_agent_with_session_record(self):
         self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])
         self._register(

@@ -120,10 +120,16 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         # environment on every Save, and the rewrite below marked running sessions lost and the agent
         # offline even when only its description had changed (2026-10-14 audit, D3). Compared on the
         # whole resolved assignment, so a same-environment change of workspace, model or config applies.
+        # WHERE IT RUNS NOW is the most recent session, not `latest_session`, which prefers any row with a
+        # resume handle: an ended session on A kept its handle and answered for an agent running on B
+        # (review of 0.9.5).
+        current_session = await (await db.execute(
+            "SELECT * FROM agent_sessions WHERE agent_id = ? ORDER BY last_seen DESC LIMIT 1", (agent_id,)
+        )).fetchone()
         if (
             _normalize_session_mode(agent["session_mode"] or "") == "managed"
-            and latest_session is not None
-            and str(latest_session["environment_id"] or "") == environment_id
+            and current_session is not None
+            and str(current_session["environment_id"] or "") == environment_id
             and previous_runtime == runtime
             and str(agent["cwd"] or "") == workspace
             and str(agent["model"] or "") == model
@@ -136,7 +142,7 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
                 "environmentId": environment_id,
                 "runtime": runtime,
                 "workspace": workspace,
-                "spawnSpecId": str(latest_session["spawn_spec_id"] or ""),
+                "spawnSpecId": str(current_session["spawn_spec_id"] or ""),
                 "changed": False,
             }
         preserve_handle = ""
