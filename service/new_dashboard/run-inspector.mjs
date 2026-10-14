@@ -144,7 +144,6 @@ export function renderRunInspector() {
   // pushing the event timeline off the drawer.
   const sourceBody = sourceMessage?.body || sourceMessage?.preview || run.body || run.summary || '';
   const events = state.inspector.events || [];
-  const startedAt = run.startedAt || run.claimedAt || run.requestedAt;
   const duration = runDurationText(run);
   byId('inspector-content').innerHTML = `
     <section class="run-inspector">
@@ -159,8 +158,8 @@ export function renderRunInspector() {
         ${renderStatusChip(run.status, statusContext)}
       </header>
       <div class="run-why-line">
-        <span>${esc(run.from || 'unknown')} triggered</span>
-        <span>${esc(startedAt || 'not started')}</span>
+        <span>${esc(run.from || 'unknown')} requested ${esc(run.requestedAt || 'at an unknown time')}</span>
+        <span>${esc(run.startedAt ? `started ${run.startedAt}` : run.claimedAt ? `claimed ${run.claimedAt}` : 'not started')}</span>
         <span>${esc(duration)}</span>
         ${statusContext.blockerReason ? `<span>${esc(statusContext.blockerReason)}</span>` : ''}
       </div>

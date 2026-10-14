@@ -650,3 +650,15 @@ test("A PAGE LOADED WHILE A REFRESH WAS IN FLIGHT survives the refresh, and no L
     assert.equal(started, false, "a Load more started while the refresh was loading");
   } finally { h.restore(); }
 });
+
+test("the request time is labelled as the request, and a claim is not called a start", () => {
+  // It read "manager triggered" beside startedAt || claimedAt || requestedAt: a claim time under a request label.
+  const h = withInspector({ ...RUNNING, requestedAt: "2026-10-14T10:00:00Z", claimedAt: "2026-10-14T10:00:05Z", startedAt: null });
+  try {
+    renderRunInspector();
+    const html = h.els.get("inspector-content").innerHTML;
+    assert.match(html, /requested 2026-10-14T10:00:00Z/);
+    assert.match(html, /claimed 2026-10-14T10:00:05Z/);
+    assert.doesNotMatch(html, /started 2026-10-14T10:00:05Z/);
+  } finally { h.restore(); }
+});
