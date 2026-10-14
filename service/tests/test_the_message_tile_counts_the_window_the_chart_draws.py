@@ -54,9 +54,11 @@ class AMessageCommittedMidRequestLandsInBothOrNeither(FastApiTestCase):
         from service.api_core import analytics_summary as analytics_router
 
         real = analytics_router._hourly_message_series
+        wrote = []
 
         async def buckets_then_a_message(now_s, count):
             series = await real(now_s, count)
+            wrote.append(True)
             db = sqlite3.connect(self._db_path)
             try:
                 db.execute("INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, timestamp) "
@@ -68,5 +70,13 @@ class AMessageCommittedMidRequestLandsInBothOrNeither(FastApiTestCase):
 
         with mock.patch.object(analytics_router, "_hourly_message_series", buckets_then_a_message):
             body = self.client.get("/api/v1/analytics", params={"range": "hour"}).json()
+        # Engaged: with the writer bypassed, an empty fixture reads 0 == 0 and proves nothing (review of 0.9.6).
+        self.assertEqual(wrote, [True], "control: the injected writer never ran between the two reads")
+        db = sqlite3.connect(self._db_path)
+        try:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM messages WHERE id = 'late'").fetchone()[0], 1,
+                             "control: the mid-request message was not committed")
+        finally:
+            db.close()
         self.assertEqual(body["messageTotal"], sum(b["count"] for b in body["messagesPerHour"]),
                          "the tile counted a message the chart beside it does not draw")

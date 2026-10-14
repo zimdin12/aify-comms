@@ -704,7 +704,7 @@ PROOF_REFUSED_BODY = {'detail': 'environment heartbeat refused: machine win32:fr
            '~/.aify/host-secret was replaced, an operator resets it: POST '
            '/host-proofs/win32:freeze-host/reset'}
 
-#: status 200; 97 recorded calls
+#: status 200; 96 recorded calls
 ANALYTICS_HOUR_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORMAL;PRAGMA foreign_keys=ON;PRAGMA '
  'journal_size_limit=16777216;',
  'c1 SQL SELECT key, value FROM settings',
@@ -809,7 +809,7 @@ ANALYTICS_HOUR_BODY = {'agentLeaderboard': [{'agent': 'freeze-beta', 'completed'
  'successRate': 66.7,
  'workingAgents': 0}
 
-#: status 200; 97 recorded calls
+#: status 200; 96 recorded calls
 ANALYTICS_ALL_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORMAL;PRAGMA foreign_keys=ON;PRAGMA '
  'journal_size_limit=16777216;',
  'c1 SQL SELECT key, value FROM settings',
