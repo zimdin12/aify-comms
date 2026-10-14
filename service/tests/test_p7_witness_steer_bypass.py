@@ -71,18 +71,20 @@ class _ClaimWorld(FastApiTestCase):
         return answer.json()
 
     def _statuses(self, agent_id: str) -> dict:
-        return {row["id"]: row["status"] for row in
-                self._rows("SELECT id, status FROM dispatch_runs WHERE target_agent = ?", (agent_id,))}
+        """Every run of this target: its status and the bridge that claimed it ('' while unclaimed)."""
+        return {row["id"]: (row["status"], row["claim_bridge_id"] or "") for row in self._rows(
+            "SELECT id, status, claim_bridge_id FROM dispatch_runs WHERE target_agent = ?", (agent_id,))}
 
     def _assert_held(self, agent_id: str, body: dict) -> None:
         self.assertEqual(body, {"ok": True, "run": None}, "the hold answers no run and nothing else")
-        self.assertEqual(self._statuses(agent_id), {f"r1-{agent_id}": "queued", f"canary-{agent_id}": "queued"},
+        self.assertEqual(self._statuses(agent_id),
+                         {f"r1-{agent_id}": ("queued", ""), f"canary-{agent_id}": ("queued", "")},
                          "a held claim must not reach selection: nothing in the queue may change")
 
-    def _assert_steered(self, agent_id: str, body: dict) -> None:
+    def _assert_r1_claimed(self, agent_id: str, body: dict) -> None:
         self.assertEqual((body.get("run") or {}).get("id"), f"r1-{agent_id}", body)
-        self.assertEqual(self._statuses(agent_id)[f"r1-{agent_id}"], "claimed")
-
+        self.assertEqual(self._statuses(agent_id),
+                         {f"r1-{agent_id}": ("claimed", f"bridge-{agent_id}"), f"canary-{agent_id}": ("queued", "")})
 
 
 class SteerBypassWitness(_ClaimWorld):
@@ -92,55 +94,69 @@ class SteerBypassWitness(_ClaimWorld):
         self._world("arm-capability", steer=False)
         self._assert_held("arm-capability", self._claim("arm-capability"))
         self._world("arm-capability-twin")
-        self._assert_steered("arm-capability-twin", self._claim("arm-capability-twin"))
+        self._assert_r1_claimed("arm-capability-twin", self._claim("arm-capability-twin"))
 
-    def test_an_explicit_queue_run_is_held(self):
+    def test_an_explicit_queue_run_is_held_and_released_when_the_turn_ends(self):
+        """The explicit queue means "after this turn": held while busy, and the SAME run, flag kept, is claimed
+        once the turn is closed (the obligation of the removed regression
+        `test_explicit_queue_to_busy_steerable_target_waits_for_turn_end`)."""
         self._world("arm-queue", queue_if_busy=1)
         self._assert_held("arm-queue", self._claim("arm-queue"))
+        self._world("arm-queue-released", queue_if_busy=1, spec=BUSY.closed())
+        self._assert_r1_claimed("arm-queue-released", self._claim("arm-queue-released"))
         self._world("arm-queue-twin")
-        self._assert_steered("arm-queue-twin", self._claim("arm-queue-twin"))
+        self._assert_r1_claimed("arm-queue-twin", self._claim("arm-queue-twin"))
 
     def test_a_run_that_does_not_ask_to_steer_is_held(self):
         self._world("arm-steer-flag", steer_if_busy=0)
         self._assert_held("arm-steer-flag", self._claim("arm-steer-flag"))
         self._world("arm-steer-flag-twin")
-        self._assert_steered("arm-steer-flag-twin", self._claim("arm-steer-flag-twin"))
+        self._assert_r1_claimed("arm-steer-flag-twin", self._claim("arm-steer-flag-twin"))
 
     def test_a_managed_mode_run_is_held(self):
         self._world("arm-mode", execution_mode="managed")
         self._assert_held("arm-mode", self._claim("arm-mode"))
         self._world("arm-mode-twin")
-        self._assert_steered("arm-mode-twin", self._claim("arm-mode-twin"))
+        self._assert_r1_claimed("arm-mode-twin", self._claim("arm-mode-twin"))
 
     def test_a_run_in_a_mode_this_bridge_does_not_claim_is_held(self):
         self._world("arm-supported", execution_mode="channel")
         self._assert_held("arm-supported", self._claim("arm-supported"))
         self._world("arm-supported-twin")
-        self._assert_steered("arm-supported-twin", self._claim("arm-supported-twin"))
+        self._assert_r1_claimed("arm-supported-twin", self._claim("arm-supported-twin"))
 
     def test_a_run_for_another_runtime_is_held(self):
         self._world("arm-runtime", requested_runtime="claude-code")
         self._assert_held("arm-runtime", self._claim("arm-runtime"))
         self._world("arm-runtime-twin")
-        self._assert_steered("arm-runtime-twin", self._claim("arm-runtime-twin"))
+        self._assert_r1_claimed("arm-runtime-twin", self._claim("arm-runtime-twin"))
 
 
 class ExplicitQueueSkipWitness(_ClaimWorld):
-    """Selection under the hold: with a steerable run queued, the claim delivers that run and skips an EARLIER
-    run that is not steerable, which waits for the turn to end. Its twin, the same queue with the turn closed,
-    delivers the earlier run first."""
+    """Selection under the hold (`claim_run_selection`): with a steerable run r1 queued, a busy claim delivers r1
+    and skips an EARLIER run r0 that must wait for the turn to end. r0 waits for either of two reasons, one
+    witness each: it is an explicit queue (steering otherwise allowed), or it does not ask to steer. Each twin is
+    the same queue, r0's flag kept, with the turn closed: r0 is delivered first."""
 
-    def _two_runs(self, agent_id: str, spec: TurnSpecimen) -> None:
+    def _two_runs(self, agent_id: str, spec: TurnSpecimen, **r0) -> None:
         self._world(agent_id, spec=spec)                                  # r1 steerable, at 2001
-        self._queue(f"r0-{agent_id}", agent_id, at="2000-01-01T00:00:00Z", steer_if_busy=0)
+        self._queue(f"r0-{agent_id}", agent_id, at="2000-01-01T00:00:00Z", **r0)
 
-    def test_a_busy_claim_skips_the_earlier_unsteerable_run_and_the_closed_twin_takes_it(self):
-        self._two_runs("skip", BUSY)
-        body = self._claim("skip")
-        self.assertEqual(body["run"]["id"], "r1-skip", body)
-        self.assertEqual(self._statuses("skip")["r0-skip"], "queued", "the explicit wait is kept until the turn ends")
+    def _assert_skips_then_releases(self, name: str, **r0) -> None:
+        self._two_runs(name, BUSY, **r0)
+        body = self._claim(name)
+        self.assertEqual(body["run"]["id"], f"r1-{name}", body)
+        self.assertEqual(self._statuses(name)[f"r0-{name}"], ("queued", ""), "r0 waits until the turn ends")
+        self.assertEqual(self._statuses(name)[f"r1-{name}"], ("claimed", f"bridge-{name}"))
 
-        self._two_runs("skip-twin", BUSY.closed())
-        body = self._claim("skip-twin")
-        self.assertEqual(body["run"]["id"], "r0-skip-twin", body)
-        self.assertEqual(self._statuses("skip-twin")["r0-skip-twin"], "claimed")
+        twin = f"{name}-released"
+        self._two_runs(twin, BUSY.closed(), **r0)
+        body = self._claim(twin)
+        self.assertEqual(body["run"]["id"], f"r0-{twin}", body)
+        self.assertEqual(self._statuses(twin)[f"r0-{twin}"], ("claimed", f"bridge-{twin}"))
+
+    def test_an_earlier_explicit_queue_run_waits_and_is_taken_once_the_turn_closes(self):
+        self._assert_skips_then_releases("skip-queue", queue_if_busy=1, steer_if_busy=1)
+
+    def test_an_earlier_run_that_does_not_ask_to_steer_waits_and_is_taken_once_the_turn_closes(self):
+        self._assert_skips_then_releases("skip-steer", queue_if_busy=0, steer_if_busy=0)

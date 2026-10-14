@@ -92,42 +92,54 @@ class ReminderSkipWitness(_RunWorld):
                        "datetime('now'),datetime('now'))", (f"active-{case}", "dashboard", target))
         answer = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
         self.assertEqual(answer.status_code, 200, answer.text)
+        reminders = self._rows("SELECT id, from_agent FROM messages WHERE to_agent = ? AND in_reply_to = ?",
+                               (target, message_id))
+        seeded = {run_id, f"active-{case}"}
         return {
             "events": [(r["event_type"], r["body"]) for r in self._rows(
                 "SELECT event_type, body FROM dispatch_events WHERE run_id = ? AND event_type LIKE 'reply_reminder%'",
                 (run_id,))],
-            "reminders": [r["from_agent"] for r in self._rows(
-                "SELECT from_agent FROM messages WHERE to_agent = ? AND in_reply_to = ?", (target, message_id))],
+            "reminders": [r["from_agent"] for r in reminders],
+            # Every run the reminder pass created for this target, by the message it carries.
+            "new_runs": sorted((r["message_id"], r["from_agent"]) for r in self._rows(
+                "SELECT id, message_id, from_agent FROM dispatch_runs WHERE target_agent = ?", (target,))
+                if r["id"] not in seeded),
+            "reminder_ids": [r["id"] for r in reminders],
         }
 
     def _assert_skipped(self, outcome: dict) -> None:
         self.assertEqual(outcome["reminders"], [], "a skipped reminder sends no message")
+        self.assertEqual(outcome["new_runs"], [], "and creates no run")
         self.assertEqual([kind for kind, _ in outcome["events"]], ["reply_reminder_skipped"])
         self.assertIn("target is busy", outcome["events"][0][1])
 
     def _assert_reminded(self, outcome: dict) -> None:
         self.assertEqual(outcome["reminders"], ["lead"], "exactly one reminder, from the owed party")
+        self.assertEqual(outcome["new_runs"], [(outcome["reminder_ids"][0], "lead")],
+                         "exactly one new run, carrying that reminder to this target")
         self.assertEqual([kind for kind, _ in outcome["events"]], ["reply_reminder"])
 
-    def test_a_fresh_turn_on_other_work_skips_and_its_twins_are_reminded(self):
+    def test_the_reminder_skips_for_a_running_run_or_a_fresh_turn_on_other_work_and_for_nothing_else(self):
+        """Today's expression: busy = a running dispatch run OR (a turn touched within 120 s AND on another run).
+        `own-and-occupied` is the intersection: the turn is this run's own delivery, which alone never skips
+        (`own`), but a separate running run does."""
         other = TurnSpecimen("other-work", touched_age=5, run_id="run-elsewhere")
-        for case, turn, skipped in (
-            ("other", other, True),
-            ("closed", other.closed(), False),                                    # the turn ended
-            ("own", TurnSpecimen("own-delivery", touched_age=5, run_id=OWN), False),  # this run's own delivery
-            ("quiet", TurnSpecimen("quiet-other", started_age=600, touched_age=300, run_id="run-elsewhere"), False),
+        own = TurnSpecimen("own-delivery", touched_age=5, run_id=OWN)
+        for case, turn, active_run, skipped in (
+            ("other", other, False, True),
+            ("closed", other.closed(), False, False),
+            ("own", own, False, False),
+            ("own-and-occupied", own, True, True),
+            ("quiet", TurnSpecimen("quiet-other", started_age=600, touched_age=300, run_id="run-elsewhere"), False,
+             False),
+            ("occupied", other.closed(), True, True),
         ):
             with self.subTest(case):
-                outcome = self._remind(case, turn=turn)
+                outcome = self._remind(case, turn=turn, active_run=active_run)
                 if skipped:
                     self._assert_skipped(outcome)
                 else:
                     self._assert_reminded(outcome)
-
-    def test_a_running_dispatch_run_skips_with_the_turn_closed(self):
-        closed = TurnSpecimen("closed", open=False, run_id="run-elsewhere")
-        self._assert_skipped(self._remind("occupied", turn=closed, active_run=True))
-        self._assert_reminded(self._remind("occupied-twin", turn=closed))
 
 
 class StrandedReplyGuardWitness(_RunWorld):
@@ -165,17 +177,14 @@ class StrandedReplyGuardWitness(_RunWorld):
     def _assert_failed(self, row: sqlite3.Row) -> None:
         self.assertEqual((row["status"], row["summary"]), ("failed", NO_WORKER_LEFT_TO_REPLY))
 
-    def test_a_turn_open_on_this_run_is_left_alone_however_old(self):
-        for label, touched in (("fresh", 5), ("hours-old", 3 * 3600)):
+    def test_a_turn_open_on_this_run_is_left_alone_however_old_and_its_closed_twin_is_failed(self):
+        for label, age in (("fresh", 5), ("hours-old", 3 * 3600)):
             with self.subTest(label):
                 run_id = f"run-own-{label}"
-                row = self._sweep(run_id, TurnSpecimen("own", started_age=touched, touched_age=touched, run_id=run_id))
-                self.assertEqual(row["status"], "delivered", "the agent is working on this run")
+                own = TurnSpecimen("own", started_age=age, touched_age=age, run_id=run_id)
+                self.assertEqual(self._sweep(run_id, own)["status"], "delivered", "the agent is working on this run")
+                twin = f"run-own-{label}-closed"
+                self._assert_failed(self._sweep(twin, replace(own, run_id=twin).closed()))
 
-    def test_its_twins_are_failed_a_turn_on_other_work_or_a_closed_turn_on_this_run(self):
-        for label, run_id, turn in (
-            ("other-work", "run-other", TurnSpecimen("other", touched_age=5, run_id="run-elsewhere")),
-            ("closed-on-this-run", "run-closed", TurnSpecimen("own", touched_age=5, run_id="run-closed").closed()),
-        ):
-            with self.subTest(label):
-                self._assert_failed(self._sweep(run_id, turn))
+    def test_a_fresh_turn_on_other_work_does_not_protect_this_run(self):
+        self._assert_failed(self._sweep("run-other", TurnSpecimen("other", touched_age=5, run_id="run-elsewhere")))

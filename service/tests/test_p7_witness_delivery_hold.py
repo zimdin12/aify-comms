@@ -19,9 +19,10 @@ import unittest
 from unittest import mock
 
 from service.api_core import dispatch_launch
+from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.tests._base import FastApiTestCase
 from service.tests.defined_agents import define
-from service.tests.delivery_witnesses import HOLD_LAW, INPUT_ADAPTER, P1_CHANGES, TurnSpecimen, p1_holds
+from service.tests.delivery_witnesses import HOLD_LAW, INPUT_ADAPTER, P1_CHANGES, STRICT, TurnSpecimen, p1_holds
 
 ENV_ID = "linux:test-host:default"
 MACHINE = "linux:test-host"
@@ -57,6 +58,11 @@ class _World(FastApiTestCase):
 
 class TheLawTableMeansWhatItSays(unittest.TestCase):
     """The table is the oracle, so its meaning is checked, not just its use."""
+
+    def test_the_subjects_strict_timer_is_the_one_the_specimens_were_frozen_against(self):
+        """The fixture's window is a literal so the specimens cannot follow a timer edit. This is the one place
+        the two meet: if the service's timer moves, this fails by name instead of the matrix moving with it."""
+        self.assertEqual(TURN_BUSY_BACKSTOP_SECONDS, STRICT)
 
     def test_the_P1_column_is_the_rulings_rule_applied_to_the_facts(self):
         for case in HOLD_LAW:

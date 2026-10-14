@@ -23,11 +23,11 @@ import time
 from dataclasses import dataclass, replace
 from typing import Optional, Protocol
 
-from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
-
 #: The strict window both laws share for a turn nothing can verify (P0 C3: "the strict legacy timer from the
-#: original start, without renewal or a new anchor").
-STRICT = TURN_BUSY_BACKSTOP_SECONDS
+#: original start, without renewal or a new anchor"), in seconds. A LITERAL, not the service's constant: the
+#: specimens' ages and the P-1 oracle are derived from it, so a change to the subject's timer must turn the
+#: witnesses red, never retune them. `test_p7_witness_delivery_hold` asserts the subject still agrees.
+STRICT = 1800
 HOUR = 3600
 
 
