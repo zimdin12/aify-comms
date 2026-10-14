@@ -176,6 +176,18 @@ test("a REFUSED send (ok:false) keeps the composer text and the saved draft — 
   assert.equal(h.state.chat.drafts["dm:peer"], "hello there", "the draft must survive a reload after a refusal");
 }));
 
+test("a refused DM is stored without the wake, so the message is kept, and the box clears only then", () => withStubDocument(async () => {
+  const calls = [];
+  const h = sendHarness({ sendMessage: async (payload) => {
+    calls.push(payload);
+    return payload.trigger === false ? { ok: true, notStarted: ["peer"] } : { ok: false, error: "cannot start live work" };
+  } });
+  await h.controller.send();
+  assert.deepEqual(calls.map((c) => c.trigger), [undefined, false], "one woken attempt, then one store-only attempt");
+  assert.equal(calls[1].body, "hello there", "the store-only attempt carries the same message");
+  assert.equal(h.els["chat-composer-body"].value, "", "cleared only after the service stored it");
+}));
+
 // ── open / close / pulse / analytics ────────────────────────────────────────
 //
 // The v0.6 Phase 3 census found these five never called by any test. They are the conversation

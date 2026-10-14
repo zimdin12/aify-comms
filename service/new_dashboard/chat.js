@@ -519,14 +519,21 @@ export function createChatController(deps) {
     const reply = state.chat.replyTo;
     const inReplyTo = (reply && reply.conversationKey === key) ? reply.id : '';
     try {
-      const response = await sendMessage({
+      const payload = {
         isChannel, target: id, identity: state.chat.identity, body,
         expectsReply: !!expectsReply, queueIfBusy: !!queueIfBusy, inReplyTo,
         type, priority, subject,
-      });
-      // A REFUSED send is HTTP 200 with `ok: false`, and the service stored nothing. Clearing the box
-      // here destroyed the only copy of the operator's message (2026-10-14, a long message to a
-      // resident with no delivery path). Keep the text and the draft; say why it was refused.
+      };
+      let response = await sendMessage(payload);
+      // A REFUSED send is HTTP 200 with `ok: false`, and the service stored nothing: it refuses a
+      // wake it cannot perform. The operator expects every message kept (2026-10-14, an hour's
+      // message to an offline resident was lost), so store it in the inbox without the wake.
+      let storedUnwoken = '';
+      if (response?.ok === false && !isChannel) {
+        storedUnwoken = deliveryToastFor(response, id).text;
+        response = await sendMessage({ ...payload, trigger: false });
+      }
+      // Still refused: keep the text and the draft, the only copy of the message.
       if (response?.ok === false) {
         const t = deliveryToastFor(response, id);
         toast(`${t.text}. Your text is still in the box.`, 'error');
@@ -538,7 +545,9 @@ export function createChatController(deps) {
       if (state.chat.drafts) delete state.chat.drafts[key];
       persistDrafts?.();
       state.chat.replyTo = null;
-      if (!isChannel) {
+      if (storedUnwoken) {
+        toast(`Saved in ${id}'s inbox, not woken. ${storedUnwoken}`, 'warn');
+      } else if (!isChannel) {
         const t = deliveryToastFor(response, id);
         toast(t.text, t.tone);
       } else {

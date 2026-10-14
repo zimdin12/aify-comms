@@ -46,7 +46,7 @@ export async function chatLoadConversation(name) {
   const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
   state.chat.channelMessages[name] = res.messages || res.channel?.messages || [];
 }
-export async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject }) {
+export async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject, trigger = true }) {
   if (isChannel) {
     // ChannelMessage requires from_agent + channel (the bare {from, body} 422'd). type/priority
     // ARE accepted by the model; subject/inReplyTo are not part of the channel contract.
@@ -66,7 +66,7 @@ export async function chatSendMessage({ isChannel, target, identity, body, expec
   const finalSubject = (subject && subject.trim()) ? subject.trim() : body.slice(0, 80);
   return sendMessageWithTimeout({
     from_agent: identity, to: target, type: finalType,
-    subject: finalSubject, body, trigger: true,
+    subject: finalSubject, body, trigger: !!trigger,
     queueIfBusy: !!queueIfBusy, requireReply: !!expectsReply,
     ...(priority && priority !== 'normal' ? { priority } : {}),
     ...(inReplyTo ? { inReplyTo } : {}),

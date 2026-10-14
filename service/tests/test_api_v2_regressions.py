@@ -1199,6 +1199,16 @@ class ApiV2RegressionTests(FastApiTestCase):
         messages = self._fetchall("SELECT * FROM messages WHERE to_agent = ?", ("managed-coder",))
         self.assertEqual(messages, [])
 
+        # The dashboard's fallback after that refusal (2026-10-14): the same send without the wake
+        # is stored in the inbox, so the operator's message is kept.
+        stored = self._send_message(
+            from_agent="manager", to="managed-coder", type="request",
+            subject="new work", body="please do this", trigger=False,
+        )
+        self.assertTrue(stored["ok"], stored)
+        rows = self._fetchall("SELECT body FROM messages WHERE to_agent = ?", ("managed-coder",))
+        self.assertEqual([r["body"] for r in rows], ["please do this"])
+
     def test_dispatch_rejects_managed_agent_when_environment_is_offline(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",
