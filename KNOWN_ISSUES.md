@@ -597,20 +597,6 @@ Related: the same "a fix landed on some copies of a duplicated helper and missed
 pi-side comments date the buffer design to bug-hunt audit **B-C1**; whether the gateway was in scope
 for that audit is unresolved.
 
-## A registry entry with `strictMcp: true` never reaches a launcher this installer renders (2026-10-01)
-
-`render_wrapper_template` in `install.sh` substitutes `@@STRICT_EXTRA_MCP_B64@@` with nothing (line 509
-on main 6c2367bf and on next), while aify-wrapper's own installer computes it with `registry-cli.mjs
-strict-fragment-b64` and stops on a refusal. So on a host installed through this repo, claude-aify's
-strict-MCP mode (`AIFY_CLAUDE_STRICT_MCP=1`) loads only aify-comms' bridge, whatever the registry opts in.
-Found by dashboard-manager while checking where per-session MCP injection would have to land. To be
-fixed in 0.8 with that injection's placeholder (`@@SESSION_MCP_B64@@`), both computed through the pinned
-aify-wrapper's `registry-cli.mjs` and failing the install on a refusal, once that verb has passed review.
-
-**Fixed on next/env-owned-agents (0.8), still open on main.** `scripts/registry-fragment.sh` computes both
-fragments with the pinned package's verbs and fails on a refusal, and install.sh bakes them
-(`mcp/stdio/tests/install-bakes-the-registry-fragments.test.js`). A host takes it at its 0.8 install.
-
 ## A claude MCP server inherits every variable the launcher holds, a neighbour service's key included (2026-10-01)
 
 Claude Code's MCP `env` block is key-scoped (since 2.1.236): a variable it does not name is inherited by
