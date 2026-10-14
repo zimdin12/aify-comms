@@ -111,3 +111,38 @@ test("A START REFUSAL CLEARS ONCE THE AGENT IS DEFINED: Sessions and Chat re-ren
     assert.doesNotMatch(chat.innerHTML, /no host defines/, "the Chat Start stayed refused after the agent was defined");
   });
 });
+
+test("BESIDE A MOUNTED TERMINAL a cleared refusal repaints only the actions bar", async () => {
+  // Review of 0.9.5, D7: the bounded fake-host witness. The terminal container and identity are kept,
+  // no mount is requested, and only `.session-actions-bar` changes. Native xterm behaviour is not claimed.
+  await withDom(async () => {
+    state.agents = [{ id: "a1", definitionState: "", runtime: "claude-code" }];
+    const running = { id: "s1", agent_id: "a1", agentId: "a1", status: "running", terminalId: "t1" };
+    const container = { id: "xterm-t1" };
+    const bar = { html: "" };
+    const h = host();
+    h.contains = (el) => el === container;
+    h.querySelector = (sel) => {
+      if (sel === ".xterm-host") return container;
+      if (sel === ".session-actions-bar") return Object.defineProperty({}, "outerHTML", { set: (v) => { bar.html = v; } });
+      return null;
+    };
+    let mounts = 0;
+    const d = deps({ mountXtermForTerminal: () => { mounts += 1; return Promise.resolve(); } });
+
+    renderSessionConsole(running, h, {}, d);
+    assert.equal(mounts, 1, "control: the first render mounts the terminal");
+    assert.match(h.innerHTML, /no host defines a1/, "control: refused while undefined");
+    const terminal = { terminalId: "t1", container };
+    state.activeXterm = terminal;
+    const firstHtml = h.innerHTML;
+
+    state.agents = [{ id: "a1", definitionState: "defined", runtime: "claude-code" }];
+    renderSessionConsole(running, h, {}, d);
+    assert.equal(mounts, 1, "a definition change re-mounted the live terminal");
+    assert.equal(h.innerHTML, firstHtml, "the host was rewritten around the live terminal");
+    assert.equal(state.activeXterm, terminal, "the live terminal was disposed or replaced");
+    assert.match(bar.html, /data-session-control="restart"/, "the actions bar was not repainted");
+    assert.doesNotMatch(bar.html, /no host defines/, "the repainted Restart is still refused");
+  });
+});
