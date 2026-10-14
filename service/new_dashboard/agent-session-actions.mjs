@@ -130,6 +130,9 @@ export async function submitAgentEdit(agentId) {
   const applied = [];
   let step = 'description';
   let handleNote = '';
+  // QUEUED IS NOT SAVED: a defined agent's change is a request its host applies when it syncs, and the
+  // failure toast must say so rather than list it as saved (review of 0.9.5, D8 residual).
+  let requested = '';
   try {
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
@@ -152,14 +155,13 @@ export async function submitAgentEdit(agentId) {
     const assignmentChanged = envId !== currentEnv
       || runtime !== String(agent.runtime || 'generic')
       || workspace !== String(agent.cwd || '');
-    let requested = '';
     if (envId && assignmentChanged) {
       const body = { environmentId: envId };
       if (runtime) body.runtime = runtime;
       if (workspace) body.workspace = workspace;
       requested = requestedInAifyEnv(
         await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) }), agentId);
-      applied.push('environment');
+      if (!requested) applied.push('environment');
     }
     step = 'rename';
     if (willRename) {
@@ -171,7 +173,7 @@ export async function submitAgentEdit(agentId) {
     await refresh();
   } catch (err) {
     const landed = applied.length ? ` Already saved: ${applied.join(', ')}.` : '';
-    toast(`Edit stopped at the ${step}: ${err?.message || err}.${landed}${handleNote ? ` ${handleNote}.` : ''}`, 'error');
+    toast(`Edit stopped at the ${step}: ${err?.message || err}.${landed}${requested ? ` ${requested}.` : ''}${handleNote ? ` ${handleNote}.` : ''}`, 'error');
     await refresh();
   }
 }
