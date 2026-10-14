@@ -112,6 +112,10 @@ export async function toggleFavorite(agentId) {
 export function mountChatConsole(agentId, hostEl) {
   if (!hostEl) return;
   const session = sessionForAgent(agentId);
+  // THE START REFUSAL IS PART OF WHAT RENDERS, with a session or without (review of 0.9.5, D7): a stopped
+  // session's card offers Start too. A changed sig only reaches renderSessionConsole, whose own key keeps a
+  // live terminal mounted, so a definition change never rebuilds one.
+  const refusal = undefinedStartRefusal((state.agents || []).find((a) => a.id === agentId));
   const sig = session
     ? [sessionId(session), session.status || '', session.terminalStatus || '',
        agentForSession(session)?.runtimeState?.virtualTerminalId || '',
@@ -121,9 +125,8 @@ export function mountChatConsole(agentId, hostEl) {
        agentForSession(session)?.runtimeState?.terminalId || '',
        agentForSession(session)?.runtimeState?.consoleTerminal?.terminalId || '',
        session.terminalId || session.terminal?.id || '',
-       (state.sessionTerminals?.get?.(sessionId(session))) || ''].join('|')
-    // With no session the card is a Start button, so its refusal is what renders (review of 0.9.5, D7).
-    : `none|${undefinedStartRefusal((state.agents || []).find((a) => a.id === agentId))}`;
+       (state.sessionTerminals?.get?.(sessionId(session))) || '', refusal].join('|')
+    : `none|${refusal}`;
   // Unchanged sig → leave the mounted widget alone — EXCEPT when the single global xterm now
   // lives in another host (the Sessions page re-mounts it) and THIS host is visible: that's the
   // "dead chat console after visiting Sessions" bug (review finding #2) — fall through so the

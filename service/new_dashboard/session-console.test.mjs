@@ -146,3 +146,50 @@ test("BESIDE A MOUNTED TERMINAL a cleared refusal repaints only the actions bar"
     assert.doesNotMatch(bar.html, /no host defines/, "the repainted Restart is still refused");
   });
 });
+
+test("A STOPPED CHAT SESSION'S START CLEARS once the agent is defined, through mountChatConsole", async () => {
+  // Review of 0.9.5, D7 residual: the Chat signature carried the refusal only with NO session, so with a
+  // stopped one it returned before the repaired renderer ran. Wired as app.js wires it.
+  const { initMessageActions, mountChatConsole } = await import("./message-actions.mjs");
+  await withDom(async () => {
+    let mounts = 0;
+    const d = deps({ mountXtermForTerminal: () => { mounts += 1; return Promise.resolve(); } });
+    initMessageActions({ chatController: {}, refreshSoon: () => {}, renderSessionConsole: (s, el, o) => renderSessionConsole(s, el, o, d) });
+    state.agents = [{ id: "a1", definitionState: "", runtime: "claude-code", sessionMode: "managed" }];
+    state.sessions = [{ id: "s1", agent_id: "a1", agentId: "a1", status: "stopped" }];
+    const chat = host();
+    mountChatConsole("a1", chat);
+    assert.match(chat.innerHTML, /disabled title="no host defines a1/, "control: refused while undefined");
+    state.agents = [{ id: "a1", definitionState: "defined", runtime: "claude-code", sessionMode: "managed" }];
+    mountChatConsole("a1", chat);
+    assert.doesNotMatch(chat.innerHTML, /no host defines/, "the stopped Chat Start stayed refused after the agent was defined");
+    assert.equal(mounts, 0, "control: a stopped session mounts no terminal");
+  });
+});
+
+test("a definition change does not rebuild a LIVE Chat terminal", async () => {
+  // The control for the residual fix: the Chat signature now changes with the refusal, and the inner
+  // renderer's key must keep a mounted terminal, its host markup and its object as they were.
+  const { initMessageActions, mountChatConsole } = await import("./message-actions.mjs");
+  await withDom(async () => {
+    let mounts = 0;
+    const d = deps({ mountXtermForTerminal: () => { mounts += 1; return Promise.resolve(); } });
+    initMessageActions({ chatController: {}, refreshSoon: () => {}, renderSessionConsole: (s, el, o) => renderSessionConsole(s, el, o, d) });
+    state.agents = [{ id: "a1", definitionState: "", runtime: "claude-code", sessionMode: "managed" }];
+    state.sessions = [{ id: "s1", agent_id: "a1", agentId: "a1", status: "running", terminalId: "t1" }];
+    const container = { id: "xterm-t1" };
+    const chat = host();
+    chat.contains = (el) => el === container;
+    chat.querySelector = (sel) => (sel === ".xterm-host" ? container : null);
+    mountChatConsole("a1", chat);
+    assert.equal(mounts, 1, "control: the live Chat terminal mounts once");
+    const terminal = { terminalId: "t1", container };
+    state.activeXterm = terminal;
+    const before = chat.innerHTML;
+    state.agents = [{ id: "a1", definitionState: "defined", runtime: "claude-code", sessionMode: "managed" }];
+    mountChatConsole("a1", chat);
+    assert.equal(mounts, 1, "a definition change re-mounted the live Chat terminal");
+    assert.equal(chat.innerHTML, before, "the live Chat host was rewritten");
+    assert.equal(state.activeXterm, terminal);
+  });
+});
