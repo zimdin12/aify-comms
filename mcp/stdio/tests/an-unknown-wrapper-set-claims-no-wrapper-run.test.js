@@ -22,6 +22,7 @@ await new Promise((resolve) => server.listen(0, "127.0.0.2", resolve));
 const { LIVE_ENV_CARRIERS } = await import("./_child-env.mjs");
 for (const name of LIVE_ENV_CARRIERS) delete process.env[name];
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${server.address().port}`;
+process.env.CLAUDE_MCP_SERVER_URL = process.env.AIFY_SERVER_URL; // the legacy name is read first: both point here
 process.env.AIFY_SERVICE_REGISTRY = `${process.env.TEMP || "/tmp"}/no-such-aify-registry-${process.pid}.json`;
 
 const { WRAPPER_SET_UNKNOWN, managedViaWrapperRuntimesFromSettingsResponse: parse } = await import("../managed-wrapper-settings.js");
