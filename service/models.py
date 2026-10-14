@@ -3,6 +3,8 @@ import re
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
+from service.secret_redaction import redact_secrets
+
 
 def _normalize_machine_id_value(value: Optional[str]) -> Optional[str]:
     """Canonicalize machineId at request-parse ingress.
@@ -119,6 +121,15 @@ def drop_unusable_model_selfreport(value):
 
 
 _BUILD_TAG_RE = re.compile(r"[0-9A-Za-z._-]{1,64}")
+
+
+def redact_reported_error(value):
+    """A failure a host or bridge reports is stored with credentials masked, before any handler sees it.
+
+    Four routes store reporter text as an error (dispatch run, spawn request, environment and terminal
+    controls); review of 0.9.5 found two of them kept a gateway token verbatim. One owner here, on the
+    models every one of them parses, rather than a redaction each writer must remember."""
+    return None if value is None else redact_secrets(str(value))
 
 
 def drop_unusable_build_tag(value):
@@ -367,6 +378,7 @@ class DispatchRunUpdate(BaseModel):
     status: Optional[str] = None
     summary: Optional[str] = None
     error: Optional[str] = None
+    _redact_error = field_validator("error")(redact_reported_error)
     resultMessageId: Optional[str] = None
     requireReply: Optional[bool] = None
     externalThreadId: Optional[str] = None
@@ -485,6 +497,7 @@ class EnvironmentControlClaim(_MachineIdNormalizingModel):
 class EnvironmentControlUpdate(BaseModel):
     status: str
     error: Optional[str] = None
+    _redact_error = field_validator("error")(redact_reported_error)
 
 
 class AgentEnvironmentAssignRequest(BaseModel):
@@ -550,6 +563,7 @@ class SpawnRequestUpdate(BaseModel):
     processId: Optional[str] = None
     sessionHandle: Optional[str] = None
     error: Optional[str] = None
+    _redact_error = field_validator("error")(redact_reported_error)
     runtimeState: Optional[dict[str, Any]] = None
     capabilities: Optional[dict[str, Any]] = None
     telemetry: Optional[dict[str, Any]] = None
@@ -589,6 +603,7 @@ class TerminalControlUpdate(BaseModel):
     terminalStatus: Optional[str] = None
     output: Optional[str] = None
     error: Optional[str] = None
+    _redact_error = field_validator("error")(redact_reported_error)
     # PTY root pid reported by the owning bridge on terminal attach (start
     # control completion). Persisted to terminal_sessions.process_id so an
     # orphaned PTY can be killed by-pid when its bridge is gone.
