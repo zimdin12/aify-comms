@@ -75,3 +75,22 @@ class ReportedErrorsAreStoredRedacted(FastApiTestCase):
                 parsed = model(status="failed", error=LEAKY)
                 self.assertNotIn(SENTINEL, parsed.error)
                 self.assertEqual(model(status="failed", error=ORDINARY).error, ORDINARY)
+
+
+class AStoredLegacyErrorIsServedRedacted(FastApiTestCase):
+    """A row stored before the write-side fix still holds the token; /analytics' failure reasons read it."""
+
+    def test_failure_reasons_never_serve_a_stored_token(self):
+        db = sqlite3.connect(self._db_path)
+        try:
+            for rid, text in (("legacy-leaky", LEAKY), ("legacy-plain", ORDINARY)):
+                db.execute("INSERT INTO dispatch_runs (id, from_agent, target_agent, message_type, subject, body, priority, "
+                           "status, require_reply, requested_at, error_text) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                           (rid, "a", "b", "request", "s", "b", "normal", "failed", 0, "2026-10-14T00:00:00Z", text))
+            db.commit()
+        finally:
+            db.close()
+        reasons = [r["reason"] for r in self.client.get("/api/v1/analytics", params={"range": "all"}).json()["failureReasons"]]
+        self.assertTrue(any("[redacted]" in r for r in reasons), f"the legacy row was not read at all: {reasons}")
+        self.assertFalse(any(SENTINEL in r for r in reasons), "a stored token was served")
+        self.assertIn(ORDINARY, reasons, "control: an ordinary reason is served as stored")

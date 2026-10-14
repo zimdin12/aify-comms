@@ -19,6 +19,7 @@ from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.status_refresh import _compute_agent_status
 from service.api_core.status_signal_prefetch import PrefetchedStatusSignals
 from service.status_engine import is_live_agent_status
+from service.secret_redaction import redact_secrets
 
 async def _fleet_median_reply_minutes(db, run_where, run_params):
     """Median reply latency in minutes across completed required-reply runs, or None.
@@ -149,7 +150,9 @@ async def _failure_reasons(db, run_where, run_params):
         run_params,
     )
     failure_reasons = [
-        {"reason": str(row["reason"] or "")[:120], "count": int(row["cnt"] or 0)}
+        # A row stored before reported errors were redacted still carries what it carried; redacted here,
+        # before the cut, because this list is served (review of 0.9.5).
+        {"reason": redact_secrets(str(row["reason"] or ""))[:120], "count": int(row["cnt"] or 0)}
         for row in await fail_c.fetchall()
     ]
     return failure_reasons
