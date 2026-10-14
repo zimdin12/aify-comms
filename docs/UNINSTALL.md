@@ -116,7 +116,7 @@ rm -f "$HOME/.local/bin/codex-aify" "$HOME/.local/bin/codex-aify.cmd"
 ```
 
 The installer adds turn hooks to `~/.codex/hooks.json` on every Codex install: the `UserPromptSubmit`,
-`Stop`, `Interrupt`, `PermissionRequest` and `PostToolUse` entries whose command runs
+`Stop`, `Interrupt`, `SessionStart`, `PermissionRequest` and `PostToolUse` entries whose command runs
 `agent-state-event.mjs`. With `--with-hook` it also adds a `PostToolUse` entry that runs
 `notify-check.js`. Remove those entries and keep any others:
 
@@ -153,7 +153,8 @@ rm -f "$HOME/.local/bin/claude-aify" "$HOME/.local/bin/claude-aify.cmd"
 
 The installer always adds turn hooks to `~/.claude/settings.json`: the entries whose command runs
 `agent-state-event.mjs` or `claude-stop-gate.js` (`UserPromptSubmit`, `Stop`, `StopFailure`,
-`PermissionRequest`, `PostToolUse` and `SessionStart` with matcher `compact`). With `--with-hook` it
+`PermissionRequest`, `PostToolUse`, and `SessionStart` with matcher `compact` and with matcher
+`startup|resume|clear`). With `--with-hook` it
 also adds a `notify-check.js` entry. Remove those entries and keep any others:
 
 ```text
