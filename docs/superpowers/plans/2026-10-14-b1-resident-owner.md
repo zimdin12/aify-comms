@@ -126,6 +126,7 @@ The receiver-side cases are checked against the mirror and the current decision,
 | a stale `residents.json` pointing at a non-holder | the event is refused `not-owner` |
 | a paused holder that resumes | it still holds; no successor meanwhile |
 | a crash with a turn open | the successor loads it: busy |
+| an open lifetime persisted with last event t2, restored by the next holder, then an admitted same-lifetime turn-end at t1 < t2 | refused as out of order; the original anchor and open state are unchanged and it stays busy; a later valid end closes it (watermark continuity, not only a restored busy bit) |
 | one home spelled two ways on one OS | one identity, one owner |
 | two different homes | two owners, both succeed |
 | a home on a cross-OS mount | no role, reported |
