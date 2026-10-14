@@ -155,6 +155,16 @@ class OverdueMeansTheSameThingOnEverySurfaceTests(FastApiTestCase):
         finally:
             db.close()
 
+    def test_both_analytics_payloads_name_the_window_they_counted_with(self) -> None:
+        """The tiles printed a literal "30 min" beside a count made with this setting (2026-10-14 D13).
+        Each payload now sends the window with the count, and it moves when the setting does."""
+        for minutes in (10, 45):
+            saved = self.client.put("/api/v1/settings", json={"reply_reminder_minutes": minutes})
+            self.assertEqual(saved.status_code, 200, saved.text)
+            for path in ("/api/v1/analytics", "/api/v1/analytics/pulse"):
+                body = self.client.get(path).json()
+                self.assertEqual(body.get("overdueAfterMinutes"), minutes, f"{path} at {minutes}: {sorted(body)}")
+
 
 if __name__ == "__main__":
     import unittest

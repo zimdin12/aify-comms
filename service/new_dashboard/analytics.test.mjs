@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyticsSeries, trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml, fleetPulseHtml, pulseWindowSelectorHtml, PULSE_WINDOWS } from './analytics.js';
+import { analyticsSeries, trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml, fleetPulseHtml, pulseWindowSelectorHtml, PULSE_WINDOWS, overdueAfterText } from './analytics.js';
 
 const sample = {
   messagesPerHour: Array.from({ length: 24 }, (_, i) => ({ label: `${i}:00`, count: i })),
@@ -232,4 +232,12 @@ test('the tooltips are escaped like every other attribute here', () => {
     openReplyContracts: 0, overdueReplyContracts: 0, agents: [],
   }, 60);
   assert.doesNotMatch(html, /title="[^"]*<[^"]*"/, 'raw markup reached a title attribute');
+});
+
+test("the overdue tiles name the window the service counted with, never a literal", () => {
+  assert.equal(overdueAfterText({ overdueAfterMinutes: 10 }), "over 10 min");
+  assert.equal(overdueAfterText({}), "past the first-reminder time", "an older service that does not send it");
+  assert.match(opsKpisHtml({ overdueReplyContracts: 1, overdueAfterMinutes: 45 }), /over 45 min unanswered/);
+  assert.match(fleetPulseHtml({ overdueReplyContracts: 1, overdueAfterMinutes: 45, agents: [] }), /Overdue is over 45 min unanswered/);
+  assert.doesNotMatch(opsKpisHtml({ overdueReplyContracts: 1, overdueAfterMinutes: 45 }) + fleetPulseHtml({ overdueAfterMinutes: 45, agents: [] }), /30 min/);
 });

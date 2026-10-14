@@ -278,6 +278,7 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
             "runsFailed": runs_failed_n,
             "openReplyContracts": open_reply_contracts,
             "overdueReplyContracts": overdue_reply_contracts,
+            "overdueAfterMinutes": reply_reminder_minutes(settings),
             "fleetMedianReplyMinutes": fleet_median_reply,
             "dispatchOutcomes": dispatch_outcomes,
             "agentLeaderboard": agent_leaderboard,
@@ -409,6 +410,7 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             "fleetUtilizationPct": utilization,
             "openReplyContracts": len(owed),
             "overdueReplyContracts": overdue,
+            "overdueAfterMinutes": reply_reminder_minutes(settings),
             "agents": board,
         }
     finally:

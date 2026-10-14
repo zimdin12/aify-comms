@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { settingsFieldHtml } from "./settings-fields.mjs";
+import { clampSetting, settingsFieldHtml } from "./settings-fields.mjs";
 import { THEMES, settingUnchanged } from "./theme.js";
 
 test("a toggle renders a checkbox bound to its setting key", () => {
@@ -147,4 +147,11 @@ test('an unset colour read back from its own input is not a change', () => {
   // CONTROLS: a colour actually picked is a change, and so is any value against a colour that IS set.
   assert.equal(settingUnchanged('dashboard_primary_color', '#123456', settings), false);
   assert.equal(settingUnchanged('dashboard_primary_color', THEMES.forest.accent, { ...settings, dashboard_primary_color: '#123456' }), false);
+});
+
+test("a typed number outside the service's range is held to it, and says it was", () => {
+  assert.deepEqual(clampSetting("5", "30", "600"), { n: 30, clamped: true });
+  assert.deepEqual(clampSetting("900", "30", "600"), { n: 600, clamped: true });
+  assert.deepEqual(clampSetting("90", "30", "600"), { n: 90, clamped: false }, "control: in range is saved as typed");
+  assert.deepEqual(clampSetting("7", "", ""), { n: 7, clamped: false }, "no bounds rendered, nothing to hold to");
 });

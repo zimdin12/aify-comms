@@ -10,6 +10,7 @@ import { sessionAgentId, sessionId } from './record-fields.mjs';
 import { state, emptyInspector } from './state.mjs';
 import { agentForSession, ensureSelectedSession, renderSessionRail } from './session-rail.mjs';
 import { refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
+import { clampSetting } from './settings-fields.mjs';
 import { focusAfterClose, openAgentDrawer, syncInspectorToSelection } from './agent-drawer.mjs';
 import { initStartDialog } from './start-dialog.mjs';
 import { renderActivityFeed, renderAttention } from './work-loop-panels.mjs';
@@ -256,18 +257,15 @@ function renderAll() {
 async function saveSettings() {
   const statusEl = byId('settings-status');
   const payload = {};
+  const clampedNotes = [];
   document.querySelectorAll('#settings-form [data-setting-key]').forEach((el) => {
     const key = el.dataset.settingKey;
     const type = el.dataset.settingType;
     if (type === 'toggle') payload[key] = el.checked;
     else if (type === 'number') {
-      let n = Number(el.value);
-      if (el.value !== '' && Number.isFinite(n)) {
-        // Clamp to the rendered min/max, which are the service's own (GET /settings/schema).
-        const min = el.min !== '' ? Number(el.min) : null;
-        const max = el.max !== '' ? Number(el.max) : null;
-        if (min != null && Number.isFinite(min)) n = Math.max(min, n);
-        if (max != null && Number.isFinite(max)) n = Math.min(max, n);
+      if (el.value !== '' && Number.isFinite(Number(el.value))) {
+        const { n, clamped } = clampSetting(el.value, el.min, el.max);
+        if (clamped) clampedNotes.push(`${el.labels?.[0]?.firstChild?.textContent || key} saved as ${n}`);
         payload[key] = n;
       }
     }
@@ -283,7 +281,8 @@ async function saveSettings() {
     refreshActiveTerminalTheme();
     armRefreshTimer(); // a changed dashboard_refresh_seconds takes effect immediately, not next poll
     if (statusEl) statusEl.textContent = 'Saved';
-    toast('Settings saved', 'ok');
+    // Out of range is saved at the limit and said, never silently.
+    toast(clampedNotes.length ? `Settings saved; outside the allowed range: ${clampedNotes.join(', ')}` : 'Settings saved', clampedNotes.length ? 'warn' : 'ok');
     renderSettings();
   } catch (error) {
     if (statusEl) statusEl.textContent = `Save failed: ${error?.message || error}`;

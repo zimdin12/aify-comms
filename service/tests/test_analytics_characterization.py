@@ -54,6 +54,7 @@ EXPECTED_KEYS = {
     "runsFailed",
     "openReplyContracts",
     "overdueReplyContracts",
+    "overdueAfterMinutes",
     "fleetMedianReplyMinutes",
     "dispatchOutcomes",
     "agentLeaderboard",

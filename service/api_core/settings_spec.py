@@ -131,7 +131,8 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("reply_reminder_full_every", 3, "int", _R, "Full reminder every Nth",
             "The others are one-line nudges. 0 or 1 = every reminder full.", min=0, max=20),
     Setting("contract_stale_hours", 24, "int", _R, "Stop reminding after",
-            "Replies owed longer than this stop being reminded and drop off the contracts list.",
+            "Replies owed longer than this stop being reminded; they stay listed until answered or closed. "
+            "Answered and closed ones older than this leave the list.",
             unit="h", min=1, max=720),
     Setting("managed_reply_capture_fallback", True, "bool", _R, "Send the agent's output when it forgets to reply",
             "Off: the reply stays owed and is shown as missing instead."),
@@ -139,7 +140,8 @@ SETTINGS: tuple[Setting, ...] = (
             "An agent back after this long is sent what arrived while it was gone. 0 = off.",
             unit="h", min=0, max=720),
     # ── Agent liveness ──
-    Setting("agent_liveness_seconds", 90, "int", _L, "Agent offline after no heartbeat for",
+    Setting("agent_liveness_seconds", 90, "int", _L, "Re-check an agent's status after no heartbeat for",
+            "Offline is then decided by whether its worker or bridge is still live, not by this timer alone. "
             "Bridges beat every 30 s, so 90 s is three missed beats.", unit="s", min=30, max=600),
     Setting("environment_offline_seconds", 90, "int", _L, "Machine offline after no heartbeat for",
             unit="s", min=30, max=3600),

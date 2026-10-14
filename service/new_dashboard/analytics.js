@@ -77,7 +77,7 @@ export function fleetPulseHtml(data, windowMinutes = 60) {
         + `nothing there. LIVE means any status except offline, stopped and misconfigured -- it is `
         + `the umbrella, not the \`online\` status, which is one of the states inside it.`)}
       ${card(data.openReplyContracts ?? 0, 'Open replies', overdue ? `${overdue} overdue` : 'all current', overdue ? 'bad' : '',
-        'Dispatch runs that asked for a reply and have not had one. Overdue is older than 30 minutes.')}
+        `Dispatch runs that asked for a reply and have not had one. Overdue is ${overdueAfterText(data)} unanswered; a run still queued is not overdue.`)}
     </div>
     <div class="pulse-board-head"><h4>Live agents</h4><span class="em">${data.onlineAgents || 0} live · working first</span></div>
     <div class="pulse-board">${rows || '<p class="em">No live agents right now.</p>'}</div>
@@ -204,6 +204,12 @@ export function runStatusMixHtml(runsByStatus = {}) {
 // ── Fleet operational analytics (2026-06-17 "real analytics" round) ─────────────
 // All builders are pure + null-safe; app.js fetches /analytics and mounts these.
 
+/** How long before an owed reply is overdue: the service's own setting, sent with the count. PURE. */
+export function overdueAfterText(data = {}) {
+  const m = Number(data.overdueAfterMinutes);
+  return Number.isFinite(m) && m > 0 ? `over ${m} min` : 'past the first-reminder time';
+}
+
 function fmtMins(m) {
   if (m == null) return '—';
   const n = Number(m);
@@ -218,10 +224,10 @@ export function opsKpisHtml(data = {}) {
   const overdue = Number(data.overdueReplyContracts || 0);
   const open = Number(data.openReplyContracts || 0);
   const card = (n, l, sub, tone, tip) => `<div class="sc${tone ? ` ${tone}` : ''}"${tip ? ` title="${esc(tip)}"` : ''}><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div><div class="s">${esc(sub)}</div></div>`;
-  return card(sr == null ? '—' : `${sr}%`, 'Dispatch success', `${Number(data.runsCompleted || 0)} ok · ${Number(data.runsFailed || 0)} failed`, srTone, 'Share of FINISHED runs that completed vs failed/cancelled, in this window. 90%+ green, 70-90% amber, below red.')
+  return card(sr == null ? '—' : `${sr}%`, 'Dispatch success', `${Number(data.runsCompleted || 0)} ok · ${Number(data.runsFailed || 0)} failed or cancelled`, srTone, 'Share of FINISHED runs that completed vs failed/cancelled, in this window. 90%+ green, 70-90% amber, below red.')
     + card(fmtMins(data.fleetMedianReplyMinutes), 'Median reply', 'completed required replies', '', 'Median time agents took to send a REQUIRED reply (only runs whose reply already landed count).')
     + card(open, 'Open contracts', 'awaiting reply now', open ? 'warn' : '', 'Reply contracts still awaiting an answer right now (point-in-time).')
-    + card(overdue, 'Overdue', '> 30 min unanswered', overdue ? 'bad' : '', 'Open reply contracts unanswered past the reminder threshold (default 30 min).');
+    + card(overdue, 'Overdue', `${overdueAfterText(data)} unanswered`, overdue ? 'bad' : '', 'Open reply contracts unanswered past the first-reminder time in Settings; a run still queued is not overdue.');
 }
 
 // Stacked completed/failed dispatch outcomes over the last 14 days.
@@ -234,13 +240,13 @@ export function dispatchOutcomesHtml(data = {}) {
     // Floor nonzero values at a visible 2% so a real run never renders as an invisible 0-height bar.
     const ch = comp ? Math.max(2, Math.round((comp / max) * 100)) : 0;
     const fh = fail ? Math.max(2, Math.round((fail / max) * 100)) : 0;
-    return `<span class="outcome-col" title="${esc(String(d.date || '').slice(5))}: ${comp} completed · ${fail} failed">`
+    return `<span class="outcome-col" title="${esc(String(d.date || '').slice(5))}: ${comp} completed · ${fail} failed or cancelled">`
       + `<span class="outcome-stack">`
       + `<span class="outcome-fail" style="height:${fh}%"></span>`
       + `<span class="outcome-comp" style="height:${ch}%"></span>`
       + `</span><span class="outcome-x">${esc(String(d.date || '').slice(5))}</span><span class="outcome-n">${tot || ''}</span></span>`;
   }).join('') + `</div>`
-    + `<div class="outcome-legend"><span><i class="swatch comp"></i>Completed</span><span><i class="swatch fail"></i>Failed</span></div>`;
+    + `<div class="outcome-legend"><span><i class="swatch comp"></i>Completed</span><span><i class="swatch fail"></i>Failed or cancelled</span></div>`;
 }
 
 // Top dispatch targets with per-agent success rate.

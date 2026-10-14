@@ -28,6 +28,20 @@ function themePreviewTilesHtml(selectedKey) {
     </button>`).join('')}</div>`;
 }
 
+/**
+ * A typed number held to the input's rendered min/max (the service's own, from GET /settings/schema).
+ * PURE. `clamped` is true when the saved number is not the typed one, so the caller can say so: a value
+ * changed silently reads as saved as typed.
+ */
+export function clampSetting(typed, minAttr, maxAttr) {
+  let n = Number(typed);
+  const min = minAttr !== '' && minAttr != null ? Number(minAttr) : null;
+  const max = maxAttr !== '' && maxAttr != null ? Number(maxAttr) : null;
+  if (Number.isFinite(min)) n = Math.max(min, n);
+  if (Number.isFinite(max)) n = Math.min(max, n);
+  return { n, clamped: n !== Number(typed) };
+}
+
 export function settingsFieldHtml(item, value, settings = {}) {
   const id = esc(`set-${item.key}`);
   const hint = item.hint ? `<span class="field-hint">${esc(item.hint)}</span>` : '';

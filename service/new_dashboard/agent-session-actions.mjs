@@ -242,7 +242,7 @@ export async function submitContinue(sid, splitIdentity) {
 
 export async function removeAgent(agentId) {
   if (!agentId) return;
-  if (!await uiConfirm(`Remove agent "${agentId}"? This tombstones the identity.`, { tone: 'danger' })) return;
+  if (!await uiConfirm(`Remove agent "${agentId}"? Its running worker is stopped and the agent is removed; one an aify-env host defines is removed through that host.`, { tone: 'danger' })) return;
   try {
     const answer = await api(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
     toast(requestedInAifyEnv(answer, agentId) || `Removed ${agentId}`, 'ok');

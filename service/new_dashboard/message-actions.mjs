@@ -59,7 +59,7 @@ export async function markMessageRead(msgId, read) {
 }
 
 export async function unsendMessage(messageId) {
-  if (!await uiConfirm('Unsend this message? It will be removed for the recipient.', { tone: 'danger' })) return;
+  if (!await uiConfirm('Unsend this message? It is deleted and any delivery still queued is cancelled; a recipient that already read it keeps what it read.', { tone: 'danger' })) return;
   try {
     // `requestedBy` is mandatory since H4 (2026-08-18) — the endpoint refuses an actor-less
     // delete. The dashboard is an operator surface, so it may unsend a message it did not write.
