@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   CONSUMED_SURFACE, consumedPinVerdict, pinnedWrapperSha, upstreamAdvisory,
-} from "../wrapper-pin-freshness.mjs";
+} from "./wrapper-pin-freshness.mjs";
 import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const BRIDGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

@@ -35,7 +35,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { pinnedWrapperSha } from "../wrapper-pin-freshness.mjs";
+import { pinnedWrapperSha } from "./wrapper-pin-freshness.mjs";
 import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const BRIDGE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
