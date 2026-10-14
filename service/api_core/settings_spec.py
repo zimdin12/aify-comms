@@ -132,7 +132,7 @@ SETTINGS: tuple[Setting, ...] = (
             "The others are one-line nudges. 0 or 1 = every reminder full.", min=0, max=20),
     Setting("contract_stale_hours", 24, "int", _R, "Stop reminding after",
             "Replies owed longer than this stop being reminded; they stay listed until answered or closed. "
-            "Answered and closed ones older than this leave the list.",
+            "Answered ones older than this leave the list.",
             unit="h", min=1, max=720),
     Setting("managed_reply_capture_fallback", True, "bool", _R, "Send the agent's output when it forgets to reply",
             "Off: the reply stays owed and is shown as missing instead."),

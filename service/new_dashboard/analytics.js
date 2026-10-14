@@ -25,9 +25,9 @@ export function pulseWindowSelectorHtml(active = 60) {
 }
 
 function pulseWorkedLabel(iso) {
-  if (!iso) return 'no work yet';
+  if (!iso) return 'no finished run recorded';
   const t = Date.parse(String(iso));
-  if (!Number.isFinite(t)) return 'no work yet';
+  if (!Number.isFinite(t)) return 'no finished run recorded';
   return `worked ${relTime(iso)} ago`;
 }
 
@@ -181,7 +181,7 @@ export function healthGridHtml(data = {}) {
   return `<div class="health-grid">`
     // `liveAgents` counts agents with a WAKE PATH, running or not (analytics.py); the live count is `onlineAgents`.
     + card(data.onlineAgents || 0, 'Live agents', 'good', 'Any status except offline, stopped and misconfigured: the count the pulse calls live.')
-    + card(data.liveAgents || 0, 'Wakeable agents', '', 'Registered agents a message can wake (not message-only or disabled), whether or not they are running now.')
+    + card(data.liveAgents || 0, 'Agents with a wake mode', '', 'Registered agents whose wake mode is not message-only or disabled, running or not. Counted by mode, so an agent on a runtime this service cannot start is counted too.')
     + card(data.workingAgents || 0, 'Working now', 'warn', 'Agents currently mid-turn (actively running).')
     + card(data.onlineEnvironments || 0, 'Online envs', '', 'Environment bridges reachable right now (managed agents can be spawned on these).')
     + `</div>`;

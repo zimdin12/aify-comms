@@ -243,10 +243,10 @@ test("the overdue tiles name the window the service counted with, never a litera
 });
 
 test('the capacity grid calls the live count live, and the wake-path count wakeable', () => {
-  // Live 2026-10-14: "Live agents 42" beside a pulse of 28 live. 42 was every agent with a wake path.
+  // Live 2026-10-14: "Live agents 42" beside a pulse of 28 live. 42 was every agent with a wake mode.
   const html = healthGridHtml({ liveAgents: 42, onlineAgents: 28 });
   assert.match(html, /<b>28<\/b><span>Live agents<\/span>/);
-  assert.match(html, /<b>42<\/b><span>Wakeable agents<\/span>/);
+  assert.match(html, /<b>42<\/b><span>Agents with a wake mode<\/span>/);
 });
 
 test('the leaderboard fraction is the population its rate is over', () => {
