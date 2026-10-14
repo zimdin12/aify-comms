@@ -68,7 +68,8 @@ function placeholdersInRenderer() {
   const end = text.indexOf("\n}\n", start);
   assert.ok(end > start, "render_wrapper_template must be a closed function");
   const body = text.slice(start, end);
-  const fixed = [...body.matchAll(/@@([A-Z0-9_]+)@@/g)].map((m) => m[1]);
+  // The fixed set is the `"NAME=value"` pairs the renderer hands the pinned render.sh (X6, 2026-10-14).
+  const fixed = [...body.matchAll(/"([A-Z0-9_]+)=/g)].map((m) => m[1]);
 
   // Extras, read off every `render_wrapper_template … "NAME=$value"` argument. A call may be
   // continued across lines with a trailing backslash, so the invocation is reassembled by joining

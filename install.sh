@@ -477,9 +477,11 @@ render_wrapper_template() {
   # --emit-wrappers exits before the installer's npm step by design, so a fresh checkout must fetch
   # dependencies once before it can render.
   [ -f "$template" ] || { echo "missing template: $template — run 'npm install' in mcp/stdio" >&2; exit 1; }
-  local text
-  # `#|` lines are template-only: documentation for the template, never for the installed wrapper.
-  text="$(grep -v "^#|" "$template")"
+  # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked its
+  # `shopt -u patsub_replacement`, so on bash 5.2+ an `&` in a value became the placeholder (2026-10-14,
+  # X6). A template override is staged beside a copy of it, since render.sh reads `wrappers/` next to itself.
+  local stage; stage="$(mktemp -d)" && mkdir "$stage/wrappers" && cp "$template" "$stage/wrappers/$1" \
+    && cp "$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/render.sh" "$stage/render.sh" || exit 1
   # The AIFY-WRAPPER package's VERSION, beside the templates -- not aify-comms'. The launcher text comes
   # from that package, so only the package can say which build is installed; reading $SCRIPT_DIR/VERSION
   # made this field mean aify-comms here and aify-wrapper when aify-wrapper's own installer rendered the
@@ -491,40 +493,31 @@ render_wrapper_template() {
   # hermes generator resolved its endpoint as `${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}` and so honoured
   # `AIFY_DEFAULT_SERVER_URL`, while the claude, codex and pi heredocs hardcoded the fallback and
   # ignored it. Same value unless an operator sets that variable, and honouring it is the correct half.
-  text="${text//@@ENDPOINT@@/${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}}"
-  text="${text//@@WRAPPER_VERSION@@/$wrapper_version}"
+  local pairs=("ENDPOINT=${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "WRAPPER_VERSION=$wrapper_version")
   # The registry's real fingerprint, computed once per run by scripts/registry-fingerprint.sh, which
   # calls the aify-wrapper package's own tool so the two ends cannot disagree about what one is.
   [ -n "${_AIFY_REGISTRY_FP:-}" ] || _AIFY_REGISTRY_FP="$(bash "$SCRIPT_DIR/scripts/registry-fingerprint.sh" "$AIFY_SERVICE_REGISTRY")"
-  text="${text//@@REGISTRY_FINGERPRINT@@/$_AIFY_REGISTRY_FP}"
+  pairs+=("REGISTRY_FINGERPRINT=$_AIFY_REGISTRY_FP")
   # THE TRANSPORT BRANCH: both arms are in every template and this picks the live one. Unsubstituted
   # until 2026-08-24, so every launcher carried the literal `@@MCP_TRANSPORT@@`, compared it to "sse",
   # and took the stdio arm by accident -- while aify-wrapper's installer had substituted it all along.
-  text="${text//@@MCP_TRANSPORT@@/${MCP_TRANSPORT:-stdio}}"
+  pairs+=("MCP_TRANSPORT=${MCP_TRANSPORT:-stdio}")
   # WHICH SERVICE THIS LAUNCHER IS FOR. Same shape as the line above, one parameter later, which is
   # why no-unsubstituted-placeholder.test.js derives the check instead of listing known placeholders.
-  text="${text//@@SERVICE_NAME@@/aify-comms}"
+  pairs+=("SERVICE_NAME=aify-comms")
   # The registry's three MCP fragments, from the pinned package's own verbs, once per run. A registry they
   # refuse stops the install (set -e, with the verb's 78): rendered empty it would read as nothing opted in.
   [ -n "${_AIFY_FRAGMENTS:-}" ] || _AIFY_FRAGMENTS="$(bash "$SCRIPT_DIR/scripts/registry-fragment.sh" "$AIFY_SERVICE_REGISTRY" "$CLIENT")"
   IFS='|' read -r _aify_strict _aify_session _aify_codex <<<"$_AIFY_FRAGMENTS"
-  text="${text//@@STRICT_EXTRA_MCP_B64@@/$_aify_strict}"
-  text="${text//@@SESSION_MCP_B64@@/$_aify_session}"
-  text="${text//@@SESSION_MCP_CODEX_B64@@/$_aify_codex}"
-  text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
-  text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
-  text="${text//@@SCRIPT_DIR@@/$SCRIPT_DIR}"
+  pairs+=("STRICT_EXTRA_MCP_B64=$_aify_strict" "SESSION_MCP_B64=$_aify_session" "SESSION_MCP_CODEX_B64=$_aify_codex")
+  pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "NATIVE_BASE=$AIFY_NATIVE_BASE" "SCRIPT_DIR=$SCRIPT_DIR")
   # Caller-supplied extras, as KEY=VALUE. The hermes generator computes three values that cannot be
   # derived from the checkout alone — a Windows-converted plugin path, a node-openable bridge dir, and
   # a prebuilt TUI bundle baked only when it exists — so they arrive from the caller rather than being
-  # read here. Applied AFTER the fixed set so an extra can never shadow one of them.
-  local _pair
-  for _pair in "${@:3}"; do
-    text="${text//@@${_pair%%=*}@@/${_pair#*=}}"
-  done
-  # RENAMED INTO PLACE, NEVER REWRITTEN: a running launcher reads on from its byte offset when its runtime
-  # exits, so a rewrite under a live agent (seven, 2026-09-15) hands it the middle of a different file.
-  printf '%s\n' "$text" > "$target.render.$$" && chmod +x "$target.render.$$" && mv -f "$target.render.$$" "$target"
+  # read here. Applied AFTER the fixed set so an extra can never shadow one of them. render.sh stages and
+  # renames into place, refuses a leftover placeholder, and its exit status is the install's.
+  local status=0; bash "$stage/render.sh" "$1" "$target" "${pairs[@]}" "${@:3}" || status=$?
+  rm -rf "$stage"; [ "$status" -eq 0 ] || exit "$status"
 }
 
 install_claude_wrapper() {
@@ -815,18 +808,10 @@ install_hermes_wrapper() {
     hermes_tui_dir="$_hermes_root_for_tui/ui-tui"
   fi
   mkdir -p "$wrapper_dir"
-  # Staged like every launcher (render_wrapper_template), because the URL below is substituted after it.
-  local wrapper_tmp="$wrapper_path.tmp.$$"
-  render_wrapper_template "hermes-aify.sh.in" "$wrapper_tmp" \
+  render_wrapper_template "hermes-aify.sh.in" "$wrapper_path" \
     "HERMES_PLUGIN_PATH=$hermes_plugin_path" \
     "HERMES_STDIO_DIR=$hermes_stdio_dir" \
     "HERMES_TUI_DIR=$hermes_tui_dir"
-  # Same placeholder-substitute pattern as codex-aify above. Without
-  # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
-  # operator's install-time URL.
-  sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_tmp" 2>/dev/null && rm -f "$wrapper_tmp.bak" || true
-  chmod +x "$wrapper_tmp"
-  mv -f "$wrapper_tmp" "$wrapper_path"
   install_windows_cmd_shim "hermes-aify" "$wrapper_dir"
   # ONE LAUNCHER, as for claude and codex: the .cmd runs this file through Git Bash. A handwritten
   # PowerShell copy ran here instead until 0.8 and had drifted from it (no definition, model or effort,
