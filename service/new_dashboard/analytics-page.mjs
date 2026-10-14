@@ -102,7 +102,7 @@ export function renderUsagePools() {
     const evidence = ev.length ? `<div class="usage-pool-meta subtle">source says: ${esc(ev.join(' · '))}</div>` : '';
     const meta = staleMsg
       ? `<div class="usage-pool-meta usage-pool-expired">⚠ ${esc(staleMsg)}</div>${evidence}`
-      : `<div class="usage-pool-meta">5h ${fleft} left${fiveHourReset ? ' · ' + esc(fiveHourReset) : ''}</div>`;
+      : `<div class="usage-pool-meta">${f.left_pct == null ? '5h left: unknown' : `5h ${fleft} left`}${fiveHourReset ? ' · ' + esc(fiveHourReset) : ''}</div>`;
     return `<div class="usage-pool-card ${sev}"><div class="usage-pool-name"><span>${esc(name)}</span><span>${tags}</span></div>`
       + `<div class="usage-pool-weekly">${left}<span class="usage-pool-sub"> weekly left</span></div>`
       + `<div class="usage-pool-bar"><span style="width:${used}%"></span></div>`

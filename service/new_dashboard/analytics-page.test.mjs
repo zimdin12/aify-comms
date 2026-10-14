@@ -254,3 +254,17 @@ test("both renderers are no-ops when their host element is absent", async () => 
     assert.doesNotThrow(() => renderAnalyticsPage());
   } finally { globalThis.document = saved; }
 });
+
+test("a five-hour window the source did not report reads unknown, not \"5h — left\"", async () => {
+  const h = withAnalytics();
+  try {
+    state.analytics.usage = { pools: [{ ...POOL, five_hour: {} }] };
+    renderUsagePools();
+    const html = h.els.get("usage-pools").innerHTML;
+    assert.match(html, /5h left: unknown/);
+    assert.doesNotMatch(html, /5h — left/);
+    state.analytics.usage = { pools: [POOL] };
+    renderUsagePools();
+    assert.match(h.els.get("usage-pools").innerHTML, /5h 90% left/, "control: a reported window shows its figure");
+  } finally { h.restore(); }
+});
