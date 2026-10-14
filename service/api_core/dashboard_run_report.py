@@ -170,6 +170,13 @@ async def _mirror_dashboard_run_summary_to_chat(db, row, *, operator_closed: boo
     current_row = await current_cursor.fetchone()
     if str((current_row["result_message_id"] if current_row else "") or "").strip():
         return None
+    # A LATER SETTLEMENT OF A CLOSED RUN carries no close intent, so the stored event decides, as on the
+    # manager path above (review of 0.9.5: a bare re-PATCH posted the close as the agent's reply).
+    closed_cursor = await db.execute(
+        "SELECT 1 FROM dispatch_events WHERE run_id = ? AND event_type = 'operator_closed' LIMIT 1", (row["id"],)
+    )
+    if await closed_cursor.fetchone():
+        return None
 
     summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
     target_agent = str((row["target_agent"] if "target_agent" in row.keys() else "") or "").strip()

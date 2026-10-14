@@ -9712,6 +9712,11 @@ class ApiV2RegressionTests(FastApiTestCase):
             "appendEvent": closing, "eventType": "operator_closed"})
         self.assertEqual(closed.status_code, 200, closed.text)
         self.assertEqual(replies_from_coder(closing), [], "the operator's close was posted as the agent's reply")
+        # A LATER SETTLEMENT carries no close intent, so the stored operator_closed event has to decide
+        # (review of 0.9.5: a bare re-PATCH posted the close text as the agent's reply).
+        replayed = self.client.patch(f"/api/v1/dispatch/runs/{closed_run}", json={"status": "completed"})
+        self.assertEqual(replayed.status_code, 200, replayed.text)
+        self.assertEqual(replies_from_coder(closing), [], "a later settlement posted the operator's close as the agent's reply")
 
         # CONTROL: an agent finishing a dashboard run with its own summary is still mirrored to chat.
         finished_run = run_from_dashboard("finish me")
