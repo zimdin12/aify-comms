@@ -703,3 +703,54 @@ test("A STEP THAT FAILS AFTER OTHERS LANDED SAYS WHAT LANDED, and the screen ref
     assert.equal(h.calls.refresh, 1, "the screen was not refreshed to show what landed");
   } finally { h.restore(); }
 });
+
+test("A QUEUED host change is not listed as saved when a later step fails", async () => {
+  // Review of 0.9.5, D8 residual: a defined agent's workspace change comes back queued for its host
+  // ({ok, agentId, request:{machineId, patch}}); a later rename 409 then read "Already saved: environment"
+  // and dropped the note that the change applies only when the host syncs.
+  const h = withActions({ confirm: true, fields: {
+    "edit-agent-id": "coder2", "edit-agent-desc": "", "edit-agent-handle": "",
+    "edit-agent-env": "win32:box:default", "edit-agent-runtime": "claude-code", "edit-agent-workspace": "C:/new",
+  } });
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  const answer = (status, body) => ({ ok: status < 400, status, statusText: String(status), json: async () => body, text: async () => JSON.stringify(body) });
+  try {
+    state.agents = [{ id: "coder", description: "", sessionHandle: "", runtime: "claude-code", cwd: "C:/old",
+      runtimeState: { environmentId: "win32:box:default" } }];
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/environment")) return answer(200, { ok: true, agentId: "coder", request: { machineId: "win32:box", patch: { workspace: "C:/new" } } });
+      if (String(url).includes("/rename")) return answer(409, { detail: "coder is defined on its host; rename it there" });
+      return answer(200, { ok: true });
+    };
+    await submitAgentEdit("coder");
+    const said = created.map((el) => el.textContent).filter(Boolean).join(" | ");
+    assert.match(said, /Edit stopped at the rename/);
+    assert.doesNotMatch(said, /Already saved: environment/, `a queued change read as saved: ${said}`);
+    assert.match(said, /Change of coder requested in aify-env on win32:box; it applies when that host syncs/, said);
+    assert.equal(h.calls.refresh, 1);
+  } finally { h.restore(); }
+});
+
+test("CONTROL: an environment change the service applied IS listed as saved", async () => {
+  const h = withActions({ confirm: true, fields: {
+    "edit-agent-id": "coder2", "edit-agent-desc": "", "edit-agent-handle": "",
+    "edit-agent-env": "win32:box:default", "edit-agent-runtime": "claude-code", "edit-agent-workspace": "C:/new",
+  } });
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  const answer = (status, body) => ({ ok: status < 400, status, statusText: String(status), json: async () => body, text: async () => JSON.stringify(body) });
+  try {
+    state.agents = [{ id: "coder", description: "", sessionHandle: "", runtime: "claude-code", cwd: "C:/old",
+      runtimeState: { environmentId: "win32:box:default" } }];
+    globalThis.fetch = async (url) => (String(url).includes("/rename")
+      ? answer(409, { detail: "taken" })
+      : answer(200, { ok: true, agentId: "coder", environmentId: "win32:box:default" }));
+    await submitAgentEdit("coder");
+    const said = created.map((el) => el.textContent).filter(Boolean).join(" | ");
+    assert.match(said, /Already saved: environment/, said);
+    assert.doesNotMatch(said, /requested in aify-env/);
+  } finally { h.restore(); }
+});
