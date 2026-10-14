@@ -1201,8 +1201,9 @@ rename to `dashboard` passed every actor check and rewrote the agent's history a
 raises the bar from "type an English word" to
 "hold a secret" — which stops the casual, the confused and the prompt-injected case. It is NOT a
 boundary against an agent with filesystem access: `.env` is readable on the host, and the dashboard
-page carries the key to the browser. Anyone reading this should not treat it as one. Since 2026-09-24
-the service generates one when `.env` sets none (see "A key per other machine" below).
+page carries the key to the browser. Anyone reading this should not treat it as one. From 2026-09-24
+to 2026-09-27 the service generated one when `.env` set none; it no longer does, and an empty
+`OPERATOR_KEY` turns the gate off (see the SUPERSEDED note under "A key per other machine" below).
 
 **The honest summary:** authorization is *auditable and non-trivial* rather than *absent*. It is not
 authentication. The deployment's real perimeter is that the host is the operator's own machine.
@@ -1281,7 +1282,7 @@ the answer to "who may reach this at all".
 ## 2026-10-11 — The operator key locks what cannot be undone, not every lifecycle action (0.9)
 
 0.9's lifecycle queue first required the operator key for every start, stop, restart, kill, spawn and delete of
-a defined agent whenever a key is configured, and since 2026-09-24 one always is. The bridge sends only the
+a defined agent whenever a key is configured (none is unless `.env` sets one, since 2026-09-27). The bridge sends only the
 API key, so after deploy no agent could restart or stop a worker, which the skill tells managers they may do.
 Steven's ruling: the operator key is an optional safeguard against irreversible actions. With a key set, the
 API key may still start, stop, restart, kill and spawn a defined agent under its caller's own name; **delete
