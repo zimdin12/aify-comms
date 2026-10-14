@@ -1,4 +1,4 @@
-# B1: who owns the residents (contract draft, 2026-10-14)
+# B1: who owns the residents (contract, revision 2, 2026-10-14)
 
 ## The problem
 
@@ -9,95 +9,132 @@ Residents run in the persistent `herdr-aify`. Its server environment carries no 
 
 Agreed with the reviewer: separate the logical owner of residents from the daemon and Herdr
 incarnations. A dedicated invocation keeps a fresh scope, refuses takeover, and does no recovery for
-its managed lifetimes.
+its managed lifetimes. Revision 1 (41cb466f) was revised for two holes:
+- **the C5 handover:** comms orders publications only within one `(machineId, instance)` key;
+- **the physical home identity.**
 
 ## The contract
 
-1. **The namespace is the aify home.**
-   - The resident-owner role is per `~/.aify` directory (`AIFY_HOME`). Windows and WSL have different
-     homes, so they are different environments and never share a role.
-   - `default` names the role inside one home. It is not a global name.
-   - Resident records keep `instance: "default"`, and no record is relabelled.
+1. **The home is one physical directory, resolved one way by everyone.**
+   - The aify home is `<os home>/.aify`. This slice has no override: `AIFY_HOME` is not read by the
+     launcher or by aify-env today, and it is not introduced for the lock alone.
+   - Its identity is `realpath` of that directory, using `fs.realpathSync.native` on Windows, which
+     resolves junctions and 8.3 names. Windows folds it to lower case.
+   - Every party that names the role derives the role from this identity:
+     - the lock;
+     - the descriptor, the turns journal and the generation file;
+     - the launcher's resident records: `aify-lifetime.sh` resolves `$HOME/.aify`, and on Windows
+       `cygpath -m` makes it the same path aify-env's `homedir()` yields.
+   - A test pins that the launcher and aify-env resolve the same identity.
+   - **A home shared across operating systems is refused for the role.** These are WSL on a drvfs or 9p
+     mount (the home under `/mnt/<drive>` or `/mnt/wsl`), and Windows on a `\\wsl$` / `\\wsl.localhost`
+     path. The OS lock cannot exclude across that boundary, so such a daemon runs without the role and
+     reports why.
+   - Two spellings of one directory on one OS resolve to one identity, so one owner.
 
-2. **The role is a held OS lock, not a lease and not a file.**
+2. **The role has its own name: `residents`.**
+   - An ordinary aify-env's instance is already `default`, with its own descriptor (`default.json`) and
+     its own C5 publisher key. The role therefore never borrows that name.
+   - Its files: `~/.aify/env/residents.json` (descriptor), `residents.turns.json`,
+     `residents.generation`.
+   - New resident records are stamped `instance: "residents"`. The launcher exports
+     `AIFY_ENV_INSTANCE=residents` for a resident, so its hooks read `residents.json`.
+   - Records stamped `default` by launchers from before this change are not relabelled. They stay
+     unbound until relaunched (policy class "unbound", which needs the operator's ruling).
+
+3. **The role is a held OS lock, not a lease.**
    - The holder is the one process listening on the role endpoint:
-     - Windows: the named pipe `\\.\pipe\aify-resident-owner-<sha256(home)[:16]>`.
-     - Linux: the abstract socket `\0aify-resident-owner-<sha256(home)[:16]>`.
-   - Binding is atomic and exclusive. The kernel releases it when the process exits.
-   - There is no expiry. A paused holder still holds the role, so there is no stale holder to fence.
-   - A second bind fails, and so does a bind that fails for any other reason. Either way the daemon
-     runs without the role (fail closed). It reports why in `/health`, and `aify-env doctor` shows it.
-   - Nothing is ever acquired by reading something.
-   - macOS has no abstract sockets. It is out of scope until a socket in the home, guarded by
-     connect-then-unlink, is specified.
-   - Measured 2026-10-14 with Node 22, on Windows and in WSL Ubuntu:
-     - a second bind while the first holds fails `EADDRINUSE`;
-     - after the first closes, a bind succeeds;
-     - after the holding process is killed (SIGKILL), a bind succeeds.
+     - Windows: the named pipe `\\.\pipe\aify-residents-<sha256(identity)[:16]>`.
+     - Linux: the abstract socket `\0aify-residents-<sha256(identity)[:16]>`.
+   - The bind is atomic and exclusive, and the kernel releases it on exit. There is no expiry; a paused
+     holder still holds.
+   - Any failed bind means no role, reported, failing closed. That includes `EACCES` against an elevated
+     holder. Nothing is acquired by reading.
+   - macOS is outside this slice's qualification. No alternative for it is approved by leaving it out.
+   - Measured 2026-10-14, Node 22, on Windows and in WSL Ubuntu:
+     - a second bind fails `EADDRINUSE`;
+     - after close, the bind succeeds;
+     - after the holder is SIGKILLed, the bind succeeds.
 
-     The probes are `pipeprobe2.mjs` and `pipeprobe3.mjs`; they are quoted in the commit that builds
-     this.
-   - An elevated holder may make a normal process's bind fail `EACCES`. That is "not acquired", as
-     above, and is reported. It never causes a retry under another name.
+     These are author-run probes. The reviewer has not independently qualified them.
 
-3. **Who acquires it.** Any aify-env, ordinary or dedicated:
-   - tries at boot, and again every sweep while it does not hold the role;
+4. **Who holds it.** Any aify-env, ordinary or dedicated:
+   - tries at boot, and on every sweep while it does not hold the role;
    - the first bind wins.
 
-   One daemon can hold the resident role and its own managed-invocation scope at the same time. The
-   operator never has to run a second daemon.
+   One daemon holds the role and its own managed scope.
 
-4. **The epoch is the incarnation.**
-   - Once bound, the holder writes `~/.aify/env/default.json` (the existing descriptor format) with its
-     url, pid, startedAt and a boot UUID.
-   - Hooks keep reading the `default` descriptor, unchanged.
-   - The descriptor is a pointer for routing, never proof of ownership.
+5. **Generation, under the lock.**
+   - Right after binding, the holder reads `residents.generation`, adds one, and writes it durably
+     before its first publication.
+   - An unreadable or invalid file means the daemon releases the endpoint and runs without the role.
+     It never guesses a generation.
+   - The lock serialises writers, so successive holders' generations strictly increase.
 
-5. **Enforcement is at each effect, by asking the lock, never by consulting a cached set.**
-   - **Resident turn events:** a daemon applies an event addressed to `default` only while it is
-     listening on the role endpoint. Otherwise it refuses with `not-owner`, so a stale descriptor that
-     reaches the wrong daemon changes nothing.
-   - **Resident lifecycle:** stop and kill for residents require the role.
-   - **Publication:**
-     - Residents appear only in the holder's complete snapshot.
-     - A daemon without the role publishes managed lifetimes only. Each of these snapshots is complete
-       for the population it declares (C5).
+6. **Publication (C5) keys and populations.**
 
-6. **Releasing the role is ordered.** On shutdown:
-   1. stop applying resident events;
-   2. publish a snapshot without residents and wait for it to be sent, bounded;
+   | publisher key | population | complete for |
+   |---|---|---|
+   | `(machineId, "residents")` | every resident lifetime in this home | the role holder only |
+   | `(machineId, <own instance>)` | that daemon's managed lifetimes | each daemon, holder or not; an ordinary daemon's own instance is `default`, a dedicated one's `herdr-<invocation>` |
+
+   - Residents appear under the residents key and nowhere else.
+   - On transfer the successor publishes under the same key with a higher generation. The receiver
+     (`agent_state_shadow.py:150-161,190-245`) orders same-key publications by generation and replaces
+     the whole key's rows on a snapshot. So:
+     - the successor's first snapshot is the sole resident association;
+     - any later-arriving publication of the dead holder's is refused `stale`.
+
+     No change to the receiver's ambiguity handling is made or needed.
+   - Non-holders' managed publications are on their own keys and unaffected.
+
+7. **Enforcement at each effect, by asking the lock.**
+   - **Resident turn events:** a resident turn event addressed to `residents` is applied only while this
+     process holds the endpoint. Otherwise it is refused `not-owner`. A stale descriptor that reaches a
+     non-holder therefore changes nothing.
+   - **Lifecycle:** resident lifecycle requires the role.
+   - **Publication:** the residents population is composed only while the role is held.
+
+8. **Releasing the role.** On shutdown, in order:
+   1. stop admitting resident events (`not-owner` from here on);
+   2. wait for resident operations already entered to finish, bounded;
    3. close the endpoint.
 
-   So no publication from the old holder includes residents after a successor could have acquired the
-   role. A crash skips these steps. The successor's first complete snapshot then supersedes the dead
-   publisher, as C5 does for any dead publisher.
+   No withdrawal publication is needed, because the successor's higher generation supersedes on the same
+   key. A crash skips these steps with the same result. The holder's sender awaits nothing for
+   ordering; ordering is the generation's.
 
-7. **Continuity without inventing idle (P-1).**
-   - Turn state for the role lives in `~/.aify/env/default.turns.json`. Only the holder writes it,
-     because the lock serialises writers.
-   - A new holder loads that file. An open turn stays open; the operator's ruling 1791194105933 holds:
-     no wall-clock cap.
-   - A resident with no turn knowledge has none. It is never reported idle because knowledge was lost.
+9. **Continuity without inventing idle (P-1).**
+   - Only the holder writes `residents.turns.json`. A new holder loads it, so an open turn stays open,
+     busy, with no wall-clock cap (ruling 1791194105933).
+   - A resident with no turn knowledge is never reported idle because knowledge was lost.
 
-8. **Managed lifetimes are unchanged.** `ManagedLifetimes` still stamps the invocation scope on its
-   children. Recovery stays none, and no managed lifetime is ever relabelled `default`.
+10. **Managed is unchanged.** It keeps the invocation scope and its own publisher key. Recovery stays
+    none, and no managed lifetime is ever relabelled or moved to `residents`.
 
-## Controls, each paired with its success case
+## Controls
 
-| Contender or situation | Expected |
+The receiver-side cases are checked against the mirror and the current decision, not only bind results.
+
+| Case | Expected |
 |---|---|
-| ordinary and dedicated start together | exactly one holds the role; the other runs managed-only |
-| two dedicated invocations | the same |
-| a bind failing for a reason other than in-use | no role, reported; residents are never applied by the non-holder |
-| a stale `default.json` pointing at a non-holder | the event is refused `not-owner` and state is unchanged |
-| the holder pauses (process frozen), then resumes | it still holds the role; no successor acquired meanwhile |
-| the holder stops cleanly | its last snapshot has no residents; the successor acquires on its next sweep and loads the turns file |
-| the holder crashes with a turn open | the successor loads the open turn: busy, not idle |
-| a resident relaunched across a transfer | continuity: the new holder applies its events |
-| managed lifetimes of a previous invocation | not adopted; no resurrection |
+| A publishes resident R, then crashes; B acquires and publishes R; a delayed A publication arrives | B's rows alone; A's late post refused `stale`; the decision reads B's state |
+| clean handover: A stops (ordered release), B acquires | the same, with no gap in which events are applied by both |
+| A's release wait times out | the endpoint is still closed; B's generation still supersedes |
+| a non-holder publishes managed lifetimes while a holder publishes residents | both keys current; no ambiguity |
+| ordinary + dedicated contenders; two dedicated contenders | exactly one holder |
+| a stale `residents.json` pointing at a non-holder | the event is refused `not-owner` |
+| a paused holder that resumes | it still holds; no successor meanwhile |
+| a crash with a turn open | the successor loads it: busy |
+| one home spelled two ways on one OS | one identity, one owner |
+| two different homes | two owners, both succeed |
+| a home on a cross-OS mount | no role, reported |
+| an unreadable generation file | no role, reported |
+| managed lifetimes of a previous invocation | not adopted |
 
 ## Out of scope
 
 - Moving residents between homes.
 - Several comms services.
 - macOS.
+- `AIFY_HOME` overrides.
