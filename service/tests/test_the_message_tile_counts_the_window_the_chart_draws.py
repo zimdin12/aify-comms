@@ -50,7 +50,8 @@ class AMessageCommittedMidRequestLandsInBothOrNeither(FastApiTestCase):
     count landed in the tile (1) and not the chart (0), in one response."""
 
     def test_the_tile_and_chart_agree_when_a_message_commits_between_their_reads(self):
-        from service.routers import analytics as analytics_router
+        # Patched where the series is built: the analytics body lives in api_core since S2.
+        from service.api_core import analytics_summary as analytics_router
 
         real = analytics_router._hourly_message_series
 

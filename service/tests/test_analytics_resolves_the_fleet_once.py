@@ -149,7 +149,7 @@ class AnalyticsResolvesTheFleetOnceTests(FastApiTestCase):
         """
         from service.api_core import analytics_series
         from service.reconcilers import status_cache
-        from service.routers import analytics
+        from service.api_core import analytics_summary as analytics
 
         # Patched on the modules that CALL it, not on the one that defines it. Both callers do
         # `from ... import _compute_agent_status`, which binds their own name at import time, so
