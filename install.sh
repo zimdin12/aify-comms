@@ -505,12 +505,12 @@ render_wrapper_template() {
   [ -n "${_AIFY_FRAGMENTS:-}" ] || _AIFY_FRAGMENTS="$(bash "$SCRIPT_DIR/scripts/registry-fragment.sh" "$AIFY_SERVICE_REGISTRY" "$CLIENT")"
   IFS='|' read -r _aify_strict _aify_session _aify_codex <<<"$_AIFY_FRAGMENTS"
   pairs+=("STRICT_EXTRA_MCP_B64=$_aify_strict" "SESSION_MCP_B64=$_aify_session" "SESSION_MCP_CODEX_B64=$_aify_codex")
-  pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "NATIVE_BASE=$AIFY_NATIVE_BASE" "SCRIPT_DIR=$SCRIPT_DIR")
-  # Caller-supplied extras, as KEY=VALUE. The hermes generator computes three values that cannot be
-  # derived from the checkout alone — a Windows-converted plugin path, a node-openable bridge dir, and
-  # a prebuilt TUI bundle baked only when it exists — so they arrive from the caller rather than being
-  # read here. Applied AFTER the fixed set so an extra can never shadow one of them. render.sh stages and
-  # renames into place, refuses a leftover placeholder, and its exit status is the install's.
+  # WRAPPER_DIR: where launchers find aify-wrapper's own bin/ and lib/. The pinned copy beside the bridge, the path they always used.
+  pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "WRAPPER_DIR=$AIFY_BRIDGE_DIR/node_modules/aify-wrapper" "NATIVE_BASE=$AIFY_NATIVE_BASE" "SCRIPT_DIR=$SCRIPT_DIR")
+  # Caller-supplied extras, as KEY=VALUE. The hermes generator computes three values that cannot be derived from the
+  # checkout alone — a Windows-converted plugin path, a node-openable bridge dir, and a prebuilt TUI bundle baked only
+  # when it exists — so they arrive from the caller rather than being read here. Applied AFTER the fixed set so an extra
+  # can never shadow one of them. render.sh stages and renames into place, refuses a leftover placeholder, and its exit status is the install's.
   # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked its
   # `shopt -u patsub_replacement`, so on bash 5.2+ an `&` in a value became the placeholder (2026-10-14,
   # X6). Staged last, beside a copy of it (it reads `wrappers/` next to itself): a refusal above strands nothing.
