@@ -87,7 +87,7 @@ export function sessionHandleVerdict(duplicates, { measured = 0 } = {}) {
       + "sent to it is refused and relayed. Check which id the process is really bound to -- the "
       + "binding file `aify-agent-<pid>` in TEMP, not the agent row -- and address that one. If they "
       + "share a MANAGED runtime session, they are appending to one conversation and will exhaust its "
-      + "context together; see the `context-window` row above.",
+      + "context together; see `context-window` in `aify-env doctor`.",
   };
 }
 

@@ -137,22 +137,19 @@ Neither reads ok.
 | `tier-version` | the aify-env serving this host is older than `MINIMUM_AIFY_ENV_VERSION` (`tier-version-check.mjs`) |
 | `definitions-fresh` | a host whose agent definitions still govern here has not pushed them for 10 minutes; prints the service's `definitions.notice` (`definitions-fresh-check.mjs`) |
 | `spawn-queue` | a spawn request a host claimed and never started, aged against the service's `SPAWN_ORPHAN_GRACE_SECONDS`; reports, never acts |
-| `managed-orphans` | managed delivery loops (`hermes-managed-host.js run <agent>`) running for an agent no live host owns; reports, never kills |
 | `gateway-orphans` | hermes gateway hosts in aify-comms' port range with no worker behind them or no session in their own `session.active_list` (resident ones too), including unclaimed ports and elevated processes whose command line cannot be read |
-| `env-code-currency` | aify-env running code that differs from the code on its disk (`build` against `codeOnDisk` on its `/health`) |
-| `env-processes` | a process aify-env runs with no live terminal in the control plane, or the reverse, on this host |
 | `session-handles` | one native session handle claimed by more than one agent; reports, never refuses |
 | `api-exposure` | an unauthenticated fleet listing that also returns live gateway tokens |
 | `external-keys` | `EXTERNAL_KEYS` that restrict nothing: no `API_KEY` is set, or the entry is malformed |
 | `client-api-key` | this host cannot authenticate against the service it points at, probed with the key it actually resolves |
-| `context-window` | a running agent whose conversation has outgrown its model, read from the runtime's own `used/limit` footer (warns at 0.9) |
 | `agent-state-shadow` | where aify-env's published status word disagrees with the service's own (`partial`), as diagnostic evidence for the 0.9 switch; never ok, since qualification stays unavailable |
 | `env-bridge` | no environment can claim a spawn now (it asks what `/spawn` asks: a fresh `metadata.bridgeLastSeen`), so dashboard-managed spawns cannot run |
-| `claude-login` | the refresh window of the one Claude OAuth grant every claude-code agent on this host shares; reads timestamps, never a token |
 | `usage-openai` | the ChatGPT quota token works, proven by calling the API |
 
 `bridge-running` and `agent-identity` skip on Windows. Wrapper and runtime checks belong to
 `aify-wrapper-check`, and terminal capability to `aify-env doctor` (docs/AIFY_ENV_BOUNDARY.md).
+The host checks are in `aify-env doctor` since 0.9.7: `env-processes`, `managed-orphans`,
+`context-window`, `claude-login`, and `env-code-currency` as its `code-current`.
 
 ## Testing a change
 

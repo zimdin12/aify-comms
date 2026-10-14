@@ -12,7 +12,7 @@
 // 45 processes. The operator asked whether they were orphans from aify-env, and the answer took a
 // port range and a marker file to establish, because nothing reported it.
 //
-// `managed-orphans` is this check's sibling and watches the DELIVERY LOOPS. It would have said
+// `managed-orphans` (in `aify-env doctor` since 0.9.7) is this check's sibling and watches the DELIVERY LOOPS. It would have said
 // nothing here: the loops were the half that died correctly. The gateways are the half that survives,
 // and until now they had no watcher at all.
 //

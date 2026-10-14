@@ -1,7 +1,7 @@
 // May THIS process write `runtimeState.bridgeInstanceId` for this agent?
 //
 // ONE FIELD, TWO MEANINGS, TWO WRITERS. `runtimeState.bridgeInstanceId` is read as "which bridge owns
-// this agent" by `managed-orphans`, by `managed-ownership.mjs` and by the service's `bridge_not_current`
+// this agent" by `managed-orphans` (aify-env doctor), by `managed-ownership.mjs` and by the service's `bridge_not_current`
 // guard. For a RESIDENT agent that is its own MCP bridge, and its sidecar is the right writer. For a
 // MANAGED agent it is the ENVIRONMENT BRIDGE that hosts the delivery loop -- a different process
 // entirely -- and the agent's own sidecar has no standing to answer it.

@@ -4,7 +4,8 @@
 // `AIFY_ENV_ENDPOINT="http://127.0.0.1:8802"`, and every env row asked that address. But a
 // `herdr-aify env` runs a DEDICATED aify-env on a port the OS picks (57978 that day), so nothing
 // listened on 8802 while a healthy daemon ran the operator's managed worker and claimed spawns:
-// `spawn-delegation` read `unreachable`, `env-processes` and `env-code-currency` read `unknown`.
+// `spawn-delegation` read `unreachable`, `env-processes` and `env-code-currency` read `unknown`
+// (both rows are in `aify-env doctor` since 0.9.7).
 //
 // THE DAEMON ALREADY SAYS WHERE IT IS. At readiness a dedicated aify-env writes `ready.json` into its
 // invocation directory (`~/.aify/herdr/invocations/<id>/`, aify-env's `publishInstanceReady`), naming

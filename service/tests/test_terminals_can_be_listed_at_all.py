@@ -16,8 +16,8 @@ A reconciliation needs BOTH sides enumerable, and the key was already present on
 `terminal_sessions.process_id` holds the OS pid (99 of 103 rows numeric, measured) and aify-env's
 `/processes` reports `pid`. Two lists nobody had put beside each other.
 
-The comparison itself lives in `mcp/stdio/env-process-reconciliation.mjs`. This file covers the read
-it depends on.
+The comparison itself is aify-env's `env-processes` doctor row (its comms plugin, since 0.9.7). This
+file covers the read it depends on.
 
 SEEDED, NEVER SAMPLED. The first version of this file asserted against whatever rows the ambient
 database happened to hold -- and on the machine it was written on, that was the OPERATOR'S LIVE
