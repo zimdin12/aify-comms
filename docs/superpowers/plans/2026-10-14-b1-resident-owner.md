@@ -1,4 +1,4 @@
-# B1: who owns the residents (contract, revision 2, 2026-10-14)
+# B1: who owns the residents (contract, revision 3, 2026-10-14)
 
 ## The problem
 
@@ -75,10 +75,20 @@ its managed lifetimes. Revision 1 (41cb466f) was revised for two holes:
 
    | publisher key | population | complete for |
    |---|---|---|
-   | `(machineId, "residents")` | every resident lifetime in this home | the role holder only |
+   | `(machineId, "residents-<sha256(identity)[:12]>")` | every resident lifetime in this home | the role holder only |
    | `(machineId, <own instance>)` | that daemon's managed lifetimes | each daemon, holder or not; an ordinary daemon's own instance is `default`, a dedicated one's `herdr-<invocation>` |
 
-   - Residents appear under the residents key and nowhere else.
+   - **The residents key carries the home** (revision 3). A machine id comes from the platform and host
+     or `AIFY_MACHINE_ID` (`advertise.mjs:174-179`), not from the home. So two homes on one machine, two
+     users or two profiles, would otherwise share `(machineId, "residents")`. Each could legally hold its
+     own lock, and the receiver would read their unrelated snapshots as one publisher:
+     - equal generations are a `conflict`;
+     - a higher generation deletes the other home's rows.
+
+     The home-scoped suffix gives each home its own key. Within one home the key is stable across
+     holders, so succession ordering (below) is unchanged. Machine id and the receiver's association and
+     conflict rules are not changed.
+   - Residents appear under their home's residents key and nowhere else.
    - On transfer the successor publishes under the same key with a higher generation. The receiver
      (`agent_state_shadow.py:150-161,190-245`) orders same-key publications by generation and replaces
      the whole key's rows on a snapshot. So:
@@ -129,6 +139,7 @@ The receiver-side cases are checked against the mirror and the current decision,
 | an open lifetime persisted with last event t2, restored by the next holder, then an admitted same-lifetime turn-end at t1 < t2 | refused as out of order; the original anchor and open state are unchanged and it stays busy; a later valid end closes it (watermark continuity, not only a restored busy bit) |
 | one home spelled two ways on one OS | one identity, one owner |
 | two different homes | two owners, both succeed |
+| two homes on one machine (same machineId, same service), distinct residents, both holders publishing (equal and unequal generations) | two publisher keys; the receiver keeps both homes' rows; no `conflict`, no deletion across homes; the decision reads each resident from its own home's key |
 | a home on a cross-OS mount | no role, reported |
 | an unreadable generation file | no role, reported |
 | managed lifetimes of a previous invocation | not adopted |
