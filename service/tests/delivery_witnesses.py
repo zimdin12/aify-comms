@@ -12,9 +12,9 @@ the switch it is a mirror adapter that publishes the same facts as the C1 record
 declares that it is judged under the P-1 law. The witnesses themselves do not change.
 
 THE P-1 DIFFERENCE IS NAMED, NOT HIDDEN. `HOLD_LAW` carries both answers for every specimen. Where today's
-code times a turn out and P-1 would keep holding, the two columns differ and the specimen says why; the
-witnesses assert the column their adapter is judged by. No specimen's times were chosen to make the two
-laws agree.
+code releases a turn (a timeout, or a future start it rejects) and P-1 would keep holding, the two columns
+differ and the specimen says why; the witnesses assert the column their adapter is judged by. No
+specimen's times were chosen to make the two laws agree.
 """
 from __future__ import annotations
 
@@ -37,8 +37,9 @@ class TurnSpecimen:
 
     `recorded`        False: nothing was ever reported for this agent.
     `open`            a turn has started and no turn-end has been applied.
-    `started_age`     seconds since the turn began (its anchor); None = no anchor was recorded.
-    `touched_age`     seconds since anything last said the turn was still going.
+    `started_age`     seconds since the turn began (its anchor); None = no anchor was recorded. A negative
+                      age is a time in the FUTURE: a usable stamp from a clock ahead of ours.
+    `touched_age`     seconds since anything last said the turn was still going; negative = future.
     `stamps`          "valid", or "blank" / "garbage" when the times reported are unusable.
     `owner`           who claims the turn: "hook" (a runtime hook, nothing checkable), "live-bridge" (a
                       delivery bridge of this agent that is heartbeating), "dead-bridge" (one that stopped).
@@ -123,11 +124,20 @@ HOLD_LAW = (
              "no usable time: a corrupt report, not a running turn (P0 C3 refuses it as no-timestamp)"),
     HoldCase(TurnSpecimen("garbage-stamps", stamps="garbage"), False, False,
              "an unparseable time is the same as none"),
+    HoldCase(TurnSpecimen("verified-turn-future-start", started_age=-600, touched_age=-600), False, True,
+             "P-1 CHANGES THIS. Today a start in the future gives a negative age, which the timer law rejects "
+             "(turn_liveness_policy: `0 <= age`), so delivery is released. Under P-1 the stamp is usable, the "
+             "lifetime is verified and the turn is open, so it holds; age is never consulted (P0 C3). Distinct "
+             "from the unusable stamps above, which are refused as no-timestamp under both laws."),
+    HoldCase(TurnSpecimen("future-touch-past-start", started_age=60, touched_age=-600, owner="live-bridge"),
+             True, True,
+             "a renewal stamped in the future is not a renewal: the verified lease discards it and falls back "
+             "to the start anchor, sixty seconds ago, so the turn holds"),
 )
 
 #: The specimens on which the P-1 ruling deliberately changes today's answer. Pinned so a column cannot be
 #: edited quietly: the operator approved exactly this difference.
-P1_CHANGES = frozenset({"long-hook-turn-kept-warm", "renewer-went-quiet"})
+P1_CHANGES = frozenset({"long-hook-turn-kept-warm", "renewer-went-quiet", "verified-turn-future-start"})
 
 
 class TurnInputAdapter(Protocol):
