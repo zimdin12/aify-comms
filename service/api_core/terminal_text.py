@@ -4,7 +4,7 @@ Layer-0 slice of the v0.5.4 decomposition, and PURE — no database, no process 
 
 `_terminal_awaiting_input_hint` is the one that matters: it decides whether a claude sitting at a
 prompt is WAITING FOR THE OPERATOR or still working, which is the difference between the dashboard
-reporting an agent blocked and reporting it busy. The `_CLAUDE_WORKING_FOOTER_RE` guard exists because
+reporting an agent blocked and reporting it busy. The `TURN_FOOTER` guard (claude_footer.py) exists because
 a live spinner footer must never be read as a prompt — that misread is what made a working agent look
 stalled.
 
@@ -34,15 +34,9 @@ import re
 import time
 from typing import Any
 
+from service.api_core.claude_footer import TURN_FOOTER
 from service.terminal_diagnostics import _ANSI_RE, _CTRL_RE
 from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
-
-
-_CLAUDE_WORKING_FOOTER_RE = re.compile(
-    r"[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt"
-    r"|[✱✶✽✺✹✷✵✳✢✻]\s+\S+\s+for\s+\d+\s*[hms]\b",
-    re.I,
-)
 
 
 def _terminal_text_compact(text: str) -> str:
@@ -70,7 +64,7 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     # while claude works — subagent/Task prose, or a y/n echoed in tool output mid-generation).
     # If the footer is the very last thing → generating, not awaiting. No footer → scan all.
     footer_end = -1
-    for _m in _CLAUDE_WORKING_FOOTER_RE.finditer(tail):
+    for _m in TURN_FOOTER.finditer(tail):
         footer_end = _m.end()
     region = tail[footer_end:] if footer_end >= 0 else tail
     if not region.strip():

@@ -27,10 +27,9 @@ then it stays.
 from __future__ import annotations
 
 import logging
-import re
 import time
 
-from service.api_core.console_prompts import plain_text
+from service.api_core.claude_footer import shows_claude_working
 from service.api_core.runtime import _normalize_runtime
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state
@@ -38,29 +37,10 @@ from service.terminal_snapshot import render_live_screen
 
 logger = logging.getLogger("aify_comms.api_core.console_working")
 
-#: The running footer: an elapsed timer and a live token counter inside one pair of brackets,
-#: `✻ Actualizing… (49m 37s · ↓ 79.0k tokens)`. A completed row renders `+3 tool uses · ↓ 12.1k
-#: tokens` with no timer and no bracket, and a finished turn leaves `✻ Worked for 49m 37s`, so neither
-#: matches. This is the rule the bridge classifier used before it was deleted (`95ba31d3`).
-#: THE LINE MUST OPEN WITH A SPINNER FRAME. Unanchored, prose quoting a footer anywhere on an idle
-#: screen -- an agent explaining this very rule -- held the lease. `·` and `*` are frames too.
-_RUNNING_FOOTER = re.compile(
-    r"^[ \t]*[·*✱✶✽✺✹✷✵✳✢✻][ \t][^\n]*\((?:\d+h[ \t]+)?(?:\d+m[ \t]+)?\d+s[ \t]*·[ \t]*[↓↑][ \t]*[\d.]+k?[ \t]*tokens",
-    re.MULTILINE,
-)
-#: The older footer, `✻ Crunched for 3m 12s (esc to interrupt · ...)`. The spinner glyph must sit on
-#: the same line so prose quoting the phrase does not count.
-_INTERRUPT_FOOTER = re.compile(r"[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt")
-
 #: Well inside the 20s lease, and it keeps a chunk-rate stream (thousands per second) from rendering
 #: the screen more than once per terminal per window.
 CHECK_INTERVAL_SECONDS = 5.0
 _last_checked: dict[str, float] = {}
-
-
-def shows_claude_working(screen: str) -> bool:
-    text = plain_text(screen)
-    return bool(_RUNNING_FOOTER.search(text) or _INTERRUPT_FOOTER.search(text))
 
 
 async def note_console_working(db, terminal) -> None:
