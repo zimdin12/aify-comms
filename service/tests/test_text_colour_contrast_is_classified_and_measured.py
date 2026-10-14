@@ -166,11 +166,14 @@ class TextColourContrastIsClassifiedAndMeasured(unittest.TestCase):
         #: foreground is read against the `--panel-3` its container paints. MEASURED, because a count
         #: bumped without a number is the thing this gate exists to refuse: `--muted` (#9eaaa5) on
         #: `--panel-3` (#12181a) is 7.47:1, against a 4.5 floor.
-        self.assertEqual(TOTAL, 216, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
-        self.assertEqual(len(BUCKETS["INHERITED"]), 153)
+        #: 216 -> 214 on 2026-10-14 (audit D11): `.msg-badge.await` (INHERITED 153 -> 152) and `.run-chip`
+        #: (COMPOSITE 13 -> 12, a translucent background) were removed with the message chip and badge that
+        #: no payload could render. Removals, so no new contrast to measure.
+        self.assertEqual(TOTAL, 214, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
+        self.assertEqual(len(BUCKETS["INHERITED"]), 152)
         self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 34)
         self.assertEqual(len(BUCKETS["RUNTIME"]), 15)
-        self.assertEqual(len(BUCKETS["COMPOSITE"]), 13)
+        self.assertEqual(len(BUCKETS["COMPOSITE"]), 12)
         self.assertEqual(len(BUCKETS["UNRESOLVED"]), 1)
         self.assertEqual(sum(len(v) for v in BUCKETS.values()), TOTAL, "a rule fell outside every class")
 

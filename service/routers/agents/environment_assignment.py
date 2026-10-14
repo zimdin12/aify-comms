@@ -31,7 +31,7 @@ from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.operator_authz import prove_operator, recorded_operator_actor
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime, _runtime_capability_for_environment
+from service.api_core.runtime import _normalize_runtime, _normalize_session_mode, _runtime_capability_for_environment
 from service.api_core.runtime_state import _runtime_handle_from_state, _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or, _normalize_machine_id
 from service.api_core.harness_defaults import with_defaults
@@ -121,7 +121,7 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         # offline even when only its description had changed (2026-10-14 audit, D3). Compared on the
         # whole resolved assignment, so a same-environment change of workspace, model or config applies.
         if (
-            str(agent["session_mode"] or "") == "managed"
+            _normalize_session_mode(agent["session_mode"] or "") == "managed"
             and latest_session is not None
             and str(latest_session["environment_id"] or "") == environment_id
             and previous_runtime == runtime
