@@ -52,7 +52,7 @@ present launcher does not prove it is current.
 For clients, run the same installer for a missing or outdated integration, once per selected client:
 
 ```bash
-bash install.sh --client <claude|codex|hermes> <endpoint> --with-hook
+bash install.sh --client <claude|codex|hermes> <endpoint> # --with-hook for claude/codex
 ```
 
 From PowerShell or cmd use `.\install.cmd` with the same arguments: a bare `bash` there is WSL's.
@@ -77,8 +77,8 @@ with the selected source/version. Re-read registry/credential status without dis
 Report checks passed, missing/outdated/unknown items, declined options and pending restarts separately.
 
 Starting or restarting aify-env supersedes the running one and reaps its managed workers. Treat it,
-service rebuilds and wrapper relaunches as separate disruptive actions requiring approval. Installing
-a new package does not update an already-running process.
+service rebuilds and wrapper relaunches as separate disruptive actions requiring approval. A new
+package does not update a running process.
 
 Never run a bare `aify-comms` to test it; older installations can start a competing bridge. Use
 `aify-comms doctor` or `--check`. Likewise, bare `aify-env`, bare `herdr` and `aify-env herdr` are

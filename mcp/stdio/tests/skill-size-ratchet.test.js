@@ -64,7 +64,7 @@ const CEILINGS = {
   // a nested `claude` without your identity.
   // 12_720 -> 12_592 -> 12_578 on 2026-09-27 (0.7.5): the tool map lost the three tools the operator
   // removed, and the Compacting section names the native mode in place of the mode="internal" caveat.
-  "aify-comms/SKILL.md": 10_681,
+  "aify-comms/SKILL.md": 10_666,
   "aify-comms/references/building-software.md": 3_948,
   // 15_758 -> 15_819 on 2026-09-27 (0.7.5), a raise: the operator asked for native compaction, and
   // the compact bullet now describes two modes and when native is refused instead of one mode and a
@@ -85,7 +85,7 @@ const CEILINGS = {
   // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
   // read rather than skimmed.
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
-  "aify-comms-install/SKILL.md": 5_037,
+  "aify-comms-install/SKILL.md": 5_036,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
   // 0.7.4 skills audit, three small raises (debug SKILL.md +71, codex.md +96, hermes-turns.md +9): the
