@@ -8,7 +8,7 @@ import { api } from './api-client.mjs';
 import { messageId } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { byId } from './ui.js';
-import { esc } from './util.js';
+import { esc, relTimeAt, tsMs } from './util.js';
 
 export function runQueryPath(status = state.runStatusFilter) {
   const params = new URLSearchParams({ limit: '80' });
@@ -42,6 +42,17 @@ export async function patchRun(runId, payload) {
 // The run-inspector data loaders, moved out of app.js in v0.5.4. They join the query helpers above
 // because they address the same endpoints; the page-size cap travels with them, since it is enforced
 // in two places and splitting them would let the two drift.
+/**
+ * How long a run has taken. A finished run is measured to its recorded finish, so it stops counting;
+ * one still going is measured to `nowMs`. PURE.
+ */
+export function runDurationText(run, nowMs = Date.now()) {
+  const startedAt = run?.startedAt || run?.claimedAt || run?.requestedAt;
+  if (!startedAt) return 'duration unknown';
+  const finished = tsMs(run?.finishedAt);
+  return Number.isFinite(finished) ? `took ${relTimeAt(startedAt, finished)}` : `${relTimeAt(startedAt, nowMs)} elapsed`;
+}
+
 export const RUN_INSPECTOR_EVENT_LIMIT = 50;
 export async function loadRunDetails(runId) {
   const result = await api(`/dispatch/runs/${encodeURIComponent(runId)}`);

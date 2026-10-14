@@ -14,6 +14,7 @@ import {
   loadRunEvents,
   patchRun,
   runQueryPath,
+  runDurationText,
   runSourceMessage,
   syncRunFilterOptions,
 } from "./run-helpers.mjs";
@@ -273,4 +274,14 @@ test("`before` is sent only when there is one", () => {
     await loadRunEvents("r1", { before: "evt-9" });
     assert.match(calls[1].url, /before=evt-9/);
   });
+});
+
+test("a finished run's duration stops at its finish; a running one counts to now", () => {
+  const now = Date.parse("2026-10-14T12:00:00Z");
+  const started = "2026-10-14T10:00:00Z";
+  assert.equal(runDurationText({ startedAt: started, finishedAt: "2026-10-14T10:05:00Z" }, now), "took 5m",
+    "a completed run read 2h elapsed and kept growing");
+  assert.equal(runDurationText({ startedAt: started }, now), "2h elapsed", "control: still running counts to now");
+  assert.equal(runDurationText({ claimedAt: started, finishedAt: "2026-10-14T10:05:00Z" }, now), "took 5m", "claim time stands in for start");
+  assert.equal(runDurationText({}, now), "duration unknown");
 });

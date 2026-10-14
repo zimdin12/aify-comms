@@ -19,13 +19,13 @@ import { sendRunFollowup } from './message-transport.mjs';
 // missing-sibling-import gate the day it was extended to the dashboard.
 import { messageId, runPendingControlCount, runTargetAgent } from './record-fields.mjs';
 import { renderRunEvent } from './run-event.mjs';
-import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
+import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, runDurationText, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities } from './run-inspector-controls.mjs';
 import { runFrom } from './session-activity.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
 import { byId, toast, uiConfirm, uiPrompt } from './ui.js';
-import { esc, relTime } from './util.js';
+import { esc } from './util.js';
 import { diagnosticKey, matchesGlobalFilter } from './work-loop-panels.mjs';
 
 let closeInspector = () => {};
@@ -145,7 +145,7 @@ export function renderRunInspector() {
   const sourceBody = sourceMessage?.body || sourceMessage?.preview || run.body || run.summary || '';
   const events = state.inspector.events || [];
   const startedAt = run.startedAt || run.claimedAt || run.requestedAt;
-  const duration = startedAt ? `${relTime(startedAt)} elapsed` : 'duration unknown';
+  const duration = runDurationText(run);
   byId('inspector-content').innerHTML = `
     <section class="run-inspector">
       <header class="run-inspector-header">
