@@ -137,7 +137,7 @@ class AProofIsJudgedAndEnrolledUnderTheWriteLock(FastApiTestCase):
                         AMachineSpeaksOnlyThroughItsProvenHost.rows)
 
     def test_no_other_writer_can_land_between_a_beats_proof_read_and_its_write(self):
-        import service.routers.environments as environments
+        import service.api_core.environment_heartbeat as environments
         real = environments.judge_host_proof
         seen = []
 

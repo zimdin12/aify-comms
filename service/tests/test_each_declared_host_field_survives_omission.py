@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from service.routers.environments import COLUMN_CARRIER, HOST_OWNED_FIELDS, METADATA_CARRIER
+from service.api_core.environment_beat import COLUMN_CARRIER, HOST_OWNED_FIELDS, METADATA_CARRIER
 from service.tests._base import FastApiTestCase
 
 ENV_ID = "windows:carrier-host:default"

@@ -46,7 +46,7 @@ PRUNE = {"node_modules", "fixtures", "__pycache__", ".git", ".venv", "tests"}
 #: Read off the code, not invented: shrinking this means a write path was removed.
 #: `service/api_core/environment_registration.py` is deliberately ABSENT. It writes the already-
 #: clamped `requested_status` parameter and no literal of its own, so it cannot widen the vocabulary
-#: — the clamp in `routers/environments.py` is the whole guard, which is why that clamp reading the
+#: — the clamp in `api_core/environment_beat.py` is the whole guard, which is why that clamp reading the
 #: constant is asserted below rather than left to inspection.
 WRITE_SITES: dict[str, set[str]] = {
     "service/routers/environments.py": {"forgotten", "disabled"},
@@ -161,7 +161,7 @@ class EnvironmentStatusVocabularyTests(unittest.TestCase):
         """
         for status in sorted(ENVIRONMENT_STATUSES - ENVIRONMENT_REGISTRABLE_STATUSES):
             self.assertNotIn(status, ENVIRONMENT_REGISTRABLE_STATUSES, status)
-        source = (REPO / "service/routers/environments.py").read_text(encoding="utf-8")
+        source = (REPO / "service/api_core/environment_beat.py").read_text(encoding="utf-8")
         self.assertIn(
             "if requested_status not in ENVIRONMENT_REGISTRABLE_STATUSES:", source,
             "the registration clamp must READ the constant — it was a hand-typed set literal, which "

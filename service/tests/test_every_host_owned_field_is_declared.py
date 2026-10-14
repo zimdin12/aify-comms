@@ -29,13 +29,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from service.routers.environments import (
+from service.api_core.environment_beat import (
     HOST_OWNED_FIELDS,
     HOST_OWNED_METADATA,
     METADATA_CARRIER,
 )
 
-HANDLER = Path(__file__).resolve().parents[1] / "routers" / "environments.py"
+HANDLER = Path(__file__).resolve().parents[1] / "api_core" / "environment_beat.py"
 
 #: The guard that marks a field as host-describing: absence means "said nothing about the host".
 GUARD = re.compile(r"if\s+req\.([A-Za-z_][A-Za-z0-9_]*)\s+is\s+None\b|"

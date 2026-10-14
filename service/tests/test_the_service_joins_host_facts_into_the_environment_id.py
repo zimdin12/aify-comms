@@ -22,7 +22,7 @@ environment and orphan the agents bound to the old one, so the raw form is prese
 
 from __future__ import annotations
 
-from service.routers.environments import _derived_environment_id
+from service.api_core.environment_beat import _derived_environment_id
 from service.tests._base import FastApiTestCase
 
 

@@ -2,7 +2,7 @@
 
 Two gates decide whether a registration may resurrect a row an operator deliberately removed — the
 agent tombstone in `registration_gates.py` and the environment forget-tombstone in
-`routers/environments.py`, which says in its own comment that it "mirrors how agent registration
+`api_core/environment_heartbeat.py`, which says in its own comment that it "mirrors how agent registration
 honors agent_tombstones". Both decide it the same way:
 
     relaunched = bool(incoming_started) and (not removed_at or incoming_started > removed_at)
@@ -71,7 +71,7 @@ class TombstoneFreshnessTests(unittest.TestCase):
 
         root = pathlib.Path(__file__).resolve().parents[2]
         agent_gate = (root / "service/api_core/registration_gates.py").read_text(encoding="utf-8")
-        env_gate = (root / "service/routers/environments.py").read_text(encoding="utf-8")
+        env_gate = (root / "service/api_core/environment_beat.py").read_text(encoding="utf-8")
         self.assertIn("incoming_started = _parsed_timestamp(req.bridgeStartedAt)", agent_gate)
         # THE PARSER, not the whole line. This pinned the exact statement until 2026-09-04, when the
         # M1 clamp gave that expression a name and a ceiling -- so a gate about WHICH HELPER IS
