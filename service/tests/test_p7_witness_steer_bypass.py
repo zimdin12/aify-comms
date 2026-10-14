@@ -99,13 +99,22 @@ class SteerBypassWitness(_ClaimWorld):
     def test_an_explicit_queue_run_is_held_and_released_when_the_turn_ends(self):
         """The explicit queue means "after this turn": held while busy, and the SAME run, flag kept, is claimed
         once the turn is closed (the obligation of the removed regression
-        `test_explicit_queue_to_busy_steerable_target_waits_for_turn_end`)."""
+        `test_explicit_queue_to_busy_steerable_target_waits_for_turn_end`).
+
+        The last step retries the ORIGINAL run after the held claim, rather than a fresh world: only that shows
+        the held claim left the run exactly as it found it (a write on the held path that damaged the run would
+        pass every fresh-world twin above it)."""
         self._world("arm-queue", queue_if_busy=1)
         self._assert_held("arm-queue", self._claim("arm-queue"))
         self._world("arm-queue-released", queue_if_busy=1, spec=BUSY.closed())
         self._assert_r1_claimed("arm-queue-released", self._claim("arm-queue-released"))
         self._world("arm-queue-twin")
         self._assert_r1_claimed("arm-queue-twin", self._claim("arm-queue-twin"))
+
+        INPUT_ADAPTER.apply(self._db_path, "arm-queue", BUSY.closed())     # the turn ends; the queue is untouched
+        self._assert_r1_claimed("arm-queue", self._claim("arm-queue"))
+        flag = self._rows("SELECT queue_if_busy FROM dispatch_runs WHERE id = 'r1-arm-queue'")[0]["queue_if_busy"]
+        self.assertEqual(flag, 1, "the explicit-queue flag is kept on the run that was claimed")
 
     def test_a_run_that_does_not_ask_to_steer_is_held(self):
         self._world("arm-steer-flag", steer_if_busy=0)
