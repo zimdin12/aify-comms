@@ -6,13 +6,14 @@
 //
 // which tests `partial` before it ever looks at `ok`. Those two fields answer different questions:
 // `partial` says HOW MUCH EVIDENCE was gathered, `ok` says WHAT THE ANSWER WAS, and they vary
-// independently. Both combinations exist in this tool right now:
+// independently. Both combinations existed in this tool:
 //
 //   * `bridgeCurrentVerdict` returns {ok: true, code: "partial"} -- some live bridges reported a
 //     build and the rest are too old to. Genuinely benign; `~` is the right mark for it.
-//   * `contextWindowVerdict` returns {ok: false, code: "partial"} when the fan-out cap was reached,
+//   * `contextWindowVerdict` returned {ok: false, code: "partial"} when the fan-out cap was reached,
 //     and its own text says "this row is not a clean result: the agent this check exists to find may
-//     be" among the ones never opened. That is a FAILURE, and it rendered as the same `~`.
+//     be" among the ones never opened. That is a FAILURE, and it rendered as the same `~`. (That row
+//     is in `aify-env doctor` since 0.9.7; `client-api-key` returns the same shape here.)
 //
 // So an operator scanning the report for `✗` found none, in a run that had failed to answer the
 // question it was asked. That is `a2f9e42`'s false green -- no evidence is not a pass -- reappearing

@@ -85,8 +85,8 @@ ahead of the turn bookkeeping. Without one, the service's console lease (`consol
 20s, stamped from the rendered screen) holds a long turn at `working`.
 
 - `online` while the Console shows the running footer: no fresh observation arrived. Check
-  `aify-comms doctor` `tier-version` and `env-code-currency` (an older aify-env sends none), then
-  whether the console streams at all (`comms_console_tail`).
+  `aify-comms doctor` `tier-version` and `aify-env doctor` `code-current` (old ones send none),
+  then whether the console streams (`comms_console_tail`).
 - `blocked` while generating: `_agent_awaiting_input` (`api_core/liveness.py`) matched a claude
   permission, resume or compaction prompt on the rendered screen. Read the console tail to see
   whether a prompt is really up.

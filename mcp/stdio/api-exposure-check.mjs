@@ -1,7 +1,6 @@
 // The `api-exposure` check: is the fleet listing open, and does it hand out credentials when it is?
 //
-// EXTRACTED SO IT CAN BE EXECUTED, for the reason `service-check.mjs` and `env-processes-check.mjs`
-// both record: `doctor.js` runs its whole sequence at module scope and ends in `process.exit()`, so a
+// EXTRACTED SO IT CAN BE EXECUTED, for the reason `service-check.mjs` records: `doctor.js` runs its whole sequence at module scope and ends in `process.exit()`, so a
 // check written inline there can be asserted ABOUT and never CALLED. That is how the service check's
 // early return came to bypass its own verdict with every test green.
 //

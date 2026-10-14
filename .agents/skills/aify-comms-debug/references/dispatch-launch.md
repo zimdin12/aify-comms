@@ -23,8 +23,8 @@ all surface here rather than as a runtime problem.
 
 **Read first**, neither starts anything:
 - `aify-comms doctor` → `spawn-delegation` (is the aify-env serving this host answering),
-  `spawn-queue` (a claimed spawn that never started), `tier-version` and `env-code-currency`.
-- `aify-env doctor` for the host itself.
+  `spawn-queue` (a claimed spawn that never started) and `tier-version`.
+- `aify-env doctor` for the host, `code-current` included.
 
 **Fix.**
 - aify-env down, unreachable or stale → [operator].

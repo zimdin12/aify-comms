@@ -39,21 +39,16 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
 import { tierVersionVerdict } from "./tier-version-check.mjs";
 import { definitionsFreshVerdict } from "./definitions-fresh-check.mjs";
-import { checkEnvCodeCurrency } from "./env-code-currency-check.mjs";
 import { clientApiKeyVerdict, credentialPolicyFrom } from "./client-api-key-check.mjs";
-import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
-import { defaultMachineId } from "./machine-id.mjs";
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
 import { markFor } from "./doctor-mark.mjs";
 import { buildReport, summaryLine } from "./doctor-report.mjs";
-import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkAgentStateShadow } from "./agent-state-shadow-check.mjs";
 import { readyReceipts, servingEnvEndpoint } from "./serving-env-endpoint.mjs";
-import { checkContextWindow } from "./context-window-check.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
 import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
 import { PORT_BASE, PORT_SPAN } from "./hermes-endpoint.js";
@@ -88,7 +83,6 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
-  managedOrphanVerdict,
   installedHostTier,
   spawnHostVerdict,
 } from "./doctor-predicates.js";
@@ -483,53 +477,6 @@ const servingEnv = envSetting.isLauncher
     },
   })
   : { endpoint: "", answered: null };
-// IS EVERYTHING aify-env RUNS ACCOUNTED FOR? The operator watched a live PTY in aify-env that the
-// dashboard could not show, and asked for exactly this. Both reads it needs -- a terminal listing
-// and a pid on each terminal -- landed in e426e497; before that the comparison was unanswerable.
-await checkEnvProcesses({
-  get,
-  add,
-  skip,
-  fetchJson: async (url) => {
-    try {
-      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(3000) });
-      return response.ok ? await response.json() : null;
-    } catch {
-      return null;
-    }
-  },
-  launcherText: installedLauncherText(),
-  machineId: defaultMachineId(),
-  endpoint: servingEnv.endpoint,
-});
-// IS THAT aify-env RUNNING THE CODE ON ITS DISK? `tier-version` above compares VERSIONS, and a
-// daemon that loaded its modules days ago reports the same version as one started a minute ago --
-// so the row that exists for tier staleness cannot see this at all. v0.6.3 was built on a host in
-// exactly that state: the renderer the operator asked for sat in files the running process had
-// never loaded, with every instrument green. aify-env already answers the question and nobody was
-// asking it. REPORTS ONLY: restarting reaps the predecessor's managed workers.
-{
-  await checkEnvCodeCurrency({
-    add,
-    skip,
-    endpoint: servingEnv.endpoint,
-    fetchJson: async (url) => {
-      try {
-        const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(3000) });
-        return response.ok ? await response.json() : null;
-      } catch {
-        return null;
-      }
-    },
-  });
-}
-// CAN THESE AGENTS STILL ANSWER? Measured 2026-08-31: five managed hermes agents produced nothing
-// for over two hours while status read `online`, `lastSeen` refreshed every few seconds and their
-// dispatch runs reported `delivered`. They were reading their messages and starting work, then
-// dying on a context window filled by conversations resuming since June. Nothing in the control
-// plane could say so -- and the auto-mirrored failure notice lists four candidate causes without
-// naming this one, so the single diagnosis readable off the screen was the one nobody looked for.
-await checkContextWindow({ get, add, skip });
 // IS ANY CONVERSATION CLAIMED BY TWO AGENTS? The ids are already unique; the failure is several
 // agents pointing at ONE. Two live instances on 2026-08-31, found by hand hours apart and invisible
 // to every status badge: a re-registered resident left a ghost row holding its session handle, so
@@ -561,8 +508,6 @@ await checkApiExposure({
 // KEYS ISSUED TO OTHER MACHINES that restrict nothing: set with no API_KEY, or refused as malformed.
 await checkExternalKeys({ get, add });
 checkNativeBridge();
-// Managed delivery loops running for agents that belong to no live bridge. READ-ONLY: it enumerates
-// and names them, and never kills. See `managedOrphanVerdict` for why reporting is the whole job.
 /**
  * The evidence `client-api-key` needs, gathered by MAKING THE REQUESTS.
  *
@@ -606,45 +551,6 @@ async function gatherClientApiKeyEvidence() {
     keySource: DOCTOR_API_KEY.source || "",
     authed: policy === "required" && key ? await ask({ "X-API-Key": key }) : null,
   };
-}
-
-async function checkManagedOrphans() {
-  // The enumerator is imported lazily so a host that cannot list processes fails HERE, with the
-  // reason, rather than taking doctor's module load with it.
-  let loops = null;
-  try {
-    const probes = await import("./proc-probes.js");
-    const rows = probes.defaultListProcesses();
-    // An EMPTY process table is not an empty answer. `defaultListProcesses` returns [] both when the
-    // host genuinely has no processes -- impossible -- and when its enumeration failed, and that
-    // conflation is exactly what hid a broken default for a whole release (`b57abc9e`). This process
-    // is running, so a table that does not contain it did not read the host.
-    if (!rows.some((row) => row && row.pid === process.pid)) throw new Error("enumeration did not include this process");
-    loops = rows
-      .map((row) => ({ agentId: probes.cmdlineDeliveryLoopAgent(row.commandLine), pid: row.pid }))
-      .filter((row) => row.agentId);
-  } catch {
-    loops = null;
-  }
-
-  const agentsBody = await get("/api/v1/agents");
-  const agents = agentsBody && agentsBody.agents && typeof agentsBody.agents === "object"
-    ? agentsBody.agents
-    : null;
-
-  const envs = await get("/api/v1/environments");
-  // The BRIDGE's liveness, not the row's advertised status: a loop belongs to no live bridge
-  // whenever no bridge can claim a spawn, and reading `status` here would attribute orphans to a
-  // bridge that has not spoken since yesterday.
-  const online = (envs && envs.environments ? envs.environments : []).filter(envCanClaimASpawn);
-  const live = await get("/api/v1/bridges");
-  const liveBridgeIds = envs && live
-    ? [...online.map((env) => String(env.bridgeId || "")), ...(live.bridges || []).map((b) => String(b?.id || ""))]
-      .filter(Boolean)
-    : null;
-
-  const verdict = managedOrphanVerdict({ loops, agents, liveBridgeIds });
-  return add("managed-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 
 /**
@@ -691,6 +597,10 @@ async function checkSpawnDelegation() {
 //
 // `bridge-terminal` moved to `aify-env doctor`, which owns whether this host can open a
 // terminal. See docs/AIFY_ENV_BOUNDARY.md for the table that assigns them.
+//
+// The host checks moved to `aify-env doctor` in 0.9.7 (plan D11: each doctor checks its own tier):
+// `env-processes`, `managed-orphans`, `context-window` and `claude-login` (aify-env doctor), and
+// `env-code-currency` folded into aify-env doctor's `code-current`, which asked the same daemon the same question.
 checkSkillsInstalled();
 await checkSpawnDelegation();
 // WORK THAT WAS TAKEN AND NOT DONE, which no row here asked about until 2026-09-04 (external
@@ -730,15 +640,15 @@ await checkSpawnDelegation();
   const verdict = clientApiKeyVerdict(await gatherClientApiKeyEvidence());
   add("client-api-key", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
-await checkManagedOrphans();
-// WHAT IS HOLDING HERMES' FILES. Its sibling above watches the DELIVERY LOOPS; nothing watched the
+// WHAT IS HOLDING HERMES' FILES. Its sibling `managed-orphans` (now in `aify-env doctor`) watches the
+// DELIVERY LOOPS; nothing watched the
 // per-agent GATEWAY HOSTS, and on 2026-08-31 the operator's `hermes update` refused to run, listing
 // 45 live processes from this install after aify-env was killed. Establishing whether those were
 // ours took a port range, a marker directory and a process walk -- a question this row now answers
 // directly. It reports STATE and makes no claim about why a gateway lives as long as it does; that
 // was investigated, three explanations were wrong, and the honest answer is still unknown.
 //
-// THE PROBES ARE IMPORTED LAZILY, exactly as `checkManagedOrphans` does above: a host that cannot
+// THE PROBES ARE IMPORTED LAZILY: a host that cannot
 // enumerate processes must fail in THIS row, with the reason, rather than taking the doctor's module
 // load down and silencing every other check with it.
 const gatewayProbes = await import("./proc-probes.js").catch(() => null);
@@ -780,9 +690,6 @@ await checkAgentIdentity();
 await checkEnvBridge();
 await checkBridgeCurrent();
 await checkUsage();
-// Beside the usage check because it is the same subject -- a credential with a deadline -- and
-// because 21 claude-code agents share one grant that nothing was watching.
-checkClaudeLogin({ add, skip });
 
 // The envelope and the summary line live in `doctor-report.mjs`: importing THIS file runs the
 // doctor, so the verdict-shaping is the part least worth running a fleet to test. See that module
@@ -809,7 +716,7 @@ if (asJson) {
     //
     //   * `doctor-predicates.js` returns {ok: true,  code: "partial"} -- some bridges reported a
     //     build, the rest are pre-B1. Genuinely benign, and `~` is right for it.
-    //   * `context-window-check.mjs` returns {ok: false, code: "partial"} from `cappedVerdict`, whose
+    //   * `context-window-check.mjs` (in `aify-env doctor` since 0.9.7) returned {ok: false, code: "partial"} from `cappedVerdict`, whose
     //     own text reads "this row is not a clean result: the agent this check exists to find may be"
     //     among the ones not measured. That is a failure, and it rendered as the same `~`.
     //

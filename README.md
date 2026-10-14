@@ -137,10 +137,11 @@ Rules that cost real hours:
    of a new id asks its host to define it first.
 
 Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day:
-`tier-version`, `env-code-currency`, `spawn-queue`, `session-handles`, `context-window`,
-`managed-orphans`, `gateway-orphans`, `env-processes`, `claude-login`, `usage-openai`,
+`tier-version`, `spawn-queue`, `session-handles`, `gateway-orphans`, `usage-openai`,
 `api-exposure`, `external-keys`, `client-api-key`. Each one reports and never acts; its `detail`
-says what it found and its `fix` what to do (`aify-comms doctor --json` prints both).
+says what it found and its `fix` what to do (`aify-comms doctor --json` prints both). The host
+rows, `env-processes`, `managed-orphans`, `context-window` and `claude-login`, are in
+`aify-env doctor` since 0.9.7, which also answers `env-code-currency` as `code-current`.
 
 ## Security
 

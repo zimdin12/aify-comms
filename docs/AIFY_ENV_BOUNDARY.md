@@ -162,6 +162,13 @@ Nothing crosses that line except **reachability**, which is symmetric and honest
 "aify-comms is registered and answering" or "registered and silent". It cannot say "aify-comms is
 healthy" — it asks, and displays the answer it was given.
 
+**The host checks moved to `aify-env doctor` in 0.9.7** (plan D11, each doctor checks its own tier):
+`env-processes`, `managed-orphans`, `context-window` and `claude-login` ask about this host's
+processes, consoles and credentials. `claude-login` is aify-env's own row; the other three judge against
+aify-comms' records, so aify-comms' plugin answers them (`lib/plugins/aify-comms/doctor-checks.mjs` in
+aify-env), under the plugin carve-out above. `env-code-currency` asked aify-env's `code-current`
+question off the same `/health` fields and folded into it.
+
 So `aify-env doctor` is a **collector and a display**, not an inspector. It runs its own environment
 checks, asks each registered service for its self-report, and renders both.
 

@@ -96,12 +96,12 @@ const CEILINGS = {
   "aify-comms-debug/references/codex.md": 5_259,
   "aify-comms-debug/references/dashboard-console.md": 3_865,
   "aify-comms-debug/references/dispatch-bridges.md": 5_903,
-  "aify-comms-debug/references/dispatch-delivery.md": 6_774,
-  "aify-comms-debug/references/dispatch-launch.md": 5_031,
-  "aify-comms-debug/references/hermes.md": 8_847,
+  "aify-comms-debug/references/dispatch-delivery.md": 6_772,
+  "aify-comms-debug/references/dispatch-launch.md": 5_028,
+  "aify-comms-debug/references/hermes.md": 8_840,
   "aify-comms-debug/references/lifecycle.md": 6_455,
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 10_059,
+  "aify-comms-debug/references/status-model.md": 10_055,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

@@ -16,20 +16,24 @@
 // THE CASES ARE DERIVED FROM THE REAL PRODUCERS, not invented here. Two functions in this tool
 // actually emit `partial`, one on each side of `ok`, and a test that made up its own objects would
 // keep passing if either producer changed shape -- proving only that the glyph function is
-// self-consistent. Driving the real ones means the day `contextWindowVerdict` stops returning a
-// failing partial, this file says so instead of quietly guarding nothing.
+// self-consistent. Driving the real ones means the day `clientApiKeyVerdict` stops returning a
+// failing partial, this file says so instead of quietly guarding nothing. (The producer that found the
+// defect, `contextWindowVerdict`, moved to `aify-env doctor` in 0.9.7, whose rows carry a state rather
+// than a glyph; `client-api-key` returns the same shape when its authenticated probe cannot finish.)
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { markFor } from "../doctor-mark.mjs";
-import { contextWindowVerdict } from "../context-window-check.mjs";
+import { clientApiKeyVerdict } from "../client-api-key-check.mjs";
 import { bridgeCurrentVerdict } from "../doctor-predicates.js";
 
 // -- the two real verdicts, one on each side of `ok` ----------------------------------------------
 
-/** Nothing measured and a tail left unopened: the fan-out cap was reached. */
-const cappedVerdict = () => contextWindowVerdict([], { unmeasured: 7 });
+/** A key is required and resolved, and the probe that would prove it works never completed. */
+const cappedVerdict = () => clientApiKeyVerdict({
+  policy: "required", endpoint: "http://127.0.0.1:8800", hasKey: true, keySource: "the store", authed: null,
+});
 
 /**
  * Live bridges match HEAD, but one is too old to report a build at all.
@@ -52,8 +56,8 @@ test("the two producers still emit the shapes this file is about", () => {
   // POSITIVE CONTROL, and the reason the cases are derived. If either stopped producing `partial`,
   // every assertion below would still pass while guarding nothing at all.
   const capped = cappedVerdict();
-  assert.equal(capped.code, "partial", "contextWindowVerdict no longer reports a capped run as partial");
-  assert.equal(capped.ok, false, "the capped verdict is no longer a failure");
+  assert.equal(capped.code, "partial", "clientApiKeyVerdict no longer reports an unfinished probe as partial");
+  assert.equal(capped.ok, false, "the unfinished-probe verdict is no longer a failure");
 
   const partly = partlyKnownBridges();
   assert.equal(partly.code, "partial", "bridgeCurrentVerdict no longer reports a mixed fleet as partial");
@@ -61,8 +65,8 @@ test("the two producers still emit the shapes this file is about", () => {
 });
 
 test("a FAILING partial is marked as a failure", () => {
-  // THE DEFECT. `cappedVerdict`'s own text says "this row is not a clean result: the agent this check
-  // exists to find may be" among the ones never opened -- and it rendered as `~`.
+  // THE DEFECT. A capped context-window run said "this row is not a clean result" and rendered as `~`;
+  // an unfinished key probe "was never proven to work" and must not wear the note either.
   assert.equal(
     markFor(cappedVerdict()), "✗",
     "a check that failed to gather its evidence is rendering as a note, so a report with no `✗` in it "

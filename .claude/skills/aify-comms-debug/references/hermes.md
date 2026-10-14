@@ -48,10 +48,9 @@ fails rather than requeueing forever.
   a previous generation's gateway on the agent's own port and whatever hermes records as the owner
   of the agent's session, and never kills its own ancestry. A `live owner` refusal clears on a
   relaunch.
-- **After a hard kill** of the host tier, leftovers are reported, never killed, by
-  `aify-comms doctor`: `gateway-orphans` (gateway hosts, including an elevated one it can only see
-  in the socket table, shown `unidentified`) and `managed-orphans` (delivery loops). Removing them is
-  [operator].
+- **After a hard kill** of the host tier, leftovers are reported, never killed: `gateway-orphans`
+  in `aify-comms doctor` (gateway hosts, an elevated one shown `unidentified` from the socket table)
+  and `managed-orphans` in `aify-env doctor` (delivery loops). Removing them is [operator].
 
 ## Hermes starts a FRESH session after a host-tier restart
 

@@ -116,7 +116,7 @@ resident registers, and a fresh wrapper child in the same terminal. Find the sec
 Kill-prior (`reap-managed-claude.js`) reaps only a `claude.exe` whose parent wrapper is
 `claude-aify --aify-agent <thatAgent>`, so it never touches another agent or a resident session.
 The session-collision guard parks a handle a different live agent already owns (`session-collision`
-note). Remaining orphans are reported by `aify-comms doctor` (`managed-orphans`); cleaning them up is
+note). Remaining orphans are reported by `aify-env doctor` (`managed-orphans`); cleaning them up is
 [operator].
 
 ## Windows install notes

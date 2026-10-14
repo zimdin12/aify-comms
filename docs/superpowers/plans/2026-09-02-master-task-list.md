@@ -2195,7 +2195,7 @@ been reading that very file for the quota pool all along, so the gap was never a
 It keys on the refresh window ONLY -- a check that went red every time the access token lapsed would
 be red most hours, get switched off, and take the real deadline with it -- reads two timestamps and
 never a token, and SKIPS on a host with no claude login rather than calling a codex-only machine
-broken. Live right now it reads `expiring`.
+broken. Live right now it reads `expiring`. (Since 0.9.7 the row is in `aify-env doctor`.)
 
 ## v0.6.1 close-out, verified 2026-09-03
 

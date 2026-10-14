@@ -75,10 +75,13 @@ class TheDoctorTableListsTheRealChecks(unittest.TestCase):
         )
 
     def test_the_checks_that_moved_to_other_tiers_are_gone_from_both(self):
-        """The interesting half. wrappers, wrapper-current and runtimes went to aify-wrapper and
-        bridge-terminal to aify-env; a second implementation of one question does not agree for free.
+        """The interesting half. wrappers, wrapper-current and runtimes went to aify-wrapper, and
+        bridge-terminal and (0.9.7) the five host checks to aify-env; a second implementation of one
+        question does not agree for free.
         If one reappears here, the boundary in docs/AIFY_ENV_BOUNDARY.md has been crossed back."""
-        moved = {"wrappers", "wrapper-current", "runtimes", "bridge-terminal"}
+        moved = {"wrappers", "wrapper-current", "runtimes", "bridge-terminal",
+                 # 0.9.7, plan D11: the host checks went to `aify-env doctor`.
+                 "env-processes", "env-code-currency", "context-window", "managed-orphans", "claude-login"}
         self.assertEqual(
             sorted(moved & emitted_check_ids()), [],
             "a check that belongs to another tier is being answered here again",

@@ -88,8 +88,8 @@ export async function spawnQueueVerdict({ list, now = Date.now } = {}) {
 
   const rows = Array.isArray(answer?.spawnRequests) ? answer.spawnRequests : [];
   // A WINDOW IS NOT THE WHOLE QUEUE. The endpoint caps its listing and says so; a claim stuck
-  // behind a hundred newer requests is outside the page and invisible. `env-processes-check.mjs`
-  // reads the same flag for the same reason.
+  // behind a hundred newer requests is outside the page and invisible. aify-env's
+  // `env-processes` row reads the same flag for the same reason.
   const truncated = Boolean(answer?.truncated);
   const stuck = [];
   const abandoned = [];
