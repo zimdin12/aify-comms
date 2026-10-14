@@ -11,6 +11,7 @@ import { state, emptyInspector } from './state.mjs';
 import { agentForSession, ensureSelectedSession, renderSessionRail } from './session-rail.mjs';
 import { refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
 import { clampSetting } from './settings-fields.mjs';
+import { sessionDisplayStatus } from './sessions-list.mjs';
 import { focusAfterClose, openAgentDrawer, syncInspectorToSelection } from './agent-drawer.mjs';
 import { initStartDialog } from './start-dialog.mjs';
 import { renderActivityFeed, renderAttention } from './work-loop-panels.mjs';
@@ -327,7 +328,9 @@ function renderSessionWorkspace() {
   const agentId = sessionAgentId(session);
   byId('session-title').textContent = agentId || sessionId(session);
   byId('session-subtitle').textContent = session.workspace || 'Live terminal and lifecycle for this session.';
-  byId('session-status').innerHTML = renderStatusChip(session.status || agentForSession(session).status || 'unknown', statusWhyContext('session', session, session.status || agentForSession(session).status || 'unknown'));
+  // The status the session LIST shows for this row, from the same owner: a live row speaks for its agent.
+  const shownStatus = sessionDisplayStatus(session, agentForSession(session));
+  byId('session-status').innerHTML = renderStatusChip(shownStatus, statusWhyContext('session', session, shownStatus));
   renderSessionActivity(session);
   renderSessionConsole(session);
 }
