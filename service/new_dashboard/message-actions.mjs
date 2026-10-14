@@ -20,7 +20,7 @@ import { state } from './state.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
-import { startRefusedAttrs } from './status.js';
+import { startRefusedAttrs, undefinedStartRefusal } from './status.js';
 
 let chatController = { render() {}, renderRail() {}, renderConversation() {} };
 let refreshSoon = () => {};
@@ -122,7 +122,8 @@ export function mountChatConsole(agentId, hostEl) {
        agentForSession(session)?.runtimeState?.consoleTerminal?.terminalId || '',
        session.terminalId || session.terminal?.id || '',
        (state.sessionTerminals?.get?.(sessionId(session))) || ''].join('|')
-    : 'none';
+    // With no session the card is a Start button, so its refusal is what renders (review of 0.9.5, D7).
+    : `none|${undefinedStartRefusal((state.agents || []).find((a) => a.id === agentId))}`;
   // Unchanged sig → leave the mounted widget alone — EXCEPT when the single global xterm now
   // lives in another host (the Sessions page re-mounts it) and THIS host is visible: that's the
   // "dead chat console after visiting Sessions" bug (review finding #2) — fall through so the

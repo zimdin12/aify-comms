@@ -17,7 +17,7 @@ import { state } from './state.mjs';
 import { byId } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
-import { startRefusedAttrs } from './status.js';
+import { startRefusedAttrs, undefinedStartRefusal } from './status.js';
 
 export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermForTerminal, refresh, resyncActiveConsole } = {}) {
   const host = targetEl || byId('session-console-summary');
@@ -261,12 +261,21 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // xterm is still mounted to this host — the live terminal then persists across polls.
   // Live status/meta that must stay fresh lives in the panel header (renderSessionWorkspace),
   // not in this console host, so this guard does not stale anything visible.
-  const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource, isVirtualTerminal]);
+  // A START REFUSAL IS PART OF WHAT RENDERS (review of 0.9.5, D7): without it a Start or Restart drawn
+  // disabled stayed disabled after the agent was defined. Keyed only with no terminal mounted, so a
+  // definition change never rebuilds a live one; the actions bar beside a live one is repainted below.
+  const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource, isVirtualTerminal,
+    hasTerminal ? '' : undefinedStartRefusal(agent)]);
   const xtermStillMounted = hasTerminal && state.activeXterm
     && state.activeXterm.terminalId === terminalId
     && host.contains(state.activeXterm.container);
   if (host.dataset.consoleKey === consoleKey && (!hasTerminal || xtermStillMounted)) {
     if (hasTerminal && state.activeXterm) state.activeXterm.canInput = canConsoleInput;
+    if (host.dataset.actionsHtml !== headerCard) {
+      const bar = host.querySelector?.('.session-actions-bar');
+      if (bar) bar.outerHTML = headerCard.trim();
+      host.dataset.actionsHtml = headerCard;
+    }
     // Re-show resync (bughunt 2026-07-03): while this host was hidden (page switched
     // away) terminal_output frames hit the offsetParent early-return before lastSeq
     // advanced, so they were dropped — and an idle agent emits no new frame to trip the
@@ -279,6 +288,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
     return;
   }
   host.dataset.consoleKey = consoleKey;
+  host.dataset.actionsHtml = headerCard;
   host.__consoleWasHidden = false;
 
   // Close any live codex console WS before we rewrite innerHTML (bughunt 2026-07-03):

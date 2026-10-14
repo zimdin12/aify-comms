@@ -88,3 +88,26 @@ test("omitting the dependency bag entirely does not throw", async () => {
     assert.doesNotThrow(() => renderSessionConsole({ id: "s1" }, host(), {}));
   });
 });
+
+test("A START REFUSAL CLEARS ONCE THE AGENT IS DEFINED: Sessions and Chat re-render it", async () => {
+  // Review of 0.9.5, D7: both renders keyed on things the refusal is not, so a Start or Restart drawn
+  // disabled for an undefined agent stayed disabled after its host defined it. A fresh host was right.
+  const { mountChatConsole } = await import("./message-actions.mjs");
+  await withDom(async () => {
+    state.agents = [{ id: "a1", definitionState: "" }];
+    state.sessions = [];
+    const sessions = host();
+    const stopped = { id: "s1", agent_id: "a1", agentId: "a1", status: "stopped" };
+    renderSessionConsole(stopped, sessions, {}, deps());
+    assert.match(sessions.innerHTML, /disabled title="no host defines a1/, "control: refused while undefined");
+    const chat = host();
+    mountChatConsole("a1", chat);
+    assert.match(chat.innerHTML, /disabled title="no host defines a1/, "control: chat refused while undefined");
+
+    state.agents = [{ id: "a1", definitionState: "defined" }];
+    renderSessionConsole(stopped, sessions, {}, deps());
+    mountChatConsole("a1", chat);
+    assert.doesNotMatch(sessions.innerHTML, /no host defines/, "the Sessions Restart stayed refused after the agent was defined");
+    assert.doesNotMatch(chat.innerHTML, /no host defines/, "the Chat Start stayed refused after the agent was defined");
+  });
+});
