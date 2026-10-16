@@ -250,6 +250,14 @@ test("a follow-up refused even without the wake throws, so the caller reports it
   await assert.rejects(sendRunFollowup(followupRun()), /no such agent/);
 });
 
+test("a follow-up the service stored as a reply but dispatched to nobody says so", async () => {
+  respond({ ok: true, dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: 'agent status is "offline"' }] });
+  const result = await sendRunFollowup(followupRun());
+  assert.equal(result.storedUnwoken, 'agent status is "offline"', "ok:true is not proof it was woken or queued");
+  respond({ ok: true, dispatchRuns: [{ status: "queued" }], notStarted: [] });
+  assert.equal((await sendRunFollowup(followupRun())).storedUnwoken, "", "a dispatched follow-up reports nothing");
+});
+
 test("a retry names itself a retry, so the thread does not read as a second request", async () => {
   respond({ ok: true });
   await sendRunFollowup(followupRun(), { retry: true });

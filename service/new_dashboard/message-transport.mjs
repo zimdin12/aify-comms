@@ -72,6 +72,15 @@ export async function chatSendMessage({ isChannel, target, identity, body, expec
     ...(inReplyTo ? { inReplyTo } : {}),
   });
 }
+// A follow-up threads to its run's message, so the service treats it as a REPLY: it never refuses
+// it, and can answer ok:true while waking nobody (`notStarted` set, no dispatch run). Report that,
+// rather than read "not refused" as "delivered" (review of dd992844). '' means it was dispatched.
+function storedWithoutDispatch(res) {
+  const notStarted = res?.notStarted || [];
+  if (!notStarted.length || (res?.dispatchRuns || []).length) return '';
+  return notStarted[0]?.reason || 'the agent cannot start live work now';
+}
+
 export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   const target = runTargetAgent(run);
   if (!target) return { storedUnwoken: '' };
@@ -91,7 +100,7 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   // A refusal is HTTP 200 with `ok: false` and stores nothing, which lost a typed follow-up silently.
   // Same rule as the chat composer: store it without the wake, and say so; throw if that fails too.
   const res = await sendMessageWithTimeout(payload);
-  if (res?.ok !== false) return { storedUnwoken: '' };
+  if (res?.ok !== false) return { storedUnwoken: storedWithoutDispatch(res) };
   const stored = await sendMessageWithTimeout({ ...payload, trigger: false });
   if (stored?.ok === false) throw new Error(stored.error || res.error || 'refused');
   return { storedUnwoken: res.error || 'the agent cannot start live work now' };
