@@ -39,8 +39,3 @@ def wake_failed_notice(not_started: list[dict[str, Any]]) -> str:
             f"Wake failed for {who} ({reason}). The message is in {who}'s inbox; {who} can read it when it is online."
         )
     return " ".join(parts)
-
-
-def unresolved_destinations(not_started: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The recipients nobody's inbox belongs to: no roster row and no address they ever declared."""
-    return [hint for hint in not_started if hint.get("unresolved")]

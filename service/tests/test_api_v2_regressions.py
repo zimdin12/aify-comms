@@ -1110,7 +1110,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (dispatched["runs"][0]["runId"],))
         self.assertEqual(run["execution_mode"], "managed")
 
-    def test_send_does_not_steer_into_offline_environment_active_run(self):
+    def _seed_managed_coder_with_a_stale_running_run(self):
+        """managed-coder (role coder) on an environment gone stale, holding running run 'run-stale'. A woken
+        send to it makes the preflight fail that run, which is the side effect an early refusal must not cause."""
         self._heartbeat_environment(
             id="wsl:test-host:default",
             label="WSL on test-host",
@@ -1180,6 +1182,9 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "2026-01-01T00:00:01Z",
             ),
         )
+
+    def test_send_does_not_steer_into_offline_environment_active_run(self):
+        self._seed_managed_coder_with_a_stale_running_run()
 
         sent = self._send_message(
             from_agent="manager",
@@ -8333,6 +8338,68 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(sent["ok"], sent)
         self.assertNotIn("messageId", sent)
         self.assertIsNone(self._fetchone("SELECT id FROM messages WHERE to_agent = ?", ("nobody-here",)))
+
+    def test_an_unresolved_name_is_refused_for_a_store_only_send_too(self):
+        # Review of d7173725, R1: the gate sat under req.trigger, so a store-only send (the default) to
+        # nobody's inbox was stored and answered stored:true.
+        self._register("lead", runtime="codex", sessionMode="managed")
+        sent = self._send_message(from_agent="lead", to="nobody-here", type="info", subject="lost", body="x", trigger=False)
+        self.assertFalse(sent["ok"], sent)
+        self.assertIsNone(self._fetchone("SELECT id FROM messages WHERE to_agent = ?", ("nobody-here",)))
+
+    def test_an_unresolved_name_is_refused_before_the_preflight_changes_anything(self):
+        # Review of d7173725, R1: with a known member beside the unknown name, the preflight failed that
+        # member's stale run and only then refused. The refusal must come first, so the run is untouched.
+        self._seed_managed_coder_with_a_stale_running_run()
+        self._register("lead", runtime="codex", sessionMode="managed")
+        sent = self._send_message(from_agent="lead", to="nobody-here", toRole="coder", type="request",
+                                  subject="mixed", body="x", trigger=True)
+        self.assertFalse(sent["ok"], sent)
+        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run-stale",))["status"], "running",
+                         "the refusal came after the preflight had already failed a live run")
+        self.assertEqual(self._fetchall("SELECT id FROM messages WHERE subject = ?", ("mixed",)), [])
+
+    def test_a_nonce_loss_whose_winner_cannot_be_identified_is_unknown_not_refused(self):
+        # Review of d7173725, R3: another request under this nonce wrote the rows, but the lookup found no
+        # winner. That is unknown storage, not a refusal: 503, so every consumer reads it as unknown.
+        from unittest import mock
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+        first = self._send_message(from_agent="lead", to="coder", type="info", subject="once", body="x", clientNonce="n-9")
+        self.assertTrue(first["ok"], first)
+        with mock.patch("service.routers.dispatch_messages.messages.prior_send_for_nonce", mock.AsyncMock(return_value=None)):
+            raced = self.client.post("/api/v1/messages/send", json={
+                "from_agent": "lead", "to": "coder", "type": "info", "subject": "once", "body": "x", "clientNonce": "n-9"})
+        self.assertEqual(raced.status_code, 503, raced.text)
+        self.assertIn("A concurrent send under this nonce won and could not be identified yet", raced.text)
+        self.assertIn("whether this message is stored is unknown", raced.text)
+        self.assertEqual(len(self._fetchall("SELECT id FROM messages WHERE subject = ?", ("once",))), 1, "nothing new was written")
+
+    def test_a_late_launch_failure_is_stored_without_a_run_and_says_why(self):
+        # Review of d7173725: a recipient that passed the preflight but failed at launch lands in not_started
+        # with no run. The launch seam is substituted, which is route evidence, not a native failure.
+        from unittest import mock
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._create_running_session(agent_id="healthy", role="crew", terminal=True, runtime="codex",
+                                     terminal_runtimes=["codex"], session_handle="thread-healthy")
+
+        # CONTROL first: the real launch step dispatches the healthy recipient.
+        ok = self._send_message(from_agent="lead", to="healthy", type="request", subject="control", body="x", trigger=True)
+        self.assertEqual([run["targetAgentId"] for run in ok["dispatchRuns"]], ["healthy"], ok)
+
+        async def fails_late(channel_backing_failed, console_recipients, db, launchable, not_started, req, settings):
+            for recipient_id, _mode in launchable:
+                not_started.append({"targetAgentId": recipient_id, "reason": "launch failed after the preflight"})
+
+        with mock.patch("service.routers.dispatch_messages.messages._launch_recipients_for_dispatch", fails_late):
+            sent = self._send_message(from_agent="lead", to="healthy", type="request", subject="late", body="x", trigger=True)
+        assert_stored_unwoken(self, sent, "healthy")
+        self.assertIn("launch failed after the preflight", sent["notice"])
+        row = self._fetchone("SELECT id FROM messages WHERE subject = ?", ("late",))
+        self.assertEqual(row["id"], sent["messageId"])
+        runs = self._fetchall("SELECT id FROM dispatch_runs WHERE subject = ?", ("late",))
+        self.assertEqual(runs, [], "a recipient whose launch failed must get no run")
 
     def test_a_send_to_an_external_sender_is_stored_here_and_says_it_is_not_relayed(self):
         # An external sender declared an address; the message is kept HERE, and the notice must not suggest

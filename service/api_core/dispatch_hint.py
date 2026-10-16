@@ -41,7 +41,7 @@ async def _unregistered_recipient_hint(db, recipient_id: str) -> dict[str, Any]:
     address = await _last_known_address(db, recipient_id)
     origin, machine = address["origin"], address["externalMachine"]
     # Nobody's inbox: no row and no address it ever declared. The only wake failure a send still refuses
-    # (wake_notice.unresolved_destinations); an external sender's message is stored, as below says.
+    # (unresolved_new_destinations, below); an external sender's message is stored, as below says.
     hint["unresolved"] = not (origin or machine)
     hint["externalSender"] = bool(origin or machine)
     if origin or machine:
@@ -148,3 +148,22 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
     hint["fix"] = "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps."
     hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
     return hint
+
+
+async def unresolved_new_destinations(db, recipients: list[str]) -> list[dict[str, Any]]:
+    """The recipients that are nobody's inbox: no roster row and no address they ever declared.
+
+    READ-ONLY, and asked before anything else a send does, woken or not (review of d7173725): the preflight
+    can settle a stale run and the launch can start a worker, so a refusal decided after them would leave
+    those effects behind. The reserved `dashboard` sink is always an inbox.
+    """
+    unresolved = []
+    for recipient_id in recipients:
+        if recipient_id == "dashboard":
+            continue
+        if await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (recipient_id,))).fetchone():
+            continue
+        hint = await _unregistered_recipient_hint(db, recipient_id)
+        if hint.get("unresolved"):
+            unresolved.append(hint)
+    return unresolved

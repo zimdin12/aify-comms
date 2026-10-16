@@ -32,7 +32,8 @@ from service.api_core.reply_expectation import (
 )
 from service.api_core.reply_threading import _thread_reply_onto_dispatch_runs
 from service.api_core.send_refusal import _refuse_send_to_unstartable_recipients
-from service.api_core.wake_notice import REPLAY_NOTICE, unresolved_destinations, wake_failed_notice
+from service.api_core.dispatch_hint import unresolved_new_destinations
+from service.api_core.wake_notice import REPLAY_NOTICE, wake_failed_notice
 from service.api_core.console_input_queue import _queue_console_dispatch_inputs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -152,6 +153,12 @@ async def send_message(req: MessageSend, request: Request):
 
         if not recipients:
             return {"ok": False, "error": "No recipients found", "recipients": []}
+        # Nobody's inbox is refused FIRST, woken or not, before the preflight or the launch can change
+        # anything. Replies keep their persist-and-thread path (see is_reply above).
+        if not is_reply:
+            unresolved = await unresolved_new_destinations(db, recipients)
+            if unresolved:
+                return await _refuse_send_to_unstartable_recipients(db, recipients, unresolved, warnings)
 
         launchable_recipients = []
         not_started = []
@@ -167,10 +174,7 @@ async def send_message(req: MessageSend, request: Request):
                 allow_queue_busy=allow_queue_busy,
             )
             # A recipient that cannot be woken is STORED without a run, and the answer says the wake failed
-            # (Steven, 2026-10-16). Only a destination that is nobody's inbox is still refused, before
-            # anything is launched or written. Replies always fall through to persist + thread.
-            if not is_reply and unresolved_destinations(not_started):
-                return await _refuse_send_to_unstartable_recipients(db, recipients, unresolved_destinations(not_started), warnings)
+            # (Steven, 2026-10-16). Nobody's inbox was refused above, before this.
             settings = await _load_settings(db)
             channel_backing_failed = set()
             await _launch_recipients_for_dispatch(channel_backing_failed, console_recipients, db, launchable_recipients, not_started, req, settings)
@@ -217,16 +221,20 @@ async def send_message(req: MessageSend, request: Request):
             prior_id = await prior_send_for_nonce(
                 db, req, client_nonce, fingerprint=fingerprint, in_reply_to=resolved_in_reply_to,
             )
-            # Only an identified earlier send is "stored": an id this request minted for rows it never
-            # wrote would claim an acceptance nobody can find.
+            # Only an identified earlier send is "stored": an id this request minted for rows it never wrote
+            # would claim an acceptance nobody can find. Unidentified, the storage is UNKNOWN, not refused:
+            # another request under this nonce did write, so 503 lets every caller treat it as an unknown
+            # outcome, and a retry under the same nonce reaches the replay above (review of d7173725, R3).
+            if not prior_id:
+                raise HTTPException(503, "A concurrent send under this nonce won and could not be identified yet; "
+                                         "whether this message is stored is unknown. Retry with the same nonce.")
             return {
-                "ok": bool(prior_id),
+                "ok": True,
                 "messageId": prior_id,
                 "replayed": True,
-                "stored": bool(prior_id),
+                "stored": True,
                 "wakeOutcome": "unknown",
-                "notice": REPLAY_NOTICE if prior_id else "",
-                "error": "" if prior_id else "A concurrent send under this nonce won, and it could not be identified.",
+                "notice": REPLAY_NOTICE,
                 "recipients": [],
                 "recipientStatus": {},
                 "dispatchRuns": [],
