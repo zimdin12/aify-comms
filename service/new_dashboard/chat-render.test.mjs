@@ -402,3 +402,18 @@ test("woke/stored reads dispatchRequested, the one wake field a message carries"
   assert.ok(messageHtml({ id: "m1", read: true, dispatchRequested: true }, "dashboard").includes("msg-badge woke"));
   assert.ok(messageHtml({ id: "m1", read: true, dispatchRequested: false }, "dashboard").includes("msg-badge stored"));
 });
+
+// The note before Send must agree with the service's refusal set, or it warns about sends that go
+// through and stays silent on the ones refused (2026-10-14).
+import { composerWakeNote } from './chat-render.mjs';
+import { NON_LIVE_AGENT_STATUSES, LIVE_AGENT_STATUSES } from './status.js';
+
+test("the composer warns before Send for exactly the statuses the service refuses to wake", () => {
+  for (const status of NON_LIVE_AGENT_STATUSES) {
+    assert.match(composerWakeNote({ id: "peer", status }), new RegExp(`peer is ${status} and cannot be woken now`));
+  }
+  for (const status of LIVE_AGENT_STATUSES) {
+    assert.equal(composerWakeNote({ id: "peer", status }), "", `${status} is deliverable; no warning`);
+  }
+  assert.equal(composerWakeNote(undefined), "", "no agent record, no claim");
+});

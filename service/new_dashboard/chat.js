@@ -18,6 +18,7 @@ import { createMessengerReading } from './messenger-reading.mjs';
 // no DOM. The controller below is their only caller here; `chat.test.mjs` imports them from their new
 // owner rather than through this module, so nothing re-exports them.
 import {
+  composerWakeNote,
   deliveryToastFor,
   messageHtml,
   railItemHtml,
@@ -347,6 +348,15 @@ export function createChatController(deps) {
     // "Expects reply" is a DM-dispatch concept — inert for channel broadcasts, so hide it there too.
     const expectsRow = composer?.querySelector('#chat-expects-reply')?.closest('.check-row');
     if (expectsRow) expectsRow.hidden = isChannel;
+    const wakeNote = isChannel ? '' : composerWakeNote((state.agents || []).find((a) => a.id === key.slice(key.indexOf(':') + 1)));
+    let wakeBanner = byId('chat-wake-note');
+    if (wakeNote && !wakeBanner) {
+      wakeBanner = document.createElement('div');
+      wakeBanner.id = 'chat-wake-note';
+      wakeBanner.className = 'chat-reply-banner';
+      composer?.parentNode?.insertBefore(wakeBanner, composer);
+    }
+    if (wakeBanner) { wakeBanner.hidden = !wakeNote; wakeBanner.textContent = wakeNote; }
     // Reply-context banner: when replying to a message, show what we're replying to + a clear button.
     const reply = state.chat.replyTo;
     let banner = byId('chat-reply-banner');

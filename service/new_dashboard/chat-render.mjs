@@ -16,7 +16,7 @@
 // twice. `subjectIsEchoOfBody` suppresses the heading in that case and `DERIVED_SUBJECT_MAX` is the
 // server's slice length — the two must agree or the duplicate comes back.
 import { esc, relTime } from './util.js';
-import { resolveStatus } from './status.js';
+import { resolveStatus, NON_LIVE_AGENT_STATUSES } from './status.js';
 import { richMessageHtml } from './message-format.mjs';
 
 /**
@@ -174,6 +174,14 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
     <div class="chat-msg-body">${richMessageHtml(m.body || m.preview || '')}</div>
     <small class="chat-msg-time">${(() => { const t = relTime(m.timestamp || m.createdAt); return t ? esc(t) + ' ago' : ''; })()}</small>
   </article>`;
+}
+
+// Said BEFORE Send, from the same status set the service refuses a woken send on, so the operator is
+// not surprised after typing (2026-10-14: an hour's message to an offline agent). '' means no note.
+export function composerWakeNote(agent) {
+  const status = resolveStatus(agent?.status).kind;
+  if (!agent || !NON_LIVE_AGENT_STATUSES.includes(status)) return '';
+  return `${agent.id} is ${status} and cannot be woken now. Your message will be saved in its inbox.`;
 }
 
 // Map a /messages/send response to a single truthful delivery toast (the plan's "ladder":

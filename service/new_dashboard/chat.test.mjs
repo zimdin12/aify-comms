@@ -689,3 +689,14 @@ test("the rail says how many agents its filters hide, and offers Clear (v0.7.7)"
   controller.renderRail();
   assert.doesNotMatch(els["chat-rail-list"].innerHTML, /hidden by filters/, "CONTROL: nothing hidden, no note");
 });
+
+test("an offline DM shows the cannot-be-woken note above the composer before Send", () => withStubDocument(async () => {
+  const h = sendHarness();
+  h.state.agents = [{ id: "peer", status: "offline" }];
+  const inserted = [];
+  h.els["chat-composer"] = { hidden: false, querySelector: () => null, parentNode: { insertBefore: (el) => inserted.push(el) } };
+  h.controller.renderConversation();
+  assert.equal(inserted.length, 1, "the note is mounted once");
+  assert.equal(inserted[0].hidden, false);
+  assert.match(inserted[0].textContent, /peer is offline and cannot be woken now/);
+}));
