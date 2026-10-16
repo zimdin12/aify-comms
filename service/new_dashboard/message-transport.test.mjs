@@ -323,6 +323,13 @@ test("a follow-up answered with an empty 200 throws as an UNKNOWN outcome, not s
   assert.equal(sendOutcomeIsUnknown(err), true);
 });
 
+test("requireAck with a field also needs that field: a steer ack without its controlId is unknown", () => {
+  assert.deepEqual(requireAck({ ok: true, controlId: "c1" }, "controlId"), { ok: true, controlId: "c1" });
+  const err = (() => { try { requireAck({ ok: true }, "controlId"); } catch (e) { return e; } })();
+  assert.match(err.message, /without a controlId/);
+  assert.equal(sendOutcomeIsUnknown(err), true);
+});
+
 test("requireAck passes only an explicit ok:true, and anything else is an unknown outcome", () => {
   const ack = { ok: true, messageId: "m1" };
   assert.equal(requireAck(ack), ack);

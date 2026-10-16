@@ -300,10 +300,18 @@ test("a failed follow-up reopens the prompt WITH the typed text until it is sent
   assert.deepEqual(result, { sentBody: "long follow-up" });
 });
 
-test("cancelling the reopened prompt gives up without sending again", async () => {
+test("cancelling AFTER a failed attempt sends nothing more and rethrows that failure", async () => {
+  // A cancel after a lost answer is not "nothing happened": the attempt may have landed, so the caller
+  // must still be able to say so (review of b939bed6).
   let attempts = 0;
   const answers = ["text", ""];
-  const result = await keepAskingUntilSent(async () => answers.shift(), async () => { attempts += 1; throw new Error("down"); });
-  assert.equal(result, null);
+  await assert.rejects(keepAskingUntilSent(async () => answers.shift(), async () => { attempts += 1; throw new Error("down"); }), /down/);
   assert.equal(attempts, 1);
+});
+
+test("cancelling before any attempt returns null and sends nothing", async () => {
+  let attempts = 0;
+  const result = await keepAskingUntilSent(async () => null, async () => { attempts += 1; });
+  assert.equal(result, null);
+  assert.equal(attempts, 0);
 });

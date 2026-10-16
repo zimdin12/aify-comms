@@ -84,9 +84,9 @@ export function sendOutcomeIsUnknown(err) {
 // A write counts as done only on its acknowledgement, `ok: true`. An empty 200 (api() answers {}) or a
 // null proves nothing was stored, so it is an UNKNOWN outcome: thrown without a status, and the caller
 // keeps the operator's text (review of 455fff8a).
-export function requireAck(res) {
-  if (res?.ok === true) return res;
-  throw new Error('the service gave no acknowledgement');
+export function requireAck(res, field = '') {
+  if (res?.ok === true && (!field || res[field])) return res;
+  throw new Error(field && res?.ok === true ? `the service acknowledged without a ${field}` : 'the service gave no acknowledgement');
 }
 
 // A follow-up threads to its run's message, so the service treats it as a REPLY: it never refuses

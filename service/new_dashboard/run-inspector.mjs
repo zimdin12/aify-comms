@@ -260,10 +260,11 @@ const askSteer = (text, err) => uiPrompt(!err ? 'Steer this active run'
 const sendSteer = (runId) => (body) => api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
   method: 'POST',
   body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
-}).then(requireAck);
+}).then((res) => requireAck(res, 'controlId'));
 
 export async function requestRunControl(runId) {
-  if (!await keepAskingUntilSent(askSteer, sendSteer(runId))) return;
+  try { if (!await keepAskingUntilSent(askSteer, sendSteer(runId))) return; }
+  catch (err) { toast(sendOutcomeIsUnknown(err) ? `Steer: it may have been sent (${err?.message || err}). Check the run.` : `Steer not sent: ${err?.message || err}`, 'error'); return; }
   try { await openRunInspector({ runId, source: 'runs' }); }
   catch (err) { toast(`Steer sent, but the run view did not refresh: ${err?.message || err}`, 'error'); }
 }
@@ -321,8 +322,8 @@ export async function handleRunInspectorControl(action) {
   await refresh();
   await openRunInspector({ runId: run.id, source: state.inspector.source || 'control', sourceMessageId: state.inspector.sourceMessageId || '' });
   } catch (err) {
-    const unknown = action === 'retry' && sendOutcomeIsUnknown(err);
-    toast(unknown ? `Run retry: it may have been sent (${err?.message || err}). Check the run's thread before retrying.` : `Run ${action} failed: ${err?.message || err}`, 'error');
+    const sends = action === 'retry' || action === 'queue-after' || action === 'steer';
+    toast(sends && sendOutcomeIsUnknown(err) ? `Run ${action}: it may have been sent (${err?.message || err}). Check the run's thread before trying again.` : `Run ${action} failed: ${err?.message || err}`, 'error');
   }
 }
 

@@ -40,8 +40,14 @@ function makeNode() {
     className: "", innerHTML: "", textContent: "", style: {}, dataset: {}, children: [],
     isConnected: true,
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    setAttribute() {}, appendChild(child) { node.children.push(child); return child; },
-    remove() { node.removed = true; },
+    setAttribute() {}, appendChild(child) { node.children.push(child); child.parentNode = node; return child; },
+    // remove() really detaches: toast() caps its stack with `while (host.children.length >= 4)
+    // host.firstElementChild.remove()`, which spins for ever against a remove that does nothing.
+    remove() {
+      node.removed = true;
+      const siblings = node.parentNode?.children;
+      if (siblings && siblings.includes(node)) siblings.splice(siblings.indexOf(node), 1);
+    },
     get firstElementChild() { return node.children[0] || null; },
     addEventListener() {}, removeEventListener() {},
     querySelectorAll: () => [],
@@ -93,6 +99,18 @@ async function answerPrompt(run, answer) {
     overlay.handlers.get(".dialog-confirm:click")();
   }
   return pending;
+}
+
+// Wait for the prompt the refusal reopens, by its count rather than a fixed number of ticks: earlier
+// tests leave async work behind, and cancelling the FIRST (already settled) dialog by mistake leaves
+// the real one unanswered for ever.
+async function secondDialog() {
+  for (let i = 0; i < 200; i += 1) {
+    const open = dialogs.filter((node) => node.handlers.has(".dialog-confirm:click"));
+    if (open.length >= 2) return open.at(-1);
+    await new Promise((r) => setTimeout(r, 1));
+  }
+  return undefined;
 }
 
 function toastsSaid(fragment) {
@@ -192,9 +210,7 @@ test("a REJECTED steer reopens its prompt with the text and the reason, instead 
     ? { ok: false, status: 409, body: JSON.stringify({ error: "run already finished" }) }
     : {});
   const pending = answerPrompt(() => requestRunControl("run-9"), "hello");
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-  const reopened = dialogs.filter((node) => node.handlers.has(".dialog-confirm:click")).at(-1);
+  const reopened = await secondDialog();
   assert.ok(reopened, "the prompt did not come back after the refusal");
   assert.equal(reopened.querySelector(".dialog-input").value, "hello", "the reopened prompt lost the operator's text");
   assert.match(String(reopened.innerHTML), /Not sent: run already finished/, "the operator was not told WHY");
@@ -206,11 +222,19 @@ test("a REJECTED steer reopens its prompt with the text and the reason, instead 
 test("a steer answered with an EMPTY 200 is not treated as sent: the prompt comes back with the text", async () => {
   responder = () => ({});   // a 200 with no body: api() answers {}, which acknowledges nothing
   const pending = answerPrompt(() => requestRunControl("run-3"), "hello");
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-  const reopened = dialogs.filter((node) => node.handlers.has(".dialog-confirm:click")).at(-1);
+  const reopened = await secondDialog();
   assert.equal(reopened?.querySelector(".dialog-input").value, "hello", "the unacknowledged steer lost its text");
   assert.match(String(reopened.innerHTML), /may have been sent/, "no acknowledgement is an unknown outcome");
+  reopened.handlers.get(".dialog-cancel:click")();
+  await pending;
+});
+
+test("a steer acknowledged WITHOUT its controlId is not treated as sent either", async () => {
+  responder = (url) => (url.includes("/control") ? { body: JSON.stringify({ ok: true }) } : {});
+  const pending = answerPrompt(() => requestRunControl("run-4"), "hello");
+  const reopened = await secondDialog();
+  assert.equal(reopened?.querySelector(".dialog-input").value, "hello", "an ack with no control id kept nothing");
+  assert.match(String(reopened.innerHTML), /without a controlId/);
   reopened.handlers.get(".dialog-cancel:click")();
   await pending;
 });
