@@ -10,8 +10,8 @@
 // channel-tools has six imports and four read-only tools. Putting the sender there would have doubled that
 // module's import surface and split the delivery cluster across two files. Subject beat category.
 //
-// Both are LIVE-DELIVERY GATED. A direct send to an offline target is not written at all; a channel post is
-// always stored and only the members that can start are woken. That is the property worth remembering when
+// Both decide WAKE. A direct send to an agent that cannot start is stored unwoken from 0.9.8 (an older
+// service refused it); a channel post is always stored and only the members that can start are woken. That is the property worth remembering when
 // reading them — the tool's job is to decide deliverability and then either steer, queue, or cold-start,
 // not merely to append to an inbox.
 
@@ -49,7 +49,7 @@ import { formatQueuedRun } from "./tool-response-format.mjs";
 // "set requireReply=true" and "set requireReply=false", because each mode has to be findable.
 export const COMMS_SEND_TOOL_DESCRIPTION =
   "Send a message to an agent by ID, or to every agent with a role. `dashboard` stores it for the operator without waking anyone: send there what they asked for, and problems that need a human. " +
-  "LIVE-DELIVERY GATED: a new message to an offline, stopped or misconfigured target, or one with no live wake path, is refused and not written; a reply is stored anyway. An `available` or `blocked` target is deliverable, and an available managed agent is cold-started by the send. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. " +
+  "A new message to an offline, stopped or misconfigured target, or one with no live wake path, is saved unwoken (older services refuse it); the answer says which. A reply is always stored. An `available` managed agent is cold-started by the send, and a `blocked` one gets it too. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. " +
   "REPLY WITH A TOOL CALL: comms_send(type=\"response\", inReplyTo=<the message id>). That call is the reply and closes the run; your final plain text is never delivered. Requests, reviews, errors and dashboard asks owe a reply. Leave a response, approval, info or acknowledgement with no new question or work unanswered. Answer input typed into your terminal there. " +
   "Omit requireReply to keep the type default: request, review and error owe a reply, the rest do not. Set requireReply=true to track a reply on the rest. If you set requireReply=false on a request, review or error, the recipient is told no reply is tracked while the Work Loop still tracks one. requireReply never affects waking.";
 

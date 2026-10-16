@@ -51,10 +51,16 @@ test("mixed recipients: the woken one is dispatched, the other is saved and not 
   assert.match(out, /Saved in the inbox, not woken: away: stopped\./);
 });
 
-test("an answer with no run, no console input and no unwoken recipient proves only that it was stored", () => {
+test("an answer with no run, no console input and no unwoken recipient leaves the wake UNKNOWN", () => {
   const out = text(formatTriggeredSendResult({ ok: true, messageId: "m9", recipients: ["peer"], dispatchRuns: [], notStarted: [] }, ctx));
-  assert.match(out, /^Stored \(m9\)\. No dispatch was created, so nothing was started\./);
-  assert.doesNotMatch(out, /Dispatch:|not woken/);
+  assert.match(out, /^Stored \(m9\)\. Whether a wake happened is not known from this answer\./);
+  assert.doesNotMatch(out, /Dispatch:|not woken|nothing was started/, "an empty list is not proof either way");
+});
+
+test("an accepted-looking answer with no message id claims neither storage nor a send", () => {
+  const out = text(formatTriggeredSendResult({ ok: true, recipients: ["peer"], dispatchRuns: [], notStarted: [] }, ctx));
+  assert.match(out, /^The service's answer was incomplete \(no message id\): whether it was stored or woken is not known\./);
+  assert.doesNotMatch(out, /Stored \(|undefined/);
 });
 
 test("a replay is unknown, from both the new service and an old one without the new fields", () => {

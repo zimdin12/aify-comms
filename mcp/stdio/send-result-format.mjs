@@ -45,7 +45,13 @@ export function formatTriggeredSendResult(r = {}, { from, to, type, requireReply
     lines.push(`Saved in the inbox, not woken: ${unwoken.join("; ")}.`);
     if (r.notice) lines.push(r.notice);
   }
-  if (!lines.length) lines.push(`Stored (${r.messageId}). No dispatch was created, so nothing was started.`);
+  // Nothing in the answer says what happened to the wake: an empty list is not proof that nothing
+  // started, and an answer with no message id does not prove the message was stored at all.
+  if (!lines.length) {
+    lines.push(r.messageId
+      ? `Stored (${r.messageId}). Whether a wake happened is not known from this answer.`
+      : "The service's answer was incomplete (no message id): whether it was stored or woken is not known.");
+  }
   // A stored-unwoken request still owes its reply, so the don't-predict-it note applies to every result.
   return { content: [{ type: "text", text: lines.join("\n") + awaitingReplyNote({ from, to, type, requireReply }) }] };
 }
