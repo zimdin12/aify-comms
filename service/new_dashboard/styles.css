@@ -795,6 +795,12 @@ small, .subtle { color: var(--muted); }
   overflow: auto;
 }
 .session-main { padding: 12px; min-height: 0; overflow: auto; }
+.session-main { display: flex; flex-direction: column; } /* the terminal fills what the rows above leave */
+.session-main > .segmented { align-self: flex-start; }
+.session-main > .session-panel.active { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.session-panel.active > .console-summary { flex: 1; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+.session-panel .console-embed { min-height: 0; }
+.session-panel .xterm-host { flex: 1; height: auto; min-height: 260px; }
 .session-env-group { margin-bottom: 10px; }
 .session-env-group > .session-env-title { margin-bottom: 7px; }
 .session-env-group[open] > .session-env-title { margin-bottom: 7px; }
@@ -1738,7 +1744,8 @@ button.filter-hidden-note:focus-visible { color: var(--text); }
 /* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
    designed empty states. */
 .session-row { padding: 7px 8px; }
-.session-row-body { gap: 6px; justify-items: start; }
+.session-row-body { gap: 6px; justify-items: start; grid-template-columns: minmax(0, 1fr); }
+.session-path { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row-body .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 /* Group the status chip + optional ⌛input badge hard-right so the chip doesn't shift toward
    center when the blocked badge appears (space-between with 3 direct children). */
