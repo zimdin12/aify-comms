@@ -47,7 +47,7 @@ function makeDialog(answer) {
   return overlay;
 }
 
-function withWorkLoop({ confirm = true, failing = [], skipping = [] } = {}) {
+function withWorkLoop({ confirm = true, failing = [], skipping = [], finished = [] } = {}) {
   const els = new Map();
   const sent = [];
   const toasts = [];
@@ -75,6 +75,8 @@ function withWorkLoop({ confirm = true, failing = [], skipping = [] } = {}) {
       return { ok: false, status: 409, statusText: "Conflict", text: async () => JSON.stringify({ error: "already closed" }) };
     }
     const payload = { ok: true, contracts: [], runs: [], repaired: 3 };
+    // A run that had already finished: the close keeps its result and says so (0.9.8 audit).
+    if (method === "PATCH" && finished.some((id) => String(url).includes(id))) payload.alreadyTerminal = true;
     // The reminder route's real answer: one run is reminded, or skipped with a reason, never both.
     const remindOf = /reminders\/run\?runId=([^&]+)/.exec(String(url));
     if (remindOf) {
@@ -147,6 +149,16 @@ test("bulk close acts on EVERY selected item and clears afterwards", async () =>
     assert.equal(h.sent.length, 2, "both runs must be closed, not just the first");
     assert.equal(state.selectedDiagnosticIds.size, 0);
     assert.equal(h.refreshes(), 1);
+  } finally { h.restore(); }
+});
+
+test("a bulk close does not count a run that had already finished as closed", async () => {
+  const h = withWorkLoop({ confirm: true, finished: ["r2"] });
+  try {
+    select([{ kind: "run", id: "r1" }, { kind: "run", id: "r2" }]);
+    await requestBulkDiagnosticAction("close");
+    const summary = h.toasts.find((t) => /closed/.test(t.text));
+    assert.match(summary?.text || "", /^1 closed, 1 had already finished and kept their result\./, JSON.stringify(h.toasts));
   } finally { h.restore(); }
 });
 

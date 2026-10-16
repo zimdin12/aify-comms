@@ -9563,6 +9563,43 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(finished.status_code, 200, finished.text)
         self.assertEqual(len(replies_from_coder("done: 3 files")), 1)
 
+    def test_an_operator_close_on_a_finished_run_keeps_its_result_and_says_so(self):
+        # 0.9.8 audit: the status was kept, but the close overwrote the summary and error, so a failed run lost
+        # why it failed while the bulk Close counted it as closed.
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+        run_id = self._dispatch(from_agent="dashboard", to="coder", type="request", subject="s", body="b",
+                                mode="start_if_possible", createMessage=True)["runs"][0]["runId"]
+        failed = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={
+            "status": "failed", "summary": "build broke: 3 errors", "error": "tsc exit 2"})
+        self.assertEqual(failed.status_code, 200, failed.text)
+        self.assertFalse(failed.json()["alreadyTerminal"], "an agent's own result is not an operator close")
+        closing = "Closed from Work by dashboard operator."
+        closed = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={
+            "status": "completed", "requireReply": False, "summary": closing, "appendEvent": closing,
+            "eventType": "operator_closed"})
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertTrue(closed.json()["alreadyTerminal"], closed.json())
+        row = self._fetchone("SELECT status, summary, error_text FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual((row["status"], row["summary"], row["error_text"]), ("failed", "build broke: 3 errors", "tsc exit 2"))
+        events = [e["body"] for e in self._fetchall("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'operator_closed'", (run_id,))]
+        self.assertEqual(events, ["Operator close on a run already failed: its status and result were kept."])
+
+        # CONTROL: an operator close on a run still in flight closes it with its summary.
+        live_id = self._dispatch(from_agent="dashboard", to="coder", type="request", subject="t", body="b",
+                                 mode="start_if_possible", createMessage=True)["runs"][0]["runId"]
+        live = self.client.patch(f"/api/v1/dispatch/runs/{live_id}", json={
+            "status": "completed", "requireReply": False, "summary": closing, "appendEvent": closing,
+            "eventType": "operator_closed"})
+        self.assertFalse(live.json()["alreadyTerminal"])
+        row = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id = ?", (live_id,))
+        self.assertEqual((row["status"], row["summary"]), ("completed", closing))
+
+        # CONTROL: a non-operator update may still enrich a finished run's summary, as before.
+        enriched = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={"summary": "build broke: 3 errors (see log)"})
+        self.assertEqual(enriched.status_code, 200, enriched.text)
+        self.assertEqual(self._fetchone("SELECT summary FROM dispatch_runs WHERE id = ?", (run_id,))["summary"],
+                         "build broke: 3 errors (see log)")
+
     def test_an_operator_close_is_not_reported_as_a_managers_result(self):
         # The manager report path fabricated the same way, and a later repair pass calls it without the
         # close intent, so it also reads the stored operator_closed event.

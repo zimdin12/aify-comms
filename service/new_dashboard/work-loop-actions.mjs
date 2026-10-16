@@ -137,14 +137,16 @@ export function renderContracts() {
 
 export async function closeWorkContract(runId, confirmAction = true, refreshAfter = true) {
   if (confirmAction && !await uiConfirm('Close this Work Loop contract as operator-reviewed?')) return;
-  await patchRun(runId, {
+  const answer = await patchRun(runId, {
     status: 'completed',
     requireReply: false,
     summary: 'Closed from Work Loop by dashboard operator.',
     appendEvent: 'Closed from Work Loop by dashboard operator.',
     eventType: 'operator_closed',
   });
+  if (answer?.alreadyTerminal && confirmAction) toast('That run had already finished; its result was kept.', 'warn');
   if (refreshAfter) await refresh();
+  return answer;
 }
 
 export async function remindWorkContract(runId, refreshAfter = true) {
@@ -180,19 +182,24 @@ export async function remindOneContract(runId) {
 async function settleEach(items, act, verb) {
   let firstError = null;
   let failed = 0;
+  let alreadyDone = 0;
   for (const item of items) {
     try {
-      await act(item);
+      const answer = await act(item);
+      // A run that had already finished keeps its result and is not "closed" by this (0.9.8 audit).
+      if (answer?.alreadyTerminal) alreadyDone += 1;
       state.selectedDiagnosticIds.delete(`${item.kind}:${item.id}`);
     } catch (err) {
       failed += 1;
       firstError ??= err;
     }
   }
+  const done = items.length - failed - alreadyDone;
+  const kept = alreadyDone ? `, ${alreadyDone} had already finished and kept their result` : '';
   if (!failed) {
-    toast(`${items.length} ${verb}.`, 'ok');
+    toast(`${done} ${verb}${kept}.`, 'ok');
   } else {
-    toast(`${items.length - failed} of ${items.length} ${verb}, ${failed} failed: ${firstError?.message || firstError}`, 'error');
+    toast(`${done} of ${items.length} ${verb}${kept}, ${failed} failed: ${firstError?.message || firstError}`, 'error');
   }
   await refresh();
 }

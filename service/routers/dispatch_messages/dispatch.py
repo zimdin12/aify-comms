@@ -299,12 +299,23 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             if effective_status in _DISPATCH_TERMINAL_STATUSES:
                 updates.append("finished_at = ?")
                 params.append(now)
-        if req.summary is not None:
-            updates.append("summary = ?")
-            params.append(req.summary)
-        if req.error is not None:
-            updates.append("error_text = ?")
-            params.append(req.error)
+        # AN OPERATOR CLOSE ON A RUN THAT ALREADY FINISHED KEEPS ITS RESULT (0.9.8 audit): the status was
+        # already kept above, but the summary and error were overwritten, so a failed run lost why it
+        # failed. Judged in the UPDATE itself, so a run that finishes meanwhile is kept too.
+        operator_close = (req.eventType or "").strip() == "operator_closed"
+        already_terminal = operator_close and current_status in _DISPATCH_TERMINAL_STATUSES
+        keep_if_finished = (
+            f"CASE WHEN status IN ({', '.join('?' * len(_DISPATCH_TERMINAL_STATUSES))}) THEN {{col}} ELSE ? END"
+        )
+        for value, column in ((req.summary, "summary"), (req.error, "error_text")):
+            if value is None:
+                continue
+            if operator_close:
+                updates.append(f"{column} = " + keep_if_finished.format(col=column))
+                params.extend([*sorted(_DISPATCH_TERMINAL_STATUSES), value])
+            else:
+                updates.append(f"{column} = ?")
+                params.append(value)
         if req.resultMessageId is not None:
             normalized_result_message_id = str(req.resultMessageId or "").strip()
             if normalized_result_message_id or not str(row["result_message_id"] or "").strip():
@@ -349,12 +360,14 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             )
 
         if req.appendEvent:
-            await _append_dispatch_event(db, run_id, req.eventType or "info", req.appendEvent)
+            event_text = (f"Operator close on a run already {current_status}: its status and result were kept."
+                          if already_terminal else req.appendEvent)
+            await _append_dispatch_event(db, run_id, req.eventType or "info", event_text)
 
         await db.commit()
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("dispatch_updated", {"runId": run_id, "status": effective_status or row["status"]})
-        return {"ok": True, "runId": run_id}
+        return {"ok": True, "runId": run_id, "alreadyTerminal": already_terminal}
     finally:
         await db.close()
