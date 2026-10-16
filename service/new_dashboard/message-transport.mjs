@@ -46,7 +46,7 @@ export async function chatLoadConversation(name) {
   const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
   state.chat.channelMessages[name] = res.messages || res.channel?.messages || [];
 }
-export async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject, trigger = true }) {
+export async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo, type, priority, subject }) {
   if (isChannel) {
     // ChannelMessage requires from_agent + channel (the bare {from, body} 422'd). type/priority
     // ARE accepted by the model; subject/inReplyTo are not part of the channel contract.
@@ -66,7 +66,7 @@ export async function chatSendMessage({ isChannel, target, identity, body, expec
   const finalSubject = (subject && subject.trim()) ? subject.trim() : body.slice(0, 80);
   return sendMessageWithTimeout({
     from_agent: identity, to: target, type: finalType,
-    subject: finalSubject, body, trigger: !!trigger,
+    subject: finalSubject, body, trigger: true,
     queueIfBusy: !!queueIfBusy, requireReply: !!expectsReply,
     ...(priority && priority !== 'normal' ? { priority } : {}),
     ...(inReplyTo ? { inReplyTo } : {}),
@@ -114,14 +114,11 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
     requireReply: true,
     inReplyTo: run.messageId || run.message_id || '',
   };
-  // A refusal is HTTP 200 with `ok: false` and stores nothing, which lost a typed follow-up silently.
-  // Same rule as the chat composer: store it without the wake, and say so; throw if that fails too.
+  // From 0.9.8 the service stores a follow-up it cannot wake and lists it in notStarted, so this sends
+  // once. A refusal stores nothing: thrown as definite, so the caller keeps the typed text.
   const res = await sendMessageWithTimeout(payload);
-  if (res?.ok !== false) return { storedUnwoken: storedWithoutDispatch(requireAck(res)) };
-  const stored = await sendMessageWithTimeout({ ...payload, trigger: false });
-  if (stored?.ok === false) throw Object.assign(new Error(stored.error || res.error || 'refused'), { refused: true });
-  requireAck(stored);
-  return { storedUnwoken: res.error || 'the agent cannot start live work now' };
+  if (res?.ok === false) throw Object.assign(new Error(res.error || 'refused'), { refused: true });
+  return { storedUnwoken: storedWithoutDispatch(requireAck(res)) };
 }
 import { api } from './api-client.mjs';
 import { noteSliceFailure } from './refresh-status.mjs';

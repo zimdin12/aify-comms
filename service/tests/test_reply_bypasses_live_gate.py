@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT.parent))
 
 from service.db import init_db
 from service.routers.api_v2 import router
+from stored_unwoken import assert_stored_unwoken
 
 
 def _iso(dt: datetime) -> str:
@@ -196,9 +197,9 @@ class ReplyBypassesLiveGateTests(FastApiTestCase):
         self.assertEqual(status, "completed")
 
     # ------------------------------------------------------------------
-    # regression — NON-reply still hard-gated (unchanged)
+    # regression — a NON-reply is stored unwoken, where it was hard-gated before 0.9.8 (Steven, 2026-10-16)
     # ------------------------------------------------------------------
-    def test_non_reply_request_to_not_startable_recipient_is_still_rejected(self):
+    def test_non_reply_request_to_not_startable_recipient_is_stored_unwoken(self):
         self._register_resident("manager")  # not live-wakeable
         self._register_resident("worker")
         res = self.client.post(
@@ -214,12 +215,7 @@ class ReplyBypassesLiveGateTests(FastApiTestCase):
         )
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()
-        self.assertFalse(
-            body.get("ok"),
-            f"a NON-reply request to a not-startable recipient must still hard-reject; got {body}",
-        )
-        self.assertIn("cannot start live work now", str(body.get("error", "")))
-        self.assertTrue(body.get("notStarted"), "rejection must report notStarted recipients")
+        assert_stored_unwoken(self, body, "manager")
 
 
 if __name__ == "__main__":

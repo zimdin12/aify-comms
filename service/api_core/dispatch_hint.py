@@ -40,6 +40,10 @@ async def _unregistered_recipient_hint(db, recipient_id: str) -> dict[str, Any]:
     hint = _dispatch_fix_hint(recipient_id, None, "agent is not registered")
     address = await _last_known_address(db, recipient_id)
     origin, machine = address["origin"], address["externalMachine"]
+    # Nobody's inbox: no row and no address it ever declared. The only wake failure a send still refuses
+    # (wake_notice.unresolved_destinations); an external sender's message is stored, as below says.
+    hint["unresolved"] = not (origin or machine)
+    hint["externalSender"] = bool(origin or machine)
     if origin or machine:
         # The machine was proven by its key; the address is only what the sender said.
         facts = [f"it sent from {machine}, proven by that machine's key"] if machine else []

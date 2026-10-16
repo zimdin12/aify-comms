@@ -232,17 +232,17 @@ test("a queue-after follow-up waits for the agent rather than interrupting it", 
   assert.match(payload.subject, /^Queue after run-7$/);
 });
 
-test("a REFUSED follow-up is stored without the wake, so the typed text is kept", async () => {
-  SEEN.length = 0;
-  HANDLER = (req, res) => {
-    const refused = JSON.parse(SEEN[SEEN.length - 1].body).trigger === true;
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify(refused ? { ok: false, error: "cannot start live work" } : { ok: true }));
-  };
+test("0.9.8: a follow-up is sent ONCE; stored-unwoken reports why, and a refusal throws as definite", async () => {
+  respond({ ok: true, stored: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: "agent status is \"offline\"" }] });
   const result = await sendRunFollowup(followupRun(), { body: "typed by the operator" });
-  assert.deepEqual(SEEN.map((r) => JSON.parse(r.body).trigger), [true, false], "one woken attempt, then one store-only");
-  assert.equal(JSON.parse(SEEN[1].body).body, "typed by the operator");
-  assert.equal(result.storedUnwoken, "cannot start live work", "the caller is told it was not woken");
+  assert.equal(SEEN.length, 1, "one send: the service stores it itself");
+  assert.equal(result.storedUnwoken, 'agent status is "offline"');
+
+  respond({ ok: false, error: "No recipients found" });
+  const err = await sendRunFollowup(followupRun()).catch((e) => e);
+  assert.equal(SEEN.length, 1, "a refusal is not re-sent without the wake");
+  assert.equal(err.refused, true);
+  assert.equal(sendOutcomeIsUnknown(err), false, "a refusal stored nothing, definitely");
 });
 
 test("a follow-up refused even without the wake throws, so the caller reports it", async () => {

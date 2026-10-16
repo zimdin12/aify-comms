@@ -535,16 +535,9 @@ export function createChatController(deps) {
         expectsReply: !!expectsReply, queueIfBusy: !!queueIfBusy, inReplyTo,
         type, priority, subject,
       };
-      let response = await sendMessage(payload);
-      // A REFUSED send is HTTP 200 with `ok: false`, and the service stored nothing: it refuses a
-      // wake it cannot perform. The operator expects every message kept (2026-10-14, an hour's
-      // message to an offline resident was lost), so store it in the inbox without the wake.
-      let storedUnwoken = '';
-      if (response?.ok === false && !isChannel) {
-        storedUnwoken = deliveryToastFor(response, id).text;
-        response = await sendMessage({ ...payload, trigger: false });
-      }
-      // Still refused: keep the text and the draft, the only copy of the message.
+      // From 0.9.8 the service itself stores a send it cannot wake and says so in `notice` (Steven,
+      // 2026-10-16), so the composer sends once. A refusal now means nothing was stored: keep the text.
+      const response = await sendMessage(payload);
       if (response?.ok === false) {
         const t = deliveryToastFor(response, id);
         toast(`${t.text}. Your text is still in the box.`, 'error');
@@ -559,9 +552,7 @@ export function createChatController(deps) {
       persistDrafts?.();
       // The reply context this send captured, not one the operator chose while it was pending (R4).
       if (state.chat.replyTo === reply) state.chat.replyTo = null;
-      if (storedUnwoken) {
-        toast(`Saved in ${id}'s inbox, not woken. ${storedUnwoken}`, 'warn');
-      } else if (!isChannel) {
+      if (!isChannel) {
         const t = deliveryToastFor(response, id);
         toast(t.text, t.tone);
       } else {

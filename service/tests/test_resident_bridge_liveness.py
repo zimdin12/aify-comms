@@ -17,6 +17,7 @@ from service.routers.api_v2 import router
 
 
 from service.tests._base import FastApiTestCase
+from stored_unwoken import assert_stored_unwoken
 
 
 class ResidentBridgeLivenessTests(FastApiTestCase):
@@ -58,7 +59,7 @@ class ResidentBridgeLivenessTests(FastApiTestCase):
         )
         self.assertEqual(send.status_code, 200, send.text)
         body = send.json()
-        self.assertFalse(body["ok"], body)
+        assert_stored_unwoken(self, body, "target")  # 0.9.8 (Steven, 2026-10-16), flipped from a refusal
         self.assertEqual(body.get("dispatchRuns") or [], [])
         not_started = (body.get("notStarted") or [{}])[0]
         self.assertEqual(not_started.get("recipientStatus"), "offline")

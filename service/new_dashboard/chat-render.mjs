@@ -198,7 +198,7 @@ export function deliveryToastFor(response, to) {
   if (status === 'queued') return { tone: 'info', text: `Queued behind ${to}'s active work` };
   if (consoleDelivered) return { tone: 'ok', text: `Delivered to ${to}'s console` };
   if (status === 'claimed' || status === 'running' || status === 'delivered') return { tone: 'ok', text: `Woke ${to}` };
-  if (notStarted) return { tone: 'warn', text: `Stored for ${to} (no live worker to wake)` };
+  if (notStarted) return { tone: 'warn', text: response?.notice || `Saved in ${to}'s inbox, not woken` };
   return { tone: 'ok', text: `Sent to ${to}` };
 }
 
