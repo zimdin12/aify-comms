@@ -744,7 +744,7 @@ test("a reply chosen while a send is pending keeps its parent; the one the send 
   let h;
   const sentWith = { conversationKey: "dm:peer", id: "m1" };
   const chosenLater = { conversationKey: "dm:peer", id: "m2" };
-  h = sendHarness({ sendMessage: async () => { h.state.chat.replyTo = chosenLater; return { ok: true }; } });
+  h = sendHarness({ sendMessage: async () => { h.state.chat.replyTo = chosenLater; return { ok: true, messageId: "m3" }; } });
   h.state.chat.replyTo = sentWith;
   await h.controller.send();
   assert.equal(h.state.chat.replyTo, chosenLater, "the newer reply target survives");
