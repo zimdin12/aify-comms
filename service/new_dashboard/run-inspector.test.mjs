@@ -99,7 +99,9 @@ function withInspector(run, { confirm = true, prompt = "typed text", deps = {} }
   globalThis.fetch = async (url, options = {}) => {
     const method = (options.method || "GET").toUpperCase();
     if (method !== "GET") posts.push({ url: String(url), method, body: options.body });
-    return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ runs: [], events: [], run }) };
+    // Writes are acknowledged with ok:true, as the real routes do; an unacknowledged write is an unknown
+    // outcome and a steer would re-prompt for ever against an auto-confirming fake dialog.
+    return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ ok: true, runs: [], events: [], run }) };
   };
   setApiBase("");
   const calls = { refresh: 0, openRunConsole: 0, closeInspector: 0, evaluateFlowGates: 0, openInspector: 0, renderDiagnosticsBulkToolbar: 0 };

@@ -18,7 +18,7 @@ import test from "node:test";
 import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
-  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup, sendOutcomeIsUnknown,
+  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup, sendOutcomeIsUnknown, requireAck,
 } from "./message-transport.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
@@ -314,4 +314,21 @@ test("only a refusal the service answered is a definite not-sent; everything els
   assert.equal(sendOutcomeIsUnknown(await sendMessageWithTimeout({ to: "a1" }).catch((e) => e)), true, "a 5xx may follow the commit");
   assert.equal(sendOutcomeIsUnknown(new TypeError("Failed to fetch")), true, "a lost connection says nothing about storage");
   assert.equal(sendOutcomeIsUnknown(Object.assign(new Error("x"), { refused: true })), false, "an ok:false envelope is a refusal");
+});
+
+test("a follow-up answered with an empty 200 throws as an UNKNOWN outcome, not success", async () => {
+  respond({});
+  const err = await sendRunFollowup(followupRun()).catch((e) => e);
+  assert.ok(err instanceof Error, "an unacknowledged follow-up must not read as sent");
+  assert.equal(sendOutcomeIsUnknown(err), true);
+});
+
+test("requireAck passes only an explicit ok:true, and anything else is an unknown outcome", () => {
+  const ack = { ok: true, messageId: "m1" };
+  assert.equal(requireAck(ack), ack);
+  for (const answer of [{}, null, undefined, { ok: "true" }, { messageId: "m1" }]) {
+    const err = (() => { try { requireAck(answer); } catch (e) { return e; } })();
+    assert.ok(err instanceof Error, `${JSON.stringify(answer)} must not count as acknowledged`);
+    assert.equal(sendOutcomeIsUnknown(err), true);
+  }
 });

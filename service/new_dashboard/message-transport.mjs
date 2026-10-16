@@ -81,6 +81,14 @@ export function sendOutcomeIsUnknown(err) {
   return !(status >= 400 && status < 500);
 }
 
+// A write counts as done only on its acknowledgement, `ok: true`. An empty 200 (api() answers {}) or a
+// null proves nothing was stored, so it is an UNKNOWN outcome: thrown without a status, and the caller
+// keeps the operator's text (review of 455fff8a).
+export function requireAck(res) {
+  if (res?.ok === true) return res;
+  throw new Error('the service gave no acknowledgement');
+}
+
 // A follow-up threads to its run's message, so the service treats it as a REPLY: it never refuses
 // it, and can answer ok:true while waking nobody (`notStarted` set, no dispatch run). Report that,
 // rather than read "not refused" as "delivered" (review of dd992844). '' means it was dispatched.
@@ -109,9 +117,10 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   // A refusal is HTTP 200 with `ok: false` and stores nothing, which lost a typed follow-up silently.
   // Same rule as the chat composer: store it without the wake, and say so; throw if that fails too.
   const res = await sendMessageWithTimeout(payload);
-  if (res?.ok !== false) return { storedUnwoken: storedWithoutDispatch(res) };
+  if (res?.ok !== false) return { storedUnwoken: storedWithoutDispatch(requireAck(res)) };
   const stored = await sendMessageWithTimeout({ ...payload, trigger: false });
   if (stored?.ok === false) throw Object.assign(new Error(stored.error || res.error || 'refused'), { refused: true });
+  requireAck(stored);
   return { storedUnwoken: res.error || 'the agent cannot start live work now' };
 }
 import { api } from './api-client.mjs';

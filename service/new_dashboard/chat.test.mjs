@@ -727,3 +727,13 @@ test("a reply chosen while a send is pending keeps its parent; the one the send 
   await control.controller.send();
   assert.equal(control.state.chat.replyTo, null, "an unchanged reply target is cleared by its own send");
 }));
+
+test("an UNACKNOWLEDGED send (empty 200 or null) keeps the text and the draft", () => withStubDocument(async () => {
+  for (const answer of [{}, null]) {
+    const h = sendHarness({ sendMessage: async () => answer });
+    h.state.chat.drafts["dm:peer"] = "hello there";
+    await h.controller.send();
+    assert.equal(h.els["chat-composer-body"].value, "hello there", `${JSON.stringify(answer)} proves nothing was stored`);
+    assert.equal(h.state.chat.drafts["dm:peer"], "hello there");
+  }
+}));

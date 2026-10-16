@@ -126,7 +126,9 @@ test.beforeEach(() => {
   requests.length = 0;
   toasts.length = 0;
   dialogs.length = 0;
-  responder = () => ({});
+  // The run-control route acknowledges with ok:true (controls.py:108); a test that answers {} is an
+  // unacknowledged write, which the dashboard rightly treats as an unknown outcome.
+  responder = (url) => (url.includes("/control") ? { body: JSON.stringify({ ok: true, controlId: "c1", status: "pending" }) } : {});
   state.runs = [];
   state.runStatusFilter = "";
   state.inspector = null;
@@ -199,6 +201,18 @@ test("a REJECTED steer reopens its prompt with the text and the reason, instead 
   reopened.handlers.get(".dialog-cancel:click")();
   await assert.doesNotReject(() => pending);
   assert.equal(posts().length, 1, "Cancel must not send again");
+});
+
+test("a steer answered with an EMPTY 200 is not treated as sent: the prompt comes back with the text", async () => {
+  responder = () => ({});   // a 200 with no body: api() answers {}, which acknowledges nothing
+  const pending = answerPrompt(() => requestRunControl("run-3"), "hello");
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  const reopened = dialogs.filter((node) => node.handlers.has(".dialog-confirm:click")).at(-1);
+  assert.equal(reopened?.querySelector(".dialog-input").value, "hello", "the unacknowledged steer lost its text");
+  assert.match(String(reopened.innerHTML), /may have been sent/, "no acknowledgement is an unknown outcome");
+  reopened.handlers.get(".dialog-cancel:click")();
+  await pending;
 });
 
 // ── loadRunsForStatus ───────────────────────────────────────────────────────

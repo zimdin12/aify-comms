@@ -12,7 +12,7 @@
 // be noise, and a bag that some call sites forgot would be worse than one that cannot be forgotten.
 
 import { api } from './api-client.mjs';
-import { sendOutcomeIsUnknown, sendRunFollowup } from './message-transport.mjs';
+import { requireAck, sendOutcomeIsUnknown, sendRunFollowup } from './message-transport.mjs';
 // `messageId` is called in the "Open in thread" button below and was never imported — a
 // ReferenceError on a NORMAL render path (any run with a source message), not an error branch.
 // `node --check` parses it; nothing renders this panel in a test. Found by the bridge's
@@ -260,7 +260,7 @@ const askSteer = (text, err) => uiPrompt(!err ? 'Steer this active run'
 const sendSteer = (runId) => (body) => api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
   method: 'POST',
   body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
-});
+}).then(requireAck);
 
 export async function requestRunControl(runId) {
   if (!await keepAskingUntilSent(askSteer, sendSteer(runId))) return;
