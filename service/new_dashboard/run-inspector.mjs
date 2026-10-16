@@ -19,7 +19,7 @@ import { sendRunFollowup } from './message-transport.mjs';
 // missing-sibling-import gate the day it was extended to the dashboard.
 import { messageId, runPendingControlCount, runTargetAgent } from './record-fields.mjs';
 import { renderRunEvent } from './run-event.mjs';
-import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, runDurationText, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
+import { RUN_INSPECTOR_EVENT_LIMIT, keepAskingUntilSent, loadRunDetails, runDurationText, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities } from './run-inspector-controls.mjs';
 import { runFrom } from './session-activity.mjs';
 import { state } from './state.mjs';
@@ -296,9 +296,11 @@ export async function handleRunInspectorControl(action) {
       body: JSON.stringify({ from_agent: 'dashboard', action: 'interrupt', body: 'Interrupted from Dashboard Next run inspector.' }),
     });
   } else if (action === 'queue-after') {
-    const body = await uiPrompt('Queue a follow-up after this run');
-    if (!body || !body.trim()) return;
-    const sent = await sendRunFollowup(run, { body });
+    const sent = await keepAskingUntilSent(
+      (text, err) => uiPrompt(err ? `Not sent: ${err?.message || err}. Your text is below. OK retries; Cancel discards it.` : 'Queue a follow-up after this run', { defaultValue: text }),
+      (body) => sendRunFollowup(run, { body }),
+    );
+    if (!sent) return;
     if (sent.storedUnwoken) toast(`Saved in ${runTargetAgent(run)}'s inbox, not woken. ${sent.storedUnwoken}`, 'warn');
   } else if (action === 'retry') {
     const target = runTargetAgent(run);

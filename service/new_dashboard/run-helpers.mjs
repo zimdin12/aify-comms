@@ -65,3 +65,14 @@ export async function loadRunEvents(runId, { before = '', order = state.inspecto
   if (before) params.set('before', before);
   return api(`/dispatch/runs/${encodeURIComponent(runId)}/events?${params.toString()}`);
 }
+
+// Text the operator typed into a prompt lives nowhere else, so a failed send asks again WITH that
+// text: `ask(text, error)` reopens it, and only an empty answer (Cancel) gives up. Returns what
+// `send` returned, or null when the operator cancelled.
+export async function keepAskingUntilSent(ask, send) {
+  let text = await ask('', null);
+  while (text && text.trim()) {
+    try { return await send(text); } catch (err) { text = await ask(text, err); }
+  }
+  return null;
+}

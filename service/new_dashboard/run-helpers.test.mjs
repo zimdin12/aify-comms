@@ -285,3 +285,25 @@ test("a finished run's duration stops at its finish; a running one counts to now
   assert.equal(runDurationText({ claimedAt: started, finishedAt: "2026-10-14T10:05:00Z" }, now), "took 5m", "claim time stands in for start");
   assert.equal(runDurationText({}, now), "duration unknown");
 });
+
+import { keepAskingUntilSent } from "./run-helpers.mjs";
+
+test("a failed follow-up reopens the prompt WITH the typed text until it is sent", async () => {
+  const asked = [];
+  const answers = ["long follow-up", "long follow-up"];
+  let attempts = 0;
+  const result = await keepAskingUntilSent(
+    async (text, err) => { asked.push({ text, err: err?.message || null }); return answers.shift(); },
+    async (body) => { attempts += 1; if (attempts === 1) throw new Error("refused"); return { sentBody: body }; },
+  );
+  assert.deepEqual(asked, [{ text: "", err: null }, { text: "long follow-up", err: "refused" }], "the retry prompt carries the text and the reason");
+  assert.deepEqual(result, { sentBody: "long follow-up" });
+});
+
+test("cancelling the reopened prompt gives up without sending again", async () => {
+  let attempts = 0;
+  const answers = ["text", ""];
+  const result = await keepAskingUntilSent(async () => answers.shift(), async () => { attempts += 1; throw new Error("down"); });
+  assert.equal(result, null);
+  assert.equal(attempts, 1);
+});

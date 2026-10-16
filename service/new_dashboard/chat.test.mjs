@@ -700,3 +700,15 @@ test("an offline DM shows the cannot-be-woken note above the composer before Sen
   assert.equal(inserted[0].hidden, false);
   assert.match(inserted[0].textContent, /peer is offline and cannot be woken now/);
 }));
+
+test("text typed while a send is pending survives that send's success", () => withStubDocument(async () => {
+  let h;
+  h = sendHarness({ sendMessage: async () => {
+    h.els["chat-composer-body"].value = "newer text typed while pending";
+    h.state.chat.drafts["dm:peer"] = "newer text typed while pending";
+    return { ok: true };
+  } });
+  await h.controller.send();
+  assert.equal(h.els["chat-composer-body"].value, "newer text typed while pending", "only what was sent is cleared");
+  assert.equal(h.state.chat.drafts["dm:peer"], "newer text typed while pending", "the newer draft is kept");
+}));

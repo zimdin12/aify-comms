@@ -549,10 +549,11 @@ export function createChatController(deps) {
         toast(`${t.text}. Your text is still in the box.`, 'error');
         return;
       }
-      if (bodyEl) bodyEl.value = '';
-      if (subjectEl) subjectEl.value = '';
-      // Sent cleanly: drop the saved draft + reply context for this conversation.
-      if (state.chat.drafts) delete state.chat.drafts[key];
+      // Clear only what was sent. Text typed while the send was pending, or another conversation's
+      // text if the operator switched, is newer than this send and must survive it.
+      if (bodyEl && bodyEl.value.trim() === body) bodyEl.value = '';
+      if (subjectEl && subjectEl.value.trim() === subject) subjectEl.value = '';
+      if (state.chat.drafts && String(state.chat.drafts[key] || '').trim() === body) delete state.chat.drafts[key];
       persistDrafts?.();
       state.chat.replyTo = null;
       if (storedUnwoken) {
