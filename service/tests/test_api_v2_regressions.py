@@ -78,6 +78,7 @@ from service.api_core import status_refresh
 from service import terminal_write_queue
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.api_core.records import _serialize_dispatch_run_row
+
 from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.3: owner of _turn_busy_holds_delivery
 # v0.5.2m: the agent console handler moved, and each module owns its OWN binding -- patching
 # api_v2 would no longer reach it and the test would exercise the happy path while claiming
@@ -99,6 +100,7 @@ from service.api_core.status_refresh import _compute_agent_status
 from service.reconcilers.dispatch_queue import _reroute_orphaned_managed_channel_runs
 from service.reconcilers.sessions import _reconcile_duplicate_resident_sessions
 from service.reconcilers.terminals import _reconcile_stale_managed_terminals_for_resident_agents
+from stored_unwoken import assert_stored_unwoken
 
 
 # Back-compat alias: a few tests below reference _DummyWS directly.
@@ -1108,7 +1110,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (dispatched["runs"][0]["runId"],))
         self.assertEqual(run["execution_mode"], "managed")
 
-    def test_send_does_not_steer_into_offline_environment_active_run(self):
+    def _seed_managed_coder_with_a_stale_running_run(self):
+        """managed-coder (role coder) on an environment gone stale, holding running run 'run-stale'. A woken
+        send to it makes the preflight fail that run, which is the side effect an early refusal must not cause."""
         self._heartbeat_environment(
             id="wsl:test-host:default",
             label="WSL on test-host",
@@ -1179,6 +1183,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             ),
         )
 
+    def test_send_does_not_steer_into_offline_environment_active_run(self):
+        self._seed_managed_coder_with_a_stale_running_run()
+
         sent = self._send_message(
             from_agent="manager",
             to="managed-coder",
@@ -1188,24 +1195,13 @@ class ApiV2RegressionTests(FastApiTestCase):
             trigger=True,
         )
 
-        self.assertFalse(sent["ok"])
-        self.assertIn("cannot start live work", sent["error"])
+        assert_stored_unwoken(self, sent, "managed-coder")  # 0.9.8, flipped from a refusal
         stale_run = self._fetchone("SELECT status, summary, error_text FROM dispatch_runs WHERE id = ?", ("run-stale",))
         self.assertEqual(stale_run["status"], "failed")
         self.assertIn("environment", stale_run["summary"])
         self.assertIn("offline", stale_run["error_text"])
         controls = self._fetchall("SELECT * FROM dispatch_controls WHERE run_id = ?", ("run-stale",))
         self.assertEqual(controls, [])
-        messages = self._fetchall("SELECT * FROM messages WHERE to_agent = ?", ("managed-coder",))
-        self.assertEqual(messages, [])
-
-        # The dashboard's fallback after that refusal (2026-10-14): the same send without the wake
-        # is stored in the inbox, so the operator's message is kept.
-        stored = self._send_message(
-            from_agent="manager", to="managed-coder", type="request",
-            subject="new work", body="please do this", trigger=False,
-        )
-        self.assertTrue(stored["ok"], stored)
         rows = self._fetchall("SELECT body FROM messages WHERE to_agent = ?", ("managed-coder",))
         self.assertEqual([r["body"] for r in rows], ["please do this"])
 
@@ -6321,7 +6317,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(sent.status_code, 200, sent.text)
         sent_payload = sent.json()
-        self.assertFalse(sent_payload["ok"])
+        assert_stored_unwoken(self, sent_payload, "takeover-coder")  # 0.9.8, flipped from a refusal
         self.assertIn("agent status is", sent_payload["notStarted"][0]["reason"])
 
         self._register(
@@ -7292,7 +7288,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._execute("UPDATE bridge_instances SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "resident-bridge"))
 
         sent = self._send_message(from_agent="dashboard", to="return-owner", type="request", subject="resume managed", body="hello", trigger=True)
-        self.assertFalse(sent["ok"])
+        assert_stored_unwoken(self, sent, "return-owner")  # 0.9.8, flipped from a refusal
         self.assertFalse(sent.get("dispatchRuns"))
         agent = self._fetchone("SELECT session_mode, launch_mode, session_handle FROM agents WHERE id = ?", ("return-owner",))
         self.assertEqual(agent["session_mode"], "resident")
@@ -8311,7 +8307,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         closed = self._fetchone("SELECT result_message_id FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(closed["result_message_id"], answer["messageId"])
 
-    def test_triggered_send_to_offline_agent_is_not_written(self):
+    def test_triggered_send_to_offline_agent_is_stored_unwoken(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
         self._execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "coder"))
@@ -8325,14 +8321,134 @@ class ApiV2RegressionTests(FastApiTestCase):
             trigger=True,
         )
 
-        self.assertFalse(sent["ok"])
-        self.assertEqual(sent["error"], "Message was not sent because one or more recipients cannot start live work now.")
+        # 0.9.8 (Steven, 2026-10-16), flipped from "is not written": stored, unwoken, and said so.
+        assert_stored_unwoken(self, sent, "coder")
         self.assertEqual(sent["notStarted"][0]["reason"], 'agent status is "offline"')
         self.assertEqual(sent["notStarted"][0]["recipientStatus"], "offline")
         self.assertEqual(sent["dispatchRuns"], [])
-        self.assertNotIn("messageId", sent)
         stored = self._fetchone("SELECT id FROM messages WHERE to_agent = ? AND subject = ?", ("coder", "offline work"))
-        self.assertIsNone(stored)
+        self.assertEqual(stored["id"], sent["messageId"], "the inbox row is the message the answer names")
+
+    # --- 0.9.8 store-on-no-wake: the cases the rule must keep apart (Steven, 2026-10-16) ---------------------
+
+    def test_a_send_to_an_unresolved_name_is_still_refused_and_stores_nothing(self):
+        # CONTROL: a name with no row and no declared address is nobody's inbox, so it is still refused.
+        self._register("lead", runtime="codex", sessionMode="managed")
+        sent = self._send_message(from_agent="lead", to="nobody-here", type="request", subject="lost", body="x", trigger=True)
+        self.assertFalse(sent["ok"], sent)
+        self.assertNotIn("messageId", sent)
+        self.assertIsNone(self._fetchone("SELECT id FROM messages WHERE to_agent = ?", ("nobody-here",)))
+
+    def test_an_unresolved_name_is_refused_for_a_store_only_send_too(self):
+        # Review of d7173725, R1: the gate sat under req.trigger, so a store-only send (the default) to
+        # nobody's inbox was stored and answered stored:true.
+        self._register("lead", runtime="codex", sessionMode="managed")
+        sent = self._send_message(from_agent="lead", to="nobody-here", type="info", subject="lost", body="x", trigger=False)
+        self.assertFalse(sent["ok"], sent)
+        self.assertIsNone(self._fetchone("SELECT id FROM messages WHERE to_agent = ?", ("nobody-here",)))
+
+    def test_an_unresolved_name_is_refused_before_the_preflight_changes_anything(self):
+        # Review of d7173725, R1: with a known member beside the unknown name, the preflight failed that
+        # member's stale run and only then refused. The refusal must come first, so the run is untouched.
+        self._seed_managed_coder_with_a_stale_running_run()
+        self._register("lead", runtime="codex", sessionMode="managed")
+        sent = self._send_message(from_agent="lead", to="nobody-here", toRole="coder", type="request",
+                                  subject="mixed", body="x", trigger=True)
+        self.assertFalse(sent["ok"], sent)
+        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run-stale",))["status"], "running",
+                         "the refusal came after the preflight had already failed a live run")
+        self.assertEqual(self._fetchall("SELECT id FROM messages WHERE subject = ?", ("mixed",)), [])
+
+    def test_a_nonce_loss_whose_winner_cannot_be_identified_is_unknown_not_refused(self):
+        # Review of d7173725, R3: another request under this nonce wrote the rows, but the lookup found no
+        # winner. That is unknown storage, not a refusal: 503, so every consumer reads it as unknown.
+        from unittest import mock
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+        first = self._send_message(from_agent="lead", to="coder", type="info", subject="once", body="x", clientNonce="n-9")
+        self.assertTrue(first["ok"], first)
+        with mock.patch("service.routers.dispatch_messages.messages.prior_send_for_nonce", mock.AsyncMock(return_value=None)):
+            raced = self.client.post("/api/v1/messages/send", json={
+                "from_agent": "lead", "to": "coder", "type": "info", "subject": "once", "body": "x", "clientNonce": "n-9"})
+        self.assertEqual(raced.status_code, 503, raced.text)
+        self.assertIn("A concurrent send under this nonce won and could not be identified yet", raced.text)
+        self.assertIn("whether this message is stored is unknown", raced.text)
+        self.assertEqual(len(self._fetchall("SELECT id FROM messages WHERE subject = ?", ("once",))), 1, "nothing new was written")
+
+    def test_a_late_launch_failure_is_stored_without_a_run_and_says_why(self):
+        # Review of d7173725: a recipient that passed the preflight but failed at launch lands in not_started
+        # with no run. The launch seam is substituted, which is route evidence, not a native failure.
+        from unittest import mock
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._create_running_session(agent_id="healthy", role="crew", terminal=True, runtime="codex",
+                                     terminal_runtimes=["codex"], session_handle="thread-healthy")
+
+        # CONTROL first: the real launch step dispatches the healthy recipient.
+        ok = self._send_message(from_agent="lead", to="healthy", type="request", subject="control", body="x", trigger=True)
+        self.assertEqual([run["targetAgentId"] for run in ok["dispatchRuns"]], ["healthy"], ok)
+
+        async def fails_late(channel_backing_failed, console_recipients, db, launchable, not_started, req, settings):
+            for recipient_id, _mode in launchable:
+                not_started.append({"targetAgentId": recipient_id, "reason": "launch failed after the preflight"})
+
+        with mock.patch("service.routers.dispatch_messages.messages._launch_recipients_for_dispatch", fails_late):
+            sent = self._send_message(from_agent="lead", to="healthy", type="request", subject="late", body="x", trigger=True)
+        assert_stored_unwoken(self, sent, "healthy")
+        self.assertIn("launch failed after the preflight", sent["notice"])
+        row = self._fetchone("SELECT id FROM messages WHERE subject = ?", ("late",))
+        self.assertEqual(row["id"], sent["messageId"])
+        runs = self._fetchall("SELECT id FROM dispatch_runs WHERE subject = ?", ("late",))
+        self.assertEqual(runs, [], "a recipient whose launch failed must get no run")
+
+    def test_a_send_to_an_external_sender_is_stored_here_and_says_it_is_not_relayed(self):
+        # An external sender declared an address; the message is kept HERE, and the notice must not suggest
+        # that being online elsewhere brings it this copy.
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._execute(
+            "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, timestamp, origin)"
+            " VALUES ('ext-1', 'ext-peer', 'lead', 'direct', 'info', 'hi', 'hi', 'normal', 1, 'http://other-pc:8800')"
+        )
+        sent = self._send_message(from_agent="lead", to="ext-peer", type="request", subject="back", body="reply here", trigger=True)
+        self.assertTrue(sent["ok"], sent)
+        self.assertTrue(sent["stored"], sent)
+        self.assertEqual(sent["dispatchRuns"], [])
+        self.assertIn("stored on this service only and is not relayed to ext-peer's declared address", sent["notice"])
+        self.assertNotIn("can read it when it is online", sent["notice"])
+
+    def test_a_registered_migrating_recipient_is_stored_with_its_migration_reason(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("mover", runtime="codex", sessionMode="managed")
+        self._execute("UPDATE agents SET runtime = 'pi', runtime_state = ? WHERE id = ?", ('{"pi_resident_pending_flip": true}', "mover"))
+        sent = self._send_message(from_agent="lead", to="mover", type="request", subject="move", body="x", trigger=True)
+        assert_stored_unwoken(self, sent, "mover")
+        self.assertEqual(sent["notStarted"][0]["recipientStatus"], "migrating", "its own reason, not a forced offline")
+
+    def test_a_mixed_send_wakes_the_healthy_recipient_and_stores_the_other_unwoken(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._create_running_session(agent_id="healthy", role="crew", terminal=True, runtime="codex",
+                                     terminal_runtimes=["codex"], session_handle="thread-healthy")
+        self._register("away", runtime="codex", sessionMode="managed", role="crew")
+        self._execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "away"))
+        sent = self._send_message(from_agent="lead", toRole="crew", type="request", subject="both", body="x", trigger=True)
+        assert_stored_unwoken(self, sent, "away")
+        self.assertEqual([run["targetAgentId"] for run in sent["dispatchRuns"]], ["healthy"], "the healthy one still runs")
+        self.assertNotIn("healthy", [hint["targetAgentId"] for hint in sent["notStarted"]])
+
+    def test_a_lost_answer_replay_reports_its_wake_outcome_unknown_and_wakes_nothing(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+        self._execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "coder"))
+        first = self._send_message(from_agent="lead", to="coder", type="request", subject="once", body="x", trigger=True, clientNonce="n-1")
+        assert_stored_unwoken(self, first, "coder")
+        again = self._send_message(from_agent="lead", to="coder", type="request", subject="once", body="x", trigger=True, clientNonce="n-1")
+        self.assertTrue(again["replayed"], again)
+        self.assertEqual(again["messageId"], first["messageId"], "the replay names the stored message")
+        self.assertTrue(again["stored"], again)
+        self.assertEqual(again["wakeOutcome"], "unknown")
+        self.assertEqual(again["dispatchRuns"], [])
+        self.assertEqual(len(self._fetchall("SELECT id FROM messages WHERE to_agent = ? AND subject = ?", ("coder", "once"))), 1)
 
     def test_triggered_send_to_dashboard_is_store_only(self):
         self._register("manager", runtime="codex", sessionMode="managed")
@@ -8754,8 +8870,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             body="this should not be queued behind a non-channel resident",
             trigger=True,
         )
-        self.assertFalse(sent["ok"])
-        self.assertIn("cannot start live work", sent["error"])
+        assert_stored_unwoken(self, sent, "plain-claude")  # 0.9.8, flipped from a refusal
 
     def test_blocked_and_completed_agent_statuses_do_not_block_live_send(self):
         self._register("lead", runtime="codex", sessionMode="managed")
@@ -10533,7 +10648,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             body="please get to work",
             trigger=True,
         )
-        self.assertFalse(sent.get("ok"), sent)
+        assert_stored_unwoken(self, sent, "orphan-codex")  # 0.9.8, flipped from a refusal
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("orphan-codex",))
         self.assertEqual(len(rows), 0, "no spawn_request when no env can host the runtime")
 
@@ -10583,7 +10698,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             trigger=True,
         )
         # Rejected (env_A offline) — NOT migrated to env_B, no spawn_request anywhere.
-        self.assertFalse(sent.get("ok"), f"agent bound to an offline env must wait, not migrate; got {sent}")
+        assert_stored_unwoken(self, sent, "bound-codex")  # 0.9.8: waits in the inbox; still no migration, below
         rows = self._fetchall("SELECT environment_id FROM spawn_requests WHERE agent_id = ?", ("bound-codex",))
         self.assertEqual(len(rows), 0, f"no spawn_request — must not silently migrate to env_B; got {rows}")
 
@@ -10634,8 +10749,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             body="get to work",
             trigger=True,
         )
-        self.assertFalse(sent.get("ok"), f"disabled agent must hard-reject; got {sent}")
-        self.assertIn("cannot start live work", str(sent.get("error", "")))
+        # 0.9.8 (flipped from a hard reject): stored unwoken; still never cold-started, below.
+        assert_stored_unwoken(self, sent, "disabled-codex")
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("disabled-codex",))
         self.assertEqual(len(rows), 0, "a disabled agent must NOT be cold-started")
 

@@ -6,15 +6,25 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
-## 0.9.8: the dashboard keeps every message the operator writes (2026-10-14/16)
+## 0.9.8: a message that cannot wake its agent is kept, and the answer says so (2026-10-14/16)
 
-**A dashboard message is saved even when its agent cannot be woken (Steven, 2026-10-14: "i thought our comms
-is the safe place where all messages get saved so they could be analyzed later").** A woken send to an
-offline, stopped or misconfigured agent is refused and stores nothing. After that refusal the composer, and
-the run inspector's Retry and Queue-after, send the same message without the wake, which the service stores
-in the inbox, and the toast says it was saved and not woken. The composer says so before Send as well. The
-reviewer preferred an explicit "Save without waking" choice; this records the operator's expectation instead.
-The service's own refusal of a woken send is unchanged, so agents still learn their send did not wake anyone.
+**A message to an agent that cannot be woken is stored in its inbox by the SERVICE, and the answer says the
+wake failed (Steven, 2026-10-16).** Asked in session 651b895f "When a dashboard message can't wake its agent
+(offline, stopped, misconfigured), what should happen?", offered "save it automatically" or "ask me each
+time", he answered: "save it in inbox but in this case comms should return that agent can read it when he is
+online, which he is not currently or something like that. sa wake failed, message sent to inbox."
+
+So `/messages/send` no longer refuses a woken send it cannot start. It stores the message with no run for
+that recipient, lists it in `notStarted` with its own reason, and adds a `notice`: "Wake failed for X
+(<reason>). The message is in X's inbox; X can read it when it is online." It says "can", because nothing
+starts a later delivery. Still refused, storing nothing: a destination that is nobody's inbox (no row and no
+declared address), auth and input errors, and a conflicting nonce. An external sender's copy is stored here,
+and its notice says it is not relayed to its declared address. A same-nonce replay reports `wakeOutcome:
+"unknown"` and wakes nothing. The dashboard sends once and shows the notice.
+
+SUPERSEDED: my 2026-10-14/16 reading of his "safe place where all messages get saved" as a dashboard-side
+re-send without the wake. The reviewer had preferred an explicit "Save without waking" choice; he chose
+neither and moved the rule into the service.
 
 **Typed text is cleared only once it is known to be stored.** A refusal the service answered (its `ok:false`
 envelope or a 4xx) is a definite no. A timeout, a lost connection or a 5xx may have landed after the commit, so

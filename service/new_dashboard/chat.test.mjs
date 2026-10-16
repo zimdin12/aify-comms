@@ -176,16 +176,20 @@ test("a REFUSED send (ok:false) keeps the composer text and the saved draft — 
   assert.equal(h.state.chat.drafts["dm:peer"], "hello there", "the draft must survive a reload after a refusal");
 }));
 
-test("a refused DM is stored without the wake, so the message is kept, and the box clears only then", () => withStubDocument(async () => {
+test("0.9.8: a DM the service stored unwoken is sent ONCE and clears the box; a refusal keeps it", () => withStubDocument(async () => {
+  // The service stores what it cannot wake and says so (notice), so the composer no longer re-sends.
   const calls = [];
   const h = sendHarness({ sendMessage: async (payload) => {
     calls.push(payload);
-    return payload.trigger === false ? { ok: true, notStarted: ["peer"] } : { ok: false, error: "cannot start live work" };
+    return { ok: true, stored: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "peer", reason: "offline" }], notice: "Wake failed for peer (offline)." };
   } });
   await h.controller.send();
-  assert.deepEqual(calls.map((c) => c.trigger), [undefined, false], "one woken attempt, then one store-only attempt");
-  assert.equal(calls[1].body, "hello there", "the store-only attempt carries the same message");
-  assert.equal(h.els["chat-composer-body"].value, "", "cleared only after the service stored it");
+  assert.equal(calls.length, 1, "one send: the service stores it itself");
+  assert.equal(h.els["chat-composer-body"].value, "", "stored, so cleared");
+
+  const refused = sendHarness({ sendMessage: async () => ({ ok: false, error: "No recipients found" }) });
+  await refused.controller.send();
+  assert.equal(refused.els["chat-composer-body"].value, "hello there", "a refusal stored nothing, so the text stays");
 }));
 
 // ── open / close / pulse / analytics ────────────────────────────────────────

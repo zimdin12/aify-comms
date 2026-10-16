@@ -151,7 +151,9 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const readOnly = String(identity) === 'all';
   const badges = [
     `<span class="msg-badge ${m.read === false ? 'unread' : 'read'}">${m.read === false ? 'unread' : 'read'}</span>`,
-    woke ? '<span class="msg-badge woke">woke</span>' : '<span class="msg-badge stored">stored</span>',
+    // The flag records that the sender ASKED for a wake. From 0.9.8 a message whose wake failed is stored
+    // with it too, so the badge says "wake requested", never "woke"; the send's own answer said what happened.
+    woke ? '<span class="msg-badge woke" title="The sender asked for a wake; whether it happened was in the answer to that send">wake requested</span>' : '<span class="msg-badge stored">stored</span>',
     m.type ? `<span class="msg-badge type t-${esc(m.type)}">${esc(m.type)}</span>` : '',
     (priority === 'high' || priority === 'urgent') ? `<span class="msg-badge p-${esc(priority)}">${esc(priority)}</span>` : '',
   ].join('');
@@ -198,7 +200,7 @@ export function deliveryToastFor(response, to) {
   if (status === 'queued') return { tone: 'info', text: `Queued behind ${to}'s active work` };
   if (consoleDelivered) return { tone: 'ok', text: `Delivered to ${to}'s console` };
   if (status === 'claimed' || status === 'running' || status === 'delivered') return { tone: 'ok', text: `Woke ${to}` };
-  if (notStarted) return { tone: 'warn', text: `Stored for ${to} (no live worker to wake)` };
+  if (notStarted) return { tone: 'warn', text: response?.notice || `Saved in ${to}'s inbox, not woken` };
   return { tone: 'ok', text: `Sent to ${to}` };
 }
 

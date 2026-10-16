@@ -32,6 +32,8 @@ from service.api_core.reply_expectation import (
 )
 from service.api_core.reply_threading import _thread_reply_onto_dispatch_runs
 from service.api_core.send_refusal import _refuse_send_to_unstartable_recipients
+from service.api_core.dispatch_hint import unresolved_new_destinations
+from service.api_core.wake_notice import REPLAY_NOTICE, wake_failed_notice
 from service.api_core.console_input_queue import _queue_console_dispatch_inputs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -119,6 +121,9 @@ async def send_message(req: MessageSend, request: Request):
                     "ok": True,
                     "messageId": prior_id,
                     "replayed": True,
+                    "stored": True,
+                    "wakeOutcome": "unknown",
+                    "notice": REPLAY_NOTICE,
                     "recipients": [],
                     "recipientStatus": {},
                     "dispatchRuns": [],
@@ -148,6 +153,12 @@ async def send_message(req: MessageSend, request: Request):
 
         if not recipients:
             return {"ok": False, "error": "No recipients found", "recipients": []}
+        # Nobody's inbox is refused FIRST, woken or not, before the preflight or the launch can change
+        # anything. Replies keep their persist-and-thread path (see is_reply above).
+        if not is_reply:
+            unresolved = await unresolved_new_destinations(db, recipients)
+            if unresolved:
+                return await _refuse_send_to_unstartable_recipients(db, recipients, unresolved, warnings)
 
         launchable_recipients = []
         not_started = []
@@ -162,11 +173,8 @@ async def send_message(req: MessageSend, request: Request):
                 allow_steer=prefer_steer,
                 allow_queue_busy=allow_queue_busy,
             )
-            # ASYMMETRY: do NOT hard-reject a reply here. Replies fall through
-            # to persist + thread regardless of recipient live-startability
-            # (see is_reply note above). Only NEW dispatches hard-gate.
-            if not_started and not is_reply:
-                return await _refuse_send_to_unstartable_recipients(db, recipients, not_started, warnings)
+            # A recipient that cannot be woken is STORED without a run, and the answer says the wake failed
+            # (Steven, 2026-10-16). Nobody's inbox was refused above, before this.
             settings = await _load_settings(db)
             channel_backing_failed = set()
             await _launch_recipients_for_dispatch(channel_backing_failed, console_recipients, db, launchable_recipients, not_started, req, settings)
@@ -175,10 +183,10 @@ async def send_message(req: MessageSend, request: Request):
                 for recipient_id, execution_mode in launchable_recipients
                 if recipient_id not in console_recipients and recipient_id not in channel_backing_failed
             ]
-            # ASYMMETRY: replies are never hard-rejected — see is_reply note
-            # above. Fall through to persist + thread the reply.
-            if not_started and not is_reply:
-                return await _refuse_send_to_unstartable_recipients(db, recipients, not_started, warnings)
+            # A late launch failure is stored without a run like any other unwakeable recipient: whatever
+            # landed in not_started gets no run, so a stored-only recipient is never also dispatched.
+            stored_only = {str(hint.get("targetAgentId") or "") for hint in not_started}
+            launchable_recipients = [(r, mode) for r, mode in launchable_recipients if r not in stored_only]
 
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 
@@ -213,10 +221,20 @@ async def send_message(req: MessageSend, request: Request):
             prior_id = await prior_send_for_nonce(
                 db, req, client_nonce, fingerprint=fingerprint, in_reply_to=resolved_in_reply_to,
             )
+            # Only an identified earlier send is "stored": an id this request minted for rows it never wrote
+            # would claim an acceptance nobody can find. Unidentified, the storage is UNKNOWN, not refused:
+            # another request under this nonce did write, so 503 lets every caller treat it as an unknown
+            # outcome, and a retry under the same nonce reaches the replay above (review of d7173725, R3).
+            if not prior_id:
+                raise HTTPException(503, "A concurrent send under this nonce won and could not be identified yet; "
+                                         "whether this message is stored is unknown. Retry with the same nonce.")
             return {
                 "ok": True,
-                "messageId": prior_id or msg_id,
+                "messageId": prior_id,
                 "replayed": True,
+                "stored": True,
+                "wakeOutcome": "unknown",
+                "notice": REPLAY_NOTICE,
                 "recipients": [],
                 "recipientStatus": {},
                 "dispatchRuns": [],
@@ -298,6 +316,8 @@ async def send_message(req: MessageSend, request: Request):
         return {
             "ok": True,
             "messageId": msg_id,
+            "stored": inserted_rows > 0,
+            "notice": "" if is_reply else wake_failed_notice(not_started),
             "recipients": recipients,
             "recipientStatus": recipient_info,
             "dispatchRuns": dispatch_runs,
