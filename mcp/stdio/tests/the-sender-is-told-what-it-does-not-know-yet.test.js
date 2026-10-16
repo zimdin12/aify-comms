@@ -38,6 +38,11 @@ test("the direct send's ack carries the note, and the channel post's does not", 
     const next = src.indexOf("server.tool(", start);
     return src.slice(start, next < 0 ? undefined : next);
   };
-  assert.match(registration("comms_send"), /awaitingReplyNote\(/, "comms_send's ack must carry the note");
+  // The direct send's ack is built by send-result-format.mjs (0.9.8 stage 1): the registration hands the
+  // answer to it, and it calls the note. Both halves are read; the note's text is pinned by behaviour in
+  // send-result-format.test.js.
+  assert.match(registration("comms_send"), /formatTriggeredSendResult\(/, "comms_send's ack must go through the formatter");
+  const formatter = readFileSync(new URL("../send-result-format.mjs", import.meta.url), "utf8");
+  assert.match(formatter, /awaitingReplyNote\(/, "comms_send's ack must carry the note");
   assert.doesNotMatch(registration("comms_channel_send"), /awaitingReplyNote\(/, "the channel ack promises a reply no channel run tracks");
 });

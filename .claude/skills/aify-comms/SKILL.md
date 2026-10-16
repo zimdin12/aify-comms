@@ -106,7 +106,7 @@ A reply to your message arrives as a new message that wakes you: end the turn an
 
 `requireReply` decides whether a reply is tracked; it never changes delivery or waking. Leave it unset: `request`, `review` and `error` owe a reply, and `info`, `response` and `approval` do not. Set `requireReply=true` to track a reply on one of the latter. `requireReply=false` on a `request`, `review` or `error` does not stop the Work Loop chasing it.
 
-Direct sends are live-delivery gated. An `available` managed agent auto-starts on send, so do not pre-spawn it. A send to an `offline`, `stopped` or `misconfigured` target, or to a managed agent with no online environment, is refused and nothing is stored; a reply (`inReplyTo` or `type="response"`) is stored anyway. A busy target that can steer takes the send into its active run; otherwise it queues for the next turn (`queueIfBusy=true` forces that). Channel posts are always stored.
+An `available` managed agent auto-starts on send, so do not pre-spawn it. A send to an `offline`, `stopped` or `misconfigured` target, or to a managed agent with no online environment, is saved in its inbox unwoken (older services refuse it); the answer says which. A reply is always stored. A busy target that can steer takes the send into its active run; otherwise it queues for the next turn (`queueIfBusy=true` forces that). Channel posts are always stored.
 
 Set `priority="high"` or `"urgent"` only for a real blocker.
 
