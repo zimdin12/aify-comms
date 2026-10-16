@@ -9715,6 +9715,42 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(self._fetchone("SELECT summary FROM dispatch_runs WHERE id = ?", (run_id,))["summary"],
                          "build broke: 3 errors (see log)")
 
+    def test_an_operator_close_keeps_a_result_the_worker_commits_after_its_read(self):
+        # Review of 00b965c5: the close judged "already finished" from its first read, so a worker that
+        # committed `failed` between that read and the close's UPDATE was overwritten with `completed`.
+        import service.db as service_db
+        from service.routers.dispatch_messages import dispatch as dispatch_router
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+        run_id = self._dispatch(from_agent="dashboard", to="coder", type="request", subject="s", body="b",
+                                mode="start_if_possible", createMessage=True)["runs"][0]["runId"]
+        real_now, fired = dispatch_router._now, []
+
+        def worker_finishes_after_the_read():
+            if not fired:  # the handler's first clock read comes right after its SELECT of the run
+                fired.append(True)
+                worker = sqlite3.connect(service_db._db_path)
+                try:
+                    worker.execute("UPDATE dispatch_runs SET status = 'failed', summary = 'build broke', "
+                                   "error_text = 'tsc exit 2' WHERE id = ?", (run_id,))
+                    worker.commit()
+                finally:
+                    worker.close()
+            return real_now()
+
+        closing = "Closed from Work by dashboard operator."
+        with patch.object(dispatch_router, "_now", side_effect=worker_finishes_after_the_read):
+            closed = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={
+                "status": "completed", "requireReply": False, "summary": closing, "appendEvent": closing,
+                "eventType": "operator_closed"})
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertEqual(fired, [True], "the worker's write must land inside the close's read-to-write interval")
+        self.assertTrue(closed.json()["alreadyTerminal"], closed.json())
+        row = self._fetchone("SELECT status, summary, error_text, require_reply FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual((row["status"], row["summary"], row["error_text"]), ("failed", "build broke", "tsc exit 2"))
+        self.assertEqual(row["require_reply"], 0, "the close still releases the reply obligation")
+        events = [e["body"] for e in self._fetchall("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'operator_closed'", (run_id,))]
+        self.assertEqual(events, ["Operator close on a run already failed: its status and result were kept."])
+
     def test_an_operator_close_is_not_reported_as_a_managers_result(self):
         # The manager report path fabricated the same way, and a later repair pass calls it without the
         # close intent, so it also reads the stored operator_closed event.

@@ -290,32 +290,41 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         if current_status in _DISPATCH_TERMINAL_STATUSES and requested_status != current_status:
             effective_status = None
 
-        if effective_status:
-            updates.append("status = ?")
-            params.append(effective_status)
-            if effective_status == "running" and not row["started_at"]:
-                updates.append("started_at = ?")
-                params.append(now)
-            if effective_status in _DISPATCH_TERMINAL_STATUSES:
-                updates.append("finished_at = ?")
-                params.append(now)
-        # AN OPERATOR CLOSE ON A RUN THAT ALREADY FINISHED KEEPS ITS RESULT (0.9.8 audit): the status was
-        # already kept above, but the summary and error were overwritten, so a failed run lost why it
-        # failed. Judged in the UPDATE itself, so a run that finishes meanwhile is kept too.
+        # AN OPERATOR CLOSE ON A RUN THAT ALREADY FINISHED KEEPS ITS RESULT (0.9.8 audit). Its status,
+        # summary and error are written by one UPDATE that matches only a run still in flight, and
+        # whether it was already finished is that UPDATE's rowcount, not the read above: a worker that
+        # commits `failed` after that read keeps its status and result, and the answer says so.
         operator_close = (req.eventType or "").strip() == "operator_closed"
-        already_terminal = operator_close and current_status in _DISPATCH_TERMINAL_STATUSES
-        keep_if_finished = (
-            f"CASE WHEN status IN ({', '.join('?' * len(_DISPATCH_TERMINAL_STATUSES))}) THEN {{col}} ELSE ? END"
-        )
+        result_updates = updates if not operator_close else []
+        result_params = params if not operator_close else []
+        if effective_status:
+            result_updates.append("status = ?")
+            result_params.append(effective_status)
+            if effective_status == "running" and not row["started_at"]:
+                result_updates.append("started_at = ?")
+                result_params.append(now)
+            if effective_status in _DISPATCH_TERMINAL_STATUSES:
+                result_updates.append("finished_at = ?")
+                result_params.append(now)
         for value, column in ((req.summary, "summary"), (req.error, "error_text")):
-            if value is None:
-                continue
-            if operator_close:
-                updates.append(f"{column} = " + keep_if_finished.format(col=column))
-                params.extend([*sorted(_DISPATCH_TERMINAL_STATUSES), value])
-            else:
-                updates.append(f"{column} = ?")
-                params.append(value)
+            if value is not None:
+                result_updates.append(f"{column} = ?")
+                result_params.append(value)
+        already_terminal = operator_close and current_status in _DISPATCH_TERMINAL_STATUSES
+        closed_now = False
+        if operator_close and result_updates:
+            terminal = sorted(_DISPATCH_TERMINAL_STATUSES)
+            closed = await db.execute(
+                f"UPDATE dispatch_runs SET {', '.join(result_updates)} "
+                f"WHERE id = ? AND status NOT IN ({', '.join('?' * len(terminal))})",
+                [*result_params, run_id, *terminal],
+            )
+            closed_now = closed.rowcount == 1
+            if not closed_now:
+                already_terminal = True
+                effective_status = None
+                current_status = str((await (await db.execute(
+                    "SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))).fetchone())["status"] or "")
         if req.resultMessageId is not None:
             normalized_result_message_id = str(req.resultMessageId or "").strip()
             if normalized_result_message_id or not str(row["result_message_id"] or "").strip():
@@ -338,8 +347,11 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             params.append(run_id)
             await db.execute(f"UPDATE dispatch_runs SET {', '.join(updates)} WHERE id = ?", params)
             await _invalidate_agent_live_state(db, row["target_agent"])
-            await _settle_terminated_dispatch_run(db, run_id, effective_status, now, request,
-                                                  operator_closed=(req.eventType or "").strip() == "operator_closed")
+            if not operator_close:
+                await _settle_terminated_dispatch_run(db, run_id, effective_status, now, request)
+        if closed_now:
+            await _invalidate_agent_live_state(db, row["target_agent"])
+            await _settle_terminated_dispatch_run(db, run_id, effective_status, now, request, operator_closed=True)
 
         # MC1 (2026-06-06): only persist a status that is in the 8-status vocabulary.
         # Delivery PATCHes historically sent a non-vocab agentStatus:"active", which got
@@ -367,7 +379,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("dispatch_updated", {"runId": run_id, "status": effective_status or row["status"]})
+            await ws.broadcast("dispatch_updated", {"runId": run_id, "status": effective_status or current_status or row["status"]})
         return {"ok": True, "runId": run_id, "alreadyTerminal": already_terminal}
     finally:
         await db.close()
