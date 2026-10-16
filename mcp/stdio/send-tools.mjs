@@ -26,7 +26,8 @@ import { canLaunchRuntime, normalizeRuntime } from "./runtimes.js";
 import { validateName } from "./safe-name.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { spawnTriggeredAgent } from "./spawn-triggered-agent.mjs";
-import { awaitingReplyNote, formatQueuedRun } from "./tool-response-format.mjs";
+import { formatSendRefusal, formatTriggeredSendResult } from "./send-result-format.mjs";
+import { formatQueuedRun } from "./tool-response-format.mjs";
 
 // EVERY AGENT PAYS THIS ON EVERY TURN. `tools/list` is always-loaded context, so a sentence here is
 // not written once -- it is re-read by every agent on every turn for the life of the fleet. It was
@@ -89,30 +90,11 @@ export function registerSendTools(server, z) {
         const r = await httpCall("POST", "/messages/send", {
           from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue, requireReply, clientNonce,
         });
-        if (!r.ok) {
-          const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);
-          return {
-            content: [{
-              type: "text",
-              text: `${r.error || "Message was not sent."}${skipped.length ? `\nUnavailable: ${skipped.join("; ")}` : ""}`,
-            }],
-            isError: true,
-          };
-        }
+        if (!r.ok) return formatSendRefusal(r);
 
         const dashboardOnly = (r.recipients || []).length > 0 && (r.recipients || []).every((rid) => rid === "dashboard");
-        if (shouldTrigger && r.recipients?.length > 0 && !dashboardOnly) {
-          const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
-          const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
-          return {
-            content: [{
-              type: "text",
-              text:
-                `Sent. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.` +
-                awaitingReplyNote({ from, to, type, requireReply }) +
-                (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
-            }],
-          };
+        if (shouldTrigger && (r.replayed || (r.recipients?.length > 0 && !dashboardOnly))) {
+          return formatTriggeredSendResult(r, { from, to, type, requireReply });
         }
 
         // Include recipient status in response
