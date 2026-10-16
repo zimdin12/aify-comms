@@ -8,6 +8,7 @@
 // One injected name: `refresh`. Everything else is already a sibling's export.
 
 import { api } from './api-client.mjs';
+import { sendOutcomeIsUnknown } from './message-transport.mjs';
 import { noteSliceFailure } from './refresh-status.mjs';
 import { contractCategory } from './record-fields.mjs';
 import { patchRun } from './run-helpers.mjs';
@@ -137,15 +138,33 @@ export function renderContracts() {
 
 export async function closeWorkContract(runId, confirmAction = true, refreshAfter = true) {
   if (confirmAction && !await uiConfirm('Close this Work Loop contract as operator-reviewed?')) return;
-  const answer = await patchRun(runId, {
-    status: 'completed',
-    requireReply: false,
-    summary: 'Closed from Work Loop by dashboard operator.',
-    appendEvent: 'Closed from Work Loop by dashboard operator.',
-    eventType: 'operator_closed',
-  });
+  let answer;
+  try {
+    answer = await patchRun(runId, {
+      status: 'completed',
+      requireReply: false,
+      summary: 'Closed from Work Loop by dashboard operator.',
+      appendEvent: 'Closed from Work Loop by dashboard operator.',
+      eventType: 'operator_closed',
+    });
+  } catch (err) {
+    // The bulk action counts each item's failure itself; only the single Close reports here, where an
+    // unhandled rejection used to leave the operator believing it had closed.
+    if (!confirmAction) throw err;
+    const why = err?.message || err;
+    toast(sendOutcomeIsUnknown(err)
+      ? `The close may have gone through (${why}). Refresh to check before closing it again.`
+      : `Close failed: ${why}`, 'error');
+    return null;
+  }
   if (answer?.alreadyTerminal && confirmAction) toast('That run had already finished; its result was kept.', 'warn');
-  if (refreshAfter) await refresh();
+  if (refreshAfter) {
+    // The service acknowledged the close, so a failed refresh is only a stale list, not a failed close.
+    try { await refresh(); } catch (err) {
+      if (!confirmAction) throw err;
+      toast(`Closed, but the list did not refresh: ${err?.message || err}`, 'warn');
+    }
+  }
   return answer;
 }
 

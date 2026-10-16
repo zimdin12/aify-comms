@@ -51,7 +51,7 @@ test("an unknown-outcome Queue-after reopens the prompt with the text and says i
     if (String(url).endsWith("/messages/send")) {
       sends.push(JSON.parse(opts.body).body);
       if (sends.length === 1) throw new TypeError("Failed to fetch");
-      return new Response(JSON.stringify({ ok: true, dispatchRuns: [{ status: "queued" }] }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, messageId: "m1", dispatchRuns: [{ status: "queued" }] }), { status: 200 });
     }
     return new Response("{}", { status: 200 });
   };

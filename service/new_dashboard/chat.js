@@ -14,7 +14,7 @@ import { chatRailItems, dmMessages, sortChronological } from './chat-select.mjs'
 import { anchoredScrollTop } from './message-history.mjs';
 import { paintIfChanged } from './drawer-paint.mjs';
 import { createMessengerReading } from './messenger-reading.mjs';
-import { requireAck, sendOutcomeIsUnknown } from './message-transport.mjs';
+import { requireStoredMessage, sendOutcomeIsUnknown } from './message-transport.mjs';
 // The pure HTML builders left for `chat-render.mjs` in v0.5.4 — data in, string out, no app state and
 // no DOM. The controller below is their only caller here; `chat.test.mjs` imports them from their new
 // owner rather than through this module, so nothing re-exports them.
@@ -543,7 +543,7 @@ export function createChatController(deps) {
         toast(`${t.text}. Your text is still in the box.`, 'error');
         return;
       }
-      requireAck(response); // no acknowledgement is an unknown outcome: the catch keeps the text
+      requireStoredMessage(response); // no usable acknowledgement is an unknown outcome: the catch keeps the text
       // Clear only what was sent. Text typed while the send was pending, or another conversation's
       // text if the operator switched, is newer than this send and must survive it.
       if (bodyEl && bodyEl.value.trim() === body) bodyEl.value = '';

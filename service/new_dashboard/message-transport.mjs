@@ -89,6 +89,14 @@ export function requireAck(res, field = '') {
   throw new Error(field && res?.ok === true ? `the service acknowledged without a ${field}` : 'the service gave no acknowledgement');
 }
 
+// A send is acknowledged only with a usable message id: a non-blank string, kept as the service wrote it.
+// [], {}, 7 or "  " pass a truthiness check and would clear the composer for a send nobody can find.
+export function requireStoredMessage(res) {
+  requireAck(res);
+  if (typeof res.messageId === 'string' && res.messageId.trim()) return res;
+  throw new Error('the service acknowledged without a usable message id');
+}
+
 // A follow-up threads to its run's message, so the service treats it as a REPLY: it never refuses
 // it, and can answer ok:true while waking nobody (`notStarted` set, no dispatch run). Report that,
 // rather than read "not refused" as "delivered" (review of dd992844). '' means it was dispatched.
@@ -118,7 +126,7 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   // once. A refusal stores nothing: thrown as definite, so the caller keeps the typed text.
   const res = await sendMessageWithTimeout(payload);
   if (res?.ok === false) throw Object.assign(new Error(res.error || 'refused'), { refused: true });
-  return { storedUnwoken: storedWithoutDispatch(requireAck(res)) };
+  return { storedUnwoken: storedWithoutDispatch(requireStoredMessage(res)) };
 }
 import { api } from './api-client.mjs';
 import { noteSliceFailure } from './refresh-status.mjs';

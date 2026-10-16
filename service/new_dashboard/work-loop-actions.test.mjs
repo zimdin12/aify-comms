@@ -47,7 +47,7 @@ function makeDialog(answer) {
   return overlay;
 }
 
-function withWorkLoop({ confirm = true, failing = [], skipping = [], finished = [] } = {}) {
+function withWorkLoop({ confirm = true, failing = [], skipping = [], finished = [], failStatus = 409, unreachable = [], refreshFails = false } = {}) {
   const els = new Map();
   const sent = [];
   const toasts = [];
@@ -71,8 +71,9 @@ function withWorkLoop({ confirm = true, failing = [], skipping = [], finished = 
   globalThis.fetch = async (url, options = {}) => {
     const method = (options.method || "GET").toUpperCase();
     if (method !== "GET") sent.push({ url: String(url), method, body: options.body });
+    if (method !== "GET" && unreachable.some((id) => String(url).includes(id))) throw new TypeError("Failed to fetch");
     if (method !== "GET" && failing.some((id) => String(url).includes(id))) {
-      return { ok: false, status: 409, statusText: "Conflict", text: async () => JSON.stringify({ error: "already closed" }) };
+      return { ok: false, status: failStatus, statusText: "Conflict", text: async () => JSON.stringify({ error: "already closed" }) };
     }
     const payload = { ok: true, contracts: [], runs: [], repaired: 3 };
     // A run that had already finished: the close keeps its result and says so (0.9.8 audit).
@@ -89,7 +90,7 @@ function withWorkLoop({ confirm = true, failing = [], skipping = [], finished = 
   };
   setApiBase("");
   let refreshes = 0;
-  initWorkLoopActions({ refresh: async () => { refreshes += 1; } });
+  initWorkLoopActions({ refresh: async () => { refreshes += 1; if (refreshFails) throw new Error("poll timed out"); } });
   Object.assign(state, {
     contracts: [], contractsBase: [], runs: [], filter: "", contractView: "list",
     selectedDiagnosticIds: new Set(),
@@ -300,6 +301,56 @@ test("closing a work contract can SKIP its confirmation — the flag bulk relies
     await closeWorkContract("c1", false, false);
     assert.equal(h.sent.length, 1, "an unconfirmed close must go straight out");
     assert.equal(h.refreshes(), 0, "…and refreshAfter=false must not poll per item");
+  } finally { h.restore(); }
+});
+
+test("a single Close that fails says so; one that may have landed says that instead", async () => {
+  // The click handler awaited nothing and caught nothing: a failed close was an unhandled rejection
+  // with no toast, and the operator believed the run was closed.
+  const cases = [
+    [{ failing: ["c1"], failStatus: 409 }, /^Close failed: /],
+    [{ failing: ["c1"], failStatus: 503 }, /^The close may have gone through \(.*\)\. Refresh to check before closing it again\.$/],
+    [{ unreachable: ["c1"] }, /^The close may have gone through \(Failed to fetch\)/],
+  ];
+  for (const [opts, expected] of cases) {
+    const h = withWorkLoop({ confirm: true, ...opts });
+    try {
+      assert.equal(await closeWorkContract("c1"), null, JSON.stringify(opts));
+      assert.equal(h.sent.length, 1, "one attempt: nothing is resent automatically");
+      const errors = h.toasts.filter((t) => /error/.test(t.tone));
+      assert.equal(errors.length, 1, JSON.stringify(h.toasts));
+      assert.match(errors[0].text, expected);
+      assert.equal(h.refreshes(), 0, "no acknowledgement, so nothing to refresh to");
+    } finally { h.restore(); }
+  }
+  // CONTROLS: a clean close raises no error, and a kept result still warns.
+  const ok = withWorkLoop({ confirm: true });
+  try {
+    assert.equal((await closeWorkContract("c1")).ok, true);
+    assert.deepEqual(ok.toasts.filter((t) => /error|warn/.test(t.tone)), []);
+    assert.equal(ok.refreshes(), 1);
+  } finally { ok.restore(); }
+  const kept = withWorkLoop({ confirm: true, finished: ["c1"] });
+  try {
+    await closeWorkContract("c1");
+    assert.deepEqual(kept.toasts.map((t) => t.text), ["That run had already finished; its result was kept."]);
+  } finally { kept.restore(); }
+});
+
+test("a Close the service acknowledged is not reported as failed when only the refresh after it fails", async () => {
+  const h = withWorkLoop({ confirm: true, refreshFails: true });
+  try {
+    assert.equal((await closeWorkContract("c1")).ok, true, "the acknowledged answer is still returned");
+    assert.deepEqual(h.toasts.map((t) => t.text), ["Closed, but the list did not refresh: poll timed out"]);
+    assert.doesNotMatch(h.toasts[0].tone, /error/);
+  } finally { h.restore(); }
+});
+
+test("an unconfirmed (bulk) close still throws, so the bulk action counts the failure", async () => {
+  const h = withWorkLoop({ confirm: false, failing: ["c1"], failStatus: 503 });
+  try {
+    await assert.rejects(closeWorkContract("c1", false, false));
+    assert.deepEqual(h.toasts, [], "the bulk summary reports it, not the item");
   } finally { h.restore(); }
 });
 

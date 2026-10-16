@@ -68,7 +68,7 @@ function sendHarness({ selected = "dm:peer", sendMessage = null } = {}) {
   const controller = createChatController({
     state,
     byId: (id) => els[id] || null,
-    sendMessage: sendMessage || (async (payload) => { sent.push(payload); return { ok: true }; }),
+    sendMessage: sendMessage || (async (payload) => { sent.push(payload); return { ok: true, messageId: "m1" }; }),
     refresh: async () => {},
     loadConversation: async () => {},
     markConversationRead: async (agentId, opts) => { readCalls.push({ agentId, opts }); },
@@ -157,7 +157,7 @@ test("a failing mark-read never loses the sent message", () => withStubDocument(
     const controller = createChatController({
       state: h.state,
       byId: (id) => h.els[id] || null,
-      sendMessage: async (payload) => { h.sent.push(payload); return { ok: true }; },
+      sendMessage: async (payload) => { h.sent.push(payload); return { ok: true, messageId: "m1" }; },
       refresh: async () => {},
       loadConversation: async () => {},
       markConversationRead: async () => { throw new Error("read endpoint down"); },
@@ -190,6 +190,29 @@ test("0.9.8: a DM the service stored unwoken is sent ONCE and clears the box; a 
   const refused = sendHarness({ sendMessage: async () => ({ ok: false, error: "No recipients found" }) });
   await refused.controller.send();
   assert.equal(refused.els["chat-composer-body"].value, "hello there", "a refusal stored nothing, so the text stays");
+}));
+
+test("a send acknowledged without a usable message id keeps the text, subject, draft and reply", () => withStubDocument(async () => {
+  // Review of the 0.9.8 dashboard plan: [], {}, 7 or "  " passed a truthiness check and cleared the box.
+  for (const messageId of [undefined, [], {}, 7, "   "]) {
+    const h = sendHarness({ sendMessage: async () => ({ ok: true, messageId, dispatchRuns: [] }) });
+    const reply = { id: "parent-1", conversationKey: "dm:peer" };
+    h.state.chat.replyTo = reply;
+    h.state.chat.drafts["dm:peer"] = "hello there";
+    h.els["chat-subject"].value = "subj";
+    await h.controller.send();
+    const label = JSON.stringify(messageId);
+    assert.equal(h.els["chat-composer-body"].value, "hello there", `${label}: the text stays`);
+    assert.equal(h.els["chat-subject"].value, "subj", `${label}: the subject stays`);
+    assert.equal(h.state.chat.drafts["dm:peer"], "hello there", `${label}: the draft stays`);
+    assert.equal(h.state.chat.replyTo, reply, `${label}: the reply target stays`);
+  }
+  // CONTROLS: a string id clears a DM, and a channel post with its id clears too.
+  for (const selected of ["dm:peer", "channel:ops"]) {
+    const ok = sendHarness({ selected, sendMessage: async () => ({ ok: true, messageId: "1792-abc", dispatchRuns: [] }) });
+    await ok.controller.send();
+    assert.equal(ok.els["chat-composer-body"].value, "", `${selected}: a usable id clears the box`);
+  }
 }));
 
 // ── open / close / pulse / analytics ────────────────────────────────────────
@@ -665,12 +688,12 @@ test("a second press while a send is in flight sends nothing (external review, D
     const h = sendHarness({ sendMessage: (payload) => { sent.push(payload); return new Promise((r) => { answers.push(r); }); } });
     const presses = [h.controller.send(), h.controller.send(), h.controller.send({ queue: true })];
     const inFlight = sent.length;
-    answers.forEach((r) => r({ ok: true }));
+    answers.forEach((r) => r({ ok: true, messageId: "m1" }));
     await Promise.all(presses);
     assert.equal(inFlight, 1, `the in-flight guard let ${inFlight} sends through`);
     h.els["chat-composer-body"].value = "and another";
     const next = h.controller.send();
-    answers.at(-1)({ ok: true });
+    answers.at(-1)({ ok: true, messageId: "m2" });
     await next;
     assert.equal(sent.length, 2, "CONTROL: a send after the first settles goes through");
 }));
@@ -710,7 +733,7 @@ test("text typed while a send is pending survives that send's success", () => wi
   h = sendHarness({ sendMessage: async () => {
     h.els["chat-composer-body"].value = "newer text typed while pending";
     h.state.chat.drafts["dm:peer"] = "newer text typed while pending";
-    return { ok: true };
+    return { ok: true, messageId: "m1" };
   } });
   await h.controller.send();
   assert.equal(h.els["chat-composer-body"].value, "newer text typed while pending", "only what was sent is cleared");

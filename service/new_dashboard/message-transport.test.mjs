@@ -18,7 +18,7 @@ import test from "node:test";
 import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
-  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup, sendOutcomeIsUnknown, requireAck,
+  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup, sendOutcomeIsUnknown, requireAck, requireStoredMessage,
 } from "./message-transport.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
@@ -216,13 +216,13 @@ const followupRun = (over = {}) => ({
 });
 
 test("a follow-up with no resolvable target sends nothing at all", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup({ id: "run-orphan" });
   assert.equal(SEEN.length, 0, "a run with no agent must not produce a message addressed to nobody");
 });
 
 test("a queue-after follow-up waits for the agent rather than interrupting it", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun());
   const payload = sent();
   assert.equal(payload.to, "coder");
@@ -233,7 +233,7 @@ test("a queue-after follow-up waits for the agent rather than interrupting it", 
 });
 
 test("0.9.8: a follow-up is sent ONCE; stored-unwoken reports why, and a refusal throws as definite", async () => {
-  respond({ ok: true, stored: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: "agent status is \"offline\"" }] });
+  respond({ ok: true, messageId: "m1", stored: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: "agent status is \"offline\"" }] });
   const result = await sendRunFollowup(followupRun(), { body: "typed by the operator" });
   assert.equal(SEEN.length, 1, "one send: the service stores it itself");
   assert.equal(result.storedUnwoken, 'agent status is "offline"');
@@ -251,33 +251,33 @@ test("a follow-up refused even without the wake throws, so the caller reports it
 });
 
 test("a follow-up the service stored as a reply but dispatched to nobody says so", async () => {
-  respond({ ok: true, dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: 'agent status is "offline"' }] });
+  respond({ ok: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: 'agent status is "offline"' }] });
   const result = await sendRunFollowup(followupRun());
   assert.equal(result.storedUnwoken, 'agent status is "offline"', "ok:true is not proof it was woken or queued");
-  respond({ ok: true, dispatchRuns: [{ status: "queued" }], notStarted: [] });
+  respond({ ok: true, messageId: "m1", dispatchRuns: [{ status: "queued" }], notStarted: [] });
   assert.equal((await sendRunFollowup(followupRun())).storedUnwoken, "", "a dispatched follow-up reports nothing");
 });
 
 test("a retry names itself a retry, so the thread does not read as a second request", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun(), { retry: true });
   assert.equal(sent().subject, "Retry: build the thing");
 });
 
 test("a retry of a run with no subject falls back to the run id", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun({ subject: "" }), { retry: true });
   assert.equal(sent().subject, "Retry: run-7");
 });
 
 test("an explicit body wins over the run's own text", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun(), { body: "do it differently this time" });
   assert.equal(sent().body, "do it differently this time");
 });
 
 test("without a body the follow-up carries the run's own brief, not an empty message", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun());
   assert.equal(sent().body, "original brief");
 });
@@ -285,20 +285,20 @@ test("without a body the follow-up carries the run's own brief, not an empty mes
 test("a run with neither body nor summary still says something", async () => {
   // The last resort matters: an empty body reaches the agent as a wake with no instruction, which is
   // indistinguishable from a bug on the receiving end.
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun({ body: "", summary: "", subject: "" }));
   assert.equal(sent().body, "Follow-up for run-7");
 });
 
 test("the follow-up threads onto the original message", async () => {
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun());
   assert.equal(sent().inReplyTo, "msg-42", "without this the answer starts an orphan thread");
 });
 
 test("the snake_case message id is accepted too", async () => {
   // Runs arrive from two shapes depending on the endpoint; reading only one silently drops threading.
-  respond({ ok: true });
+  respond({ ok: true, messageId: "m1" });
   await sendRunFollowup(followupRun({ messageId: undefined, message_id: "msg-99" }));
   assert.equal(sent().inReplyTo, "msg-99");
 });
@@ -328,6 +328,22 @@ test("requireAck with a field also needs that field: a steer ack without its con
   const err = (() => { try { requireAck({ ok: true }, "controlId"); } catch (e) { return e; } })();
   assert.match(err.message, /without a controlId/);
   assert.equal(sendOutcomeIsUnknown(err), true);
+});
+
+test("a send is acknowledged only with a non-blank string message id, kept as written", async () => {
+  const ack = { ok: true, messageId: " 1792-abc " };
+  assert.equal(requireStoredMessage(ack), ack, "no id grammar is invented: the spelling is the service's");
+  for (const messageId of [undefined, null, [], {}, 7, "", "   "]) {
+    const err = (() => { try { requireStoredMessage({ ok: true, messageId }); } catch (e) { return e; } })();
+    assert.match(err?.message || "", /without a usable message id/, JSON.stringify(messageId));
+    assert.equal(sendOutcomeIsUnknown(err), true, `${JSON.stringify(messageId)} is an unknown outcome, not a refusal`);
+  }
+  assert.throws(() => requireStoredMessage({ ok: false, messageId: "m1" }), /no acknowledgement/);
+  // The follow-up path uses the same guard; a usable id still returns its report.
+  respond({ ok: true, messageId: {}, dispatchRuns: [{ status: "queued" }] });
+  await assert.rejects(sendRunFollowup(followupRun()), /usable message id/);
+  respond({ ok: true, messageId: "m9", dispatchRuns: [{ status: "queued" }], notStarted: [] });
+  assert.deepEqual(await sendRunFollowup(followupRun()), { storedUnwoken: "" });
 });
 
 test("requireAck passes only an explicit ok:true, and anything else is an unknown outcome", () => {

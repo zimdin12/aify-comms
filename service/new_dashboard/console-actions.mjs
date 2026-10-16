@@ -163,8 +163,10 @@ export async function stopConsoleTerminal(terminalId) {
 export async function startConsoleForSession(sessionId, freshContext = false) {
   if (!sessionId) return;
   try {
-    await api(`/sessions/${encodeURIComponent(sessionId)}/console/start`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', freshContext }) });
-    toast(freshContext ? 'Starting fresh console…' : 'Starting console…', 'ok');
+    const answer = await api(`/sessions/${encodeURIComponent(sessionId)}/console/start`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', freshContext }) });
+    // A live terminal is reattached as it is (session_console.py), whatever freshContext asked for.
+    if (answer?.reused) toast('Attached to the running console; it was not restarted fresh.', freshContext ? 'warn' : 'ok');
+    else toast(freshContext ? 'Starting fresh console…' : 'Starting console…', 'ok');
     refreshSoon();
   } catch (err) { toast(`Start console failed: ${err?.message || err}`, 'error'); }
 }

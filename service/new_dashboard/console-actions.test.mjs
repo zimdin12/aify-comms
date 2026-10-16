@@ -67,16 +67,21 @@ function makeEntry(over = {}) {
   };
 }
 
-function withConsole({ confirm = true, snapshot = { terminal: { snapshot: "CLEAN", outputSeq: 12 } } } = {}) {
+function withConsole({ confirm = true, snapshot = { terminal: { snapshot: "CLEAN", outputSeq: 12 } }, posted = null } = {}) {
   const els = new Map();
   const sent = [];
+  const toasts = [];
   const gets = [];
   const saved = { document: globalThis.document, fetch: globalThis.fetch, requestAnimationFrame: globalThis.requestAnimationFrame };
   globalThis.requestAnimationFrame = (fn) => { fn(); return 1; };
   globalThis.document = {
     getElementById: (id) => { if (!els.has(id)) els.set(id, makeEl()); return els.get(id); },
     querySelector: () => null, querySelectorAll: () => [],
-    createElement: () => makeDialog(confirm),
+    createElement: () => {
+      const el = makeDialog(confirm);
+      Object.defineProperty(el, "textContent", { get: () => "", set: (v) => { if (v) toasts.push({ text: v, tone: el.className }); } });
+      return el;
+    },
     addEventListener() {}, removeEventListener() {},
     body: {
       appendChild: (el) => { if (el && el.className === "dialog-overlay") queueMicrotask(() => el.__answer()); },
@@ -87,7 +92,8 @@ function withConsole({ confirm = true, snapshot = { terminal: { snapshot: "CLEAN
   globalThis.fetch = async (url, options = {}) => {
     const method = (options.method || "GET").toUpperCase();
     if (method === "GET") gets.push(String(url)); else sent.push({ url: String(url), method, body: options.body });
-    return { ok: true, status: 200, statusText: "OK", json: async () => snapshot, text: async () => JSON.stringify(snapshot) };
+    const answer = method !== "GET" && posted ? posted : snapshot;
+    return { ok: true, status: 200, statusText: "OK", json: async () => answer, text: async () => JSON.stringify(answer) };
   };
   setApiBase("");
   const calls = { refresh: 0, refreshSoon: 0, closeInspector: 0, renderSessionWorkspace: 0, setPage: [] };
@@ -99,7 +105,7 @@ function withConsole({ confirm = true, snapshot = { terminal: { snapshot: "CLEAN
     setPage: (p) => { calls.setPage.push(p); },
   });
   Object.assign(state, { sessions: [], agents: [], activeXterm: null, chat: { ...(state.chat || {}) } });
-  return { els, sent, gets, calls, restore: () => Object.assign(globalThis, saved) };
+  return { els, sent, gets, calls, toasts, restore: () => Object.assign(globalThis, saved) };
 }
 
 test("resync with NO mounted console is a no-op", async () => {
@@ -328,6 +334,29 @@ test("starting a console for a session posts and refreshes", async () => {
     assert.equal(h.sent.length, 1);
     assert.match(h.sent[0].url, /s1/);
   } finally { h.restore(); }
+});
+
+test("Start fresh on a live console says it reattached, not that it started fresh", async () => {
+  // session_console.py hands back a live terminal as it is (reused:true) whatever freshContext asked.
+  const h = withConsole({ posted: { ok: true, reused: true, terminal: { id: "t1" } } });
+  try {
+    await startConsoleForSession("s1", true);
+    assert.equal(JSON.parse(h.sent[0].body).freshContext, true);
+    assert.deepEqual(h.toasts.map((t) => t.text), ["Attached to the running console; it was not restarted fresh."]);
+    assert.match(h.toasts[0].tone, /warn/, "fresh was asked for and not given");
+  } finally { h.restore(); }
+  // CONTROLS: a plain start that reattaches is not a warning, and a new terminal still reads as starting.
+  const plain = withConsole({ posted: { ok: true, reused: true } });
+  try {
+    await startConsoleForSession("s1", false);
+    assert.equal(plain.toasts[0]?.text, "Attached to the running console; it was not restarted fresh.");
+    assert.doesNotMatch(plain.toasts[0].tone, /warn/);
+  } finally { plain.restore(); }
+  const fresh = withConsole({ posted: { ok: true, terminal: { id: "t2" } } });
+  try {
+    await startConsoleForSession("s1", true);
+    assert.deepEqual(fresh.toasts.map((t) => t.text), ["Starting fresh console…"]);
+  } finally { fresh.restore(); }
 });
 
 test("openRunConsole with a run that has NO session does not navigate", async () => {
