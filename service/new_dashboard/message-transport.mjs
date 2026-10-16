@@ -74,9 +74,9 @@ export async function chatSendMessage({ isChannel, target, identity, body, expec
 }
 export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   const target = runTargetAgent(run);
-  if (!target) return;
+  if (!target) return { storedUnwoken: '' };
   const text = body || run.body || run.summary || run.subject || `Follow-up for ${run.id}`;
-  await sendMessageWithTimeout({
+  const payload = {
     from_agent: 'dashboard',
     to: target,
     type: run.type || 'request',
@@ -87,7 +87,14 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
     queueIfBusy: true,
     requireReply: true,
     inReplyTo: run.messageId || run.message_id || '',
-  });
+  };
+  // A refusal is HTTP 200 with `ok: false` and stores nothing, which lost a typed follow-up silently.
+  // Same rule as the chat composer: store it without the wake, and say so; throw if that fails too.
+  const res = await sendMessageWithTimeout(payload);
+  if (res?.ok !== false) return { storedUnwoken: '' };
+  const stored = await sendMessageWithTimeout({ ...payload, trigger: false });
+  if (stored?.ok === false) throw new Error(stored.error || res.error || 'refused');
+  return { storedUnwoken: res.error || 'the agent cannot start live work now' };
 }
 import { api } from './api-client.mjs';
 import { noteSliceFailure } from './refresh-status.mjs';

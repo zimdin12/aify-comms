@@ -232,6 +232,24 @@ test("a queue-after follow-up waits for the agent rather than interrupting it", 
   assert.match(payload.subject, /^Queue after run-7$/);
 });
 
+test("a REFUSED follow-up is stored without the wake, so the typed text is kept", async () => {
+  SEEN.length = 0;
+  HANDLER = (req, res) => {
+    const refused = JSON.parse(SEEN[SEEN.length - 1].body).trigger === true;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(refused ? { ok: false, error: "cannot start live work" } : { ok: true }));
+  };
+  const result = await sendRunFollowup(followupRun(), { body: "typed by the operator" });
+  assert.deepEqual(SEEN.map((r) => JSON.parse(r.body).trigger), [true, false], "one woken attempt, then one store-only");
+  assert.equal(JSON.parse(SEEN[1].body).body, "typed by the operator");
+  assert.equal(result.storedUnwoken, "cannot start live work", "the caller is told it was not woken");
+});
+
+test("a follow-up refused even without the wake throws, so the caller reports it", async () => {
+  respond({ ok: false, error: "no such agent" });
+  await assert.rejects(sendRunFollowup(followupRun()), /no such agent/);
+});
+
 test("a retry names itself a retry, so the thread does not read as a second request", async () => {
   respond({ ok: true });
   await sendRunFollowup(followupRun(), { retry: true });

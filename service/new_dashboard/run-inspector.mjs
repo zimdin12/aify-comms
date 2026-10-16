@@ -298,11 +298,13 @@ export async function handleRunInspectorControl(action) {
   } else if (action === 'queue-after') {
     const body = await uiPrompt('Queue a follow-up after this run');
     if (!body || !body.trim()) return;
-    await sendRunFollowup(run, { body });
+    const sent = await sendRunFollowup(run, { body });
+    if (sent.storedUnwoken) toast(`Saved in ${runTargetAgent(run)}'s inbox, not woken. ${sent.storedUnwoken}`, 'warn');
   } else if (action === 'retry') {
     const target = runTargetAgent(run);
     if (!await uiConfirm(`Retry this run? A new follow-up request will be sent to ${target || 'the target'} (queued if busy). It does not interrupt anything currently running.`)) return;
-    await sendRunFollowup(run, { retry: true });
+    const sent = await sendRunFollowup(run, { retry: true });
+    if (sent.storedUnwoken) toast(`Saved in ${runTargetAgent(run)}'s inbox, not woken. ${sent.storedUnwoken}`, 'warn');
   } else if (action === 'close') {
     if (!await uiConfirm('Close this run as operator-reviewed?')) return;
     await patchRun(run.id, {
