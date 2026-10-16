@@ -25,12 +25,18 @@ export function formatSendRefusal(r = {}) {
   };
 }
 
+// Only a non-blank string identifies a stored message. A present but unusable value ([] or {}) is
+// incomplete, never "Stored ()" (review of 13decd49).
+const storedId = (r) => (typeof r.messageId === "string" && r.messageId.trim() ? r.messageId : "");
+const INCOMPLETE = "The service's answer was incomplete (no usable message id): whether it was stored or woken is not known.";
+
 export function formatTriggeredSendResult(r = {}, { from, to, type, requireReply } = {}) {
+  if (r.replayed && !storedId(r)) return { content: [{ type: "text", text: INCOMPLETE }] };
   if (r.replayed) {
     return {
       content: [{
         type: "text",
-        text: `Already sent: this matched an earlier send of the same message (${r.messageId}), which the service stored. ` +
+        text: `Already sent: this matched an earlier send of the same message (${storedId(r)}), which the service stored. ` +
           "Whether that send woke its recipients is not known from this answer, and nothing was woken again.",
       }],
     };
@@ -48,9 +54,7 @@ export function formatTriggeredSendResult(r = {}, { from, to, type, requireReply
   // Nothing in the answer says what happened to the wake: an empty list is not proof that nothing
   // started, and an answer with no message id does not prove the message was stored at all.
   if (!lines.length) {
-    lines.push(r.messageId
-      ? `Stored (${r.messageId}). Whether a wake happened is not known from this answer.`
-      : "The service's answer was incomplete (no message id): whether it was stored or woken is not known.");
+    lines.push(storedId(r) ? `Stored (${storedId(r)}). Whether a wake happened is not known from this answer.` : INCOMPLETE);
   }
   // A stored-unwoken request still owes its reply, so the don't-predict-it note applies to every result.
   return { content: [{ type: "text", text: lines.join("\n") + awaitingReplyNote({ from, to, type, requireReply }) }] };

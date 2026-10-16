@@ -59,7 +59,7 @@ test("an answer with no run, no console input and no unwoken recipient leaves th
 
 test("an accepted-looking answer with no message id claims neither storage nor a send", () => {
   const out = text(formatTriggeredSendResult({ ok: true, recipients: ["peer"], dispatchRuns: [], notStarted: [] }, ctx));
-  assert.match(out, /^The service's answer was incomplete \(no message id\): whether it was stored or woken is not known\./);
+  assert.match(out, /^The service's answer was incomplete \(no usable message id\): whether it was stored or woken is not known\./);
   assert.doesNotMatch(out, /Stored \(|undefined/);
 });
 
