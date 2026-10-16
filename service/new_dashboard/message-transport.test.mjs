@@ -233,7 +233,7 @@ test("a queue-after follow-up waits for the agent rather than interrupting it", 
 });
 
 test("0.9.8: a follow-up is sent ONCE; stored-unwoken reports why, and a refusal throws as definite", async () => {
-  respond({ ok: true, messageId: "m1", stored: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: "agent status is \"offline\"" }] });
+  respond({ ok: true, stored: true, messageId: "m1", dispatchRuns: [], notStarted: [{ targetAgentId: "coder", reason: "agent status is \"offline\"" }] });
   const result = await sendRunFollowup(followupRun(), { body: "typed by the operator" });
   assert.equal(SEEN.length, 1, "one send: the service stores it itself");
   assert.equal(result.storedUnwoken, 'agent status is "offline"');

@@ -747,6 +747,7 @@ test("a reply chosen while a send is pending keeps its parent; the one the send 
   h = sendHarness({ sendMessage: async () => { h.state.chat.replyTo = chosenLater; return { ok: true, messageId: "m3" }; } });
   h.state.chat.replyTo = sentWith;
   await h.controller.send();
+  assert.equal(h.els["chat-composer-body"].value, "", "the send was acknowledged, so this is the success path");
   assert.equal(h.state.chat.replyTo, chosenLater, "the newer reply target survives");
 
   const control = sendHarness();
