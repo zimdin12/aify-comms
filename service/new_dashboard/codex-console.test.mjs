@@ -237,3 +237,14 @@ test("codexConsoleConnect refuses a non-socket URL, and subscribes to the agent'
     if (!had) delete globalThis.document;
   }
 });
+
+test("the send says whether anything went out, so the caller clears the box only then", () => {
+  codexConsoleConnections.clear();
+  wired();
+  assert.equal(withDom(() => codexConsoleSendTurn("coder", "hello")), true, "a sent turn reports true");
+  codexConsoleConnections.clear();
+  wired({ readyState: 3 });
+  assert.equal(withDom(() => codexConsoleSendTurn("coder", "hello")), false, "a closed socket reports false");
+  codexConsoleConnections.clear();
+  assert.equal(withDom(() => codexConsoleSendTurn("nobody", "hello")), false, "no connection reports false");
+});

@@ -183,15 +183,22 @@ test("after a successful steer the inspector is retargeted at that run", async (
   assert.equal(state.inspector?.source, "runs");
 });
 
-test("a REJECTED steer tells the operator instead of throwing", async () => {
-  // This runs from a click handler; an escaping rejection is an unhandled rejection and the operator is
-  // left believing a steer landed that never did.
+test("a REJECTED steer reopens its prompt with the text and the reason, instead of losing it", async () => {
+  // The steer text lives only in the prompt. A run that finished meanwhile answers 409; the text must
+  // come back to the operator with the reason, and Cancel is what discards it (0.9.8 audit).
   responder = (url) => (url.includes("/control")
     ? { ok: false, status: 409, body: JSON.stringify({ error: "run already finished" }) }
     : {});
-  await assert.doesNotReject(() => answerPrompt(() => requestRunControl("run-9"), "hello"));
-  assert.equal(toastsSaid("Steer failed"), 1, "a rejected steer was swallowed silently");
-  assert.equal(toastsSaid("run already finished"), 1, "the operator was not told WHY it failed");
+  const pending = answerPrompt(() => requestRunControl("run-9"), "hello");
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  const reopened = dialogs.filter((node) => node.handlers.has(".dialog-confirm:click")).at(-1);
+  assert.ok(reopened, "the prompt did not come back after the refusal");
+  assert.equal(reopened.querySelector(".dialog-input").value, "hello", "the reopened prompt lost the operator's text");
+  assert.match(String(reopened.innerHTML), /Not sent: run already finished/, "the operator was not told WHY");
+  reopened.handlers.get(".dialog-cancel:click")();
+  await assert.doesNotReject(() => pending);
+  assert.equal(posts().length, 1, "Cancel must not send again");
 });
 
 // ── loadRunsForStatus ───────────────────────────────────────────────────────

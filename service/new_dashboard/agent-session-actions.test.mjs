@@ -58,9 +58,10 @@ function makeDialog(answer, typed) {
   return overlay;
 }
 
-function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {} } = {}) {
+function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {}, payload = { ok: true, agents: [], sessions: [] } } = {}) {
   const els = new Map();
   const sent = [];
+  const created = [];
   const saved = { document: globalThis.document, fetch: globalThis.fetch, requestAnimationFrame: globalThis.requestAnimationFrame };
   globalThis.requestAnimationFrame = (fn) => { fn(); return 1; };
   globalThis.document = {
@@ -70,7 +71,7 @@ function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {} 
     },
     querySelector: () => null,
     querySelectorAll: () => [],
-    createElement: () => makeDialog(confirm, prompt),
+    createElement: () => { const el = makeDialog(confirm, prompt); created.push(el); return el; },
     addEventListener() {},
     removeEventListener() {},
     body: {
@@ -83,7 +84,6 @@ function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {} 
   globalThis.fetch = async (url, options = {}) => {
     const method = (options.method || "GET").toUpperCase();
     if (method !== "GET") sent.push({ url: String(url), method, body: options.body });
-    const payload = { ok: true, agents: [], sessions: [] };
     return { ok: true, status: 200, statusText: "OK", json: async () => payload, text: async () => JSON.stringify(payload) };
   };
   setApiBase("");
@@ -104,7 +104,8 @@ function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {} 
     selectedSessionIds: new Set(),
     chat: { ...(state.chat || {}), selected: null, identity: "dashboard" },
   });
-  return { els, sent, calls, restore: () => Object.assign(globalThis, saved) };
+  const said = (fragment) => created.some((el) => String(el.textContent || "").includes(fragment) || String(el.innerHTML || "").includes(fragment));
+  return { els, sent, calls, said, restore: () => Object.assign(globalThis, saved) };
 }
 
 const mutating = (h) => h.sent.map((r) => `${r.method} ${r.url}`);
@@ -164,6 +165,20 @@ test("REMOVING AN AGENT IS CONFIRMED — it tombstones the identity", async () =
     assert.equal(yes.calls.closeInspector, 1, "the drawer for a removed agent must close");
     assert.equal(yes.calls.refreshSoon, 1);
   } finally { yes.restore(); }
+});
+
+test("a removal that deleted nothing is not reported as Removed (0.9.8 audit)", async () => {
+  const gone = withActions({ confirm: true, payload: { ok: false, agentId: "coder" } });
+  try {
+    await removeAgent("coder");
+    assert.equal(gone.said("Nothing removed: coder was not found"), true, "ok:false must say nothing was removed");
+    assert.equal(gone.said("Removed coder"), false, "and must not claim it was");
+  } finally { gone.restore(); }
+  const done = withActions({ confirm: true });
+  try {
+    await removeAgent("coder");
+    assert.equal(done.said("Removed coder"), true, "positive control: a real removal still says Removed");
+  } finally { done.restore(); }
 });
 
 test("DELETING A SESSION IS CONFIRMED", async () => {

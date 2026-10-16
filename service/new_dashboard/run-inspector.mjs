@@ -252,16 +252,20 @@ function keepLoadedEvents(firstPage, { events: held = [], hasMore: heldHasMore, 
   return { events: [...events, ...tail], hasMore };
 }
 
+// Steer text lives only in its prompt. A run that ended meanwhile answers 409 and a lost answer says
+// nothing either way, so a failed steer reopens the prompt with the text and the reason.
+const askSteer = (text, err) => uiPrompt(!err ? 'Steer this active run'
+  : sendOutcomeIsUnknown(err) ? `It may have been sent (${err?.message || err}). Check the run before steering again. Your text is below: OK sends it again, Cancel discards it.`
+  : `Not sent: ${err?.message || err}. Your text is below. OK retries; Cancel discards it.`, { defaultValue: text });
+const sendSteer = (runId) => (body) => api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
+  method: 'POST',
+  body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
+});
+
 export async function requestRunControl(runId) {
-  const body = await uiPrompt('Steer this active run');
-  if (!body || !body.trim()) return;
-  try {
-    await api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
-      method: 'POST',
-      body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
-    });
-    await openRunInspector({ runId, source: 'runs' });
-  } catch (err) { toast(`Steer failed: ${err?.message || err}`, 'error'); }
+  if (!await keepAskingUntilSent(askSteer, sendSteer(runId))) return;
+  try { await openRunInspector({ runId, source: 'runs' }); }
+  catch (err) { toast(`Steer sent, but the run view did not refresh: ${err?.message || err}`, 'error'); }
 }
 
 export async function handleRunInspectorControl(action) {
@@ -283,12 +287,7 @@ export async function handleRunInspectorControl(action) {
   }
   try {
   if (action === 'steer') {
-    const body = await uiPrompt('Steer this active run');
-    if (!body || !body.trim()) return;
-    await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
-      method: 'POST',
-      body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
-    });
+    if (!await keepAskingUntilSent(askSteer, sendSteer(run.id))) return;
   } else if (action === 'interrupt') {
     if (!await uiConfirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`, { tone: 'danger' })) return;
     await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {

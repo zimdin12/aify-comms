@@ -262,7 +262,10 @@ export async function removeAgent(agentId) {
   if (!await uiConfirm(`Remove agent "${agentId}"? Its running worker is stopped and the agent is removed; one an aify-env host defines is removed through that host.`, { tone: 'danger' })) return;
   try {
     const answer = await api(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
-    toast(requestedInAifyEnv(answer, agentId) || `Removed ${agentId}`, 'ok');
+    const viaHost = requestedInAifyEnv(answer, agentId);
+    // ok:false with HTTP 200 means nothing was deleted, usually because it was already gone (0.9.8 audit).
+    if (!viaHost && answer?.ok === false) toast(`Nothing removed: ${agentId} was not found. It may already be gone.`, 'warn');
+    else toast(viaHost || `Removed ${agentId}`, 'ok');
     closeInspector();
     refreshSoon();
   } catch (err) { toast(`Remove failed: ${err?.message || err}`, 'error'); }

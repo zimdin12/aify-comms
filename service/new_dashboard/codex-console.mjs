@@ -135,9 +135,9 @@ export function codexConsoleConnect(agentId, appServerUrl, threadId) {
 
 export function codexConsoleSendTurn(agentId, text) {
   const entry = codexConsoleConnections.get(agentId);
-  if (!entry || !entry.ws || entry.ws.readyState !== 1 || !entry.threadId) return;
+  if (!entry || !entry.ws || entry.ws.readyState !== 1 || !entry.threadId) return false;
   const trimmed = String(text || '').trim();
-  if (!trimmed) return;
+  if (!trimmed) return false;
   const id = Math.floor(Math.random() * 1e9);
   entry.ws.send(JSON.stringify({
     jsonrpc: '2.0',
@@ -149,4 +149,5 @@ export function codexConsoleSendTurn(agentId, text) {
     },
   }));
   codexConsoleAppendLine(entry.container, `> ${trimmed}`, 'user');
+  return true;
 }

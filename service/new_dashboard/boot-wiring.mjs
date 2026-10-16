@@ -146,8 +146,9 @@ export function wireGlobalControls({
     const agentId = codexForm.dataset.agentId;
     const input = codexForm.querySelector('input[type="text"]');
     const text = input?.value || '';
-    codexConsoleSendTurn(agentId, text);
-    if (input) input.value = '';
+    // Cleared only once it went out: a closed socket or no thread sends nothing.
+    if (codexConsoleSendTurn(agentId, text)) { if (input) input.value = ''; }
+    else if (text.trim()) toast('Not sent: the Codex console is not connected. Your text is still in the box.', 'error');
   });
 
   // Chat-first landing wiring (Phase 1).
