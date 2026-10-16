@@ -6,6 +6,20 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## 0.9.8: the dashboard keeps every message the operator writes (2026-10-14/16)
+
+**A dashboard message is saved even when its agent cannot be woken (Steven, 2026-10-14: "i thought our comms
+is the safe place where all messages get saved so they could be analyzed later").** A woken send to an
+offline, stopped or misconfigured agent is refused and stores nothing. After that refusal the composer, and
+the run inspector's Retry and Queue-after, send the same message without the wake, which the service stores
+in the inbox, and the toast says it was saved and not woken. The composer says so before Send as well. The
+reviewer preferred an explicit "Save without waking" choice; this records the operator's expectation instead.
+The service's own refusal of a woken send is unchanged, so agents still learn their send did not wake anyone.
+
+**Typed text is cleared only once it is known to be stored.** A refusal the service answered (its `ok:false`
+envelope or a 4xx) is a definite no. A timeout, a lost connection or a 5xx may have landed after the commit, so
+the text is kept and the operator is told to check the thread before sending again (`sendOutcomeIsUnknown`).
+
 ## 0.9.1 and 0.9.2: how an agent reads, starts and hooks (2026-10-12/13)
 
 **What a session actually runs is read when someone asks (Steven, choice B: "time based stuff is bad, it should

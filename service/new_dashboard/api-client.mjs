@@ -105,7 +105,9 @@ export async function api(path, options = {}) {
     let detail = data.error || data.detail || response.statusText;
     if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
     else if (detail && typeof detail === 'object') detail = JSON.stringify(detail);
-    throw new Error(detail);
+    // The status travels with the error: a 4xx is a definite refusal, anything else may have been
+    // stored before the answer was lost (sendOutcomeIsUnknown).
+    throw Object.assign(new Error(detail), { status: response.status });
   }
   return data;
 }

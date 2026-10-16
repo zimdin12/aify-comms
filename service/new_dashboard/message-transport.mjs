@@ -72,6 +72,15 @@ export async function chatSendMessage({ isChannel, target, identity, body, expec
     ...(inReplyTo ? { inReplyTo } : {}),
   });
 }
+// After a send throws, was anything stored? Only a refusal the service ANSWERED is a definite no: its
+// ok:false envelope (`refused`) or a 4xx. A timeout, a lost connection or a 5xx may have landed after
+// the commit, so resending blind can duplicate the message (review R5).
+export function sendOutcomeIsUnknown(err) {
+  if (err?.refused) return false;
+  const status = Number(err?.status || 0);
+  return !(status >= 400 && status < 500);
+}
+
 // A follow-up threads to its run's message, so the service treats it as a REPLY: it never refuses
 // it, and can answer ok:true while waking nobody (`notStarted` set, no dispatch run). Report that,
 // rather than read "not refused" as "delivered" (review of dd992844). '' means it was dispatched.
@@ -102,7 +111,7 @@ export async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
   const res = await sendMessageWithTimeout(payload);
   if (res?.ok !== false) return { storedUnwoken: storedWithoutDispatch(res) };
   const stored = await sendMessageWithTimeout({ ...payload, trigger: false });
-  if (stored?.ok === false) throw new Error(stored.error || res.error || 'refused');
+  if (stored?.ok === false) throw Object.assign(new Error(stored.error || res.error || 'refused'), { refused: true });
   return { storedUnwoken: res.error || 'the agent cannot start live work now' };
 }
 import { api } from './api-client.mjs';

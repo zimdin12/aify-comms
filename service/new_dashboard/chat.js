@@ -14,6 +14,7 @@ import { chatRailItems, dmMessages, sortChronological } from './chat-select.mjs'
 import { anchoredScrollTop } from './message-history.mjs';
 import { paintIfChanged } from './drawer-paint.mjs';
 import { createMessengerReading } from './messenger-reading.mjs';
+import { sendOutcomeIsUnknown } from './message-transport.mjs';
 // The pure HTML builders left for `chat-render.mjs` in v0.5.4 — data in, string out, no app state and
 // no DOM. The controller below is their only caller here; `chat.test.mjs` imports them from their new
 // owner rather than through this module, so nothing re-exports them.
@@ -555,7 +556,8 @@ export function createChatController(deps) {
       if (subjectEl && subjectEl.value.trim() === subject) subjectEl.value = '';
       if (state.chat.drafts && String(state.chat.drafts[key] || '').trim() === body) delete state.chat.drafts[key];
       persistDrafts?.();
-      state.chat.replyTo = null;
+      // The reply context this send captured, not one the operator chose while it was pending (R4).
+      if (state.chat.replyTo === reply) state.chat.replyTo = null;
       if (storedUnwoken) {
         toast(`Saved in ${id}'s inbox, not woken. ${storedUnwoken}`, 'warn');
       } else if (!isChannel) {
@@ -584,7 +586,9 @@ export function createChatController(deps) {
       forceScrollBottom = true; // reveal the just-sent message at the bottom
       render();
     } catch (error) {
-      toast(`Send failed: ${error?.message || error}`, 'error');
+      toast(sendOutcomeIsUnknown(error)
+        ? `It may have been sent (${error?.message || error}). Check the conversation before sending again; your text is still in the box.`
+        : `Send failed: ${error?.message || error}`, 'error');
     } finally {
       sending = false;
       setSendButtons(false);

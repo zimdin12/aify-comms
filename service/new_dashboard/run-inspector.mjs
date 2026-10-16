@@ -12,7 +12,7 @@
 // be noise, and a bag that some call sites forgot would be worse than one that cannot be forgotten.
 
 import { api } from './api-client.mjs';
-import { sendRunFollowup } from './message-transport.mjs';
+import { sendOutcomeIsUnknown, sendRunFollowup } from './message-transport.mjs';
 // `messageId` is called in the "Open in thread" button below and was never imported — a
 // ReferenceError on a NORMAL render path (any run with a source message), not an error branch.
 // `node --check` parses it; nothing renders this panel in a test. Found by the bridge's
@@ -297,7 +297,9 @@ export async function handleRunInspectorControl(action) {
     });
   } else if (action === 'queue-after') {
     const sent = await keepAskingUntilSent(
-      (text, err) => uiPrompt(err ? `Not sent: ${err?.message || err}. Your text is below. OK retries; Cancel discards it.` : 'Queue a follow-up after this run', { defaultValue: text }),
+      (text, err) => uiPrompt(!err ? 'Queue a follow-up after this run'
+        : sendOutcomeIsUnknown(err) ? `It may have been sent (${err?.message || err}). Check this run's thread before sending again. Your text is below: OK sends it again, Cancel discards it.`
+        : `Not sent: ${err?.message || err}. Your text is below. OK retries; Cancel discards it.`, { defaultValue: text }),
       (body) => sendRunFollowup(run, { body }),
     );
     if (!sent) return;
@@ -319,7 +321,10 @@ export async function handleRunInspectorControl(action) {
   }
   await refresh();
   await openRunInspector({ runId: run.id, source: state.inspector.source || 'control', sourceMessageId: state.inspector.sourceMessageId || '' });
-  } catch (err) { toast(`Run ${action} failed: ${err?.message || err}`, 'error'); }
+  } catch (err) {
+    const unknown = action === 'retry' && sendOutcomeIsUnknown(err);
+    toast(unknown ? `Run retry: it may have been sent (${err?.message || err}). Check the run's thread before retrying.` : `Run ${action} failed: ${err?.message || err}`, 'error');
+  }
 }
 
 // A page that lands after the operator opened another run, or flipped the order, belongs to a view

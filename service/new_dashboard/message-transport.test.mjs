@@ -18,7 +18,7 @@ import test from "node:test";
 import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
-  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup,
+  chatLoadChannels, chatLoadConversation, chatSendMessage, sendMessageWithTimeout, sendRunFollowup, sendOutcomeIsUnknown,
 } from "./message-transport.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
@@ -301,4 +301,17 @@ test("the snake_case message id is accepted too", async () => {
   respond({ ok: true });
   await sendRunFollowup(followupRun({ messageId: undefined, message_id: "msg-99" }));
   assert.equal(sent().inReplyTo, "msg-99");
+});
+
+// --- after a send throws, was anything stored? (review R5) -----------------
+
+test("only a refusal the service answered is a definite not-sent; everything else may have landed", async () => {
+  respond({ detail: "bad request" }, 422);
+  const refused = await sendMessageWithTimeout({ to: "a1" }).catch((e) => e);
+  assert.equal(refused.status, 422, "api() carries the HTTP status on its error");
+  assert.equal(sendOutcomeIsUnknown(refused), false, "a 4xx is a refusal: nothing was stored");
+  respond({ detail: "boom" }, 500);
+  assert.equal(sendOutcomeIsUnknown(await sendMessageWithTimeout({ to: "a1" }).catch((e) => e)), true, "a 5xx may follow the commit");
+  assert.equal(sendOutcomeIsUnknown(new TypeError("Failed to fetch")), true, "a lost connection says nothing about storage");
+  assert.equal(sendOutcomeIsUnknown(Object.assign(new Error("x"), { refused: true })), false, "an ok:false envelope is a refusal");
 });

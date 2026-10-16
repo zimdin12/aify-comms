@@ -712,3 +712,18 @@ test("text typed while a send is pending survives that send's success", () => wi
   assert.equal(h.els["chat-composer-body"].value, "newer text typed while pending", "only what was sent is cleared");
   assert.equal(h.state.chat.drafts["dm:peer"], "newer text typed while pending", "the newer draft is kept");
 }));
+
+test("a reply chosen while a send is pending keeps its parent; the one the send used is cleared", () => withStubDocument(async () => {
+  let h;
+  const sentWith = { conversationKey: "dm:peer", id: "m1" };
+  const chosenLater = { conversationKey: "dm:peer", id: "m2" };
+  h = sendHarness({ sendMessage: async () => { h.state.chat.replyTo = chosenLater; return { ok: true }; } });
+  h.state.chat.replyTo = sentWith;
+  await h.controller.send();
+  assert.equal(h.state.chat.replyTo, chosenLater, "the newer reply target survives");
+
+  const control = sendHarness();
+  control.state.chat.replyTo = sentWith;
+  await control.controller.send();
+  assert.equal(control.state.chat.replyTo, null, "an unchanged reply target is cleared by its own send");
+}));
