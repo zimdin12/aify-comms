@@ -41,4 +41,4 @@ so the place to look is which await in the test (startDaemon, a `/health` fetch,
 holding the loop open.
 
 This is not the same as the 3555 ms silent file death in the cc3999c run, or the f79dbc8 R2 baseline failure
-(explained since: the witness waited too early).
+(the witness wait was separately repaired; the original f79dbc8 baseline first cause remains UNATTRIBUTED).
