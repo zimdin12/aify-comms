@@ -110,6 +110,7 @@ test("the consumed surface is wider than the templates", () => {
   // CLI and reads its installed-endpoint utilities, so a template-only claim is a template claim.
   assert.ok(CONSUMED_SURFACE.includes("wrappers/"));
   assert.ok(CONSUMED_SURFACE.includes("lib/"), "the package's lib/ is executed by this repo");
+  assert.ok(CONSUMED_SURFACE.includes("bin/"), "the launchers source the package's bin/ and the lease watcher runs from it");
 });
 
 // ---- reading the pin -----------------------------------------------------------------------------
