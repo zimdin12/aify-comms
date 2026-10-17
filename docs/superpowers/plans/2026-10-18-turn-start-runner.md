@@ -19,6 +19,10 @@ wakes. So a runner on `UserPromptSubmit` alone reaches the turns the operator ty
 
 - Step 0 re-measures this on the current Claude Code: one resident, one typed prompt and one channel wake, and a
   hook that appends to a file. If a channel wake does fire it, slice 2 below is unnecessary.
+- **Step 0, first reading (2026-10-18): the comment is stale.** comms-tech-lead's `UserPromptSubmit` hook
+  (claude-session-hook.js) rewrote its store file at 22:25:58.43Z. That was 0.8 s after a channel message
+  (1792275957621, 22:25:57.62Z) woke the session, and no prompt was typed then. The file did not change during that
+  turn's tool calls. One reading so far; a second channel wake confirms it before slice 2 is dropped.
 - If it does not: slice 2 has the comms channel bridge (`claude-channel.js`) run the same runner when it delivers a
   wake, and put the text into the channel event it emits. One runner, two callers; no second hook.
 
