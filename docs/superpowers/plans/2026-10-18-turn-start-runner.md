@@ -37,11 +37,24 @@ wakes. So a runner on `UserPromptSubmit` alone reaches the turns the operator ty
 3. **Codex** (`UserPromptSubmit` through `-c hooks.*`, with Codex's trust hash kept stable) and **hermes**
    (`pre_llm_call` in the aify hermes plugin, which lib/hermes-herdr-state.py already registers for state).
 
-## Open questions for dashboard-manager
+## Contract conditions (dashboard-manager APPROVE, 2026-10-18)
 
-- `isFirstTurn`: may the runner send `false` always, and let the dashboard derive it from `sessionKey` novelty?
-  Otherwise the runner keeps per-session state, which it otherwise has none of.
-- The route is `/events/turn-start`, outside `/api/v1`. Is that its final path?
+- **No `isFirstTurn`.** The runner omits it and keeps no state. The dashboard counts turns per `sessionKey`
+  (events/sessions.ts:73), and it will read an absent field as "the harness didn't say". That dashboard change
+  lands before slice 1.
+- **The path is final:** `POST /events/turn-start`, auth agent. The registry shape is `turnStart: {path, budgetMs}`,
+  like `agentState.path`.
+- **C1, identity rides the credential.** Send `x-api-key` (the `credentialRef` key) and `x-aify-agent:
+  $AIFY_AGENT_ID`. Without the header, owed answers are looked up for no particular agent.
+- **C2, machineId is the bridge's derivation exactly:** `${tag}:${host}` lower-cased. host = AIFY_MACHINE_ID,
+  else COMPUTERNAME, else HOSTNAME, else os.hostname(); tag = the platform, or `wsl` (dashboard
+  server/src/bridge/machine-id.ts). `win32:StevenZ-L` places nobody, silently. The runner test asserts that a placed
+  agent gets a non-null `projectId`.
+- **C3, slice 2 sends the hook's `sessionKey`.** For one Claude session, the channel bridge sends the same
+  `sessionKey` as the hook, or the session's ledger splits in two. Slice 2 must say where the bridge reads it.
+- **C4, the registry entry goes in last.** dashboard-manager adds `turnStart` to services.json only after the
+  wrapper that accepts the key is installed here, and only after checking that aify-env's readServices reads the
+  entry unchanged.
 
 ## Proof
 
