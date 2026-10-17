@@ -20,7 +20,16 @@ const openAiJwt = () => {
 };
 
 test("candidate stores cover BOTH tools on ANY platform — no process.platform branch", () => {
-  const paths = openAiAuthCandidates().map((p) => p.replace(/\\/g, "/"));
+  // A set XDG_CONFIG_HOME replaces ~/.config (a resident Herdr pane sets it), so the defaults are read without it.
+  const prevXdg = process.env.XDG_CONFIG_HOME;
+  delete process.env.XDG_CONFIG_HOME;
+  let candidates;
+  try {
+    candidates = openAiAuthCandidates();
+  } finally {
+    if (prevXdg !== undefined) process.env.XDG_CONFIG_HOME = prevXdg;
+  }
+  const paths = candidates.map((p) => p.replace(/\\/g, "/"));
   const has = (frag) => paths.some((p) => p.includes(frag));
 
   // codex is listed FIRST: hermes delegates to it, so on a default pair of installs the codex
