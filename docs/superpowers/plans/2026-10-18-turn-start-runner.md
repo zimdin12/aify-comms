@@ -22,7 +22,7 @@ wakes. So a runner on `UserPromptSubmit` alone reaches the turns the operator ty
 - **Step 0, first reading (2026-10-18): the comment is stale.** comms-tech-lead's `UserPromptSubmit` hook
   (claude-session-hook.js) rewrote its store file at 22:25:58.43Z. That was 0.8 s after a channel message
   (1792275957621, 22:25:57.62Z) woke the session, and no prompt was typed then. The file did not change during that
-  turn's tool calls. One reading so far; a second channel wake confirms it before slice 2 is dropped.
+  turn's tool calls. The second reading agrees: the hook fired at 22:37:43.71Z, 0.7 s after message 1792276662997 (22:37:43.00Z) woke the session. **Slice 2 is dropped:** the slice 1 hook covers channel-woken turns, and C3 no longer applies.
 - If it does not: slice 2 has the comms channel bridge (`claude-channel.js`) run the same runner when it delivers a
   wake, and put the text into the channel event it emits. One runner, two callers; no second hook.
 
@@ -37,7 +37,7 @@ wakes. So a runner on `UserPromptSubmit` alone reaches the turns the operator ty
    The registry parser accepts `turnStart: {path, budgetMs}` and refuses an unknown key, as it does for
    `sessionInject`. claude-aify's settings gain one `UserPromptSubmit` command. The dashboard adds `turnStart` to its
    services.json entry.
-2. **Claude, channel turns** (only if step 0 says so): `claude-channel.js` calls the runner per delivered wake.
+2. ~~Claude, channel turns~~: dropped by step 0. A channel wake fires `UserPromptSubmit`, so slice 1 covers it.
 3. **Codex** (`UserPromptSubmit` through `-c hooks.*`, with Codex's trust hash kept stable) and **hermes**
    (`pre_llm_call` in the aify hermes plugin, which lib/hermes-herdr-state.py already registers for state).
 
