@@ -1,6 +1,7 @@
 # Turn-start runner: the dashboard's rules reach an agent's turn (plan, 2026-10-18)
 
-Owner: comms-tech-lead (the code is aify-wrapper's). Reviewers: dashboard-manager (contract), comms-senior-dev.
+Owner: comms-tech-lead (the code is aify-wrapper's). Approved: dashboard-manager (contract), comms-senior-dev
+(plan, at 0feaccef, with the amendments below folded in).
 
 ## The problem
 
@@ -11,54 +12,75 @@ DESIGN-INTEGRATION.md item 4: one runner per harness, owned by aify-wrapper, cal
 entry declares `turnStart`, in parallel under one shared 1.5 s deadline, concatenated in registry order, always
 exit 0. It fell out of comms' finish-0.9 plan when that was re-planned on 2026-10-14.
 
-## The premise to settle first
+## Step 0: a channel wake fires UserPromptSubmit (measured)
 
-**A Claude turn that a channel wake starts runs no `UserPromptSubmit`** (claude-aify.sh.in:835 says so, and the
-launcher re-asserts `working` from PostToolUse for exactly that reason). Most turns on this fleet are channel
-wakes. So a runner on `UserPromptSubmit` alone reaches the turns the operator types, and few others.
+Historical premise: claude-aify.sh.in:835 said a turn a channel wake starts runs no `UserPromptSubmit`. **It does,
+on the current Claude Code.** The `UserPromptSubmit` hook (claude-session-hook.js) rewrote its store file 0.8 s and
+0.7 s after two channel messages woke comms-tech-lead (1792275957621 and 1792276662997), with nothing typed. The
+store file did not change during that turn's tool calls. Claude's hook documentation agrees.
 
-- Step 0 re-measures this on the current Claude Code: one resident, one typed prompt and one channel wake, and a
-  hook that appends to a file. If a channel wake does fire it, slice 2 below is unnecessary.
-- **Step 0, first reading (2026-10-18): the comment is stale.** comms-tech-lead's `UserPromptSubmit` hook
-  (claude-session-hook.js) rewrote its store file at 22:25:58.43Z. That was 0.8 s after a channel message
-  (1792275957621, 22:25:57.62Z) woke the session, and no prompt was typed then. The file did not change during that
-  turn's tool calls. The second reading agrees: the hook fired at 22:37:43.71Z, 0.7 s after message 1792276662997 (22:37:43.00Z) woke the session. **Slice 2 is dropped:** the slice 1 hook covers channel-woken turns, and C3 no longer applies.
-- If it does not: slice 2 has the comms channel bridge (`claude-channel.js`) run the same runner when it delivers a
-  wake, and put the text into the channel event it emits. One runner, two callers; no second hook.
+The same command is also registered on SessionStart, so the file's mtime is not an event-specific receipt. The live
+proof below is what binds delivery. The stale comment is corrected in this slice, keeping PostToolUse's status
+recovery.
 
 ## Slices
 
-1. **Claude, typed turns.** aify-wrapper `bin/aify-turn-start.mjs`:
-   - reads the hook's stdin (`session_id`, `cwd`), and `AIFY_AGENT_ID`, the machine id and the registry;
-   - POSTs `{agentId, cwd, machineId, sessionKey, isFirstTurn}` to each declaring service, with the key its
-     `credentialRef` names, all at once under the shared deadline;
-   - prints the joined text as `hookSpecificOutput.additionalContext` and exits 0 on every path.
+1. **Claude, typed and channel-woken turns.** aify-wrapper `bin/aify-turn-start.mjs`, a synchronous
+   `UserPromptSubmit` command beside the existing session capture and Herdr state hooks, which stay as they are:
+   - reads the hook's stdin (`session_id` unchanged as `sessionKey`, and `cwd`), and `AIFY_AGENT_ID`, the machine id
+     and the registry;
+   - POSTs `{agentId, cwd, machineId, sessionKey}` to each declaring service, at once, with `x-aify-agent` and the
+     key its own `credentialRef` names;
+   - prints the joined text as `hookSpecificOutput` (`hookEventName: "UserPromptSubmit"`, `additionalContext`) and
+     exits 0 on every path.
 
-   The registry parser accepts `turnStart: {path, budgetMs}` and refuses an unknown key, as it does for
-   `sessionInject`. claude-aify's settings gain one `UserPromptSubmit` command. The dashboard adds `turnStart` to its
-   services.json entry.
-2. ~~Claude, channel turns~~: dropped by step 0. A channel wake fires `UserPromptSubmit`, so slice 1 covers it.
+   The wrapper's registry parser validates and carries `turnStart: {path, budgetMs}` and refuses an unknown key
+   inside it, as it does for `sessionInject`.
+2. ~~Claude, channel turns through the comms channel bridge~~: dropped by step 0.
 3. **Codex** (`UserPromptSubmit` through `-c hooks.*`, with Codex's trust hash kept stable) and **hermes**
    (`pre_llm_call` in the aify hermes plugin, which lib/hermes-herdr-state.py already registers for state).
 
 ## Contract conditions (dashboard-manager APPROVE, 2026-10-18)
 
-- **No `isFirstTurn`.** The runner omits it and keeps no state. The dashboard counts turns per `sessionKey`
-  (events/sessions.ts:73), and it will read an absent field as "the harness didn't say". That dashboard change
-  lands before slice 1.
+- **No `isFirstTurn`.** The runner keeps no state. The dashboard counts turns per `sessionKey` and reads an absent
+  field as "the harness didn't say" (e247257, live).
 - **The path is final:** `POST /events/turn-start`, auth agent. The registry shape is `turnStart: {path, budgetMs}`,
   like `agentState.path`.
 - **C1, identity rides the credential.** Send `x-api-key` (the `credentialRef` key) and `x-aify-agent:
-  $AIFY_AGENT_ID`. Without the header, owed answers are looked up for no particular agent.
+  $AIFY_AGENT_ID`.
 - **C2, machineId is the bridge's derivation exactly:** `${tag}:${host}` lower-cased. host = AIFY_MACHINE_ID,
-  else COMPUTERNAME, else HOSTNAME, else os.hostname(); tag = the platform, or `wsl` (dashboard
-  server/src/bridge/machine-id.ts). `win32:StevenZ-L` places nobody, silently. The runner test asserts that a placed
-  agent gets a non-null `projectId`.
-- **C3, slice 2 sends the hook's `sessionKey`.** For one Claude session, the channel bridge sends the same
-  `sessionKey` as the hook, or the session's ledger splits in two. Slice 2 must say where the bridge reads it.
-- **C4, the registry entry goes in last.** dashboard-manager adds `turnStart` to services.json only after the
-  wrapper that accepts the key is installed here, and only after checking that aify-env's readServices reads the
-  entry unchanged.
+  else COMPUTERNAME, else HOSTNAME, else os.hostname(), with an empty value treated as unset and the result
+  trimmed; tag = the platform, or `wsl`. A fourth copy, so an agreement test drives it against aify-env's
+  `machineIdFor`. `win32:StevenZ-L` places nobody, silently (shown live).
+- ~~C3~~: inapplicable while slice 2 is dropped.
+- **C4, the registry entry goes in last,** after the wrapper that accepts it is installed. aify-env's readServices
+  returns a projection that drops `turnStart`. The check is that adding the field leaves that projection
+  unchanged. It does not require env to carry the field.
+
+## Implementation checks (comms-senior-dev, at plan approval)
+
+- The context command is synchronous, unlike the adjacent async Herdr hooks. The generated settings parse, and the
+  session capture and state reporting still run.
+- The shared deadline covers the whole invocation: request, response body, and incomplete-input and error paths.
+  A service's `budgetMs` only shortens its own allowance. A fast service's answer survives a stalled or failing
+  peer.
+- `turnStart` survives the authoritative parser and reaches the runtime reader, in the parser's canonical service
+  order.
+- No key in any error, log or stdout. Redirects are refused, never followed with the key.
+- Placement is proved with the request the runner itself builds, not a fixture that supplies an already correct id.
+
+## Rollout (tied to B1)
+
+aify-wrapper main carries B1's launcher (73971dbe), so the comms pin that brings this runner also brings B1.
+Steps 2-6 follow in this order, never sooner:
+1. Steven restarts aify-env on B1.
+2. The new env holds its residents role.
+3. The runner-bearing pin is installed and the launchers re-rendered.
+4. The residents relaunch into the new hooks. A relaunch into old settings does not pick the runner up.
+5. dashboard-manager adds `turnStart` to services.json (C4).
+
+There is no bootstrap waiver, and no generation is deleted or refilled. The comms advisory's consumed surface gains
+`render.sh` beside `bin/`, with a witness through the real advisory query that a render-only change is reported.
 
 ## Proof
 
@@ -68,9 +90,11 @@ wakes. So a runner on `UserPromptSubmit` alone reaches the turns the operator ty
   - the order is the registry's;
   - exit is 0 on every path;
   - the key never reaches stdout.
-- A launcher test names the runner in the settings it writes.
-- **Live:** an operator rule written on the dashboard appears in a resident's next typed turn, and the dashboard's
-  firing log names that agent. Slice 2 repeats this for a channel wake.
+- A launcher test parses the settings it writes and finds the runner on `UserPromptSubmit`.
+- **Live, both triggers:** after a fresh marker rule is written on the dashboard, it appears in the context of one
+  resident's typed turn and of one channel-woken turn. Each is bound to the Claude version, the hook event, the
+  agent and session, and the triggering message. The dashboard's firing log shows only issuance; the agent's own
+  turn shows consumption.
 
 ## Not in this plan
 
