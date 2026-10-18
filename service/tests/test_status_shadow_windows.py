@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from service.tests._base import FastApiTestCase
 
+A, B = ('m', 'a'), ('m', 'b')  # two publishers on one machine
+
 
 class ShadowWindowsTest(FastApiTestCase):
     def setUp(self):
@@ -68,11 +70,11 @@ class ShadowWindowsTest(FastApiTestCase):
         self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
         self.recorder.record('refresh', 'online', 'online')
         self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
-        self.recorder.record('refresh', reason='unknown-loss')
+        self.recorder.record('refresh', reason='unknown-loss', scope=A)
         self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))
-        self.recorder.record('refresh', reason='unknown-loss')
+        self.recorder.record('refresh', reason='unknown-loss', scope=A)
         self.wait(owner.tick(self.v1, '2026-10-18T10:01:30Z'))  # loss continues: same window
-        self.recorder.record('refresh', 'online', 'online')
+        self.recorder.record('refresh', 'online', 'online', scope=A)
         self.wait(owner.tick(self.v1, '2026-10-18T10:02:00Z'))
         before, during, after = self.all_windows()
         self.assertEqual(before['closeReason'], 'publication-loss')
@@ -136,17 +138,81 @@ class ShadowWindowsTest(FastApiTestCase):
         # R2: no observation is no evidence; the loss stays in force until a comparison completes.
         owner = self.owner()
         self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
-        self.recorder.record('refresh', reason='unknown-loss')
+        self.recorder.record('refresh', reason='unknown-loss', scope=A)
         self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
         self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))  # quiet
         self.recorder.record('refresh', reason='missing-row')  # not a completed comparison either
         self.wait(owner.tick(self.v1, '2026-10-18T10:01:30Z'))
-        self.recorder.record('refresh', 'online', 'online')
+        self.recorder.record('refresh', 'online', 'online', scope=A)
         self.wait(owner.tick(self.v1, '2026-10-18T10:02:00Z'))
         before, during, after = self.all_windows()
         self.assertEqual(before['closeReason'], 'publication-loss')
         self.assertEqual((during['closeReason'], during['closedAt']), ('publication-recovered', '2026-10-18T10:02:00Z'))
         self.assertIsNone(after['closedAt'])
+
+    def test_another_publishers_comparison_does_not_end_a_loss_only_the_lost_ones_does(self):
+        # R2's scope: publisher A is lost while B stays healthy; B's comparisons are no evidence for A.
+        sh = self.shadow
+        def binding(a_lost):
+            view = {A: sh.Publisher(1, '2026-10-18T10:00:00Z', True, False, (sh.Record('alpha', 'L1', 'idle'),), a_lost),
+                    B: sh.Publisher(1, '2026-10-18T10:00:00Z', True, False, (sh.Record('beta', 'L2', 'idle'),))}
+            return sh.Binding(view, '2026-10-18T10:00:01Z')
+        from service.tests.test_agent_state_partial_shadow import inputs
+        owner = self.owner()
+        with patch.object(sh, 'recorder', self.recorder):
+            self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
+            sh.observe(binding(True), ('m', 'alpha'), inputs(), 'online', 'refresh')   # A lost
+            self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+            sh.observe(binding(True), ('m', 'beta'), inputs(), 'online', 'refresh')    # only B compares
+            self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))
+            sh.observe(binding(False), ('m', 'alpha'), inputs(), 'online', 'refresh')  # A compares again
+            self.wait(owner.tick(self.v1, '2026-10-18T10:01:30Z'))
+        before, during, after = self.all_windows()
+        self.assertEqual(before['closeReason'], 'publication-loss')
+        self.assertEqual((during['closeReason'], during['closedAt']), ('publication-recovered', '2026-10-18T10:01:30Z'),
+                         'B at 10:01:00 did not end the loss; A at 10:01:30 did')
+        self.assertIsNone(after['closedAt'])
+
+    def test_a_loss_whose_scope_cannot_be_told_is_never_ended_by_a_comparison(self):
+        owner = self.owner()
+        self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
+        self.recorder.record('refresh', reason='unknown-loss', scope=None)
+        self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        self.recorder.record('refresh', 'online', 'online', scope=A)
+        self.recorder.record('refresh', 'online', 'online', scope=None)  # a comparison nobody can place either
+        self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))
+        before, during = self.all_windows()
+        self.assertEqual(before['closeReason'], 'publication-loss')
+        self.assertIsNone(during['closedAt'], 'the loss stays in force')
+
+    def test_a_close_that_fails_after_a_committed_rotation_leaves_the_closed_window_alone(self):
+        # R5: the rotation committed, so the owner must follow it even though the connection close then failed.
+        from service.db import get_db
+        failures = [1]
+        class FailOneClose:
+            def __init__(self, connection): self.connection = connection
+            async def execute(self, sql, params=()): return await self.connection.execute(sql, params)
+            async def commit(self): await self.connection.commit()
+            async def close(self):
+                await self.connection.close()
+                if failures:
+                    failures.pop()
+                    raise OSError('injected reset failure')
+        owner = self.owner()
+        self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
+        connect = owner._connect
+        owner._connect = lambda: _wrap(get_db, FailOneClose)
+        self.recorder.record('refresh', reason='unknown-loss', scope=A)  # rotates: W1 closes, W2 opens
+        with self.assertRaisesRegex(OSError, 'injected'):
+            self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        owner._connect = connect
+        self.recorder.record('refresh', reason='unknown-loss', scope=A)  # a nonempty next batch, loss continuing
+        self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))
+        first, second = self.all_windows()
+        self.assertEqual((first['closedAt'], first['closeReason'], first['flushedAt']),
+                         ('2026-10-18T10:00:30Z', 'publication-loss', '2026-10-18T10:00:30Z'), 'W1 is untouched')
+        self.assertEqual(self.counts(second)['refresh']['unavailable:unknown-loss'], 1)
+        self.assertIsNone(second['closedAt'], 'no extra successor was opened')
 
     def test_an_observation_after_the_drain_belongs_to_the_window_being_opened(self):
         # R4: only what was recorded before the drain may disappear.

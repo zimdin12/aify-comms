@@ -32,18 +32,24 @@ class Versions:
     wrapper: str | None = None
 
 
-def next_reason(*, flush_lost, versions_changed, in_loss, loss_seen, healthy_seen):
-    """PURE. Why this flush ends the current window (None to keep it), and whether a loss is still in force.
+def next_reason(*, flush_lost, versions_changed, in_loss, lost_seen, healthy_seen):
+    """PURE. Why this flush ends the current window (None to keep it), and the scopes still lost after it.
 
-    A loss ends only on positive evidence: a completed comparison and no loss observed in the same batch. A quiet
-    batch proves nothing, so a loss in force stays in force.
+    `in_loss` and `lost_seen` are scopes: publisher keys, ALL_PUBLISHERS, or None when the scope could not be told.
+    A scope recovers only on positive evidence FOR IT, with no loss of it observed in the same batch: a completed
+    comparison of that publisher, or any completed comparison for ALL_PUBLISHERS (one proves the view was readable).
+    A quiet batch, or a comparison of another publisher, proves nothing; an unknown scope never recovers on its own.
+    The window closes when the first scope is lost and again when the last one recovers.
     """
-    begins = loss_seen and not in_loss
-    recovered = in_loss and healthy_seen and not loss_seen
-    still_in_loss = loss_seen or (in_loss and not recovered)
+    def recovered(scope):
+        if scope in lost_seen:
+            return False
+        # An unknown scope (None) never recovers: the recorder adds only known publisher keys to `healthy_seen`.
+        return bool(healthy_seen) if scope == shadow.ALL_PUBLISHERS else scope in healthy_seen
+    still = frozenset(lost_seen) | frozenset(scope for scope in in_loss if not recovered(scope))
     reason = ('flush-lost' if flush_lost else 'version-change' if versions_changed else
-              'publication-loss' if begins else 'publication-recovered' if recovered else None)
-    return reason, still_in_loss
+              'publication-loss' if still and not in_loss else 'publication-recovered' if in_loss and not still else None)
+    return reason, still
 
 
 class ShadowWindows:
@@ -54,7 +60,7 @@ class ShadowWindows:
         self._connect = connect
         self._window = None
         self._versions = None
-        self._in_loss = False
+        self._in_loss = frozenset()
         self._flush_lost = False
 
     @property
@@ -72,15 +78,16 @@ class ShadowWindows:
                              "WHERE closed_at IS NULL")
             window = await self._open(db, versions, at)
             await db.commit()
+            # Adopted at the commit, before the awaited close: a close that fails cannot leave the owner behind it.
+            self._window, self._versions = window, versions
         finally:
             await db.close()
-        self._window, self._versions = window, versions
 
     async def tick(self, versions, at):
         """Flush what was recorded into the current window, then close it if this flush ends its continuity."""
-        pending, loss_seen, healthy_seen = self.recorder.take()
+        pending, lost_seen, healthy_seen = self.recorder.take()
         reason, still_in_loss = next_reason(flush_lost=self._flush_lost, versions_changed=versions != self._versions,
-                                            in_loss=self._in_loss, loss_seen=loss_seen, healthy_seen=healthy_seen)
+                                            in_loss=self._in_loss, lost_seen=lost_seen, healthy_seen=healthy_seen)
         self._flush_lost = True  # until this flush commits: a failure from here on loses the counts just taken
         window = self._window
         db = await self._connect()
@@ -98,9 +105,10 @@ class ShadowWindows:
                                  (at, reason, window))
                 window = await self._open(db, versions, at)
             await db.commit()
+            # Adopted at the commit, before the awaited close: a close that fails cannot leave the owner behind it.
+            self._window, self._versions, self._in_loss, self._flush_lost = window, versions, still_in_loss, False
         finally:
             await db.close()
-        self._window, self._versions, self._in_loss, self._flush_lost = window, versions, still_in_loss, False
 
     @staticmethod
     async def _open(db, versions, at):

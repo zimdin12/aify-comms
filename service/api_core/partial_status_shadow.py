@@ -165,6 +165,27 @@ def compare(binding, association):
     return (word, None) if word else (None, 'unknown-state')
 
 
+ALL_PUBLISHERS = '*'
+
+
+def scope_of(binding, association, reason):
+    """PURE. Which publication a loss or a completed comparison is about, so a window ends a loss only on evidence for
+    THAT publication: a publisher key, ALL_PUBLISHERS when the whole view was lost, or None when it cannot be told."""
+    try:
+        if binding.loss:
+            return ALL_PUBLISHERS
+        machine, aid = association
+        mine = {key: p for key, p in binding.view.items() if key[0] == machine}
+        holding = [key for key, p in mine.items() if any(r.agent_id == aid for r in p.rows)]
+        if reason is None:
+            return holding[0] if len(holding) == 1 else None
+        lost = [key for key in holding if mine[key].loss] or (
+            [] if holding else [key for key, p in mine.items() if p.loss])
+        return lost[0] if len(lost) == 1 else None
+    except Exception:
+        return None
+
+
 @dataclass(frozen=True)
 class Observation:
     actual: str | None
@@ -184,10 +205,10 @@ class Recorder:
         self._disagreements = {}
         # What was recorded since the last `take()`, for the persisted windows (status-switch plan S2a).
         self._pending = Counter()
-        self._loss = False
-        self._healthy = False
+        self._lost = set()  # scopes whose loss was observed: publisher keys, ALL_PUBLISHERS, or None (unknown)
+        self._healthy = set()  # publisher keys a comparison completed for
 
-    def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None):
+    def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None, scope=None):
         observation = Observation(actual if actual in VALID_STATUSES else None,
                                   candidate if candidate in VALID_STATUSES else None, reason, inputs)
         names = ['observed']
@@ -201,11 +222,12 @@ class Recorder:
                 self._seen.add('unavailable')
                 self._last[source]['unavailable'] = observation
                 if reason == 'unknown-loss':
-                    self._loss = True
+                    self._lost.add(scope)
                     self._seen.add('unknown-loss')
                     self._last[source]['unknown-loss'] = observation
             else:
-                self._healthy = True  # a completed comparison: the publisher's view was present and fresh
+                if scope is not None:
+                    self._healthy.add(scope)  # a completed comparison: that publisher's view was present and fresh
                 agreed = actual == candidate
                 names += ['partialCompared', 'partialAgreed' if agreed else 'partialDisagreed']
                 self._seen.add('partial-agree' if agreed else 'partial-disagree')
@@ -223,10 +245,10 @@ class Recorder:
             self._pending[(source, name)] += 1
 
     def take(self):
-        """Since the last take: the counts keyed (source, name), whether a loss was observed, and whether a comparison
-        completed. All three reset."""
-        taken = dict(self._pending), self._loss, self._healthy
-        self._pending, self._loss, self._healthy = Counter(), False, False
+        """Since the last take: the counts keyed (source, name), the scopes a loss was observed for, and the publisher
+        keys a comparison completed for. All three reset."""
+        taken = dict(self._pending), frozenset(self._lost), frozenset(self._healthy)
+        self._pending, self._lost, self._healthy = Counter(), set(), set()
         return taken
 
     def report(self):
@@ -281,16 +303,18 @@ def observe(binding, agent_row, inputs, actual, source):
         if inputs is None:
             recorder.record(source, actual=actual, non_evaluation=True)
             return
-        projected = None
+        projected, scope = None, None
         try:
             identity = agent_row if type(agent_row) is tuple else association(agent_row)
             projected = project_inputs(inputs)
             candidate, reason = compare(binding, identity)
             if actual not in VALID_STATUSES and reason is None:
                 candidate, reason = None, 'unknown-state'
+            if reason in (None, 'unknown-loss'):
+                scope = scope_of(binding, identity, reason)
         except Exception:
-            candidate, reason = None, 'unknown-loss'
-        recorder.record(source, actual, candidate, reason, inputs=projected)
+            candidate, reason = None, 'unknown-loss'  # scope stays None: what was lost cannot be told
+        recorder.record(source, actual, candidate, reason, inputs=projected, scope=scope)
     except Exception:
         # The recorder itself is observational. Never mutate or interrupt current status.
         pass
