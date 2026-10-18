@@ -97,9 +97,8 @@ class StatusInputs:
     # resident: a fresh background-work lease (`api_core/background_work.py`): its bridge reports
     # shells or agents still running from its session. Freshness is decided outside, as above.
     background_work: bool = False
-    # resident: its wake mode is `*-missing-handle`, so nothing can wake it. derive() reads this only through
-    # `bridge_stale`, which it also sets; it is its own fact so the status shadow can tell a resident nobody can wake
-    # (the operator's Q3 ruling) from one whose bridge died (status-switch plan S2).
+    # resident: its wake mode is `*-missing-handle`, so nothing can wake it however fresh its bridge is (the
+    # operator's Q3 ruling: it reads offline). Kept apart from `bridge_stale` so the status shadow can tell the two.
     wake_handle_absent: bool = False
 
 
@@ -113,6 +112,10 @@ class StatusInputs:
 HOST_ACTIVITY_STATUS = {"working": "working", "blocked": "blocked", "shell": "shell", "idle": "online"}
 #: The observations that only CONFIRM a finished turn rather than proving what the worker is doing.
 _AT_PROMPT = ("idle", "shell")
+
+
+def _resident_reachable(i: StatusInputs) -> bool:
+    return i.has_live_session and not i.bridge_stale and not i.wake_handle_absent
 
 
 def derive(i: StatusInputs) -> str:
@@ -129,7 +132,7 @@ def derive(i: StatusInputs) -> str:
     # managed worker / stale resident bridge with a stale in_turn=1 falls through to
     # available/offline. Live turns are unaffected — every real in_turn→working path has
     # worker_present (managed) / has_live_session (resident) true.
-    live = i.worker_present if i.mode == "managed" else (i.has_live_session and not i.bridge_stale)
+    live = i.worker_present if i.mode == "managed" else _resident_reachable(i)
     # WHAT THE SCREEN SHOWS OUTRANKS THE TURN BOOKKEEPING, for a managed worker that is present and a
     # host that reported within the freshness window. The bookkeeping is inferred from hook events
     # that can be lost -- a lost turn-end is `working` over an idle prompt for as long as nothing else
@@ -188,7 +191,7 @@ def derive(i: StatusInputs) -> str:
     # At its prompt with background work still running, it is `shell`, as a managed worker whose
     # screen shows the same is (operator, 2026-10-01). Below the turn rule above, so a resident in a
     # turn reads `working` whatever runs behind it.
-    if i.alive and i.has_live_session and not i.bridge_stale:
+    if i.alive and _resident_reachable(i):
         return "shell" if i.background_work else "online"
     # A resident with no usable wake path is not merely offline — it cannot be woken at all.
     if i.config_defect:

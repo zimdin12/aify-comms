@@ -282,14 +282,13 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
                             console_booting=console_booting, config_defect=config_defect,
                             spawn_starting=spawn_starting, host_activity=host_activity,
                             host_activity_fresh=host_activity_fresh)
-    # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
-    # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
-    # sessionHandle) CANNOT be woken, so it reads `stale` even if a bridge looks fresh
-    # (mirrors the legacy resident missing-handle gate; matches the dashboard's red dot).
+    # A resident in a `*-missing-handle` wake mode (resident hermes with no live gatewayUrl, resident codex/pi
+    # without a sessionHandle) CANNOT be woken, so it is not live however fresh its bridge is (matches the
+    # dashboard's red dot). derive() reads it as its own input.
     missing_handle = str(_agent_wake_mode(agent_row) or "").endswith("-missing-handle")
     return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                         worker_present=worker_present, env_reachable=True, disabled=disabled,
-                        bridge_stale=(not worker_present) or missing_handle, has_live_session=worker_present,
+                        bridge_stale=not worker_present, has_live_session=worker_present,
                         console_booting=False, wake_handle_absent=missing_handle,
                         config_defect=await _agent_config_defect(db, agent_row, mode, missing_handle=missing_handle),
                         background_work=(await background_work_for(db, aid))[0])
@@ -739,7 +738,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         )
     else:
         _si_fresh = bool(resident_bridge_fresh)
-        # Phase I flip parity (see _gather_status_inputs): a *-missing-handle resident → stale.
+        # A *-missing-handle resident cannot be woken (see _gather_status_inputs).
         _si_missing_handle = str(_agent_wake_mode(agent_row) or "").endswith("-missing-handle")
         # The SAME helper as the authoritative builder, on the row already read above. A fresh lease
         # expires with nothing to tell this cache, so it recomputes when the lease would.
@@ -750,7 +749,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             mode=agent_session_mode, alive=_si_fresh, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=_si_fresh,
             env_reachable=True, disabled=_si_disabled,
-            bridge_stale=(not _si_fresh) or _si_missing_handle, has_live_session=_si_fresh,
+            bridge_stale=not _si_fresh, has_live_session=_si_fresh,
             console_booting=False, wake_handle_absent=_si_missing_handle,
             background_work=_si_background,
             # config_defect is DELIBERATELY NOT SET on the resident side, and this is a pinned open
