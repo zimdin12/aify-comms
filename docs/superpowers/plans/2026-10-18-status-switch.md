@@ -87,3 +87,23 @@ These are settled (DECISIONS c8756959, P-1 1791194105933), and C6's word table c
 - An owner whose denominator stays at zero on the real fleet: that owner needs a deterministic witness and a ruling
   before the gate.
 - A delivery decision that changes across S4, or after rollback, without a ruling: a witness goes red.
+
+## Classification log (S2, live)
+
+Read from the live service (`/agent-state/shadow-report`), counted per observation rather than per agent. One agent
+re-evaluated every few seconds can therefore dominate a class.
+
+- **2026-10-18 19:00Z, build 88f3708c. `comms-only-stop` was ONE agent, and it was not an operator stop.**
+  - The class held 289 of 405 disagreements (71%), all of them ef-senior-dev. Its wake-disabled flag
+    (`launch_mode='none'`, status `offline`) came from an April environment removal (`routers/environments.py`), not
+    from the operator.
+  - The operator ruled: make it startable. The comms resume cleared the stale flag (`launch_mode` detached, status
+    idle), and the class stopped growing (1131 before and 1131 after 465 more comparisons).
+  - Operator stops of defined agents already go through aify-env's journal (`lifecycle_delegation.py`, D9c).
+    So B2's remaining scope is the system paths that set `launch_mode='none'` without one: environment removal
+    and CLI takeover. Each is either a fact aify-env should hear about, or one comms should stop deriving `stopped` from.
+- Still open:
+  - env `blocked` vs comms `working` or `online` on residents: aify-env sees awaiting input that comms does not. No
+    class yet; which side is right is not established.
+  - resident `offline` vs env `available`: aify-env says `available` only for a managed agent, so the two sides
+    disagree on the agent's mode (B3).
