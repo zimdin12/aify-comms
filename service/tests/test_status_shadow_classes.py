@@ -101,6 +101,22 @@ class ConstructibleHistoryTest(unittest.TestCase):
         self.assertEqual(classify(shell[0], shell[1], *turn_open), 'unresolved:ambiguous')
         self.assertEqual(classify(shell[0], shell[1], *screen_working), 'background-shell-unpublished')
 
+    def test_a_resident_nobody_can_wake_is_q3_and_one_whose_bridge_died_is_not(self):
+        # Both builders: a missing handle sets bridge_stale while the bridge is fresh (alive), and a dead bridge is not alive.
+        no_handle = comms_side(mode='resident', alive=True, worker_present=True, has_live_session=True,
+                               bridge_stale=True, wake_handle_absent=True)
+        bridge_died = comms_side(mode='resident', bridge_stale=True)
+        running = env_side(env_facts(), turn_open=False)
+        self.assertEqual(self.key('refresh', no_handle, running), ('refresh', 'resident', 'offline', 'online'))
+        self.assertEqual(self.key('refresh', bridge_died, running), ('refresh', 'resident', 'offline', 'online'))
+        self.assertEqual(classify(no_handle[0], no_handle[1], *running), 'no-wake-handle')
+        self.assertEqual(classify(bridge_died[0], bridge_died[1], *running), 'unresolved:unmatched')
+        # The authoritative builder also sets config_defect for it, and words the same fact `misconfigured`.
+        worded = comms_side(mode='resident', alive=True, worker_present=True, has_live_session=True, bridge_stale=True,
+                            wake_handle_absent=True, config_defect='no usable wake handle (wakeMode=hermes-missing-handle)')
+        self.assertEqual(worded[1], 'misconfigured')
+        self.assertEqual(classify(worded[0], worded[1], *running), 'no-wake-handle')
+
     def test_a_stop_only_comms_knows_is_b2_and_one_aify_env_knows_is_not(self):
         stopped = comms_side(disabled=True)
         unheard = env_side(env_facts(mode='managed', process='none', verified='unknown'), turn_open=None)

@@ -133,7 +133,7 @@ def project_inputs(inputs):
     names = (
         'alive', 'in_turn', 'awaiting_input', 'worker_present', 'env_reachable', 'disabled',
         'bridge_stale', 'has_live_session', 'console_booting', 'spawn_starting',
-        'host_activity_fresh', 'background_work')
+        'host_activity_fresh', 'background_work', 'wake_handle_absent')
     flags = tuple(getattr(inputs, name) for name in names)
     if any(type(value) is not bool for value in flags):
         raise ValueError('unknown boolean input')

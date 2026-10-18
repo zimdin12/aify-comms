@@ -97,6 +97,10 @@ class StatusInputs:
     # resident: a fresh background-work lease (`api_core/background_work.py`): its bridge reports
     # shells or agents still running from its session. Freshness is decided outside, as above.
     background_work: bool = False
+    # resident: its wake mode is `*-missing-handle`, so nothing can wake it. derive() reads this only through
+    # `bridge_stale`, which it also sets; it is its own fact so the status shadow can tell a resident nobody can wake
+    # (the operator's Q3 ruling) from one whose bridge died (status-switch plan S2).
+    wake_handle_absent: bool = False
 
 
 #: A fresh host observation, as the live status it decides. `idle` is `online`: the vocabulary has no

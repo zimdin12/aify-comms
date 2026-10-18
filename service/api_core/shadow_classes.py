@@ -43,7 +43,14 @@ def _turn_open_differs(comms, comms_word, env, env_word):
     return env.get('turnOpen') is not None and comms.get('in_turn') is not env.get('turnOpen')
 
 
+def _no_wake_handle(comms, comms_word, env, env_word):
+    """A resident nothing can wake reads `offline` whatever aify-env sees of its process: the operator's Q3 ruling.
+    `misconfigured` is the same fact as the authoritative producer words it."""
+    return comms_word in ('offline', 'misconfigured') and comms.get('wake_handle_absent') is True
+
+
 DISAGREEMENT_CLASSES = (
+    DisagreementClass('no-wake-handle', 'policy:Q3', _no_wake_handle),
     DisagreementClass('comms-only-stop', 'B2', _comms_only_stop),
     DisagreementClass('background-shell-unpublished', 'B4', _background_shell_unpublished),
     DisagreementClass('turn-open-differs', 'B6', _turn_open_differs),

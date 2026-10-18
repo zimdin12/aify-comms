@@ -261,6 +261,8 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
                     f"{name}: expected the AUTHORITATIVE producer to carry the defect and the served "
                     f"one to miss it; got auth={auth['config_defect']!r} cheap={cheap['config_defect']!r}",
                 )
+                self.assertTrue(auth["wake_handle_absent"],
+                                f"{name}: both producers must record the missing handle the Q3 class reads")
 
     def test_both_producers_build_the_same_status_inputs(self):
         for name, kw in CASES.items():
