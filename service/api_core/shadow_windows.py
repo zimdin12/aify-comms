@@ -7,6 +7,9 @@ disappearing into a running total. Its counts are deltas taken from the in-proce
 
 A restart cannot write its own close, so the next start closes the dangling window AT ITS LAST FLUSH, the last
 moment it is known to have been recording. Diagnostic only: nothing reads these tables to decide a status.
+
+THE OWNER'S STATE CHANGES ONLY AFTER A COMMIT. A window opened inside a transaction that then fails was never
+durable, so adopting its id would point the next flush at a row that does not exist.
 """
 import asyncio
 import logging
@@ -29,11 +32,26 @@ class Versions:
     wrapper: str | None = None
 
 
+def next_reason(*, flush_lost, versions_changed, in_loss, loss_seen, healthy_seen):
+    """PURE. Why this flush ends the current window (None to keep it), and whether a loss is still in force.
+
+    A loss ends only on positive evidence: a completed comparison and no loss observed in the same batch. A quiet
+    batch proves nothing, so a loss in force stays in force.
+    """
+    begins = loss_seen and not in_loss
+    recovered = in_loss and healthy_seen and not loss_seen
+    still_in_loss = loss_seen or (in_loss and not recovered)
+    reason = ('flush-lost' if flush_lost else 'version-change' if versions_changed else
+              'publication-loss' if begins else 'publication-recovered' if recovered else None)
+    return reason, still_in_loss
+
+
 class ShadowWindows:
     """The current window and the rule for closing it. Has identity and state, so an object."""
 
-    def __init__(self, recorder=None):
+    def __init__(self, recorder=None, connect=get_db):
         self._recorder = recorder
+        self._connect = connect
         self._window = None
         self._versions = None
         self._in_loss = False
@@ -44,28 +62,28 @@ class ShadowWindows:
         return self._recorder or shadow.recorder
 
     async def start(self, versions, at):
-        db = await get_db()
+        # Drained BEFORE the window opens: what was recorded until now belongs to no window, and everything recorded
+        # from here on is flushed into the window this opens.
+        self.recorder.take()
+        db = await self._connect()
         try:
             await db.execute('BEGIN IMMEDIATE')
             await db.execute("UPDATE status_shadow_windows SET closed_at = flushed_at, close_reason = 'service-restart' "
                              "WHERE closed_at IS NULL")
-            self._window = await self._open(db, versions, at)
+            window = await self._open(db, versions, at)
             await db.commit()
         finally:
             await db.close()
-        self._versions = versions
-        self.recorder.take()  # anything recorded before this window opened belongs to no window
+        self._window, self._versions = window, versions
 
     async def tick(self, versions, at):
         """Flush what was recorded into the current window, then close it if this flush ends its continuity."""
-        pending, loss = self.recorder.take()
-        # A failed flush lost the counts it had taken, so the window it was flushing is no longer continuous.
-        reason = ('flush-lost' if self._flush_lost else
-                  'version-change' if versions != self._versions else
-                  'publication-loss' if loss and not self._in_loss else
-                  'publication-recovered' if self._in_loss and not loss else None)
-        self._flush_lost = True  # until this flush commits
-        db = await get_db()
+        pending, loss_seen, healthy_seen = self.recorder.take()
+        reason, still_in_loss = next_reason(flush_lost=self._flush_lost, versions_changed=versions != self._versions,
+                                            in_loss=self._in_loss, loss_seen=loss_seen, healthy_seen=healthy_seen)
+        self._flush_lost = True  # until this flush commits: a failure from here on loses the counts just taken
+        window = self._window
+        db = await self._connect()
         try:
             await db.execute('BEGIN IMMEDIATE')
             # A version change is noticed after the counts were recorded, so they belong to the window being closed.
@@ -73,16 +91,16 @@ class ShadowWindows:
                 await db.execute(
                     'INSERT INTO status_shadow_window_counts (window_id, owner, source, name, count) VALUES (?, ?, ?, ?, ?) '
                     'ON CONFLICT (window_id, owner, source, name) DO UPDATE SET count = count + excluded.count',
-                    (self._window, OWNER, source, name, count))
-            await db.execute('UPDATE status_shadow_windows SET flushed_at = ? WHERE id = ?', (at, self._window))
+                    (window, OWNER, source, name, count))
+            await db.execute('UPDATE status_shadow_windows SET flushed_at = ? WHERE id = ?', (at, window))
             if reason:
                 await db.execute('UPDATE status_shadow_windows SET closed_at = ?, close_reason = ? WHERE id = ?',
-                                 (at, reason, self._window))
-                self._window = await self._open(db, versions, at)
+                                 (at, reason, window))
+                window = await self._open(db, versions, at)
             await db.commit()
         finally:
             await db.close()
-        self._versions, self._in_loss, self._flush_lost = versions, loss, False
+        self._window, self._versions, self._in_loss, self._flush_lost = window, versions, still_in_loss, False
 
     @staticmethod
     async def _open(db, versions, at):
@@ -117,12 +135,34 @@ async def recent_windows(limit=20):
 WINDOWS = ShadowWindows()
 
 
-async def run_periodic(versions):
-    """The service's loop: one window per start, flushed every FLUSH_SECONDS. A failed flush is logged, never raised."""
-    await WINDOWS.start(versions, clock.now())
+async def run_periodic(versions, windows=None, every=FLUSH_SECONDS):
+    """The service's loop: open a window (retried until it opens), then flush every `every` seconds.
+
+    A failure is logged and retried, never raised: this is a diagnostic, and a loop that ended on a transient error
+    would stop recording without saying so. Only cancellation ends it.
+    """
+    windows = windows or WINDOWS
     while True:
-        await asyncio.sleep(FLUSH_SECONDS)
         try:
-            await WINDOWS.tick(versions, clock.now())
+            await windows.start(versions, clock.now())
+            break
+        except Exception as error:
+            logger.warning('status shadow window could not open, retrying: %s', error)
+            await asyncio.sleep(every)
+    while True:
+        await asyncio.sleep(every)
+        try:
+            await windows.tick(versions, clock.now())
         except Exception as error:
             logger.warning('status shadow window flush failed: %s', error)
+
+
+async def stop(task):
+    """Cancel the loop and wait for it, so shutdown continues whatever state the task ended in."""
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as error:
+        logger.warning('status shadow window task had failed: %s', error)

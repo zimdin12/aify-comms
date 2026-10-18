@@ -94,14 +94,100 @@ class ShadowWindowsTest(FastApiTestCase):
         owner = self.owner()
         self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
         self.recorder.record('refresh', 'online', 'online')
-        with patch.object(self.windows, 'get_db', side_effect=OSError('database unavailable')):
-            with self.assertRaises(OSError):
-                self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        connect = owner._connect
+        async def unavailable(): raise OSError('database unavailable')
+        owner._connect = unavailable
+        with self.assertRaises(OSError):
+            self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        owner._connect = connect
         self.recorder.record('refresh', 'online', 'online')
         self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))
         broken, new = self.all_windows()
         self.assertEqual(broken['closeReason'], 'flush-lost')
         self.assertEqual(self.counts(broken)['refresh']['observed'], 1, 'the lost batch is gone, and the close says so')
+
+    def test_a_refused_rotation_commit_keeps_the_durable_window_and_the_next_batch_lands(self):
+        # R1: the window opened inside a transaction that then failed never existed, so the owner must not adopt it.
+        from service.db import get_db
+        refusals = [1]
+        class RefuseOneCommit:
+            def __init__(self, connection): self.connection = connection
+            async def execute(self, sql, params=()): return await self.connection.execute(sql, params)
+            async def commit(self):
+                if refusals:
+                    refusals.pop()
+                    raise OSError('injected commit refusal')
+                await self.connection.commit()
+            async def close(self): await self.connection.close()
+        owner = self.windows.ShadowWindows(self.recorder)
+        self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
+        owner._connect = lambda: _wrap(get_db, RefuseOneCommit)
+        self.recorder.record('refresh', reason='unknown-loss')  # this flush rotates: a loss begins
+        with self.assertRaisesRegex(OSError, 'injected'):
+            self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        self.recorder.record('refresh', 'online', 'online')  # a nonempty next batch
+        self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))
+        first, second = self.all_windows()
+        self.assertEqual(first['closeReason'], 'flush-lost')
+        self.assertEqual(self.counts(first)['refresh']['observed'], 1, 'the next batch landed in the durable window')
+        self.assertIsNone(second['closedAt'])
+
+    def test_a_quiet_flush_does_not_end_a_loss_only_a_completed_comparison_does(self):
+        # R2: no observation is no evidence; the loss stays in force until a comparison completes.
+        owner = self.owner()
+        self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
+        self.recorder.record('refresh', reason='unknown-loss')
+        self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        self.wait(owner.tick(self.v1, '2026-10-18T10:01:00Z'))  # quiet
+        self.recorder.record('refresh', reason='missing-row')  # not a completed comparison either
+        self.wait(owner.tick(self.v1, '2026-10-18T10:01:30Z'))
+        self.recorder.record('refresh', 'online', 'online')
+        self.wait(owner.tick(self.v1, '2026-10-18T10:02:00Z'))
+        before, during, after = self.all_windows()
+        self.assertEqual(before['closeReason'], 'publication-loss')
+        self.assertEqual((during['closeReason'], during['closedAt']), ('publication-recovered', '2026-10-18T10:02:00Z'))
+        self.assertIsNone(after['closedAt'])
+
+    def test_an_observation_after_the_drain_belongs_to_the_window_being_opened(self):
+        # R4: only what was recorded before the drain may disappear.
+        owner = self.owner()
+        self.recorder.record('refresh', 'blocked', 'online')  # before the drain: in no window
+        original = self.windows.ShadowWindows._open
+        async def open_with_a_concurrent_observation(db, versions, at):
+            self.recorder.record('engine-status', 'online', 'online')  # after the drain, before the commit
+            return await original(db, versions, at)
+        with patch.object(self.windows.ShadowWindows, '_open', staticmethod(open_with_a_concurrent_observation)):
+            self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
+        self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))
+        [window] = self.all_windows()
+        self.assertEqual(self.counts(window), {'engine-status': {
+            'observed': 1, 'evaluated': 1, 'partialCompared': 1, 'partialAgreed': 1}})
+
+    def test_the_loop_retries_an_opening_that_failed_and_shutdown_survives_a_failed_task(self):
+        # R3: a transient failure must not end the loop, and a task that did fail must not stop shutdown.
+        calls = []
+        class FlakyWindows:
+            async def start(self, versions, at):
+                calls.append('start')
+                if calls.count('start') == 1:
+                    raise OSError('database not ready')
+            async def tick(self, versions, at):
+                calls.append('tick')
+        async def scenario():
+            task = asyncio.create_task(self.windows.run_periodic(self.v1, FlakyWindows(), every=0.01))
+            async def until_ticked():
+                while 'tick' not in calls:
+                    await asyncio.sleep(0.01)
+            await asyncio.wait_for(until_ticked(), 5)  # a loop that died on the first failure never ticks
+            await self.windows.stop(task)
+            self.assertTrue(task.cancelled(), 'stop cancels a running loop')
+            async def failed(): raise RuntimeError('the loop died')
+            dead = asyncio.create_task(failed())
+            await asyncio.sleep(0)
+            await self.windows.stop(dead)  # must return: the rest of shutdown runs after it
+            return 'shutdown continued'
+        self.assertEqual(self.wait(scenario()), 'shutdown continued')
+        self.assertEqual(calls[:3], ['start', 'start', 'tick'])
 
     def test_the_route_returns_the_newest_windows_first(self):
         owner = self.owner()
@@ -109,3 +195,7 @@ class ShadowWindowsTest(FastApiTestCase):
         self.wait(owner.tick(self.windows.Versions(comms='cccc3333'), '2026-10-18T10:00:30Z'))
         body = self._client.get('/api/v1/agent-state/shadow-windows?limit=1').json()
         self.assertEqual([w['versions']['comms'] for w in body['windows']], ['cccc3333'])
+
+
+async def _wrap(connect, proxy):
+    return proxy(await connect())

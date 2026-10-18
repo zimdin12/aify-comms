@@ -185,6 +185,7 @@ class Recorder:
         # What was recorded since the last `take()`, for the persisted windows (status-switch plan S2a).
         self._pending = Counter()
         self._loss = False
+        self._healthy = False
 
     def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None):
         observation = Observation(actual if actual in VALID_STATUSES else None,
@@ -204,6 +205,7 @@ class Recorder:
                     self._seen.add('unknown-loss')
                     self._last[source]['unknown-loss'] = observation
             else:
+                self._healthy = True  # a completed comparison: the publisher's view was present and fresh
                 agreed = actual == candidate
                 names += ['partialCompared', 'partialAgreed' if agreed else 'partialDisagreed']
                 self._seen.add('partial-agree' if agreed else 'partial-disagree')
@@ -221,10 +223,11 @@ class Recorder:
             self._pending[(source, name)] += 1
 
     def take(self):
-        """What was recorded since the last take, keyed (source, name), and whether a loss was seen; both reset."""
-        pending, loss = dict(self._pending), self._loss
-        self._pending, self._loss = Counter(), False
-        return pending, loss
+        """Since the last take: the counts keyed (source, name), whether a loss was observed, and whether a comparison
+        completed. All three reset."""
+        taken = dict(self._pending), self._loss, self._healthy
+        self._pending, self._loss, self._healthy = Counter(), False, False
+        return taken
 
     def report(self):
         counts = {name: sum(row[name] for row in self._counts.values()) for name in COUNT_NAMES}
