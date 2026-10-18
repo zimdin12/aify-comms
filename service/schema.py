@@ -640,6 +640,28 @@ CREATE TABLE IF NOT EXISTS agent_state_shadow_rows (
         REFERENCES agent_state_shadow_publishers(machine_id, instance) ON DELETE CASCADE
 );
 
+-- Status-switch plan S2a: the shadow comparison, persisted in windows bound to one version triple. Diagnostic
+-- only: no status or delivery reader takes anything from these tables.
+CREATE TABLE IF NOT EXISTS status_shadow_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comms_build TEXT NOT NULL,
+    env_build TEXT,
+    wrapper_build TEXT,
+    opened_at TEXT NOT NULL,
+    flushed_at TEXT NOT NULL,
+    closed_at TEXT,
+    close_reason TEXT
+);
+CREATE TABLE IF NOT EXISTS status_shadow_window_counts (
+    window_id INTEGER NOT NULL,
+    owner TEXT NOT NULL,
+    source TEXT NOT NULL,
+    name TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (window_id, owner, source, name),
+    FOREIGN KEY (window_id) REFERENCES status_shadow_windows(id)
+);
+
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,
     working_at TEXT NOT NULL,

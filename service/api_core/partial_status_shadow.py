@@ -1,4 +1,5 @@
 """Process-only partial status comparison. Never supplies current status inputs."""
+from collections import Counter
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from types import MappingProxyType
@@ -181,28 +182,30 @@ class Recorder:
         # (source, mode, comms word, env word) -> [count, latest inputs]. Bounded: every part is a fixed vocabulary.
         # Triage only (status-switch plan S1); admission classifies by input predicates, never by these keys.
         self._disagreements = {}
+        # What was recorded since the last `take()`, for the persisted windows (status-switch plan S2a).
+        self._pending = Counter()
+        self._loss = False
 
     def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None):
         observation = Observation(actual if actual in VALID_STATUSES else None,
                                   candidate if candidate in VALID_STATUSES else None, reason, inputs)
-        counts = self._counts[source]
-        counts['observed'] += 1
+        names = ['observed']
         if non_evaluation:
-            counts['nonEvaluation'] += 1; self._seen.add('non-evaluation')
+            names.append('nonEvaluation'); self._seen.add('non-evaluation')
             self._last[source]['non-evaluation'] = observation
         else:
-            counts['evaluated'] += 1
+            names.append('evaluated')
             if reason:
-                counts['unavailable'] += 1; self._reasons[reason] += 1
+                names += ['unavailable', f'unavailable:{reason}']; self._reasons[reason] += 1
                 self._seen.add('unavailable')
                 self._last[source]['unavailable'] = observation
                 if reason == 'unknown-loss':
+                    self._loss = True
                     self._seen.add('unknown-loss')
                     self._last[source]['unknown-loss'] = observation
             else:
-                counts['partialCompared'] += 1
                 agreed = actual == candidate
-                counts['partialAgreed' if agreed else 'partialDisagreed'] += 1
+                names += ['partialCompared', 'partialAgreed' if agreed else 'partialDisagreed']
                 self._seen.add('partial-agree' if agreed else 'partial-disagree')
                 self._last[source]['partial-agree' if agreed else 'partial-disagree'] = observation
                 if not agreed:
@@ -210,6 +213,18 @@ class Recorder:
                     entry = self._disagreements.setdefault((source, mode, observation.actual, observation.candidate), [0, None])
                     entry[0] += 1
                     entry[1] = inputs
+                    names.append(f'disagree:{mode}:{observation.actual}:{observation.candidate}')
+        counts = self._counts[source]
+        for name in names:
+            if name in counts:
+                counts[name] += 1
+            self._pending[(source, name)] += 1
+
+    def take(self):
+        """What was recorded since the last take, keyed (source, name), and whether a loss was seen; both reset."""
+        pending, loss = dict(self._pending), self._loss
+        self._pending, self._loss = Counter(), False
+        return pending, loss
 
     def report(self):
         counts = {name: sum(row[name] for row in self._counts.values()) for name in COUNT_NAMES}

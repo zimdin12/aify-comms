@@ -1,10 +1,11 @@
 """HTTP adapter for shadow ingest. Admission middleware is owned by main.py."""
-from fastapi import HTTPException, Request, Response
+from fastapi import HTTPException, Query, Request, Response
 
 from service.api_core.agent_state_shadow import AgentStateShadowStore, InvalidPublication
 from service.api_core.routing import domain_router
 from service import clock
 from service.api_core import partial_status_shadow as shadow
+from service.api_core.shadow_windows import recent_windows
 
 router = domain_router()
 
@@ -12,6 +13,11 @@ router = domain_router()
 @router.get('/agent-state/shadow-report')
 async def shadow_report():
     return shadow.recorder.report()
+
+
+@router.get('/agent-state/shadow-windows')
+async def shadow_windows(limit: int = Query(20, ge=1, le=200)):
+    return {'windows': await recent_windows(limit)}
 
 
 @router.post('/agent-state')
