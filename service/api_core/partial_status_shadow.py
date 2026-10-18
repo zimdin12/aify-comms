@@ -8,6 +8,7 @@ import copy
 from service.clock import now as clock
 from service.status_engine import VALID_STATUSES
 from service.api_core.definition_schema import MODES
+from service.api_core.shadow_classes import classify, env_inputs
 
 SCOPE = 'partial-freshness-base-word'
 SOURCES = ('refresh', 'cache-broadcast', 'engine-status')
@@ -25,6 +26,7 @@ class Record:
     agent_id: str
     lifetime: str | None
     state: str
+    inputs: tuple = ()  # shadow_classes.env_inputs: the closed facts a disagreement class may read
 
 
 @dataclass(frozen=True)
@@ -50,7 +52,7 @@ class Publisher:
 def prepare(body, applied_at):
     """Detach only validated fields before opening the acceptance transaction."""
     return Projection((body['machineId'], body['instance']), body['kind'], body['generation'],
-                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'])
+                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r))
                                         for r in body.get('agents', ())),
                       tuple((r['agentId'], r['lifetime']) for r in body.get('removed', ())))
 
@@ -203,12 +205,14 @@ class Recorder:
         # (source, mode, comms word, env word) -> [count, latest inputs]. Bounded: every part is a fixed vocabulary.
         # Triage only (status-switch plan S1); admission classifies by input predicates, never by these keys.
         self._disagreements = {}
+        self._classes = Counter()  # disagreement class name -> count (S2b)
         # What was recorded since the last `take()`, for the persisted windows (status-switch plan S2a).
         self._pending = Counter()
         self._lost = set()  # scopes whose loss was observed: publisher keys, ALL_PUBLISHERS, or None (unknown)
         self._healthy = set()  # publisher keys a comparison completed for
 
-    def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None, scope=None):
+    def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None, scope=None,
+               env_inputs=None):
         observation = Observation(actual if actual in VALID_STATUSES else None,
                                   candidate if candidate in VALID_STATUSES else None, reason, inputs)
         names = ['observed']
@@ -238,6 +242,10 @@ class Recorder:
                     entry[0] += 1
                     entry[1] = inputs
                     names.append(f'disagree:{mode}:{observation.actual}:{observation.candidate}')
+                    # The cause, for admission (S2b): exactly one class, or unresolved. Unknown env facts match nothing.
+                    cause = classify(dict(inputs or ()), observation.actual, dict(env_inputs or ()), observation.candidate)
+                    self._classes[cause] += 1
+                    names.append(f'class:{cause}')
         counts = self._counts[source]
         for name in names:
             if name in counts:
@@ -262,6 +270,7 @@ class Recorder:
                                           dict(asdict(o), inputs=None if o.inputs is None else dict(o.inputs))
                                           for c, o in row.items()} for s, row in self._last.items()},
                                       unavailableByReason=dict(self._reasons),
+                                      disagreementsByClass=dict(sorted(self._classes.items())),
                                       disagreementsByKey=[
                                           dict(source=s, mode=m, comms=a, env=c, count=n,
                                                sample=None if i is None else dict(i))
@@ -303,7 +312,7 @@ def observe(binding, agent_row, inputs, actual, source):
         if inputs is None:
             recorder.record(source, actual=actual, non_evaluation=True)
             return
-        projected, scope = None, None
+        projected, scope, env = None, None, None
         try:
             identity = agent_row if type(agent_row) is tuple else association(agent_row)
             projected = project_inputs(inputs)
@@ -312,9 +321,11 @@ def observe(binding, agent_row, inputs, actual, source):
                 candidate, reason = None, 'unknown-state'
             if reason in (None, 'unknown-loss'):
                 scope = scope_of(binding, identity, reason)
+            if reason is None and scope is not None:
+                env = next(r.inputs for r in binding.view[scope].rows if r.agent_id == identity[1])
         except Exception:
             candidate, reason = None, 'unknown-loss'  # scope stays None: what was lost cannot be told
-        recorder.record(source, actual, candidate, reason, inputs=projected, scope=scope)
+        recorder.record(source, actual, candidate, reason, inputs=projected, scope=scope, env_inputs=env)
     except Exception:
         # The recorder itself is observational. Never mutate or interrupt current status.
         pass

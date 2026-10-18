@@ -45,7 +45,7 @@ class ShadowWindowsTest(FastApiTestCase):
         [window] = self.all_windows()
         self.assertEqual(self.counts(window)['refresh'], {
             'observed': 2, 'evaluated': 2, 'partialCompared': 2, 'partialAgreed': 1, 'partialDisagreed': 1,
-            'disagree:resident:online:working': 1})
+            'disagree:resident:online:working': 1, 'class:unresolved:unmatched': 1})
         self.assertEqual(self.counts(window)['engine-status'], {'observed': 1, 'nonEvaluation': 1})
         self.assertEqual(window['flushedAt'], '2026-10-18T10:01:00Z')
         self.assertIsNone(window['closedAt'])
