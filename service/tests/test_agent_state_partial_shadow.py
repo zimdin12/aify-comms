@@ -71,6 +71,34 @@ class PartialShadowTest(FastApiTestCase):
         for secret in ('alpha', 'secret configuration', 'CaseSensitive', 'real-old'):
             self.assertNotIn(secret, text)
 
+    def test_disagreements_are_counted_by_source_mode_and_word_pair_for_triage(self):
+        # S1 of the status-switch plan: the counts say WHICH disagreements the fleet shows. Triage only;
+        # admission classes are input predicates (S2), never these keys.
+        self.apply(body())  # aify-env's record reads `working` for alpha
+        from dataclasses import replace
+        resident = replace(inputs(), mode='resident')
+        bound = self.shadow.bind()
+        for _ in range(2): self.shadow.observe(bound, self.agent, inputs(), 'online', 'refresh')
+        self.shadow.observe(bound, self.agent, replace(inputs(), background_work=True), 'online', 'refresh')
+        self.shadow.observe(bound, self.agent, inputs(), 'online', 'engine-status')
+        self.shadow.observe(bound, self.agent, resident, 'online', 'refresh')
+        self.shadow.observe(bound, self.agent, inputs(), 'blocked', 'refresh')
+        self.shadow.observe(bound, self.agent, inputs(), 'working', 'refresh')  # agrees: not counted
+        self.shadow.observe(bound, self.agent, None, 'stopped', 'refresh')  # non-evaluation: not counted
+        table = self.recorder.report()['byPurpose']['status word']['disagreementsByKey']
+        self.assertEqual([(r['source'], r['mode'], r['comms'], r['env'], r['count']) for r in table], [
+            ('refresh', 'managed', 'online', 'working', 3),
+            ('engine-status', 'managed', 'online', 'working', 1),
+            ('refresh', 'managed', 'blocked', 'working', 1),
+            ('refresh', 'resident', 'online', 'working', 1),
+        ], 'by count, then by key')
+        self.assertEqual(sum(r['count'] for r in table), self.counts()['partialDisagreed'])
+        self.assertTrue(table[0]['sample']['background_work'], 'the sample is the latest occurrence')
+        sample = table[3]['sample']
+        self.assertEqual(sample['mode'], 'resident')
+        sample['alive'] = False  # detached: the next report is unchanged
+        self.assertTrue(self.recorder.report()['byPurpose']['status word']['disagreementsByKey'][3]['sample']['alive'])
+
     def test_prepare_failure_preserves_acceptance_and_invalidates_only_after_commit(self):
         self.apply(body())
         old = self.mirror.view()

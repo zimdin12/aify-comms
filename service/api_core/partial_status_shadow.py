@@ -178,6 +178,9 @@ class Recorder:
         self._reasons = dict.fromkeys(REASONS, 0)
         self._seen = set()
         self._last = {s: dict.fromkeys(CLASSES) for s in SOURCES}
+        # (source, mode, comms word, env word) -> [count, latest inputs]. Bounded: every part is a fixed vocabulary.
+        # Triage only (status-switch plan S1); admission classifies by input predicates, never by these keys.
+        self._disagreements = {}
 
     def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None):
         observation = Observation(actual if actual in VALID_STATUSES else None,
@@ -202,6 +205,11 @@ class Recorder:
                 counts['partialAgreed' if agreed else 'partialDisagreed'] += 1
                 self._seen.add('partial-agree' if agreed else 'partial-disagree')
                 self._last[source]['partial-agree' if agreed else 'partial-disagree'] = observation
+                if not agreed:
+                    mode = dict(inputs).get('mode') if inputs else None
+                    entry = self._disagreements.setdefault((source, mode, observation.actual, observation.candidate), [0, None])
+                    entry[0] += 1
+                    entry[1] = inputs
 
     def report(self):
         counts = {name: sum(row[name] for row in self._counts.values()) for name in COUNT_NAMES}
@@ -213,7 +221,13 @@ class Recorder:
                                       lastBySource={s: {c: None if o is None else
                                           dict(asdict(o), inputs=None if o.inputs is None else dict(o.inputs))
                                           for c, o in row.items()} for s, row in self._last.items()},
-                                      unavailableByReason=dict(self._reasons))
+                                      unavailableByReason=dict(self._reasons),
+                                      disagreementsByKey=[
+                                          dict(source=s, mode=m, comms=a, env=c, count=n,
+                                               sample=None if i is None else dict(i))
+                                          for (s, m, a, c), (n, i) in sorted(
+                                              self._disagreements.items(),
+                                              key=lambda kv: (-kv[1][0], *(str(part) for part in kv[0])))])
         return dict(schemaVersion=1, scope=SCOPE, window='process', coverageComplete=False,
                     qualification='UNAVAILABLE', fullQualifiedComparisons=0,
                     qualificationGaps=['turn.ageMs', 'runtime provenance', 'roster gates',
