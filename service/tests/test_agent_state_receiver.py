@@ -281,7 +281,9 @@ class AgentStateReceiverTest(FastApiTestCase):
         result = subprocess.run([node, str(fixture), str(source), self._tmpdir.name],
                                 capture_output=True, check=True, timeout=20)
         publications = json.loads(result.stdout)
-        self.assertEqual([json.loads(raw)['kind'] for raw in publications], ['snapshot', 'changes', 'changes', 'unavailable'])
+        # The third publication: both rows leave. `nullable` has no lifetime, so no removal can name it, and aify-env
+        # (B1, 24883f0) answers its departure with a whole snapshot, which withdraws both rows at once.
+        self.assertEqual([json.loads(raw)['kind'] for raw in publications], ['snapshot', 'changes', 'snapshot', 'unavailable'])
         for index, raw in enumerate(publications):
             response = self.post(raw.encode('utf-8'), AT if index == 0 else LATER)
             self.assertEqual(response.status_code, 204, response.text)
@@ -293,7 +295,7 @@ class AgentStateReceiverTest(FastApiTestCase):
                 self.assertEqual(next(r for r in self.stored()[1] if r['agent_id'] == 'alpha')['lifetime'], '22222222-2222-4222-8222-222222222222')
             if index == 2:
                 rows_before = self.stored()[1]
-                self.assertEqual([r['agent_id'] for r in rows_before], ['nullable'])
+                self.assertEqual(rows_before, [], 'the snapshot left a departed row current')
             if index == 3:
                 self.assertEqual(self.stored()[1], rows_before)
         response = self.post(publications[-1].encode())

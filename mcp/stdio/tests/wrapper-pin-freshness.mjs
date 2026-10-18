@@ -133,9 +133,11 @@ export function upstreamAdvisory({
  * `wrappers/` alone was too narrow and caught today's defect by luck: install.sh renders from
  * `WRAPPER_TEMPLATE_DIR`, and this repo ALSO executes the package's registry CLI and reads its
  * installed-endpoint utilities. A freshness claim scoped to templates is a template claim, not a
- * dependency claim, and should not be named as one.
+ * dependency claim, and should not be named as one. `bin/` too: every launcher sources `bin/aify-lease.sh` and
+ * `bin/aify-lifetime.sh`, and each lease watcher runs `bin/aify-agent-lease.mjs` from the installed copy. And
+ * `render.sh`: install.sh copies it and runs it to render every launcher.
  */
-export const CONSUMED_SURFACE = Object.freeze(["wrappers/", "lib/", "VERSION"]);
+export const CONSUMED_SURFACE = Object.freeze(["wrappers/", "lib/", "bin/", "render.sh", "VERSION"]);
 
 /**
  * A pinned sha, read out of a dependency spec. Full shas only.
