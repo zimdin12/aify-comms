@@ -47,7 +47,7 @@ def classify(comms, comms_word, env, env_word):
     """The name of the one class this disagreement satisfies, or why it is unresolved."""
     if not env:
         return 'unresolved:unmatched'  # a cause read against facts nobody published is not an attribution
-    matched =[c.name for c in DISAGREEMENT_CLASSES if c.applies(comms, comms_word, env, env_word)]
+    matched = [c.name for c in DISAGREEMENT_CLASSES if c.applies(comms, comms_word, env, env_word)]
     if len(matched) == 1:
         return matched[0]
     return 'unresolved:unmatched' if not matched else 'unresolved:ambiguous'
