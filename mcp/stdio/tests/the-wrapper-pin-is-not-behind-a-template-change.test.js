@@ -111,6 +111,7 @@ test("the consumed surface is wider than the templates", () => {
   assert.ok(CONSUMED_SURFACE.includes("wrappers/"));
   assert.ok(CONSUMED_SURFACE.includes("lib/"), "the package's lib/ is executed by this repo");
   assert.ok(CONSUMED_SURFACE.includes("bin/"), "the launchers source the package's bin/ and the lease watcher runs from it");
+  assert.ok(CONSUMED_SURFACE.includes("render.sh"), "install.sh copies and runs the package's render.sh");
 });
 
 // ---- reading the pin -----------------------------------------------------------------------------
