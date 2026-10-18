@@ -22,13 +22,19 @@ class DisagreementClass:
 
 
 def _comms_only_stop(comms, comms_word, env, env_word):
-    """comms shows an operator stop that aify-env never heard of: stops are recorded only in comms (B2)."""
-    return comms_word == 'stopped' and comms.get('disabled') is True and env.get('stateCause') != 'operator-stop'
+    """comms shows a stop aify-env never heard of: stops are recorded only in comms (B2).
+
+    The word is enough. A compared comms `stopped` is always derive()'s `disabled` (an explicit stop, or wake
+    disabled), since a manual stop is never evaluated; and aify-env says `stopped` only for its own operator stop, which
+    would be an agreement, never a disagreement to classify.
+    """
+    return comms_word == 'stopped'
 
 
 def _background_shell_unpublished(comms, comms_word, env, env_word):
-    """comms shows a resident's background shell; aify-env publishes no background input yet (B4)."""
-    return comms_word == 'shell' and comms.get('background_work') is True and env_word != 'shell'
+    """comms shows a background shell that aify-env has no input for yet (B4). Not a shell on a managed worker's
+    screen: that is a different missing input (the screen), and stays unresolved until its own class exists."""
+    return comms_word == 'shell' and comms.get('background_work') is True
 
 
 def _turn_open_differs(comms, comms_word, env, env_word):
