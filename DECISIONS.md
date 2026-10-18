@@ -6,6 +6,18 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## The status switch to aify-env: three policy rulings (Steven, 2026-10-18)
+
+Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-14), answered 2026-10-18:
+
+- **Q1, yes: an agent whose aify-env is not reporting reads grey `unknown`, not `offline`.** `offline` claims
+  the agent is down; no report proves only that we cannot see it. This replaces contract C6's `offline`.
+- **Q3, no: a resident with no wake handle stays `offline`.** I had recommended its real state plus a "no
+  delivery path" note; he kept the 2026-06-18 rule below (`*-missing-handle` reads `offline`). A bare-restored
+  pane therefore reads offline, as it does today.
+- **Q4, yes: the dashboard's pushed status and its polled status come from one view**, so a live update and
+  a page refresh cannot disagree.
+
 ## 0.9.8: a message that cannot wake its agent is kept, and the answer says so (2026-10-14/16)
 
 **A message to an agent that cannot be woken is stored in its inbox by the SERVICE, and the answer says the
