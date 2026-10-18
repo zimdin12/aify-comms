@@ -105,5 +105,14 @@ re-evaluated every few seconds can therefore dominate a class.
 - Still open:
   - env `blocked` vs comms `working` or `online` on residents: aify-env sees awaiting input that comms does not. No
     class yet; which side is right is not established.
-  - resident `offline` vs env `available`: aify-env says `available` only for a managed agent, so the two sides
-    disagree on the agent's mode (B3).
+- **2026-10-18 23:20Z, build 88f3708c. Two keys explained; an earlier B3 attribution withdrawn.**
+  - resident `offline` vs env `online` (4,529 of 6,243): pc-manager. comms reads `hermes-missing-handle`
+    (`liveness.py`): its bridge restarted at 19:50Z after my %TEMP% cleanup had deleted its
+    `aify-hermes-gateway-` marker, which the bridge reads only at load (`hermes-gateway-config.mjs`). The gateway
+    on 8868 was listening throughout. This is the Q3-ruled word, so the key needs the Q3 class, and comms' recorded
+    inputs must carry the missing handle: `bridge_stale` alone cannot tell it from a dead bridge. The marker was
+    rewritten from the gateway's own token (control: comms-senior-dev's surviving marker reproduced byte-equal); it
+    takes effect at pc-manager's next bridge start.
+  - resident `offline` vs env `available` (60): llama-manager. comms keeps the session mode of its last run
+    (resident, 10-12 18:52Z); its definition became managed at 19:01Z. The definition is the authority: B3, no
+    operator decision needed. dashboard-senior-dev, named here earlier, is defined resident and is not in B3.
