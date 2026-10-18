@@ -134,6 +134,23 @@ class ClassesThroughThePublicationTest(FastApiTestCase):
                   patch.object(shadow, 'clock', return_value=AT)):
             p.start(); self.addCleanup(p.stop)
 
+    def stopped_vs(self, record):
+        """Apply `record` through the receiver, then observe a derived comms stop against it."""
+        from service.api_core.agent_state_shadow import AgentStateShadowStore
+        self.assertTrue(asyncio.run(AgentStateShadowStore().apply(wire(body(agents=[record])), AT)).applied)
+        stopped = StatusInputs(mode='managed', alive=False, in_turn=False, awaiting_input=False, worker_present=False,
+                               env_reachable=True, disabled=True, bridge_stale=False, has_live_session=False)
+        self.shadow.observe(self.shadow.bind(), {'id': 'alpha', 'machine_id': ' Host '}, stopped, derive(stopped), 'refresh')
+        return self.recorder.report()['byPurpose']['status word']
+
+    def test_a_record_that_heard_the_stop_but_reports_another_word_is_not_a_b2_gap(self):
+        # The receiver admits state and cause independently; an honest aify-env never pairs these two.
+        contradictory = dict(row(), state='available', stateCause='operator-stop', busy=False,
+                             process=dict(state='none', verified='unknown', pid=None), turn=None)
+        report = self.stopped_vs(contradictory)
+        self.assertEqual(report['counts']['partialDisagreed'], 1, 'the comparison completed and disagreed')
+        self.assertEqual(report['disagreementsByClass'], {'unresolved:unmatched': 1})
+
     def test_a_comms_only_stop_is_counted_under_its_class_and_persisted(self):
         from service.api_core.agent_state_shadow import AgentStateShadowStore
         from service.api_core import shadow_windows

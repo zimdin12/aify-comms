@@ -24,11 +24,12 @@ class DisagreementClass:
 def _comms_only_stop(comms, comms_word, env, env_word):
     """comms shows a stop aify-env never heard of: stops are recorded only in comms (B2).
 
-    The word is enough. A compared comms `stopped` is always derive()'s `disabled` (an explicit stop, or wake
-    disabled), since a manual stop is never evaluated; and aify-env says `stopped` only for its own operator stop, which
-    would be an agreement, never a disagreement to classify.
+    `disabled` need not be checked: a compared comms `stopped` is always derive()'s `disabled` (an explicit stop, or
+    wake disabled), since a manual stop is never evaluated. The env cause MUST be: an honest aify-env pairs
+    `operator-stop` only with `stopped`, but the receiver validates state and cause independently, so a record that
+    says it heard the stop while reporting another word is admitted. That is no unpublished stop; it stays unresolved.
     """
-    return comms_word == 'stopped'
+    return comms_word == 'stopped' and env.get('stateCause') != 'operator-stop'
 
 
 def _background_shell_unpublished(comms, comms_word, env, env_word):
