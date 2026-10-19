@@ -6,6 +6,7 @@ from unittest import mock
 from service import clock
 from service.api_core import comms_view as cv, delivery_turns as dt, partial_status_shadow as shadow
 from service.api_core import busy_consumers as bc, shadow_provenance as prov, shadow_windows as windows
+from service.api_core import shadow_evidence as ev
 from service.api_core.claim_gating import BusyDecision
 from service.tests import test_agent_state_receiver as rx, test_shadow_evidence as e1
 from service.tests._base import FastApiTestCase
@@ -179,6 +180,12 @@ class WindowBuildsTest(_Windows):
         self.recorder.provenance._builds.clear()  # only what the reminder itself contributes
         asyncio.run(bc.observe_reminder(None, 'a', 'r', False, blocked=False, occupied=False, agent_row=ROW))
         self.assertEqual(self.recorder.take_provenance()[:2], ({'A'}, {'reminder skip (B21)'}))
+
+    def test_the_evidence_census_names_each_publishers_and_records_build(self):
+        self.apply(projection('A'))
+        env, missing = ev.census(shadow.bind(), ('m', 'a'))
+        self.assertEqual(([p['envBuild'] for p in env['publishers']], [r['origin']['envBuild'] for r in env['records']],
+                          missing), (['A'], ['A'], []))
 
     def test_d1_unavailable_shadow_error_and_loss_contribute_their_bindings(self):
         self.apply(projection('A'))
