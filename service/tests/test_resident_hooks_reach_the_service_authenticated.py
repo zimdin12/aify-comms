@@ -417,8 +417,10 @@ def test_codex_trust_is_recorded_for_exactly_the_hooks_written_at_their_index(in
 
 
 def _context_hook(hooks: dict) -> tuple:
-    """The one UserPromptSubmit group naming aify-wrapper's turn-start runner: its index and its hook."""
-    found = [(i, g) for i, g in enumerate(hooks.get("UserPromptSubmit", [])) if "aify-turn-start.mjs" in json.dumps(g)]
+    """The one UserPromptSubmit group holding the runner command the installer writes: its index and its hook. Matched
+    by that exact command, since a group merely naming the file may be the operator's."""
+    found = [(i, g) for i, g in enumerate(hooks.get("UserPromptSubmit", []))
+             if any(h.get("command") == CONTEXT_COMMAND for h in g.get("hooks", []))]
     assert len(found) == 1, f"expected exactly one turn-start group, got {found}"
     index, group = found[0]
     assert set(group) == {"hooks"} and len(group["hooks"]) == 1, f"the runner shares its group: {group}"
@@ -454,6 +456,37 @@ def test_codex_turn_start_hook_keeps_the_operators_hook_at_its_index():
             _install(home)
             groups = json.loads(hooks_file.read_text())["hooks"]["UserPromptSubmit"]
             assert _commands(groups)[1:] == ["echo mine", CONTEXT_COMMAND], groups
+
+
+NAMING_ONLY = [{"type": "command", "command": "node operator-owned.mjs --label aify-turn-start.mjs", "timeout": 3},
+               {"type": "command", "command": "node operator-owned.mjs --label agent-state-event.mjs", "timeout": 3}]
+
+
+def test_a_hook_that_only_names_an_aify_file_is_never_trusted_or_replaced():
+    """A file name inside a command is no proof the installer wrote it (review of e6fc8155). An operator's hook naming
+    either runner, on its own or beside another hook, keeps its group and its index, and gets no trust recorded."""
+    with tempfile.TemporaryDirectory(prefix="aify-statehooks-naming-") as tmp:
+        home = Path(tmp)
+        _seed(home)
+        hooks_file = home / ".codex" / "hooks.json"
+        seeded = json.loads(hooks_file.read_text())
+        single = {"hooks": [NAMING_ONLY[0]]}
+        mixed = {"hooks": [{"type": "command", "command": "echo mine", "timeout": 3}, NAMING_ONLY[0]]}
+        seeded["hooks"]["UserPromptSubmit"] += [single, mixed]
+        seeded["hooks"]["Stop"].append({"hooks": [NAMING_ONLY[1]]})
+        hooks_file.write_text(json.dumps(seeded), encoding="utf-8")
+        _install(home)
+        hooks = json.loads(hooks_file.read_text())["hooks"]
+        assert hooks["UserPromptSubmit"][1:3] == [single, mixed], "an operator group naming the runner was replaced"
+        assert _context_hook(hooks)[1]["command"] == CONTEXT_COMMAND, "CONTROL: the runner's own group was written"
+        found, _ = _trust((home / ".codex" / "config.toml").read_text())
+        named = {f"{_native(hooks_file)}:{event}:{g}:{h}" for event, groups in (("user_prompt_submit", hooks["UserPromptSubmit"]),
+                                                                                 ("stop", hooks["Stop"]))
+                 for g, group in enumerate(groups) for h, hook in enumerate(group["hooks"]) if hook in NAMING_ONLY}
+        assert len(named) == 3, named
+        assert not named & set(found), f"trust recorded for a hook the installer did not write: {named & set(found)}"
+        index, _ = _context_hook(hooks)
+        assert f"{_native(hooks_file)}:user_prompt_submit:{index}:0" in found, "CONTROL: the written hook was trusted"
 
 
 class _TurnStartService(BaseHTTPRequestHandler):

@@ -4,7 +4,9 @@
 // matching trusted_hash, and a managed worker RESUMING a thread stops at codex's "hooks are new or
 // changed" screen with nobody there to answer it (measured by aify-wrapper, lib/codex-herdr-hooks.mjs).
 // Every reinstall that changes these command strings did that to hooks the operator had already trusted.
-// So the installer records trust for exactly the hooks it wrote, and for nothing else in the file.
+// So the installer records trust for exactly the hooks it wrote, and for nothing else in the file: it passes the
+// commands it wrote, and only a hook whose command IS one of them is trusted. A file name inside a command is no
+// proof of who wrote it; with no commands passed, nothing is trusted.
 //
 // THE HASH is codex's own: sha256 over compact JSON with sorted keys of the hook's identity. For a plain
 // command hook that is {event_name, hooks:[{async, command, timeout, type:"command"}]}. It
@@ -22,9 +24,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-/** What marks a hooks.json command as one install.sh wrote: a state hook, or aify-wrapper's turn-start runner. */
-const AIFY_HOOK_MARKERS = ["agent-state-event.mjs", "aify-turn-start.mjs"];
-
 const SQ = "'";
 
 function snakeEvent(name) {
@@ -36,8 +35,8 @@ function codexHookHash(event, command, timeout, async = false) {
   return `sha256:${crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
 }
 
-/** The trust entries for the aify hooks in a parsed hooks.json, keyed as codex keys them. */
-function aifyHookTrust(hooksJson, hooksPath) {
+/** The trust entries for the hooks in a parsed hooks.json whose command is one of `written`, keyed as codex keys them. */
+function aifyHookTrust(hooksJson, hooksPath, written) {
   const entries = [];
   for (const [eventName, groups] of Object.entries(hooksJson?.hooks || {})) {
     if (!Array.isArray(groups)) continue;
@@ -47,7 +46,7 @@ function aifyHookTrust(hooksJson, hooksPath) {
         const plain = hook && hook.type === "command" && typeof hook.command === "string"
           && Number.isInteger(hook.timeout) && (hook.async === undefined || typeof hook.async === "boolean")
           && Object.keys(hook).every((k) => ["type", "command", "timeout", "async"].includes(k));
-        if (!plain || !AIFY_HOOK_MARKERS.some((marker) => hook.command.includes(marker))) return;
+        if (!plain || !written.has(hook.command)) return;
         const event = snakeEvent(eventName);
         entries.push({ key: `${hooksPath}:${event}:${groupIndex}:${hookIndex}`, hash: codexHookHash(event, hook.command, hook.timeout, hook.async === true) });
       });
@@ -86,8 +85,8 @@ function withTrust(tomlText, entries) {
   return { text: lines.join(eol) + eol, untouched };
 }
 
-function main([hooksPath, configPath]) {
-  const entries = aifyHookTrust(JSON.parse(fs.readFileSync(hooksPath, "utf8")), hooksPath);
+function main([hooksPath, configPath, ...written]) {
+  const entries = aifyHookTrust(JSON.parse(fs.readFileSync(hooksPath, "utf8")), hooksPath, new Set(written));
   let toml = "";
   try { toml = fs.readFileSync(configPath, "utf8"); } catch {}
   const { text, untouched } = withTrust(toml, entries);

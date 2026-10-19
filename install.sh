@@ -1483,7 +1483,7 @@ install_codex_turn_hooks() {
   local context_cmd='if [ -n "${AIFY_AGENT_ID:-}" ]; then node "'"$AIFY_BRIDGE_DIR/node_modules/aify-wrapper/bin/aify-turn-start.mjs"'"; fi'
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd, contextCmd] = process.argv.slice(1);
+    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd, contextCmd, ctxHead, ctxTail] = process.argv.slice(1);
     let data = { hooks: {} };
     try {
       data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
@@ -1499,9 +1499,8 @@ install_codex_turn_hooks() {
     if (!data || typeof data !== 'object') data = {};
     if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
     const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-start', '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'agent-state-event.mjs'];
-    const marked = (markers) => (group) => markers.some(marker => JSON.stringify(group).includes(marker));
-    // IN PLACE: codex keys trust by a group's index, so appending ours would move the user hooks after it.
-    const wire = (eventKey, cmd, ours = marked(OURS), hook = { type: 'command', command: cmd, timeout: 3, async: true }) => {
+    const marked = (markers) => (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && typeof g.hooks[0].command === 'string' && g.hooks[0].command.startsWith(ctxHead.slice(0, ctxHead.indexOf(']') + 1)) && markers.some(marker => g.hooks[0].command.includes(marker));
+    const wire = /* IN PLACE: codex keys trust by a group's index, so appending ours would move the user hooks after it. */(eventKey, cmd, ours = marked(OURS), hook = { type: 'command', command: cmd, timeout: 3, async: true }) => {
       const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
       const first = groups.findIndex(ours);
       const kept = groups.filter(group => !ours(group));
@@ -1509,8 +1508,9 @@ install_codex_turn_hooks() {
       data.hooks[eventKey] = kept;
     };
     wire('UserPromptSubmit', startCmd);
-    // The turn's context from aify-wrapper's runner: own group, synchronous and unredirected as codex reads its stdout, gated as Codex Desktop reads this file.
-    wire('UserPromptSubmit', contextCmd, marked(['aify-turn-start.mjs']), { type: 'command', command: contextCmd, timeout: 5 });
+    // The runner's context hook: own group, synchronous, unredirected (codex reads its stdout), gated (Codex Desktop reads this file). Ours only in its exact one-hook shape; a group merely naming the file is the operator's.
+    const contextGroup = (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && typeof g.hooks[0].command === 'string' && g.hooks[0].command.startsWith(ctxHead) && g.hooks[0].command.endsWith(ctxTail);
+    wire('UserPromptSubmit', contextCmd, contextGroup, { type: 'command', command: contextCmd, timeout: 5 });
     wire('Stop', endCmd);
     wire('Interrupt', endCmd);
     wire('SessionStart', endCmd);
@@ -1518,9 +1518,9 @@ install_codex_turn_hooks() {
     wire('PostToolUse', unblockedCmd);
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
   " "$node_hooks_file" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" \
-    "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)" "$context_cmd"
-  MSYS_NO_PATHCONV=1 node "$(path_for_node "$AIFY_BRIDGE_DIR/codex-hook-trust.mjs")" "$node_hooks_file" \
-    "$(path_for_node "$codex_home/config.toml")" || true
+    "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)" "$context_cmd" "${context_cmd%%node *}node \"" '/aify-turn-start.mjs"; fi'
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$AIFY_BRIDGE_DIR/codex-hook-trust.mjs")" "$node_hooks_file" "$(path_for_node "$codex_home/config.toml")" \
+    "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)" "$context_cmd" || true
 }
 
 install_hermes_turn_hooks() {
