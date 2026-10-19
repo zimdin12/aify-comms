@@ -41,6 +41,17 @@ class OwnerRecorderTest(FastApiTestCase):
         self.assertEqual(busy['variants']['strict']['counts']['partialDisagreed'], 1)
         self.assertEqual(busy['variants']['P-1'], self.owners.UNOBSERVED, 'a variant nobody measured says so')
 
+    def test_an_unavailable_reason_stays_with_the_site_that_gave_it(self):
+        def report(first, second):
+            recorder = self.shadow.Recorder()
+            recorder.record_owner('busy', 'strict', 'claim-gate', True, None, reason=first)
+            recorder.record_owner('busy', 'strict', 'send-gate', True, None, reason=second)
+            return recorder.report()['byPurpose']['busy']['variants']['strict']
+        one, swapped = report('seeded', 'no-age'), report('no-age', 'seeded')
+        self.assertEqual(one['unavailableByReason'], {'claim-gate': {'seeded': 1}, 'send-gate': {'no-age': 1}})
+        self.assertNotEqual(one, swapped, 'two histories that differ only in which site gave which reason')
+        self.assertEqual(one['counts'], swapped['counts'])
+
     def test_every_owner_and_variant_is_reported_and_an_unmeasured_one_says_so(self):
         report = self.recorder.report()
         self.assertEqual(report['schemaVersion'], 2)
@@ -61,7 +72,7 @@ class OwnerRecorderTest(FastApiTestCase):
         self.recorder.record_owner('claim', '-', 'claim-gate', 1, True)
         self.recorder.record_owner('live counts', '-', 'roster', 'online', 'idle')
         claim = self.recorder.report()['byPurpose']['claim']['variants']['-']
-        self.assertEqual((claim['counts']['partialCompared'], claim['unavailableByReason']), (0, {'invalid-answer': 1}))
+        self.assertEqual((claim['counts']['partialCompared'], claim['unavailableByReason']), (0, {'claim-gate': {'invalid-answer': 1}}))
         counts = self.recorder.report()['byPurpose']['live counts']['variants']['-']['counts']
         self.assertEqual(counts['unavailable'], 1, "'idle' is aify-env's word, not a status word")
 

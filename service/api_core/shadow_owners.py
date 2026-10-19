@@ -50,7 +50,7 @@ class OwnerTally:
 
     def __init__(self):
         self._by_site = {}
-        self._reasons = Counter()
+        self._reasons = {}  # site -> Counter of unavailable reasons, so a reason stays with the site that gave it
         self._disagreements = Counter()  # (site, today, candidate) -> count; every part is bounded
 
     def record(self, site, today, candidate, reason):
@@ -65,7 +65,7 @@ class OwnerTally:
         names = ['observed', 'evaluated']
         if reason:
             names += ['unavailable', f'unavailable:{reason}']
-            self._reasons[reason] += 1
+            self._reasons.setdefault(site, Counter())[reason] += 1
         else:
             agreed = today == candidate
             names += ['partialCompared', 'partialAgreed' if agreed else 'partialDisagreed']
@@ -81,6 +81,7 @@ class OwnerTally:
     def report(self):
         return dict(instrumented=True,
                     counts={name: sum(row[name] for row in self._by_site.values()) for name in COUNT_NAMES},
-                    bySite=copy.deepcopy(self._by_site), unavailableByReason=dict(self._reasons),
+                    bySite=copy.deepcopy(self._by_site),
+                    unavailableByReason={site: dict(reasons) for site, reasons in self._reasons.items()},
                     disagreementsByKey=[dict(site=s, today=t, candidate=c, count=n) for (s, t, c), n in
                                         sorted(self._disagreements.items(), key=lambda kv: (-kv[1], kv[0]))])

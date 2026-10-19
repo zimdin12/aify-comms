@@ -23,13 +23,18 @@ function validCounts(value) {
     && value.partialCompared === value.partialAgreed + value.partialDisagreed;
 }
 
-// One non-word owner's variant: never measured (every field null), or counts that add up across its sites.
+// One non-word owner's variant: never measured (every field null), or counts that add up across its sites, with each
+// site's unavailable reasons adding up to that site's unavailable count.
 function validVariant(row) {
   if (!exactKeys(row, VARIANT_KEYS) || typeof row.instrumented !== "boolean") return false;
   if (!row.instrumented) return VARIANT_KEYS.slice(1).every(key => row[key] === null);
   if (!validCounts(row.counts) || !object(row.bySite) || !Object.values(row.bySite).every(validCounts)
-      || !object(row.unavailableByReason) || !Object.values(row.unavailableByReason).every(count)
-      || !Array.isArray(row.disagreementsByKey)) return false;
+      || !object(row.unavailableByReason) || !Array.isArray(row.disagreementsByKey)) return false;
+  for (const [site, reasons] of Object.entries(row.unavailableByReason)) {
+    if (!Object.hasOwn(row.bySite, site) || !object(reasons) || !Object.values(reasons).every(count)
+        || Object.values(reasons).reduce((sum, n) => sum + n, 0) !== row.bySite[site].unavailable) return false;
+  }
+  if (!Object.entries(row.bySite).every(([site, c]) => c.unavailable === 0 || Object.hasOwn(row.unavailableByReason, site))) return false;
   return COUNTS.every(key => Object.values(row.bySite).reduce((sum, site) => sum + site[key], 0) === row.counts[key]);
 }
 

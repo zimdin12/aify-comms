@@ -18,7 +18,7 @@ const counts = (disagreed = 0) => ({ observed: 5, nonEvaluation: 1, evaluated: 4
 const zero = () => Object.fromEntries(Object.keys(counts()).map(k => [k, 0]));
 const unmeasured = () => ({ instrumented: false, counts: null, bySite: null, unavailableByReason: null, disagreementsByKey: null });
 const variantsOf = name => name === "busy" ? ["strict", "P-1"] : ["-"];
-const measured = () => ({ instrumented: true, counts: counts(1), bySite: { "claim-gate": counts(1) }, unavailableByReason: { "no-age": 1 }, disagreementsByKey: [{ site: "claim-gate", today: "true", candidate: "false", count: 1 }] });
+const measured = () => ({ instrumented: true, counts: counts(1), bySite: { "claim-gate": counts(1) }, unavailableByReason: { "claim-gate": { "no-age": 1 } }, disagreementsByKey: [{ site: "claim-gate", today: "true", candidate: "false", count: 1 }] });
 function fixture(disagreed = 0) {
   const byPurpose = Object.fromEntries(purposes.map(name => [name, { instrumented: false, comparisonScope: "not-instrumented", variants: Object.fromEntries(variantsOf(name).map(v => [v, unmeasured()])) }]));
   byPurpose["status word"] = { instrumented: true, comparisonScope: "partial-freshness-base-word", counts: counts(disagreed), bySource: { refresh: counts(disagreed), "cache-broadcast": zero(), "engine-status": zero() }, neverObservedClasses: [], unavailableByReason: {} };
@@ -100,6 +100,11 @@ test("malformed schema, scope, counts and unknown owners refuse all evidence", a
     r => { r.byPurpose.busy.variants.strict = measured(); r.byPurpose.busy.instrumented = true; },
     r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), bySite: { "claim-gate": zero() } }; },
     r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...unmeasured(), counts: zero() }; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), unavailableByReason: { "no-age": 1 } }; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), unavailableByReason: { "claim-gate": { "no-age": 2 } } }; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), unavailableByReason: { "send-gate": { "no-age": 1 } } }; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), unavailableByReason: {} }; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), unavailableByReason: { "claim-gate": null } }; },
     r => r.byPurpose["status word"].comparisonScope = "full",
     r => r.byPurpose["status word"].counts.observed++,
     r => r.byPurpose["status word"].counts.evaluated++,
