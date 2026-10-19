@@ -716,7 +716,9 @@ class ReadinessCompositionTest(_Shadow, _Db):
         p = mock.patch.dict(vo.PROBES, {c: spy(c) for c in real})
         p.start(); self.addCleanup(p.stop)
 
-    def compose(self, agent, *, live_session, fail_child=False):
+    def compose(self, agent, *, live_session, kind='managed-wrapper-child', fail=False):
+        """(today's delivery tag, today's matching SELECTs, observer attempts, observer's added matching SELECTs) for the
+        component whose bridge kind is `kind`."""
         selects = []
 
         class Counting:
@@ -727,9 +729,9 @@ class ReadinessCompositionTest(_Shadow, _Db):
                 return getattr(self.db, name)
 
             def execute(self, sql, *args):
-                if 'managed-wrapper-child' in sql:
+                if kind in sql:
                     selects.append(1)
-                    if fail_child:
+                    if fail:
                         raise RuntimeError('bridge table unreadable')
                 return self.db.execute(sql, *args)
 
@@ -769,6 +771,41 @@ class ReadinessCompositionTest(_Shadow, _Db):
         self.codex('co-read', ('running', 'yes'), child=True)
         self.assertEqual(self.compose('co-read', live_session=False), (('wrapper-child', True), 1, 0, 0))
         self.codex('co-err', ('running', 'yes'), child=True)
-        self.assertEqual(self.compose('co-err', live_session=False, fail_child=True),
+        self.assertEqual(self.compose('co-err', live_session=False, fail=True),
                          (('wrapper-child', probes.PROBE_ERROR), 1, 0, 0))
         self.assertEqual(self.owner(vo.READINESS)['unavailableByReason'], {'legacy': {'delivery': 1}})
+
+
+    def flagged(self, agent, process, *, terminal=False, sidecar=False):
+        """A managed agent with the channel flag: its branch's component is the sidecar (the flag precedes codex)."""
+        self._register(agent, runtime='codex', sessionMode='managed', runtimeConfig={'channelEnabled': True})
+        self.publish(shadow.Record(agent, 'L', 'idle', (), None, None, process))
+        if terminal:
+            self._terminal(agent, 'codex-aify')
+        if sidecar:
+            self._bridge(agent, 'channel-sidecar')
+
+    def test_an_unread_sidecar_costs_one_attempt_and_one_select(self):
+        self.flagged('fl-unread', ('running', 'yes'), terminal=True, sidecar=True)
+        self.assertEqual(self.compose('fl-unread', live_session=True, kind='channel-sidecar'),
+                         (('sidecar', 'unread'), 0, 1, 1))
+        self.assertEqual(self.attempts, ['sidecar'])
+        self.assertEqual(self.owner(vo.READINESS)['counts']['partialAgreed'], 1, 'the sidecar the shadow read is live')
+
+    def test_a_decisive_process_false_reads_no_sidecar(self):
+        self.flagged('fl-exited', ('exited', 'no'), terminal=True, sidecar=True)
+        self.assertEqual(self.compose('fl-exited', live_session=True, kind='channel-sidecar'),
+                         (('sidecar', 'unread'), 0, 0, 0))
+        self.assertEqual(self.owner(vo.READINESS)['disagreementsByKey'],
+                         [dict(site='legacy', today='true', candidate='false', count=1)])
+
+    def test_a_sidecar_today_read_or_failed_is_never_read_again(self):
+        self.flagged('fl-read', ('running', 'yes'), sidecar=True)
+        self.assertEqual(self.compose('fl-read', live_session=False, kind='channel-sidecar'),
+                         (('sidecar', True), 1, 0, 0))
+        self.flagged('fl-err', ('running', 'yes'), sidecar=True)
+        self.assertEqual(self.compose('fl-err', live_session=False, kind='channel-sidecar', fail=True),
+                         (('sidecar', probes.PROBE_ERROR), 1, 0, 0))
+        readiness = self.owner(vo.READINESS)
+        self.assertEqual((readiness['counts']['partialAgreed'], readiness['unavailableByReason']),
+                         (1, {'legacy': {'delivery': 1}}))
