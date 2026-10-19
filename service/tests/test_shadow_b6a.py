@@ -172,6 +172,14 @@ class WindowBuildsTest(_Windows):
         self.wait(self.owner.start(e1.V, e1.at(0)))
         self.assertEqual(self.window(1)[0]['envBuilds'], '["A","B"]', 'and a window opening now is seeded with both')
 
+    def test_d1_an_evaluation_that_lost_its_binding_is_unknown_and_the_reminder_keeps_its_own(self):
+        self.assertIs(cv.binding_of(None), prov.LOST, 'a failed busy evaluation is unknown, never consulted-nothing')
+        self.apply(projection('A'))
+        self.recorder.take_provenance()
+        self.recorder.provenance._builds.clear()  # only what the reminder itself contributes
+        asyncio.run(bc.observe_reminder(None, 'a', 'r', False, blocked=False, occupied=False, agent_row=ROW))
+        self.assertEqual(self.recorder.take_provenance()[:2], ({'A'}, {'reminder skip (B21)'}))
+
     def test_d1_unavailable_shadow_error_and_loss_contribute_their_bindings(self):
         self.apply(projection('A'))
         self.recorder.take_provenance()
@@ -249,9 +257,10 @@ class FoldContextTest(_Held):
         self.assertEqual((gaps[('busy', 'strict')], gaps[(shadow.WORD, '-')]), (['fold-context'], []))
         self.assertEqual(gaps[('stranded-reply guard (B26)', '-')], ['fold-context'], 'stranded, with no binding')
         self.assertEqual(self.wait(windows.expire_windows('2026-11-03T10:00:00Z')), 2)
-        expired, gaps = self.window(2)
-        self.assertEqual((expired['expired'], expired['envBuilds'], gaps[('busy', 'strict')]),
-                         (True, '["B"]', ['fold-context']))
+        expired, expired_gaps = self.window(2)
+        self.assertEqual((expired['expired'], expired['envBuilds'], expired['foldUnverified']),
+                         (True, window['envBuilds'], window['foldUnverified']), 'the tombstone keeps both records')
+        self.assertEqual(expired_gaps, gaps, 'and answers the same refusals')
 
     def test_iii_a_window_without_its_fold_record_refuses_every_fold_owner(self):
         self.assertEqual(prov.fold_unverified(None), frozenset(prov.FOLD_OWNERS))
