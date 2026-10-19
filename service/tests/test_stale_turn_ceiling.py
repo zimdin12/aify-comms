@@ -21,9 +21,13 @@ from service.tests._base import FastApiTestCase
 from service.tests.delivery_witnesses import HOLD_LAW, INPUT_ADAPTER
 from service.tests.test_busy_consumers import CLOSED, FRESH, _Sites
 from service.tests.test_shadow_evidence_e2 import decide_busy
+from service.tests import test_delivery_turns as tdt
 
 NK = dt.NOT_KNOWN
 NOW = 1_800_000_000.0
+# The parent's turn-state reads for one held send and one held claim, measured with the ceiling's wiring removed
+# (2026-10-19): two at send time, one at claim. The ceiling adds none.
+SEND_TIME_TURN_STATE_READS, CLAIM_TURN_STATE_READS = 2, 1
 
 
 def iso(epoch):
@@ -118,6 +122,35 @@ class CandidateTest(unittest.TestCase):
         for reason, frames in cases.items():
             for f in frames:
                 self.assertEqual(stc.ceiling_candidate(f, NOW)[:2], (NK, reason), f)
+
+
+class FoldTrustTest(unittest.TestCase):
+    """The candidate trusts only an AUTHORITATIVE estimate: driven through the real fold and the real capture."""
+
+    KEY = ('m', 'i1')
+
+    def setUp(self):
+        self.fold, self.mirror = dt.DeliveryTurns(), shadow.Mirror()
+        for p in (mock.patch.object(dt, 'FOLD', self.fold), mock.patch.object(shadow, 'mirror', self.mirror),
+                  mock.patch.object(shadow, 'clock', return_value=tdt.iso(110))):
+            p.start(); self.addCleanup(p.stop)
+
+    def candidate_after(self, *clocks):
+        for i, clock in enumerate(clocks):
+            tdt.publish(self.fold, self.KEY, tdt.iso(100 + i), tdt.record('a', 'L', clock), ages={'a': 1000})
+        self.mirror.feed(shadow.Projection(self.KEY, 'snapshot', 1, tdt.iso(100 + len(clocks) - 1),
+                                           (tdt.record('a', 'L', clocks[-1]),), ()))
+        return stc.ceiling_candidate(cv.capture('m', 'a'), 110.0)[:2]
+
+    def test_a_seeded_turn_has_a_finite_minimum_and_no_trusted_expiry(self):
+        answer = self.candidate_after((True, 5, 5))
+        [estimate] = self.fold._estimates.values()
+        self.assertIsNotNone(estimate.minimum, 'CONTROL: the fold holds a finite minimum')
+        self.assertFalse(estimate.authoritative)
+        self.assertEqual(answer, (NK, 'strict-expiry'), 'a non-authoritative minimum was trusted as an expiry')
+
+    def test_a_turn_seen_to_begin_after_a_close_is_trusted(self):
+        self.assertEqual(self.candidate_after((False, 0, 1), (True, 5, 5)), (True, None))
 
 
 class ParityTest(FastApiTestCase):
@@ -258,6 +291,21 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(self.owner()['unavailableByReason'], {'claim': {'shadow-error': 1}})
 
 
+def turn_state_reads(act):
+    """How many statements naming agent_turn_state the service runs while `act()` runs: the ceiling's read budget."""
+    import aiosqlite
+    seen = []
+    real = aiosqlite.Connection.execute
+
+    def execute(conn, sql, *args, **kwargs):
+        if 'agent_turn_state' in str(sql):
+            seen.append(sql)
+        return real(conn, sql, *args, **kwargs)
+    with mock.patch.object(aiosqlite.Connection, 'execute', execute):
+        act()
+    return len(seen)
+
+
 class SendTimeSiteTest(_Sites, p7.SendTimeQueueWitness):
     test_each_specimen_holds_or_releases_the_queue_as_its_law_says = None
     test_an_active_run_or_an_earlier_queued_run_also_holds_the_queue = None
@@ -266,6 +314,11 @@ class SendTimeSiteTest(_Sites, p7.SendTimeQueueWitness):
         self._assert_waits('s-held', self._queue_send('s-held', FRESH))
         self._assert_woken('s-open', self._queue_send('s-open', CLOSED))
         self.assertEqual(self.owner(stc.CEILING)['bySite']['send-time']['observed'], 1)
+
+    def test_the_ceiling_reads_nothing_more_at_send_time(self):
+        reads = turn_state_reads(lambda: self._assert_waits('s-budget', self._queue_send('s-budget', FRESH)))
+        self.assertEqual(self.owner(stc.CEILING)['bySite']['send-time']['observed'], 1, 'CONTROL: it was evaluated')
+        self.assertEqual(reads, SEND_TIME_TURN_STATE_READS, 'the ceiling added a turn-state read')
 
     def test_a_failing_observer_changes_nothing(self):
         with mock.patch.object(stc, 'ceiling_candidate', side_effect=RuntimeError('broken')):
@@ -280,6 +333,11 @@ class ClaimSiteTest(_Sites, p7.ClaimHoldWitness):
         self._assert_held('c-held', self._claim('c-held', FRESH))
         self._assert_claimed('c-open', self._claim('c-open', CLOSED))
         self.assertEqual(self.owner(stc.CEILING)['bySite']['claim']['observed'], 1)
+
+    def test_the_ceiling_reads_nothing_more_at_claim(self):
+        reads = turn_state_reads(lambda: self._assert_held('c-budget', self._claim('c-budget', FRESH)))
+        self.assertEqual(self.owner(stc.CEILING)['bySite']['claim']['observed'], 1, 'CONTROL: it was evaluated')
+        self.assertEqual(reads, CLAIM_TURN_STATE_READS, 'the ceiling added a turn-state read')
 
     def test_a_failing_observer_changes_nothing(self):
         with mock.patch.object(stc, 'ceiling_candidate', side_effect=RuntimeError('broken')):

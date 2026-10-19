@@ -12,12 +12,15 @@ Today requires a non-negative age and is inclusive (`0 <= age <= 1800`); the can
 Equal anchors one second ahead of the receipt are false today (a future anchor) and true for the candidate. These
 law and time-cut classes stay explicit in the evidence; which law is right is the operator's call.
 
-AN EVALUATION IS WHERE TODAY APPLIES A CEILING: the receipt read a row, and the row is busy. A row that is not busy,
-absent or unreadable records nothing, because today made no ceiling decision there.
+THE POPULATION (design rev2). A readable receipt of a decision that applied no ceiling (a row that is not busy, no
+row, a read error) records nothing. A busy row with a finite numeric clock is evaluated. Anything whose eligibility
+cannot be read (no receipt, an unreadable discriminator or busy field, a busy row without a usable clock) is evaluated
+too, as unavailable 'eligibility-unknown' with no today answer. So `evaluated` counts eligible plus unknown-eligibility
+attempts, not proven ceiling applications; only `partialCompared` is a comparison.
 
 The candidate reads only the frame busy already captured: no await, no query. It is unknown, never false, when the
-receipt is missing, the record cannot be read, more than one record holds the agent, no open record turn pairs with
-today's busy row, or the fold has no authoritative expiry for that turn. It reads the fold, so the owner stays
+record cannot be read, more than one record holds the agent, no open record turn pairs with today's busy row, or the
+fold has no authoritative expiry for that turn. It reads the fold, so the owner stays
 fold-unverified until fold provenance lands; this slice measures and does not qualify.
 """
 import math
