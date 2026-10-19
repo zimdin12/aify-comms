@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import hashlib
 import asyncio
 
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import delivery_turns, partial_status_shadow as shadow
 
 _INGEST_LOCK = asyncio.Lock()
 import json
@@ -209,6 +209,9 @@ class AgentStateShadowStore:
                     shadow.mirror.feed(projection)
             except Exception:
                 shadow.invalidate_safe(key)
+                projection = None
+            # The delivery-turn fold reads the same committed publication, or loses what it knew (S2c slice 2).
+            delivery_turns.publish_applied(projection, shadow.mirror.view())
             return ApplyResult(True)
         finally:
             await db.close()
