@@ -21,6 +21,7 @@ MACHINE = 'linux:test-host'
 ROW = {'id': 'a', 'machine_id': MACHINE, 'status': 'online'}
 V, V2 = windows.Versions(comms='aaaa1111'), windows.Versions(comms='bbbb2222')
 LIVE, PROMOTION, READINESS = vo.LIVE_COUNTS, vo.PROMOTION, vo.READINESS
+REMINDER = 'reminder skip (B21)'  # counts-only by the operator's C8 ruling: it keeps no items
 
 
 def at(seconds):
@@ -226,10 +227,10 @@ class CaptureFailureTest(_Evidence):
         items, gaps = self.recorder.evidence.take()
         self.assertEqual((len(items), gaps), (1, {(LIVE, '-', 'gate', 'pending-overflow'): 1}))
 
-    def test_an_owner_outside_e1_keeps_nothing_and_its_count_stands(self):
-        self.recorder.record_owner(READINESS, '-', 'claim', False, True, evidence=lambda: 1 / 0)
+    def test_a_counts_only_owner_keeps_nothing_and_its_count_stands(self):
+        self.recorder.record_owner(REMINDER, '-', 'reminder', False, True, evidence=lambda: 1 / 0)
         self.assertEqual(self.recorder.evidence.take(), ((), {}))
-        self.assertEqual(self.disagreed(READINESS, 'claim'), 1)
+        self.assertEqual(self.disagreed(REMINDER, 'reminder'), 1)
 
 
 class WindowHistoryTest(_Evidence):
@@ -403,7 +404,7 @@ class RotationTest(_Evidence):
 
 class ReadTest(_Evidence):
     def history(self, versions=V):
-        """W1: 2 complete word items, 1 incomplete, a readiness disagreement; closed by a version change."""
+        """W1: 2 complete word items, 1 incomplete, a reminder disagreement; closed by a version change."""
         owner = windows.ShadowWindows(self.recorder)
         self.wait(owner.start(versions, at(0)))
         self.feed(at(0))
@@ -411,7 +412,7 @@ class ReadTest(_Evidence):
         self.disagree(at(2))
         self.feed(at(3), pad=shadow.RAW_LIMIT)
         self.disagree(at(4), source='engine-status')
-        self.recorder.record_owner(READINESS, '-', 'claim', False, True)
+        self.recorder.record_owner(REMINDER, '-', 'reminder', False, True)
         with mock.patch.object(ev, 'ITEM_BYTES', 10):
             self.disagree(at(5), source='cache-broadcast')  # a gap, not an item
         self.wait(owner.tick(versions, at(10)))
@@ -431,12 +432,12 @@ class ReadTest(_Evidence):
         self.assertEqual(self.site(page, shadow.WORD, 'cache-broadcast'), dict(
             disagreed=1, completeRows=0, incompleteRows=0, missing={'item-too-large': 1}, partitionHolds=True,
             complete=False))
-        readiness = next(r for r in page['coverage'] if r['owner'] == READINESS)
-        self.assertEqual((readiness['instrumentation'], readiness['sites']['claim']['complete']),
-                         ('not-instrumented', False))
+        reminder = next(r for r in page['coverage'] if r['owner'] == REMINDER)
+        self.assertEqual((reminder['instrumentation'], reminder['sites']['reminder']['complete']),
+                         ('counts-only', False))
         busy = [r for r in page['coverage'] if r['owner'] == 'busy']
-        self.assertEqual([(r['instrumentation'], r['sites']) for r in busy], [('not-instrumented', {})] * 2,
-                         'an E2 owner with no disagreements is not-instrumented, never an empty complete')
+        self.assertEqual([(r['instrumentation'], r['sites']) for r in busy], [('evidence', {})] * 2,
+                         'an evidence owner with no disagreements has no site, never an empty complete')
 
     def test_an_open_or_flush_lost_window_is_never_complete(self):
         owner = self.history()

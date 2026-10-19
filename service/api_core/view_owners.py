@@ -26,6 +26,7 @@ from service.api_core.shadow_owners import NO_VARIANT
 from service.status_engine import is_live_agent_status
 
 LIVE_COUNTS, PROMOTION, READINESS = 'live counts', 'running-run promotion', 'worker readiness'
+NOT_REACHED = 'not-reached'  # a liveness input today's branch never read
 PROMOTABLE = ('idle', 'shell', 'starting', 'available')  # C6 row 5's states
 PRECEDING_ROW_5 = ('stale', 'missing-row', 'ambiguous-association')  # rows 2-4: each decides the word first
 PROBES = {'sidecar': channel_sidecar_state, 'wrapper-child': wrapper_child_state}
@@ -166,10 +167,24 @@ def observe_promotion(agent_row, base, effective, dispatch_state, site):
     cv.record_answer(PROMOTION, NO_VARIANT, site, today, answer, evidence)
 
 
+def liveness_receipt(session_mode, live_session, worker_row, runtime, channel_enabled, branch, sidecar, console, child):
+    """PURE and contained: what today's worker-liveness probe read, each input as read or NOT_REACHED. None when it
+    cannot be built, so the probe's own answer never depends on it."""
+    try:
+        if worker_row not in (None, NOT_REACHED):
+            worker_row = dict(status=worker_row['status'], command=worker_row['command'])
+        return dict(sessionMode=session_mode, liveSession=live_session, terminalRow=worker_row, runtime=runtime,
+                    channelEnabled=channel_enabled, branch=branch, sidecar=sidecar, console=console, wrapperChild=child)
+    except Exception:
+        return None
+
+
 async def observe_readiness(db, agent_row, liveness, site):
     """`liveness` is the site's own `_WorkerLiveness` for this agent, from this evaluation."""
+    binding = association = process = component = state = None
+    probe = 'not-probed'
     try:
-        _, _, record, reason = _agent_record(agent_row)  # frozen before the one await below; nothing is read after it
+        binding, association, record, reason = _agent_record(agent_row)  # frozen before the one await below
         process = (NOT_KNOWN, reason) if reason == 'association' else process_answer(record, reason)
         component, state = liveness.delivery
         if state == 'unread' and process[0] is not False:
@@ -177,7 +192,13 @@ async def observe_readiness(db, agent_row, liveness, site):
                 state = await PROBES[component](db, agent_row['id'])
             except Exception:
                 state = PROBE_ERROR
+            probe = 'error' if state == PROBE_ERROR else state
         answer = readiness_candidate(process, delivery_answer(component, state))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(READINESS, NO_VARIANT, site, bool(liveness.has_live_worker), answer)
+    today = bool(liveness.has_live_worker)
+    cv.record_answer(READINESS, NO_VARIANT, site, today, answer, lambda: item(
+        READINESS, NO_VARIANT, site, agent_row['id'], binding, association, today, answer[0],
+        dict(hasLiveWorker=today, delivery=liveness.delivery, receipt=liveness.receipt),
+        dict(process=process, component=component, state=state, shadowProbe=probe, reason=answer[1]),
+        [] if liveness.receipt is not None else ['comms-receipt']))

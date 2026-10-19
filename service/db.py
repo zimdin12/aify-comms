@@ -233,11 +233,20 @@ STATUS_SHADOW_WINDOW_MIGRATIONS = {
 }
 
 
+#: S2c-E E2: the evidence owners a window opened with. The windows E1 instrumented had exactly these three, so they
+#: get them literally, ONCE, in the step that adds the column; a NULL found later stays unknown, never repaired.
+E1_EVIDENCE_OWNERS = '["live counts","running-run promotion","status word"]'
+
+
 async def _migrate_status_shadow_windows(db: aiosqlite.Connection):
     existing = {row[1] for row in await (await db.execute("PRAGMA table_info(status_shadow_windows)")).fetchall()}
     for column, statement in STATUS_SHADOW_WINDOW_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
+    if "evidence_owners" not in existing:
+        await db.execute("ALTER TABLE status_shadow_windows ADD COLUMN evidence_owners TEXT")
+        await db.execute("UPDATE status_shadow_windows SET evidence_owners = ? WHERE boot_id IS NOT NULL",
+                         (E1_EVIDENCE_OWNERS,))
 
 
 async def _migrate_agents_table(db: aiosqlite.Connection):

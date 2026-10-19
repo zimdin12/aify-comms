@@ -296,7 +296,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_the_claim_reuses_todays_steerability_and_asks_at_most_once(self):
         decided = object()
-        busy = lambda hold: {'P-1': hold, 'strict': hold}  # noqa: E731
+        busy = lambda hold: cv.BusyObservation({'P-1': hold, 'strict': hold})  # noqa: E731
         self.assertEqual(self.claim(True, decided, busy(HOLD_TRUE)), 0, 'today\'s True is reused')
         self.assertEqual(self.claim(False, decided, busy(HOLD_TRUE)), 0, 'today\'s False is reused')
         self.assertEqual(self.claim(NK, decided, busy(HOLD_TRUE)), 0, 'today\'s failed read is unknown, not retried')

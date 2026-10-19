@@ -11,13 +11,16 @@ range, versions and totals, so an expired window answers 'expired' rather than l
 
 A READ is one page of one window, bound to the frontier its first page saw, with each owner's COVERAGE: disagreed =
 complete items + incomplete items + gaps, and complete only for an evidence owner whose partition holds with
-nothing incomplete or missing, in a window that closed cleanly. An open window's read is provisional, and so is a
+nothing incomplete or missing, in a window that closed cleanly. Which owners are evidence owners is the window's own
+set, frozen when it opened (E2): an owner outside it is counts-only, and missing or malformed metadata is 'unknown'.
+None of the three is ever complete. An open window's read is provisional, and so is a
 read bound below the window's own frontier: the totals then count items the read does not enumerate.
 """
 from datetime import datetime, timedelta
 import json
 
-from service.api_core.shadow_evidence import BOOT_ID, EVIDENCE_OWNERS
+from service.api_core.shadow_evidence import BOOT_ID
+from service.db import E1_EVIDENCE_OWNERS
 from service.api_core.shadow_owners import OWNERS, variants_of
 
 ROTATE_ROWS = 48_000
@@ -81,12 +84,36 @@ async def _totals(db, window):
     return totals
 
 
-def coverage(totals, instrumented, clean):
+NOT_INSTRUMENTED, UNKNOWN = 'not-instrumented', 'unknown'
+
+
+def window_owners(instrumented, stored):
+    """PURE. The evidence owners a window opened with: a frozenset, NOT_INSTRUMENTED when it recorded no evidence, or
+    UNKNOWN when its stored set is missing or malformed. Never the running process's set."""
+    if not instrumented:
+        return NOT_INSTRUMENTED
+    try:
+        owners = json.loads(stored)
+    except (TypeError, ValueError):
+        return UNKNOWN
+    if not isinstance(owners, list) or not all(isinstance(o, str) and o in OWNERS for o in owners):
+        return UNKNOWN
+    return frozenset(owners)
+
+
+def instrumentation(owners, owner):
+    if owners in (NOT_INSTRUMENTED, UNKNOWN):
+        return owners
+    return 'evidence' if owner in owners else 'counts-only'
+
+
+def coverage(totals, owners, clean):
     """PURE. Every owner and variant, each with its sites' partition and whether that site's evidence is complete.
-    `instrumented` is whether the window recorded evidence at all; `clean` whether it closed keeping every batch."""
+    `owners` is window_owners(...) for the window; `clean` whether it closed keeping every batch."""
     rows = []
     for owner in OWNERS:
-        evidence = instrumented and owner in EVIDENCE_OWNERS
+        level = instrumentation(owners, owner)
+        evidence = level == 'evidence'
         for variant in variants_of(owner):
             sites = {}
             for (o, v, site), t in sorted(totals.items()):
@@ -95,14 +122,13 @@ def coverage(totals, instrumented, clean):
                 holds = t['disagreed'] == t['completeRows'] + t['incompleteRows'] + sum(t['missing'].values())
                 sites[site] = dict(t, partitionHolds=holds, complete=evidence and clean and holds and
                                    t['incompleteRows'] == 0 and not t['missing'])
-            rows.append(dict(owner=owner, variant=variant,
-                             instrumentation='evidence' if evidence else 'not-instrumented', sites=sites))
+            rows.append(dict(owner=owner, variant=variant, instrumentation=level, sites=sites))
     return rows
 
 
 def _window(row):
     keys = ('id', 'commsBuild', 'envBuild', 'wrapperBuild', 'openedAt', 'flushedAt', 'closedAt', 'closeReason',
-            'flushedSeq', 'evidenceRows', 'evidenceBytes', 'bootId')
+            'flushedSeq', 'evidenceRows', 'evidenceBytes', 'bootId', 'evidenceOwners')
     return dict(zip(keys, row))
 
 
@@ -114,7 +140,7 @@ async def read_page(db, window_id, after=0, limit=PAGE_LIMIT, frontier=None, own
     try:
         row = await (await db.execute(
             'SELECT id, comms_build, env_build, wrapper_build, opened_at, flushed_at, closed_at, close_reason, '
-            'flushed_seq, evidence_rows, evidence_bytes, boot_id FROM status_shadow_windows WHERE id = ?',
+            'flushed_seq, evidence_rows, evidence_bytes, boot_id, evidence_owners FROM status_shadow_windows WHERE id = ?',
             (window_id,))).fetchone()
         if row is None:
             return await _expired(db, window_id)
@@ -139,7 +165,7 @@ async def read_page(db, window_id, after=0, limit=PAGE_LIMIT, frontier=None, own
                 frontier=bound, windowFrontier=window['flushedSeq'], staleFrontier=stale,
                 items=[json.loads(payload) for _, payload in page],
                 nextAfter=page[-1][0] if page else after, hasMore=len(items) > limit,
-                coverage=coverage(totals, window['bootId'] is not None,
+                coverage=coverage(totals, window_owners(window['bootId'] is not None, window['evidenceOwners']),
                                   window['closeReason'] in CLEAN_CLOSES and not stale))
 
 
@@ -150,15 +176,17 @@ async def _expired(db, window_id):
     if row is None:
         return None
     summary = json.loads(row[6])
+    # Every tombstone written before E2 is an E1 window: one without the key that was instrumented had E1's owners.
+    stored = summary.get('evidenceOwners', E1_EVIDENCE_OWNERS if summary['instrumented'] else None)
     return dict(window=dict(id=row[0], commsBuild=row[1], envBuild=summary['envBuild'], wrapperBuild=row[2],
                             openedAt=row[3], flushedAt=summary['flushedAt'], closedAt=row[4], closeReason=row[5],
                             flushedSeq=summary['flushedSeq'], evidenceRows=summary['evidenceRows'],
-                            evidenceBytes=summary['evidenceBytes'], bootId=summary['bootId'], deletedAt=row[7],
-                            expired=True, provisional=False),
+                            evidenceBytes=summary['evidenceBytes'], bootId=summary['bootId'],
+                            evidenceOwners=stored, deletedAt=row[7], expired=True, provisional=False),
                 frontier=summary['flushedSeq'], windowFrontier=summary['flushedSeq'], staleFrontier=False, items=[],
                 nextAfter=0, hasMore=False,
-                coverage=coverage({tuple(t['key']): t['totals'] for t in summary['totals']}, summary['instrumented'],
-                                  False))
+                coverage=coverage({tuple(t['key']): t['totals'] for t in summary['totals']},
+                                  window_owners(summary['instrumented'], stored), False))
 
 
 async def expire(db, at):
@@ -169,8 +197,8 @@ async def expire(db, at):
     async def old_windows():
         rows = await (await db.execute(
             'SELECT id, comms_build, wrapper_build, opened_at, closed_at, close_reason, flushed_seq, evidence_rows, '
-            'evidence_bytes, boot_id, env_build, flushed_at FROM status_shadow_windows WHERE closed_at IS NOT NULL'
-        )).fetchall()
+            'evidence_bytes, boot_id, env_build, flushed_at, evidence_owners FROM status_shadow_windows '
+            'WHERE closed_at IS NOT NULL')).fetchall()
         return [r for r in rows if _parse(r[4]) < cutoff]
     if not await old_windows():
         return 0  # the usual tick: no write lock taken
@@ -181,7 +209,7 @@ async def expire(db, at):
             totals = await _totals(db, r[0])
             # Every field a live read shows, as the window held it: an unknown env build stays an explicit null.
             summary = dict(flushedSeq=r[6], evidenceRows=r[7], evidenceBytes=r[8], bootId=r[9], envBuild=r[10],
-                           flushedAt=r[11], instrumented=r[9] is not None,
+                           flushedAt=r[11], evidenceOwners=r[12], instrumented=r[9] is not None,
                            totals=[dict(key=list(k), totals=t) for k, t in sorted(totals.items())])
             await db.execute(
                 'INSERT INTO status_shadow_window_tombstones (window_id, comms_build, wrapper_build, opened_at, '

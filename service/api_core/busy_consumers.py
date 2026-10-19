@@ -14,6 +14,9 @@ A consumer that needs the fold associates the agent by its REGISTERED machine (`
 heartbeat feeds the fold under: reused from a row the caller read for the same agent in the same evaluation, else one
 contained lookup. A missing row, an empty machine or a failed read is unknown, never an inferred machine. Everything
 the candidate reads after that is captured at once, synchronously, so no later await can change it.
+
+A queue or claim disagreement keeps an item carrying busy's whole basis beside its own inputs (S2c-E E2); reminder and
+stranded are counts-only by the operator's C8 ruling, so they keep none.
 """
 from service.api_core import comms_view as cv, delivery_turns as dt
 from service.api_core.delivery_turns import NOT_KNOWN
@@ -44,7 +47,17 @@ def p1_hold(decision, busy):
     """The busy observer's P-1 answer, or why there is none: today's busy read failed, or C6's could not be computed."""
     if decision is None:
         return NOT_KNOWN, 'busy-unread'
-    return busy[LAW] if busy else (NOT_KNOWN, 'shadow-error')
+    answers = busy.answers if busy else None
+    return answers[LAW] if answers else (NOT_KNOWN, 'shadow-error')
+
+
+def _basis(busy):
+    return busy.basis if busy else None
+
+
+def _steerability(value, unasked):
+    """One steerability observation as kept: `unasked` when nobody asked, 'error' when the read raised, else its bool."""
+    return unasked if value is None else 'error' if value is NOT_KNOWN else bool(value)
 
 
 def queue_candidate(occupied, hold):
@@ -114,28 +127,39 @@ async def _machine(db, agent_id, agent_row=UNREAD):
     return _registered(row)
 
 
-def observe_queue(occupied, today, decision, busy):
+def observe_queue(occupied, today, decision, busy, occupancy=None):
+    """`occupancy` is (hasActiveRun, queuedRuns) as the site read them for `occupied`."""
     try:
-        answer = queue_candidate(occupied, p1_hold(decision, busy))
+        hold = p1_hold(decision, busy)
+        answer = queue_candidate(occupied, hold)
     except Exception:
-        answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(QUEUE, NO_VARIANT, 'send-time', bool(today), answer)
+        hold, answer = None, (NOT_KNOWN, 'shadow-error')
+    active, queued = occupancy or (None, None)
+    cv.record_answer(QUEUE, NO_VARIANT, 'send-time', bool(today), answer, lambda: cv.basis_item(
+        QUEUE, NO_VARIANT, 'send-time', _basis(busy), bool(today), answer[0],
+        dict(occupied=occupied, hasActiveRun=active, queuedRuns=queued),
+        dict(occupied=occupied, hold=hold, reason=answer[1])))
 
 
 async def observe_claim(db, agent_row, withheld, steerable, decision, busy, read_steerable):
     """`steerable` is today's helper answer when today asked (NOT_KNOWN when it raised), else None; `read_steerable` is
     the same helper call, made at most once and only when its answer can change the candidate."""
+    today_steerable, shadow_steerable, hold = steerable, None, None
     try:
         hold = p1_hold(decision, busy)
         if hold[0] is not False and steerable is None:
             try:
-                steerable = bool(await read_steerable())
+                shadow_steerable = bool(await read_steerable())
             except Exception:
-                steerable = NOT_KNOWN
+                shadow_steerable = NOT_KNOWN
+            steerable = shadow_steerable
         answer = claim_candidate(hold, False if steerable is None else steerable)
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(CLAIM, NO_VARIANT, 'claim', bool(withheld), answer)
+    cv.record_answer(CLAIM, NO_VARIANT, 'claim', bool(withheld), answer, lambda: cv.basis_item(
+        CLAIM, NO_VARIANT, 'claim', _basis(busy), bool(withheld), answer[0],
+        dict(withheld=bool(withheld), todaySteerable=_steerability(today_steerable, 'not-asked')),
+        dict(hold=hold, shadowSteerable=_steerability(shadow_steerable, 'not-read'), reason=answer[1])))
 
 
 async def observe_reminder(db, agent_id, run_id, today, *, blocked, occupied, agent_row=UNREAD):

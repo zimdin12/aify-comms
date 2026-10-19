@@ -6,22 +6,28 @@ the observer already holds: no SQL, no clock read, no retry and no second bind. 
 owner becomes an item or a GAP (a counted reason it could not be kept), so per window, owner, variant and site,
     partialDisagreed = complete items + incomplete items + gaps.
 An item is incomplete when a required input was not kept (a record over its raw limit, a lost view); it is retained
-and labelled, never counted as complete. Owners outside EVIDENCE_OWNERS are 'not-instrumented' (E2), never complete.
+and labelled, never counted as complete. Owners outside EVIDENCE_OWNERS are counts-only, never complete (E2).
+
+Builders return live objects; encode() converts them with plain() inside the buffer's encoding boundary, so an unknown
+fact keeps its meaning ('unknown') and anything plain() cannot name is an encode-error gap, never a guessed string.
 
 Bounded in memory (PENDING_ITEMS, PENDING_BYTES, ITEM_BYTES); on disk by shadow_evidence_store's rotation.
 Diagnostic only: building an item never changes today's answer or the comparison's counts.
 """
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, fields, is_dataclass
 import json
 import pathlib
 import uuid
 
+from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.shadow_owners import OWNERS, WORD
 from service.config import get_config
 
-#: E1's owners. Readiness and the turn-row owners need acquisition receipts first (E2).
-EVIDENCE_OWNERS = frozenset((WORD, 'live counts', 'running-run promotion'))
+#: The owners whose disagreements keep items: E1's three, and E2's four, which hold or hand over real messages. Reminder
+#: and stranded stay counts-only (the operator's C8 ruling, 2026-10-19), and so does any owner not named here.
+EVIDENCE_OWNERS = frozenset((WORD, 'live counts', 'running-run promotion',
+                             'busy', 'send-time queue', 'claim', 'worker readiness'))
 if not EVIDENCE_OWNERS <= set(OWNERS):
     raise ValueError('an evidence owner is not a C8 owner')
 GAP_REASONS = ('pending-overflow', 'item-too-large', 'builder-error', 'encode-error')
@@ -32,9 +38,31 @@ ENV_NOT_PUBLISHED = 'not-published'  # aify-env publishes no build until B6
 BOOT_ID = uuid.uuid4().hex  # one per process: (BOOT_ID, seq) names an item, and a window never spans two processes
 
 
+def plain(value):
+    """PURE. The value as JSON-ready data, read from the live object: NOT_KNOWN is 'unknown' (a copy would lose its
+    identity), a dataclass its fields. Anything else unnamed raises TypeError; there is no str() fallback."""
+    if value is NOT_KNOWN:
+        return 'unknown'
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: plain(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, (tuple, list)):
+        return [plain(v) for v in value]
+    if isinstance(value, dict) and all(isinstance(k, str) for k in value):
+        return {k: plain(v) for k, v in value.items()}
+    raise TypeError(f'no evidence form for {type(value).__name__}')
+
+
+def owners_json(owners):
+    """A window's evidence owners as stored: canonical sorted JSON."""
+    return json.dumps(sorted(owners), separators=(',', ':'), ensure_ascii=False)
+
+
 def encode(body):
     """Canonical JSON bytes: the payload stored, measured and served."""
-    return json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')
+    return json.dumps(plain(body), sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+                      allow_nan=False).encode('utf-8')
 
 
 def _wrapper_pin():
@@ -89,18 +117,21 @@ def census(binding, association):
     return dict(consulted=True, at=binding.at, lost=False, publishers=publishers, records=records), missing
 
 
-def item(owner, variant, site, agent_id, binding, association, today, candidate, comms):
-    """One evaluation's evidence: both answers, what comms consumed, and the env census."""
-    env, missing = census(binding, association)
+def item(owner, variant, site, agent_id, binding, association, today, candidate, comms, candidate_inputs=None,
+         missing=()):
+    """One evaluation's evidence: both answers, what comms consumed, what the candidate consumed besides the env
+    records, and the env census. `missing` names inputs the caller could not keep (E2: 'comms-receipt')."""
+    env, absent = census(binding, association)
     return dict(owner=owner, variant=variant, site=site, agentId=agent_id,
-                evalAt=None if binding is None else binding.at, today=today, candidate=candidate, comms=comms, env=env,
-                versions=VERSIONS, incomplete=sorted(set(missing)))
+                evalAt=None if binding is None else binding.at, today=today, candidate=candidate, comms=comms,
+                candidateInputs=candidate_inputs, env=env, versions=VERSIONS,
+                incomplete=sorted(set(absent) | set(missing)))
 
 
 def word_item(binding, association, inputs, actual, candidate, source):
     """The word: comms' full StatusInputs (config_defect's real text, not the projection's bool) and its word."""
     return item(WORD, '-', source, association[1], binding, association, actual, candidate,
-                dict(word=actual, inputs=asdict(inputs)))
+                dict(word=actual, inputs=inputs))
 
 
 @dataclass(frozen=True)

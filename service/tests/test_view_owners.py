@@ -331,7 +331,8 @@ class _Db(FastApiTestCase):
                    "strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
                    (f'term-{agent_id}', f'sess-{agent_id}', agent_id, command))
 
-    def _liveness(self, agent_id, mode='managed', live_session=False, wrap=None):
+    def _liveness(self, agent_id, mode='managed', live_session=False, wrap=None, receipt=False):
+        """Today's answer and the delivery tag; the receipt only when asked for (test_shadow_evidence_e2's)."""
         async def run():
             db = await get_db()
             try:
@@ -339,7 +340,8 @@ class _Db(FastApiTestCase):
                                                      agent_session_mode=mode, live_session=live_session)
             finally:
                 await db.close()
-        return asyncio.run(run())
+        result = asyncio.run(run())
+        return result if receipt else result._replace(receipt=None)
 
 
 class DeliveryTagTest(_Db):

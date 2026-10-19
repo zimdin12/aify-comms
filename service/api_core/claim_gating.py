@@ -341,10 +341,28 @@ async def turn_lease_renewal(db, agent_id: str, bridge_id: str) -> str:
 @dataclass(frozen=True)
 class BusyDecision:
     """Today's delivery-hold answer, and the ownership question it asked on the way: the owner it queried (stripped)
-    and what it learned, 'verified', 'negative' or 'error'. Both None when it never reached the question."""
+    and what it learned, 'verified', 'negative' or 'error'. Both None when it never reached the question.
+    `receipt` is what it read, for the status shadow's evidence (S2c-E E2); None when it could not be built."""
     holds: bool
     owner: Optional[str] = None
     renewal: Optional[str] = None
+    receipt: Optional[dict] = None
+
+
+TURN_COLUMNS = ("turn_busy", "turn_started_at", "turn_updated_at", "turn_bridge_id")
+
+
+def _turn_receipt(read, row=None, **facts):
+    """The values the decision read: 'no-row', 'read-error', or the row's columns as read, plus any clock and renewal
+    it reached. Contained: a receipt that cannot be built is None, and the decision stands unchanged."""
+    try:
+        receipt = dict(read=read, **facts)
+        if row is not None:
+            keys = row.keys()
+            receipt.update({name: row[name] if name in keys else None for name in TURN_COLUMNS})
+        return receipt
+    except Exception:
+        return None
 
 
 async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
@@ -429,9 +447,11 @@ async def turn_busy_decision(db, agent_id: str) -> BusyDecision:
         )).fetchone()
     except Exception:
         # Unreadable turn state must never block delivery — better to deliver.
-        return BusyDecision(False)
-    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
-        return BusyDecision(False)
+        return BusyDecision(False, receipt=_turn_receipt("read-error"))
+    if not row:
+        return BusyDecision(False, receipt=_turn_receipt("no-row"))
+    if not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
+        return BusyDecision(False, receipt=_turn_receipt("row", row))
     # Prefer the START anchor; fall back to the last-touch column for rows written before the anchor
     # existed. The fallback is deliberately NOT "release when unanchored": that would deliver
     # mid-turn to every legacy agent at once. Boot backfills the anchor, so the fallback is a
@@ -450,14 +470,16 @@ async def turn_busy_decision(db, agent_id: str) -> BusyDecision:
         _renewal = await turn_lease_renewal(db, agent_id, _owner)
     except Exception:
         _renewal = "error"  # read as today always has: not renewable
+    _now = datetime.now(timezone.utc).timestamp()  # the one clock read, after the renewal, as always
     holds = turn_is_still_live(
         started_epoch=_started,
         touched_epoch=_touched,
         renewable=_renewal == "verified",
-        now_epoch=datetime.now(timezone.utc).timestamp(),
+        now_epoch=_now,
         strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
     )
-    return BusyDecision(holds, _owner.strip(), _renewal)
+    return BusyDecision(holds, _owner.strip(), _renewal,
+                        _turn_receipt("row", row, nowEpoch=_now, owner=_owner.strip(), renewal=_renewal))
 # v0.5.4: `_mark_dispatch_source_messages_read` arrived from the control plane. It is the one WRITE in
 # this module, and it is here because `_dispatch_source_message_ids` — which decides what to mark — is
 # already here: separating the question from the single act that consumes its answer would put a

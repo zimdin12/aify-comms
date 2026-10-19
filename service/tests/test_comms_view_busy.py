@@ -5,6 +5,7 @@ fold; the real observer (its one ownership read, reuse, the frozen frame, contai
 today's answer and the queue/claim outcome must not move whatever the observer does.
 """
 import asyncio
+from dataclasses import replace
 import unittest
 from unittest import mock
 
@@ -130,8 +131,9 @@ class TodaysDecisionTest(unittest.TestCase):
         return asyncio.run(run())
 
     def test_the_owner_and_outcome_it_asked_are_kept(self):
-        self.assertEqual(self.decide(bridges=True), BusyDecision(True, 'bridge-1', 'verified'))
-        self.assertEqual(self.decide(bridges=False), BusyDecision(False, 'bridge-1', 'error'),
+        # Today's three fields, exactly; the receipt beside them is test_shadow_evidence_e2's.
+        self.assertEqual(replace(self.decide(bridges=True), receipt=None), BusyDecision(True, 'bridge-1', 'verified'))
+        self.assertEqual(replace(self.decide(bridges=False), receipt=None), BusyDecision(False, 'bridge-1', 'error'),
                          "an unreadable bridge table is today's strict anchor, and tagged as the error it was")
 
 

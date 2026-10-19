@@ -90,7 +90,8 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
             busy = await comms_view.observe_busy(db, row, decision, 'send-time') if decision is not None else None
             occupied = bool(dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0)
             queue_held = occupied or is_turn_busy
-            busy_consumers.observe_queue(occupied, queue_held, decision, busy)
+            busy_consumers.observe_queue(occupied, queue_held, decision, busy,
+                                         (dispatch_state.get("hasActiveRun"), dispatch_state.get("queuedRuns")))
             if queue_held:
                 continue
         execution_mode = str(_execution_mode or "").strip().lower()

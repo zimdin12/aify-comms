@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from service import clock
 from service.db import get_db
 from service.api_core import partial_status_shadow as shadow, shadow_evidence_store as evidence_store
-from service.api_core.shadow_evidence import BOOT_ID
+from service.api_core.shadow_evidence import BOOT_ID, EVIDENCE_OWNERS, owners_json
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +119,9 @@ class ShadowWindows:
     @staticmethod
     async def _open(db, versions, at):
         cursor = await db.execute(
-            'INSERT INTO status_shadow_windows (comms_build, env_build, wrapper_build, opened_at, flushed_at, boot_id) '
-            'VALUES (?, ?, ?, ?, ?, ?)', (versions.comms, versions.env, versions.wrapper, at, at, BOOT_ID))
+            'INSERT INTO status_shadow_windows (comms_build, env_build, wrapper_build, opened_at, flushed_at, boot_id, '
+            'evidence_owners) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (versions.comms, versions.env, versions.wrapper, at, at, BOOT_ID, owners_json(EVIDENCE_OWNERS)))
         return cursor.lastrowid
 
 

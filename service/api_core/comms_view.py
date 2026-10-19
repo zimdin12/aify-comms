@@ -12,6 +12,10 @@ counted as unavailable with the first unknown input in REASON_ORDER, never as fa
 
 EVERYTHING IS READ BEFORE THE ONE AWAIT. The frame (association, view, delivery turn, expiries, clock) is frozen first;
 the only await is the ownership read for the frozen turn's own owner, and nothing is read again after it.
+
+A disagreement keeps its BASIS (S2c-E E2): today's decision with its receipt, the frame, the renewal and where it came
+from, and the env census from the frame's own binding. Queue and claim read the same basis, so each of their items
+carries the whole of it, not a reference to a busy item that may not have been kept.
 """
 import asyncio
 from dataclasses import dataclass
@@ -21,6 +25,7 @@ from service.api_core.claim_gating import turn_lease_renewal
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.shadow_owners import variants_of
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
+from service.api_core.shadow_evidence import item
 from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.clock import iso_to_epoch
 
@@ -37,6 +42,8 @@ class Holder:
     clock: tuple | None = None  # (open, startedAtUs, lastEventAtUs)
     expiry: object = NOT_KNOWN  # the fold's strictExpiry for that turn, epoch seconds
     advanced_at: object = NOT_KNOWN  # when that open turn last advanced, on the application clock (slice 4)
+    publisher: tuple | None = None  # (machine, instance) that published the record: what the holder is joined on
+    lifetime: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,7 @@ class Frame:
     holders: tuple
     others_unknown: bool  # a publisher on the machine whose rows cannot be read might hold the agent
     delivery: dt.DeliveryTurn
+    binding: object = None  # the one bind this frame was read from: custody for the env census, never serialized
 
 
 def capture(machine, agent_id):
@@ -53,9 +61,9 @@ def capture(machine, agent_id):
     at = iso_to_epoch(binding.at, None)
     turn = dt.FOLD.turn(machine, agent_id)
     if binding.loss or at is None:
-        return Frame(at, (), True, turn)
+        return Frame(at, (), True, turn, binding)
     holders, others_unknown, publishers = [], False, 0
-    for (mid, _), publisher in binding.view.items():
+    for (mid, instance), publisher in binding.view.items():
         if mid != machine:
             continue
         publishers += 1
@@ -64,15 +72,15 @@ def capture(machine, agent_id):
                     and age in ('fresh', 'stale'))
         rows = [r for r in publisher.rows if r.agent_id == agent_id]
         if not readable:
-            holders += [Holder('unknown') for _ in rows]
+            holders += [Holder('unknown', publisher=(mid, instance), lifetime=r.lifetime) for r in rows]
             others_unknown = others_unknown or not rows
             continue
         for r in rows:
             is_open = bool(r.clock and r.clock[0])
             expiry = dt.FOLD.strict_expiry(machine, agent_id, r.lifetime, r.clock[1]) if is_open else NOT_KNOWN
             advanced = dt.FOLD.advanced_at(machine, agent_id, r.lifetime, r.clock[1]) if is_open else NOT_KNOWN
-            holders.append(Holder(age, r.busy_if, r.clock, expiry, advanced))
-    return Frame(at, tuple(holders), others_unknown or not publishers, turn)
+            holders.append(Holder(age, r.busy_if, r.clock, expiry, advanced, (mid, instance), r.lifetime))
+    return Frame(at, tuple(holders), others_unknown or not publishers, turn, binding)
 
 
 def needs_renewal(frame):
@@ -129,26 +137,69 @@ def holds_delivery(frame, renewal, variant):
 
 
 async def _renewal(db, agent_id, frame, decision):
-    """The frozen turn's owner, asked once and only when needed: today's answer for the same owner, else one read.
-    A read that fails is unknown, never a known negative."""
+    """(renewal, source): the frozen turn's owner, asked once and only when needed, and where the answer came from:
+    'not-needed', 'today' (today's answer for the same owner), 'read', or 'error' (a read that failed is unknown,
+    never a known negative)."""
     if not needs_renewal(frame):
-        return None
+        return None, 'not-needed'
     owner = str(frame.delivery.owner).strip()
     if decision.owner == owner and decision.renewal in ('verified', 'negative'):
-        return decision.renewal
+        return decision.renewal, 'today'
     try:
-        return await turn_lease_renewal(db, agent_id, owner)
+        return await turn_lease_renewal(db, agent_id, owner), 'read'
     except asyncio.CancelledError:
         raise
     except Exception:
-        return NOT_KNOWN
+        return NOT_KNOWN, 'error'
+
+
+@dataclass(frozen=True)
+class Basis:
+    """What one busy evaluation consumed, on both sides, for the evidence of every owner that reads it."""
+    decision: object  # today's BusyDecision, with its receipt
+    frame: Frame
+    renewal: object
+    renewal_source: str
+    association: tuple  # (registered machine, agent id): the key the frame was captured under
+
+
+@dataclass(frozen=True)
+class BusyObservation:
+    """observe_busy's result: C6's answer under each law ({law: (value, reason)}, or None when it could not be
+    computed), and the basis it was computed from (None with it)."""
+    answers: dict | None
+    basis: Basis | None = None
+
+
+def basis_body(basis):
+    """(today, candidate inputs, missing): the explicit projection of a basis. The frame's binding is custody for the
+    census and is never serialized itself."""
+    if basis is None:
+        return None, None, ['candidate-basis']
+    decision, frame = basis.decision, basis.frame
+    today = dict(holds=decision.holds, owner=decision.owner, renewal=decision.renewal, receipt=decision.receipt)
+    holders = [dict(publisher=h.publisher, lifetime=h.lifetime, freshness=h.freshness, busyIf=h.busy_if, clock=h.clock,
+                    expiry=h.expiry, advancedAt=h.advanced_at) for h in frame.holders]
+    candidate = dict(at=frame.at, holders=holders, othersUnknown=frame.others_unknown, delivery=frame.delivery,
+                     renewal=basis.renewal, renewalSource=basis.renewal_source)
+    return today, candidate, [] if decision.receipt is not None else ['comms-receipt']
+
+
+def basis_item(owner, variant, site, basis, today, candidate, comms_extra=None, candidate_extra=None):
+    """One item of an owner that reads a busy basis: the whole basis, plus that owner's own inputs."""
+    busy_today, busy_candidate, missing = basis_body(basis)
+    binding, association = (basis.frame.binding, basis.association) if basis else (None, None)
+    return item(owner, variant, site, association[1] if association else None, binding, association, today,
+                candidate, dict(comms_extra or {}, busy=busy_today), dict(candidate_extra or {}, busy=busy_candidate),
+                missing)
 
 
 async def _compute(db, agent_row, decision):
     agent_id = agent_row['id']
     frame = capture(agent_row['machine_id'], agent_id)
-    renewal = await _renewal(db, agent_id, frame, decision)
-    return {variant: holds_delivery(frame, renewal, variant) for variant in LAWS}
+    renewal, source = await _renewal(db, agent_id, frame, decision)
+    answers = {variant: holds_delivery(frame, renewal, variant) for variant in LAWS}
+    return answers, Basis(decision, frame, renewal, source, (agent_row['machine_id'], agent_id))
 
 
 def record_answer(owner, variant, site, today, answer, evidence=None):
@@ -166,14 +217,16 @@ def record_answer(owner, variant, site, today, answer, evidence=None):
 
 
 async def observe_busy(db, agent_row, decision, site):
-    """Record today's busy answer beside C6's under both laws, and return C6's answers ({law: (value, reason)}, or
-    None when they could not be computed) for the consumers that read the same frame. Never raises (cancellation
-    excepted) and never changes today's answer; a variant already recorded is not recorded again, and a recording
-    that fails never takes the computed answers with it."""
+    """Record today's busy answer beside C6's under both laws, and return a BusyObservation for the consumers that
+    read the same frame. Never raises (cancellation excepted) and never changes today's answer; a variant already
+    recorded is not recorded again, and a recording that fails never takes the computed answers with it."""
     try:
-        results = await _compute(db, agent_row, decision)
+        results, basis = await _compute(db, agent_row, decision)
     except Exception:
-        results = None
+        results, basis = None, None
     for variant in LAWS:
-        record_answer(OWNER, variant, site, decision.holds, results[variant] if results else (NOT_KNOWN, 'shadow-error'))
-    return results
+        answer = results[variant] if results else (NOT_KNOWN, 'shadow-error')
+        record_answer(OWNER, variant, site, decision.holds, answer,
+                      lambda variant=variant, answer=answer: basis_item(
+                          OWNER, variant, site, basis, decision.holds, answer[0], candidate_extra=dict(reason=answer[1])))
+    return BusyObservation(results, basis)
