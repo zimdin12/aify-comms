@@ -16,14 +16,16 @@ import json
 import sqlite3
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+
+from service import clock
 
 COHORT_HOURS = 6
 VOID_CLOSES = ('flush-lost', 'service-restart', 'version-change')
 SITE = 'claim'
 BRANCHES = {'never-known': 'bootstrap-knowledge-contract-question', 'withheld': 'multi-holder-with-the-B5-authority',
             'lost': 'reset-investigation', 'ambiguous-closed': 'unblock-or-late-end-question'}
-UNKNOWN = 'unavailable:delivery-turn'
+DELIVERY_UNKNOWN = 'unavailable:delivery-turn'
 PREFIX, FAULT = 'deliveryUnknown:', 'deliveryUnknownFault'
 
 
@@ -61,8 +63,8 @@ def explain(counts):
     totals = defaultdict(Counter)
     strata = defaultdict(lambda: [0, 0])
     for window, variant, site, name, count in counts:
-        if name == UNKNOWN:
-            totals[(variant, site)][UNKNOWN] += count
+        if name == DELIVERY_UNKNOWN:
+            totals[(variant, site)][DELIVERY_UNKNOWN] += count
             strata[(window, variant, site)][0] += count
         elif name.startswith(PREFIX) or name == FAULT:
             totals[(variant, site)][name] += count
@@ -73,7 +75,7 @@ def explain(counts):
 
 def decide(total):
     """PURE. One variant's totals at the site: (origin shares, decision)."""
-    denominator = total.get(UNKNOWN, 0)
+    denominator = total.get(DELIVERY_UNKNOWN, 0)
     origins = Counter()
     for name, count in total.items():
         if name == FAULT:
@@ -88,7 +90,7 @@ def decide(total):
     return dict(origins), BRANCHES.get(leader, f'no-causal-choice ({leader} majority)')
 
 
-def report(db, first_id, read_at):
+def read_report(db, first_id, read_at):
     """The measurement, read once from a read-only connection."""
     rows = db.execute('SELECT id, comms_build, opened_at, closed_at, close_reason FROM status_shadow_windows '
                       'WHERE id >= ? ORDER BY id', (first_id,)).fetchall()
@@ -114,5 +116,4 @@ def report(db, first_id, read_at):
 if __name__ == '__main__':
     path, first = sys.argv[1], int(sys.argv[2])
     with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as connection:
-        now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print(json.dumps(report(connection, first, now), indent=2))
+        print(json.dumps(read_report(connection, first, clock.now()), indent=2))

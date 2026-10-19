@@ -167,6 +167,12 @@ class BusyCountTest(unittest.TestCase):
                          (dt.NOTHING_KNOWN, 'deliveryUnknown:never-known:absent:no'), 'read with the turn, not later')
         self.assertEqual(cv.capture('m', 'a').delivery_tag, 'deliveryUnknown:never-known:closed:no', 'CONTROL')
 
+    def test_an_open_turn_with_an_unknown_start_answers_delivery_turn(self):
+        partial = dt.reporter_busy(dt.NOTHING_KNOWN, 'r1', 'bridge', 1792368600.0)  # open, start unknown
+        f = cv.Frame(1792368600.0, (cv.Holder('fresh', (False, False), (False, 0, 1)),), False, partial)
+        self.assertEqual({v: cv.holds_delivery(f, None, v) for v in cv.LAWS},
+                         {v: (dt.NOT_KNOWN, 'delivery-turn') for v in cv.LAWS})
+
     def test_a_capture_failure_explains_nothing(self):
         with mock.patch.object(cv, 'capture', side_effect=RuntimeError('mirror unreadable')):
             self.assertEqual(self.observe(), {})
@@ -191,7 +197,7 @@ class CohortTest(unittest.TestCase):
         self.assertEqual(rep.cohort(ok, 1), ('complete', None, [1, 2]))
         self.assertEqual(rep.cohort({1: window(H(0), H(6), 'rotation')}, 1), ('complete', None, [1]), 'at 6 h exactly')
         self.assertEqual(rep.cohort({1: window(H(0), H(4)), 2: window(H(4), None)}, 1)[0], 'pending')
-        for reason in rep.VOID_CLOSES:
+        for reason in ('flush-lost', 'service-restart', 'version-change'):  # the claim, not the module's list
             with self.subTest(reason=reason):
                 self.assertEqual(rep.cohort({1: window(H(0), H(4), reason), 2: window(H(4), H(7))}, 1)[0], 'void')
         self.assertEqual(rep.cohort({1: window(H(0), H(4), 'rotation'), 3: window(H(4), H(7))}, 1)[0], 'void')
@@ -214,10 +220,10 @@ class CohortTest(unittest.TestCase):
         self.assertEqual(len(broken), 1, 'four unknowns unexplained')
         _, broken = rep.explain([*rows[:2], (1, 'strict', 'claim', rep.FAULT, 4)])
         self.assertEqual(broken, [], 'a fault explains its unknown in the sum')
-        self.assertEqual(rep.decide({rep.UNKNOWN: 100, 'deliveryUnknown:never-known:closed:no': 45,
+        self.assertEqual(rep.decide({rep.DELIVERY_UNKNOWN: 100, 'deliveryUnknown:never-known:closed:no': 45,
                                      'deliveryUnknown:withheld:closed:no': 40, rep.FAULT: 15})[1], 'no-majority')
-        self.assertTrue(rep.decide({rep.UNKNOWN: 2, rep.FAULT: 2})[1].startswith('no-causal-choice'))
-        self.assertTrue(rep.decide({rep.UNKNOWN: 2, 'deliveryUnknown:unclassified:x:none:no': 2})[1]
+        self.assertTrue(rep.decide({rep.DELIVERY_UNKNOWN: 2, rep.FAULT: 2})[1].startswith('no-causal-choice'))
+        self.assertTrue(rep.decide({rep.DELIVERY_UNKNOWN: 2, 'deliveryUnknown:unclassified:x:none:no': 2})[1]
                         .startswith('no-causal-choice'))
         self.assertEqual(rep.decide({})[1], 'no-denominator')
 
@@ -233,7 +239,7 @@ class CohortTest(unittest.TestCase):
                            [(7, 'unavailable:delivery-turn', 3), (7, 'deliveryUnknown:lost:closed:no', 3),
                             (8, 'unavailable:delivery-turn', 1), (8, 'deliveryUnknown:lost:closed:no', 1),
                             (9, 'unavailable:delivery-turn', 50), (9, 'deliveryUnknown:withheld:closed:no', 50)])
-            out = rep.report(db, 7, 'read-time')
+            out = rep.read_report(db, 7, 'read-time')
         self.assertEqual((out['status'], [w['id'] for w in out['windows']], out['hours']), ('complete', [7, 8], 9.0))
         self.assertEqual(out['decisions']['strict']['decision'], rep.BRANCHES['lost'], 'the open window is not read')
         with closing(sqlite3.connect(':memory:')) as db:
@@ -244,5 +250,5 @@ class CohortTest(unittest.TestCase):
             db.execute("INSERT INTO status_shadow_windows VALUES (7, 'b', ?, ?, 'rotation')", (H(0), H(6)))
             db.execute("INSERT INTO status_shadow_window_counts VALUES (7, 'busy', 'strict', 'claim', ?, 5)",
                        ('unavailable:delivery-turn',))
-            out = rep.report(db, 7, 'read-time')
+            out = rep.read_report(db, 7, 'read-time')
         self.assertEqual((len(out['sumBroken']), out['decisions']), (1, {}), 'a broken sum decides nothing')
