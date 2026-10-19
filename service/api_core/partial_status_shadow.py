@@ -120,9 +120,10 @@ class Mirror:
         p = projection
         view = dict(self._view)
         old = view.get(p.key)
-        if p.kind == 'unavailable':
+        if p.kind == 'unavailable':  # carries no data, so it keeps the data's loss: only a data publication ends one
             view[p.key] = Publisher(old.generation if old else None, old.data_applied_at if old else None,
-                                    old.complete if old else False, True, old.rows if old else (), False,
+                                    old.complete if old else False, True, old.rows if old else (),
+                                    old.loss if old else False,
                                     old.incarnation if old else None, old.publication if old else None,
                                     old.build if old else None)
         else:
