@@ -52,6 +52,10 @@ class TodayTest(unittest.TestCase):
         self.assertEqual(stc.today_ceiling(receipt(CEILING_S))[0], True)
         self.assertEqual(stc.today_ceiling(receipt(CEILING_S + 1))[0], False)
 
+    def test_a_future_anchor_is_a_law_class_today_false_candidate_true(self):
+        self.assertEqual(stc.today_ceiling(receipt(-1))[0], False, 'today refuses a negative age')
+        self.assertEqual(stc.ceiling_candidate(frame(holder(NOW + 1 + CEILING_S)), NOW)[:2], (True, None))
+
     def test_a_verified_renewal_does_not_extend_the_strict_arm(self):
         self.assertEqual(stc.today_ceiling(receipt(2000, touched_ago=5, renewal='verified'))[0], False)
 
@@ -165,11 +169,29 @@ class ObserverTest(unittest.TestCase):
         self.observe(receipt(100), None)
         self.assertEqual(self.owner()['unavailableByReason'], {'claim': {'comms-receipt': 2, 'shadow-error': 1}})
 
-    def test_it_reads_the_fold_and_owns_its_evidence(self):
+    def test_an_observation_marks_a_fold_read(self):
         self.observe(receipt(100), frame(holder(NOW + 1)))
         self.assertIn(stc.CEILING, self.recorder.provenance._fold)
-        self.assertIn(stc.CEILING, shadow_provenance.FOLD_OWNERS)
-        self.assertIn(stc.CEILING, shadow_evidence.EVIDENCE_OWNERS)
+
+    def test_a_missing_or_malformed_fold_record_refuses_it_by_name(self):
+        for stored in (None, '{"x": 1}'):
+            self.assertIn('stale-turn ceiling', shadow_provenance.fold_unverified(stored), stored)
+
+    def test_it_owns_its_evidence(self):
+        self.assertIn('stale-turn ceiling', shadow_evidence.EVIDENCE_OWNERS)
+
+    def test_a_failure_before_the_recording_is_contained_and_counted_once(self):
+        class Broken:
+            holds = True
+
+            @property
+            def receipt(self):
+                return receipt(100)
+        busy = mock.Mock()
+        type(busy).basis = mock.PropertyMock(side_effect=RuntimeError('basis broken'))
+        stc.observe_ceiling(Broken(), busy, 'claim')
+        self.assertEqual(self.owner()['unavailableByReason'], {'claim': {'shadow-error': 1}})
+        self.assertEqual(self.owner()['counts']['observed'], 1)
 
     def test_a_failure_is_contained_and_counted(self):
         with mock.patch.object(stc, 'ceiling_candidate', side_effect=RuntimeError('broken')):

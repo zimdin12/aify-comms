@@ -5,8 +5,12 @@ disjunct replaces: `turn_is_still_live` on the comms turn row's start anchor, ne
 busy decision read (its receipt). The CANDIDATE is the fold's `strictExpiry` for the one open turn the env records
 hold: `now < strictExpiry`, the comparison busy's stale disjunct makes.
 
-ONE INSTANT. Both sides are judged at the receipt's `nowEpoch`, so a disagreement is an anchor difference and never a
-clock read later. The frame's own clock is kept as evidence only.
+ONE CLOCK, NOT ONE SNAPSHOT. Both sides are judged at the receipt's `nowEpoch`, so no disagreement comes from a clock
+read later; the frame's own clock is kept as evidence only. That is not a common state snapshot, nor proof that both
+sides see the same turn, and a disagreement is not only an anchor difference: the two laws also cut time differently.
+Today requires a non-negative age and is inclusive (`0 <= age <= 1800`); the candidate is exclusive (`now < expiry`).
+Equal anchors one second ahead of the receipt are false today (a future anchor) and true for the candidate. These
+law and time-cut classes stay explicit in the evidence; which law is right is the operator's call.
 
 AN EVALUATION IS WHERE TODAY APPLIES A CEILING: the receipt read a row, and the row is busy. A row that is not busy,
 absent or unreadable records nothing, because today made no ceiling decision there.
@@ -53,7 +57,19 @@ def ceiling_candidate(frame, now):
 
 
 def observe_ceiling(decision, busy, site):
-    """Record today's strict ceiling beside the candidate's. Never raises and never changes today's answer."""
+    """Record today's strict ceiling beside the candidate's. Never raises and never changes today's answer: a failure
+    anywhere before the recording is recorded once as 'shadow-error' (the recording itself is contained)."""
+    try:
+        _observe(decision, busy, site)
+    except Exception:
+        try:
+            cv.record_answer(CEILING, NO_VARIANT, site, getattr(decision, 'holds', None), (NOT_KNOWN, 'shadow-error'),
+                             fold=True)
+        except Exception:
+            pass  # best effort: a broken recorder records nothing
+
+
+def _observe(decision, busy, site):
     try:
         today = today_ceiling(decision.receipt) if decision.receipt is not None else UNREADABLE
     except Exception:
