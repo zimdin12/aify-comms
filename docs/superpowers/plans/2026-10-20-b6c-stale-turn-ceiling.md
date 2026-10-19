@@ -12,7 +12,7 @@ C8's "today" is the strict arm of the delivery reader (P0:388, s2c:79), because 
 - **What it reads:** only busy's `Basis` (comms_view.py:167-174). It does no await, no SQL and no second bind, so it adds **0 queries** to the claim path.
 - **Today:** the recomputed strict arm.
 - **Candidate:** for the one open holder in the frame, fresh or stale (comms_view.py:88-92). Holder freshness is kept in evidence.
-- **One instant:** both sides are evaluated at the receipt's `nowEpoch`, so a disagreement is purely an anchor difference. `frame.at` is bound later (comms_view.py:70-71) and is only recorded. Evaluating the candidate at `frame.at` is mutation arm M5.
+- **One instant:** both sides are evaluated at the receipt's `nowEpoch`, so no disagreement comes from a later clock read (superseded: this is one clock, not one snapshot, and the two laws also cut time differently; see the module docstring and rev2 below). `frame.at` is bound later (comms_view.py:70-71) and is only recorded. Evaluating the candidate at `frame.at` is mutation arm M5.
 - **Denominator:** an evaluation happens only where today applies a ceiling, meaning the receipt has `read=='row'` and `turn_busy=1`. A not-busy row records nothing, because today made no ceiling decision there. This is disclosed.
 
 The candidate is unknown, reason in this order, and is never counted as False:
