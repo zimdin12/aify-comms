@@ -30,7 +30,11 @@ export function openAgentEditForm(agentId) {
   const agent = state.agents.find((a) => a.id === agentId) || { id: agentId };
   const currentEnv = String((agent.runtimeState && agent.runtimeState.environmentId) || (agent.runtimeConfig && agent.runtimeConfig.environmentId) || '');
   const currentRuntime = String(agent.runtime || 'generic');
-  const onlineEnvs = state.environments.filter((env) => resolveStatus(env.status).kind === 'online');
+  // An agent an aify-env defines runs only on that host's machine, and the service refuses any other
+  // (operator, 2026-10-19: offer only that machine; a move is remove there, define here).
+  const owner = agent.definition && agent.definition.ownerMachineId;
+  const onlineEnvs = state.environments.filter((env) => resolveStatus(env.status).kind === 'online'
+    && (!owner || env.machineId === owner));
   const envOptions = ['<option value="">— keep current —</option>']
     .concat(onlineEnvs.map((env) => {
       const id = String(env.id || '');

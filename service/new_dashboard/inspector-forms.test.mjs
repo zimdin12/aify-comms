@@ -112,6 +112,23 @@ test("an unknown runtime is added to the options rather than silently reset", ()
   assert.ok(html.includes('value="some-future-runtime" selected'));
 });
 
+test("a defined agent is offered only environments on its own machine", () => {
+  // The service refuses another machine's environment for a defined agent (definition_requests.py), so
+  // offering one is a choice that always fails. An agent nothing defines keeps every online environment.
+  state.environments = [
+    { id: "win-env", machineId: "win32:host", status: "online" },
+    { id: "wsl-env", machineId: "wsl:host", status: "online" },
+  ];
+  state.agents = [{ id: "coder", definition: { ownerMachineId: "win32:host" } }];
+  const defined = render(() => openAgentEditForm("coder"));
+  assert.ok(defined.includes('value="win-env"'), "the agent's own machine stays offered");
+  assert.ok(!defined.includes('value="wsl-env"'), "another machine is not offered");
+  state.agents = [{ id: "coder", definition: { ownerMachineId: null } }];
+  const free = render(() => openAgentEditForm("coder"));
+  assert.ok(free.includes('value="win-env"') && free.includes('value="wsl-env"'),
+    "the control: an agent nothing defines is offered both");
+});
+
 // --- the history panel ----------------------------------------------------
 //
 // Joined this module in v0.5.4. It is the only inspector panel that FETCHES, which is what makes it worth
