@@ -367,7 +367,7 @@ async def twin_refusal(db, agent_row) -> str:
     A DEFINED agent's mode is its definition's, which `start_binding` has read as managed. Its row says
     resident until a managed worker registers, so the twin question is asked of the process instead."""
     resident = agent_row is not None and str(agent_row["session_mode"] or "").strip().lower() == "resident"
-    if resident and await _has_live_worker_for(db, agent_row):
+    if resident and await _has_live_worker_for(db, agent_row, shadow_site='twin'):
         return ("a resident session of this agent is live, and a managed worker beside it would be a twin; "
                 "stop the resident first")
     return ""

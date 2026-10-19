@@ -49,6 +49,7 @@ from service.api_core.dispatch_text import (
 )
 from service.api_core.events import _append_dispatch_event
 from service.api_core.message_view import _run_sender, _sender_label
+from service.api_core import view_owners
 from service.api_core.records import _status_with_dispatch
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _json_loads_or, _quote_untrusted_subject
@@ -269,7 +270,10 @@ async def _create_dispatch_runs(
                     recipient_status = await _compute_agent_status(recipient_row, db)
                     dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
                     has_active = bool(dispatch_state.get("hasActiveRun"))
+                    promoted_from = recipient_status
                     recipient_status = _status_with_dispatch(recipient_status, dispatch_state)
+                    view_owners.observe_promotion(recipient_row, promoted_from, recipient_status, dispatch_state,
+                                                  'buffer-full')  # the status shadow's (S2c slice 5); never raises
                 rejection_hint = _dispatch_buffer_full_hint(
                     recipient_id,
                     recipient_row,

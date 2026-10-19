@@ -38,6 +38,7 @@ from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.capabilities import _managed_env_reachable, _row_capabilities
 from service.api_core.host_activity import HOST_ACTIVITY_FRESH_SECONDS, host_activity_for
 from service.api_core.channel_delivery import _has_live_worker_for, _worker_liveness_for
+from service.api_core import view_owners
 from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.api_core.claim_gating import (
     _turn_lease_is_renewable,
@@ -246,7 +247,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     if mode == "managed":
         env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
         env_reachable = _managed_env_reachable(agent_row, env_row, settings)
-        worker_present = await _has_live_worker_for(db, agent_row, settings=settings)
+        worker_present = await _has_live_worker_for(db, agent_row, settings=settings, shadow_site='engine')
         live_signal = worker_present
     else:
         worker_present = await _resident_bridge_is_fresh(db, agent_row,
@@ -462,6 +463,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     _worker_live = await _worker_liveness_for(
         db, agent_row, agent_session_mode=agent_session_mode, live_session=live_session
     )
+    await view_owners.observe_readiness(db, agent_row, _worker_live, 'legacy')  # S2c slice 5; never raises
     has_live_worker = _worker_live.has_live_worker
     channel_managed_no_sidecar = _worker_live.channel_managed_no_sidecar
     channel_managed_no_console = _worker_live.channel_managed_no_console

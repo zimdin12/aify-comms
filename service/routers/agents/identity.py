@@ -123,6 +123,7 @@ async def list_agents(request: Request):
                 payload, db, settings, aid, agent_row=row,
                 environments_by_machine=environments_by_machine,
                 session_environment_by_agent=session_environment_by_agent,
+                association_row=row,
             )
             result[aid] = payload
         return {"agents": result}
@@ -164,7 +165,7 @@ async def get_agent(agent_id: str, request: Request):
         # Plan 5 Section C: read-path live-worker gate (in-memory correction only; the
         # writeback was removed 2026-06-18 to cut read-path writes — see the gate bodies).
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
-        payload = await _enforce_env_reachable_gate(payload, db, settings, agent_id)
+        payload = await _enforce_env_reachable_gate(payload, db, settings, agent_id, association_row=row)
         return {"ok": True, "agentId": agent_id, "agent": payload}
     finally:
         await db.close()

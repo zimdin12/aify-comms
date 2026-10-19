@@ -23,6 +23,7 @@ from service.api_core.liveness import _agent_wake_mode
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.manual_status import _MANUAL_STATUSES
+from service.api_core import view_owners
 from service.usage_cache import derive_usage_source, usage_get
 from service.env_status import (
     BRIDGE_STAMP_FRESH as _BRIDGE_STAMP_FRESH,
@@ -382,6 +383,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     # Never surface a legacy raw status (e.g. heartbeat-stamped 'active') as-is.
     base_status = _LEGACY_RAW_STATUS_TO_CANONICAL.get(base_status.lower(), base_status)
     effective_status = _status_with_dispatch(base_status, dispatch_state)
+    view_owners.observe_promotion(row, base_status, effective_status, dispatch_state, 'serialize')  # S2c slice 5
     # Usage/quota (2026-06-26): bind the agent to a quota pool (explicit override in
     # runtime_config.usageSource, else derived from runtime) and merge that pool's live
     # remaining %% from the in-memory usage cache. Advisory only — never gates anything.

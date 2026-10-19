@@ -28,6 +28,7 @@ class Record:
     inputs: tuple = ()  # shadow_classes.env_inputs: the closed facts a disagreement class may read
     clock: tuple | None = None  # (open, startedAtUs, lastEventAtUs) of the record's turn, for the delivery-turn fold
     busy_if: tuple | None = None  # (strict, verifiedRenewal) of the record's turn, for comms_view's busy laws
+    process: tuple | None = None  # (state, verified) of the record's process, for worker readiness (S2c slice 5)
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,8 @@ class Publisher:
 def prepare(body, applied_at):
     """Detach only validated fields before opening the acceptance transaction."""
     return Projection((body['machineId'], body['instance']), body['kind'], body['generation'],
-                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r), turn_busy_if(r))
+                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r),
+                                               turn_busy_if(r), (r['process']['state'], r['process']['verified']))
                                         for r in body.get('agents', ())),
                       tuple((r['agentId'], r['lifetime']) for r in body.get('removed', ())))
 
@@ -153,6 +155,16 @@ def project_inputs(inputs):
 
 
 def compare(binding, association):
+    record, reason = record_for(binding, association)
+    if reason:
+        return None, reason
+    word = candidate_word(record.state)
+    return (word, None) if word else (None, 'unknown-state')
+
+
+def record_for(binding, association):
+    """PURE. The one fresh, complete, unambiguous record for the agent, or why there is none. The word comparison maps
+    its state; other owners read its raw facts."""
     if binding.loss:
         return None, 'unknown-loss'
     machine, aid = association
@@ -174,8 +186,7 @@ def compare(binding, association):
     freshness = age_class(publisher.data_applied_at, binding.at)
     if freshness != 'fresh':
         return None, freshness
-    word = candidate_word(record.state)
-    return (word, None) if word else (None, 'unknown-state')
+    return record, None
 
 
 ALL_PUBLISHERS = '*'

@@ -36,6 +36,10 @@ CHANNEL_SIDECAR_STALE_SECONDS = 180
 
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 
+#: A delivery probe whose read raised: neither live nor known absent. The boolean probes read it as False, as they
+#: always have; the status shadow reads it as unknown (S2c slice 5).
+PROBE_ERROR = 'probe-error'
+
 
 async def _has_live_terminal_session(db, agent_id: str) -> bool:
     """Plan 4: True when this agent has a live terminal_session row
@@ -95,7 +99,13 @@ async def _agents_with_live_terminal_sessions(db, agent_ids) -> set[str]:
 
 
 async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
-    """Task 1.6 (2026-05-30): True when a standalone channel sidecar
+    return await channel_sidecar_state(db, agent_id) is True
+
+
+async def channel_sidecar_state(db, agent_id: str):
+    """True, False, or PROBE_ERROR when the read raised.
+
+    Task 1.6 (2026-05-30): True when a standalone channel sidecar
     (claude-channel.js for claude; the `hermes-managed-host.js run <agent>`
     gateway delivery loop for hermes) is currently heartbeating for this agent.
 
@@ -136,11 +146,17 @@ async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
         age = datetime.now(timezone.utc).timestamp() - last_seen
         return age <= CHANNEL_SIDECAR_STALE_SECONDS
     except Exception:
-        return False
+        return PROBE_ERROR
 
 
 async def _has_live_managed_wrapper_child(db, agent_id: str) -> bool:
-    """FIX SET B2 (2026-06-03): True when a live `managed-wrapper-child` bridge
+    return await wrapper_child_state(db, agent_id) is True
+
+
+async def wrapper_child_state(db, agent_id: str):
+    """True, False, or PROBE_ERROR when the read raised.
+
+    FIX SET B2 (2026-06-03): True when a live `managed-wrapper-child` bridge
     (the visible TUI's in-session aify-comms MCP, registered by a wrapper-backed
     managed worker — codex/hermes) is currently heartbeating for this agent.
 
@@ -181,7 +197,7 @@ async def _has_live_managed_wrapper_child(db, agent_id: str) -> bool:
         # past this stale window, so there is nothing left to mask.)
         return age <= ACTIVE_RUN_BRIDGE_STALE_SECONDS
     except Exception:
-        return False
+        return PROBE_ERROR
 
 
 async def _agent_has_live_terminal(db, agent_id: str) -> bool:

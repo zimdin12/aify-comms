@@ -36,6 +36,7 @@ from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.status_engine import is_live_agent_status
+from service.api_core import view_owners
 
 #: The messages a count admits: a direct message to someone, or a channel post.
 MESSAGE_WHERE = """
@@ -250,7 +251,9 @@ async def _agent_tallies(db) -> tuple[int, int, int]:
         # /analytics/pulse reported 27 on a fleet with exactly 3 stopped agents, and
         # `online_agents` is the utilization denominator below. It also excluded `stale`,
         # a status this engine stopped producing, so that half guarded nothing.
-        if is_live_agent_status(status):
+        live = is_live_agent_status(status)
+        view_owners.observe_live_count(row, live, 'summary')  # the status shadow's (S2c slice 5); never raises
+        if live:
             online_agents += 1
         if status.startswith("working"):
             working_agents += 1
