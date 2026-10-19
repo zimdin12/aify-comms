@@ -19,7 +19,9 @@ const old = '11111111-1111-4111-8111-111111111111';
 const newer = '22222222-2222-4222-8222-222222222222';
 host.startManaged(record(old));
 host.applyEvent({ agentId: 'alpha', lifetime: old, kind: 'turn-start', firedAtUs: 1699999999000000 });
-const publisher = new AgentStatePublisher({ machineId: 'offline-fixture', instance: 'fixture', generation: 1700000000000, incarnationId: 'synthetic-incarnation' });
+// B6: the build this process loaded, and the clock each body's turn ages are taken on (the host's, in ms).
+const publisher = new AgentStatePublisher({ machineId: 'offline-fixture', instance: 'fixture', generation: 1700000000000, incarnationId: 'synthetic-incarnation',
+  build: 'fixture-b6', nowMs: () => 1700000000000 });
 const snapshot = publisher.snapshot(await read());
 host.endManaged(old);
 host.startManaged(record(newer));

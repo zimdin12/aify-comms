@@ -284,12 +284,18 @@ class AgentStateReceiverTest(FastApiTestCase):
         # The third publication: both rows leave. `nullable` has no lifetime, so no removal can name it, and aify-env
         # (B1, 24883f0) answers its departure with a whole snapshot, which withdraws both rows at once.
         self.assertEqual([json.loads(raw)['kind'] for raw in publications], ['snapshot', 'changes', 'snapshot', 'unavailable'])
+        # B6: every kind carries the publisher's build, and the open turn its age on the publisher's clock (1 s).
+        self.assertEqual({json.loads(raw).get('build') for raw in publications}, {'fixture-b6'})
+        alpha = next(r for r in json.loads(publications[0])['agents'] if r['agentId'] == 'alpha')
+        self.assertEqual((alpha['turn']['open'], alpha['turn']['ageMs']), (True, 1000))
         for index, raw in enumerate(publications):
             response = self.post(raw.encode('utf-8'), AT if index == 0 else LATER)
             self.assertEqual(response.status_code, 204, response.text)
             if index == 0:
                 records = self.stored()[1]
                 self.assertEqual({r['agent_id'] for r in records}, {'alpha', 'nullable'})
+                stored_alpha = json.loads(next(r for r in records if r['agent_id'] == 'alpha')['record_json'])
+                self.assertEqual(stored_alpha['turn']['ageMs'], 1000, 'the receiver kept the age it was sent')
                 self.assertIsNone(next(r for r in records if r['agent_id'] == 'nullable')['lifetime'])
             if index == 1:
                 self.assertEqual(next(r for r in self.stored()[1] if r['agent_id'] == 'alpha')['lifetime'], '22222222-2222-4222-8222-222222222222')
