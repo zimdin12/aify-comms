@@ -5,6 +5,10 @@ their own inputs: a delivery reporter's statement (busy or clear for run R), and
 applies them. What it has not seen it does not know, so every field is known or NOT_KNOWN, and an agent it has never
 heard of is entirely unknown, exactly as a seed with every field unknown would be.
 
+A DELIVERY TURN IS KEYED BY (machine, agent), the agent's registered machine for a reporter and the publishing machine
+for a record, as the word comparison associates them. A record from another machine naming the same agent id is
+another agent's evidence and never touches this one.
+
 ENV EVIDENCE is read per lineage, (machineId, agentId, lifetime), and only while one publisher on that machine holds
 the agent. A record another stream also holds is withheld, and the agent's delivery turn degrades to unknown, since an
 end may have happened where it cannot be attributed. Between two observations of one lineage, an end is evidenced only
@@ -108,8 +112,8 @@ class DeliveryTurns:
         self._lineages = {}  # (machine, agent, lifetime) -> EnvClock, or None after a null turn
         self._estimates = {}  # (machine, agent, lifetime, started_us) -> Estimate
 
-    def turn(self, agent_id):
-        return self._turns.get(agent_id, NOTHING_KNOWN)
+    def turn(self, machine, agent_id):
+        return self._turns.get((machine, agent_id), NOTHING_KNOWN)
 
     def strict_expiry(self, machine, agent_id, lifetime, started_us):
         estimate = self._estimates.get((machine, agent_id, lifetime, started_us))
@@ -117,9 +121,10 @@ class DeliveryTurns:
             return NOT_KNOWN
         return estimate.minimum + STRICT_SECONDS
 
-    def reporter(self, agent_id, busy, run_id, owner, at):
-        turn = self.turn(agent_id)
-        self._turns[agent_id] = reporter_busy(turn, run_id, owner, at) if busy else reporter_clear(turn, run_id)
+    def reporter(self, machine, agent_id, busy, run_id, owner, at):
+        turn = self.turn(machine, agent_id)
+        self._turns[(machine, agent_id)] = (reporter_busy(turn, run_id, owner, at) if busy
+                                            else reporter_clear(turn, run_id))
 
     def env_applied(self, projection, view, age_ms=None):
         """One publication the receiver committed, with the view it produced. `age_ms` maps an agent to its turn age;
@@ -137,13 +142,14 @@ class DeliveryTurns:
                 self._consume(machine, record, clock, at, age)
 
     def lose_everything(self):
-        """An applied publication the fold could not read: no knowledge survives it, and no estimate stays
-        authoritative (a first sighting of an open turn never is)."""
-        self.__init__()
+        """An applied publication the fold could not read: no knowledge survives it and no estimate stays
+        authoritative, while each minimum is kept for diagnostics (Rule A)."""
+        self._turns, self._lineages = {}, {}
+        self._estimates = {key: Estimate(e.minimum, False) for key, e in self._estimates.items()}
 
     def _withhold(self, machine, record, clock):
-        self._turns[record.agent_id] = NOTHING_KNOWN
-        if clock and clock.open:
+        self._turns[(machine, record.agent_id)] = NOTHING_KNOWN
+        if clock:  # open or closed: any applied observation of that turn the fold did not consume
             key = (machine, record.agent_id, record.lifetime, clock.started_us)
             old = self._estimates.get(key)
             self._estimates[key] = Estimate(old.minimum if old else None, False)
@@ -156,8 +162,8 @@ class DeliveryTurns:
             return
         if clock.open:
             self._estimate(lineage, previous, clock, at, age)
-        turn = self.turn(record.agent_id)
-        self._turns[record.agent_id] = env_effect(turn, env_change(previous, clock), at)
+        turn = self.turn(machine, record.agent_id)
+        self._turns[(machine, record.agent_id)] = env_effect(turn, env_change(previous, clock), at)
 
     def _estimate(self, lineage, previous, clock, at, age):
         key = (*lineage, clock.started_us)
@@ -182,11 +188,12 @@ def reporter_statement(body, bridge_id, at):
     return (bool(body.get('turnBusy')), str(body.get('turnRunId', '') or '').strip(), bridge_id, iso_to_epoch(at, None))
 
 
-def publish_reporter(agent_id, statement):
-    """After the beat's commit. Best effort: the fold is diagnostic and never interrupts a heartbeat."""
+def publish_reporter(machine, agent_id, statement):
+    """After the beat's commit, on the agent's registered machine. Best effort: the fold is diagnostic and never
+    interrupts a heartbeat."""
     try:
         if statement is not None and statement[3] is not None:
-            FOLD.reporter(agent_id, *statement)
+            FOLD.reporter(machine, agent_id, *statement)
     except Exception:
         FOLD.lose_everything()
 

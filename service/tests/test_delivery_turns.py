@@ -14,6 +14,7 @@ from service.tests._base import FastApiTestCase
 from service.tests.test_agent_state_receiver import AT, body, row, wire
 
 A, B = ('m', 'a'), ('m', 'b')  # two publishers (instances) on one machine
+HOST = ' Host '  # the receiver fixture's publishing machine
 T0 = 1_000.0
 
 
@@ -72,33 +73,33 @@ class TransitionTest(unittest.TestCase):
 class FoldTest(unittest.TestCase):
     def setUp(self):
         self.fold = dt.DeliveryTurns()
-        self.fold.reporter('x', True, 'r1', 'b', T0)  # an unknown turn the reporter opened: run known, start not
+        self.fold.reporter('m', 'x', True, 'r1', 'b', T0)  # an unknown turn the reporter opened: run known, start not
 
     def opened(self):
         fold = dt.DeliveryTurns()
-        fold.reporter('x', False, 'r0', 'b', T0)  # unknown run: establishes nothing
-        fold._turns['x'] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)  # a known-begun delivery turn
+        fold.reporter('m', 'x', False, 'r0', 'b', T0)  # unknown run: establishes nothing
+        fold._turns[('m', 'x')] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)  # a known-begun delivery turn
         return fold
 
     def test_a_first_sighting_establishes_nothing(self):
         fold = self.opened()
-        before = fold.turn('x')
+        before = fold.turn('m', 'x')
         publish(fold, A, iso(T0 + 1), record(clock=(False, 0, 5)))
-        self.assertEqual(fold.turn('x'), before)
+        self.assertEqual(fold.turn('m', 'x'), before)
 
     def test_an_advance_on_a_seeded_turn_stays_unknown(self):
         fold = dt.DeliveryTurns()
         publish(fold, A, iso(T0), record(clock=(True, 1, 1)))
         publish(fold, A, iso(T0 + 5), record(clock=(True, 1, 9)))
-        self.assertEqual(fold.turn('x'), dt.NOTHING_KNOWN)
+        self.assertEqual(fold.turn('m', 'x'), dt.NOTHING_KNOWN)
 
     def test_a_true_advance_touches_and_a_quiet_snapshot_does_not(self):
         fold = self.opened()
         publish(fold, A, iso(T0 + 1), record(clock=(True, 1, 1)))
         publish(fold, A, iso(T0 + 2), record(clock=(True, 1, 1)))
-        self.assertEqual(fold.turn('x').touched_at, T0)
+        self.assertEqual(fold.turn('m', 'x').touched_at, T0)
         publish(fold, A, iso(T0 + 3), record(clock=(True, 1, 4)))
-        self.assertEqual(fold.turn('x').touched_at, T0 + 3)
+        self.assertEqual(fold.turn('m', 'x').touched_at, T0 + 3)
 
     def test_a_tied_end_closes_and_a_new_start_while_open_closes(self):
         for later in ((False, 0, 1), (True, 7, 7)):
@@ -106,17 +107,17 @@ class FoldTest(unittest.TestCase):
                 fold = self.opened()
                 publish(fold, A, iso(T0 + 1), record(clock=(True, 1, 1)))
                 publish(fold, A, iso(T0 + 2), record(clock=later))
-                self.assertEqual(fold.turn('x'), dt.CLOSED)
+                self.assertEqual(fold.turn('m', 'x'), dt.CLOSED)
 
     def test_another_stream_holding_the_agent_is_withheld_and_degrades(self):
         fold = self.opened()
         publish(fold, A, iso(T0 + 1), record(clock=(True, 1, 1)))
         # B's FIRST observation is closed. It must not close A's turn, and while both hold it nothing is known.
         publish(fold, B, iso(T0 + 2), record(clock=(False, 0, 9)), holders=[A, B])
-        self.assertEqual(fold.turn('x'), dt.NOTHING_KNOWN)
-        fold._turns['x'] = dt.reporter_busy(dt.CLOSED, 'r2', 'b', T0 + 3)
+        self.assertEqual(fold.turn('m', 'x'), dt.NOTHING_KNOWN)
+        fold._turns[('m', 'x')] = dt.reporter_busy(dt.CLOSED, 'r2', 'b', T0 + 3)
         publish(fold, A, iso(T0 + 4), record(clock=(True, 1, 1)), holders=[A])  # A unchanged: quiet, not a move
-        self.assertEqual(fold.turn('x').open, True)
+        self.assertEqual(fold.turn('m', 'x').open, True)
 
     def test_a_replacement_lifetime_and_a_null_turn_are_a_baseline_only(self):
         fold = self.opened()
@@ -124,7 +125,7 @@ class FoldTest(unittest.TestCase):
         publish(fold, A, iso(T0 + 2), record(lifetime='L2', clock=(False, 0, 9)))
         publish(fold, A, iso(T0 + 3), record(lifetime='L3', clock=None))
         publish(fold, A, iso(T0 + 4), record(lifetime='L3', clock=(False, 0, 9)))
-        self.assertEqual(fold.turn('x').open, True, 'no lineage of these proved an end')
+        self.assertEqual(fold.turn('m', 'x').open, True, 'no lineage of these proved an end')
 
 
 class EstimateTest(unittest.TestCase):
@@ -162,6 +163,26 @@ class EstimateTest(unittest.TestCase):
                 self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
                 self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9, 'M kept for diagnostics')
 
+    def test_a_withheld_closed_sample_of_the_same_turn_is_never_recovered(self):
+        fold = dt.DeliveryTurns()
+        self.begun(fold, age=1000)
+        # While A and B both hold it, B's record of the SAME turn reads closed: an applied observation the fold skipped.
+        publish(fold, B, iso(T0 + 12), record(clock=(False, 5, 6)), holders=[A, B])
+        publish(fold, A, iso(T0 + 14), record(clock=(True, 5, 7)), ages={'x': 1000})
+        self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
+        self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9, 'M kept for diagnostics')
+
+    def test_a_loss_keeps_each_minimum_and_ends_its_authority(self):
+        lost, healthy = dt.DeliveryTurns(), dt.DeliveryTurns()
+        for fold in (lost, healthy):
+            self.begun(fold, age=1000)
+        lost.lose_everything()
+        self.assertEqual(healthy.strict_expiry('m', 'x', 'L', 5), T0 + 9 + dt.STRICT_SECONDS, 'control: the twin')
+        self.assertIs(lost.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
+        self.assertEqual(lost._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9)
+        publish(lost, A, iso(T0 + 20), record(clock=(True, 5, 8)), ages={'x': 1000})
+        self.assertIs(lost.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN, 'and nothing after the loss restores it')
+
     def test_a_same_durable_turn_restart_keeps_minimum_and_authority(self):
         fold = dt.DeliveryTurns()
         self.begun(fold, age=1000)
@@ -184,23 +205,47 @@ class CapturePointsTest(FastApiTestCase):
         return asyncio.run(AgentStateShadowStore().apply(wire(value), AT))
 
     def test_the_receiver_feeds_the_end_of_a_turn_and_a_refused_duplicate_feeds_nothing(self):
-        self.fold._turns['alpha'] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)
+        self.fold._turns[(HOST, 'alpha')] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)
         self.assertTrue(self.apply(body(publication=1)).applied)
         ended = row(); ended['turn'] = dict(ended['turn'], open=False)
         ended.update(state='idle', stateCause='at-prompt', busy=False)
         duplicate = body(publication=2, agents=[ended])
         self.assertTrue(self.apply(duplicate).applied)
-        self.assertEqual(self.fold.turn('alpha'), dt.CLOSED)
-        self.fold._turns['alpha'] = dt.reporter_busy(dt.CLOSED, 'r2', 'b', T0)
+        self.assertEqual(self.fold.turn(HOST, 'alpha'), dt.CLOSED)
+        self.fold._turns[(HOST, 'alpha')] = dt.reporter_busy(dt.CLOSED, 'r2', 'b', T0)
         self.assertFalse(self.apply(duplicate).applied, 'the same publication again is refused')
-        self.assertEqual(self.fold.turn('alpha').open, True, 'and a refusal feeds the fold nothing')
+        self.assertEqual(self.fold.turn(HOST, 'alpha').open, True, 'and a refusal feeds the fold nothing')
 
-    def test_a_publication_the_fold_cannot_read_loses_everything(self):
-        self.fold._turns['alpha'] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)
+    def test_a_record_from_another_machine_never_touches_this_agents_turn(self):
+        post = self.register('alpha', machine='linux:m1')
+        self.assertEqual(post(turnBusy=True, turnRunId='r1').status_code, 200)
+        ended = row(); ended['turn'] = dict(ended['turn'], open=False)
+        ended.update(state='idle', stateCause='at-prompt', busy=False)
+        # Another machine publishes the same agent id, open then closed: its evidence, not this agent's.
+        self.assertTrue(self.apply(body(publication=1, machineId='linux:m2')).applied)
+        self.assertTrue(self.apply(body(publication=2, machineId='linux:m2', agents=[ended])).applied)
+        self.assertEqual(self.fold.turn('linux:m1', 'alpha').open, True)
+        # Control: the agent's own machine publishing the same history does end it.
+        self.assertTrue(self.apply(body(publication=1, machineId='linux:m1')).applied)
+        self.assertTrue(self.apply(body(publication=2, machineId='linux:m1', agents=[ended])).applied)
+        self.assertEqual(self.fold.turn('linux:m1', 'alpha'), dt.CLOSED)
+
+    def test_a_loss_through_the_receiver_keeps_the_minimum(self):
+        publish(self.fold, (HOST, 'CaseSensitive'), iso(T0), record('alpha', 'real-old', (False, 0, 1)))
+        publish(self.fold, (HOST, 'CaseSensitive'), iso(T0 + 10), record('alpha', 'real-old', (True, 5, 5)),
+                ages={'alpha': 1000})
         from service.api_core import partial_status_shadow as shadow
         with patch.object(shadow, 'prepare', side_effect=ValueError('unreadable')):
             self.assertTrue(self.apply(body(publication=1)).applied)
-        self.assertEqual(self.fold.turn('alpha'), dt.NOTHING_KNOWN)
+        estimate = self.fold._estimates[(HOST, 'alpha', 'real-old', 5)]
+        self.assertEqual((estimate.minimum, estimate.authoritative), (T0 + 9, False))
+
+    def test_a_publication_the_fold_cannot_read_loses_everything(self):
+        self.fold._turns[(HOST, 'alpha')] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)
+        from service.api_core import partial_status_shadow as shadow
+        with patch.object(shadow, 'prepare', side_effect=ValueError('unreadable')):
+            self.assertTrue(self.apply(body(publication=1)).applied)
+        self.assertEqual(self.fold.turn(HOST, 'alpha'), dt.NOTHING_KNOWN)
 
     def legacy_busy(self, agent):
         legacy = sqlite3.connect(self._db_path)
@@ -210,10 +255,10 @@ class CapturePointsTest(FastApiTestCase):
             legacy.close()
         return 0 if found is None else found[0]
 
-    def register(self, agent):
+    def register(self, agent, machine='linux:test'):
         self.assertEqual(self.client.post('/api/v1/agents', json={
             'agentId': agent, 'role': 'coder', 'runtime': 'hermes', 'sessionMode': 'managed',
-            'machineId': 'linux:test', 'bridgeId': 'loop-1'}).status_code, 200)
+            'machineId': machine, 'bridgeId': 'loop-1'}).status_code, 200)
         return lambda path='heartbeat', **extra: self.client.post(f'/api/v1/agents/{agent}/{path}',
                                                                    json={'bridgeId': 'loop-1', **extra})
 
@@ -222,10 +267,10 @@ class CapturePointsTest(FastApiTestCase):
         self.assertEqual(post('turn-end', turnRuntime='hermes', firedAtUs=2000, machineId='linux:test').status_code, 200)
         # Fired before the last applied end: today's helper refuses this start. C6 has no such rule, so the fold opens.
         self.assertEqual(post(turnBusy=True, turnRunId='r1', firedAtUs=1500, machineId='linux:test').status_code, 200)
-        self.assertEqual((self.fold.turn('fold-order').open, self.fold.turn('fold-order').run_id), (True, 'r1'))
+        self.assertEqual((self.fold.turn('linux:test', 'fold-order').open, self.fold.turn('linux:test', 'fold-order').run_id), (True, 'r1'))
         self.assertEqual(self.legacy_busy('fold-order'), 0, "control: today's helper did refuse the start")
         self.assertEqual(post('turn-end', turnRuntime='hermes', firedAtUs=3000, machineId='linux:test').status_code, 200)
-        self.assertEqual(self.fold.turn('fold-order').open, True, 'a harness hook reaches the fold only as an env record')
+        self.assertEqual(self.fold.turn('linux:test', 'fold-order').open, True, 'a harness hook reaches the fold only as an env record')
         self.assertEqual(post(turnBusy=True, turnRunId='r2').status_code, 200)
         self.assertEqual(self.legacy_busy('fold-order'), 1, 'control: the legacy read can see a start it applied')
 
@@ -233,13 +278,13 @@ class CapturePointsTest(FastApiTestCase):
         agent = 'fold-agent'
         beat = self.register(agent)
         self.assertEqual(beat(turnBusy=True, turnRunId='r1').status_code, 200)
-        self.assertEqual((self.fold.turn(agent).open, self.fold.turn(agent).run_id), (True, 'r1'))
+        self.assertEqual((self.fold.turn('linux:test', agent).open, self.fold.turn('linux:test', agent).run_id), (True, 'r1'))
         with patch('service.routers.agents.liveness._apply_turn_busy_signal', side_effect=RuntimeError('rolled back')):
             try:
                 status = beat(turnBusy=False, turnRunId='r1').status_code
             except RuntimeError:
                 status = 500  # the test client re-raised the server error
         self.assertEqual(status, 500)
-        self.assertEqual(self.fold.turn(agent).open, True, 'a beat that never committed publishes nothing')
+        self.assertEqual(self.fold.turn('linux:test', agent).open, True, 'a beat that never committed publishes nothing')
         self.assertEqual(beat(turnBusy=False, turnRunId='r1').status_code, 200)
-        self.assertEqual(self.fold.turn(agent), dt.CLOSED)
+        self.assertEqual(self.fold.turn('linux:test', agent), dt.CLOSED)

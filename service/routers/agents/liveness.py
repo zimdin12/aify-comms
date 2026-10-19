@@ -162,7 +162,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # endpoint succeed against an agent that is not there" — and answered it for an id that
         # never existed rather than one that was removed.
         agent_row = await (await db.execute(
-            "SELECT id FROM agents WHERE id = ?", (agent_id,)
+            "SELECT id, machine_id FROM agents WHERE id = ?", (agent_id,)
         )).fetchone()
         if not agent_row:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
@@ -256,7 +256,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
         statement = delivery_turns.reporter_statement(body, bridge_id, now)
         turn_flip = await _apply_turn_busy_signal(db, agent_id, bridge_id, body, now, turn_flip)
         await db.commit()
-        delivery_turns.publish_reporter(agent_id, statement)
+        delivery_turns.publish_reporter(agent_row["machine_id"], agent_id, statement)
         # WS-1 (2026-06-17): the /heartbeat turnBusy field is the DOMINANT turn signal for
         # managed runtimes, but it only invalidated the cache — the dashboard still waited its
         # ~60s poll to see the flip. Push it immediately, but ONLY on an actual working⇄ready
