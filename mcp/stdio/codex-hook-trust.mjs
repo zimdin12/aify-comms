@@ -1,4 +1,4 @@
-// Codex trust for the resident state hooks install.sh writes into ~/.codex/hooks.json.
+// Codex trust for the resident state hooks and the turn-start context hook install.sh writes into ~/.codex/hooks.json.
 //
 // WHY. Codex skips a hooks.json hook whose `[hooks.state.'<file>:<event>:<group>:<hook>']` holds no
 // matching trusted_hash, and a managed worker RESUMING a thread stops at codex's "hooks are new or
@@ -22,8 +22,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-/** What marks a hooks.json command as one install.sh wrote. */
-const AIFY_HOOK_MARKER = "agent-state-event.mjs";
+/** What marks a hooks.json command as one install.sh wrote: a state hook, or aify-wrapper's turn-start runner. */
+const AIFY_HOOK_MARKERS = ["agent-state-event.mjs", "aify-turn-start.mjs"];
 
 const SQ = "'";
 
@@ -47,7 +47,7 @@ function aifyHookTrust(hooksJson, hooksPath) {
         const plain = hook && hook.type === "command" && typeof hook.command === "string"
           && Number.isInteger(hook.timeout) && (hook.async === undefined || typeof hook.async === "boolean")
           && Object.keys(hook).every((k) => ["type", "command", "timeout", "async"].includes(k));
-        if (!plain || !hook.command.includes(AIFY_HOOK_MARKER)) return;
+        if (!plain || !AIFY_HOOK_MARKERS.some((marker) => hook.command.includes(marker))) return;
         const event = snakeEvent(eventName);
         entries.push({ key: `${hooksPath}:${event}:${groupIndex}:${hookIndex}`, hash: codexHookHash(event, hook.command, hook.timeout, hook.async === true) });
       });

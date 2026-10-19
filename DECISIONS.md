@@ -672,7 +672,8 @@ session without `AIFY_AGENT_ID` and `AIFY_COMMS_URL`.
   fired while the transcript still shows the turn in flight. `SessionStart` with matcher `compact`
   and `StopFailure` post turn-end, and `PermissionRequest` posts blocked.
 - **codex** (`install_codex_turn_hooks`): `UserPromptSubmit` starts, `Stop` and `Interrupt` end,
-  `PermissionRequest` blocks and `PostToolUse` unblocks.
+  `PermissionRequest` blocks and `PostToolUse` unblocks. A second `UserPromptSubmit` group runs
+  aify-wrapper's `bin/aify-turn-start.mjs` synchronously for an agent, so codex adds the context it prints.
 - **hermes** (`install_hermes_turn_hooks`): `pre_llm_call` starts, `on_session_end` ends, and
   `pre_approval_request` / `post_approval_response` bracket an approval. A turn that ends on an API
   error returns before hermes fires `on_session_end`, so it stays in-turn until the gateway turn

@@ -84,9 +84,9 @@ def _other_separator(p) -> str:
     return _posix(p) if _git_bash() else _posix(p).replace("/", "\\")
 
 
-def _codex_hash(event: str, command: str, run_async: bool = False) -> str:
+def _codex_hash(event: str, command: str, run_async: bool = False, timeout: int = 3) -> str:
     """Codex's trusted_hash for a plain command hook: sha256 over sorted compact JSON of its identity."""
-    identity = {"event_name": event, "hooks": [{"async": run_async, "command": command, "timeout": 3, "type": "command"}]}
+    identity = {"event_name": event, "hooks": [{"async": run_async, "command": command, "timeout": timeout, "type": "command"}]}
     return "sha256:" + hashlib.sha256(json.dumps(identity, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
 
 
@@ -408,9 +408,103 @@ def test_codex_trust_is_recorded_for_exactly_the_hooks_written_at_their_index(in
         snake = re.sub(r"(?<!^)([A-Z])", r"_\1", event).lower()
         hook = hooks[event][index]["hooks"][0]
         expected[f"{_native(hooks_file)}:{snake}:{index}:0"] = _codex_hash(snake, hook["command"], hook.get("async", False))
+    # The turn-start context hook, trusted as the state hooks are, at its own group's index.
+    index, hook = _context_hook(hooks)
+    expected[f"{_native(hooks_file)}:user_prompt_submit:{index}:0"] = _codex_hash("user_prompt_submit", hook["command"], timeout=5)
     assert {k: found.get(k) for k in expected} == expected
     assert set(found) == set(expected) | {f"{_native(hooks_file)}:stop:1:0"}, found
     pytest.importorskip("tomllib").loads(config)
+
+
+def _context_hook(hooks: dict) -> tuple:
+    """The one UserPromptSubmit group naming aify-wrapper's turn-start runner: its index and its hook."""
+    found = [(i, g) for i, g in enumerate(hooks.get("UserPromptSubmit", [])) if "aify-turn-start.mjs" in json.dumps(g)]
+    assert len(found) == 1, f"expected exactly one turn-start group, got {found}"
+    index, group = found[0]
+    assert set(group) == {"hooks"} and len(group["hooks"]) == 1, f"the runner shares its group: {group}"
+    return index, group["hooks"][0]
+
+
+CONTEXT_COMMAND = ('if [ -n "${AIFY_AGENT_ID:-}" ]; then node "'
+                   + _posix(BRIDGE_DIR) + '/node_modules/aify-wrapper/bin/aify-turn-start.mjs"; fi')
+
+
+def test_codex_turn_start_runs_the_runner_in_its_own_synchronous_group(installed):
+    """Codex adds a UserPromptSubmit hook's printed additionalContext to the turn, so the runner is synchronous (an
+    async hook's output is not waited for), prints to codex (no redirect), and runs only for an agent, since Codex
+    Desktop reads the same hooks.json. Installed twice over a file holding the old curl entry: still one group, after
+    the state hook, which keeps its index and its trust."""
+    hooks = json.loads((installed / ".codex" / "hooks.json").read_text())["hooks"]
+    index, hook = _context_hook(hooks)
+    assert hook == {"type": "command", "command": CONTEXT_COMMAND, "timeout": 5}, hook
+    state = next(i for i, g in enumerate(hooks["UserPromptSubmit"]) if "agent-state-event.mjs" in json.dumps(g))
+    assert (state, index) == (0, 1), hooks["UserPromptSubmit"]
+
+
+def test_codex_turn_start_hook_keeps_the_operators_hook_at_its_index():
+    """Codex keys trust by a group's index, so the new group goes after the operator's own and stays there."""
+    with tempfile.TemporaryDirectory(prefix="aify-statehooks-ctx-") as tmp:
+        home = Path(tmp)
+        _seed(home)
+        hooks_file = home / ".codex" / "hooks.json"
+        seeded = json.loads(hooks_file.read_text())
+        seeded["hooks"]["UserPromptSubmit"].append(USER_HOOK)
+        hooks_file.write_text(json.dumps(seeded), encoding="utf-8")
+        for _ in range(2):
+            _install(home)
+            groups = json.loads(hooks_file.read_text())["hooks"]["UserPromptSubmit"]
+            assert _commands(groups)[1:] == ["echo mine", CONTEXT_COMMAND], groups
+
+
+class _TurnStartService(BaseHTTPRequestHandler):
+    seen: list = []
+
+    def do_POST(self):
+        self.seen.append((self.path, self.rfile.read(int(self.headers.get("content-length") or 0)).decode()))
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"text": "OPERATOR RULE", "firedEventIds": []}).encode())
+
+    def log_message(self, *args):
+        pass
+
+
+def test_the_written_context_command_prints_what_the_service_says_and_only_for_an_agent(installed):
+    """The command as codex will run it, with codex's own UserPromptSubmit input: the runner's JSON reaches stdout,
+    which is where codex reads it. Without AIFY_AGENT_ID, as in Codex Desktop, it prints nothing and asks no one."""
+    hooks = json.loads((installed / ".codex" / "hooks.json").read_text())["hooks"]
+    command = _context_hook(hooks)[1]["command"]
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _TurnStartService)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    _TurnStartService.seen = []
+    try:
+        with tempfile.TemporaryDirectory(prefix="aify-turnstart-host-") as tmp:
+            home = Path(tmp)
+            (home / ".aify" / "credentials").mkdir(parents=True)
+            # Bytes: write_text gives CRLF on Windows, and a credential with a control character is no key at all.
+            (home / ".aify" / "credentials" / "dash.key").write_bytes(b"probe-key\n")
+            registry = home / ".aify" / "services.json"
+            registry.write_text(json.dumps({"version": 1, "services": {"dash": {
+                "endpoint": f"http://127.0.0.1:{server.server_address[1]}", "credentialRef": "dash.key",
+                "turnStart": {"path": "/events/turn-start", "budgetMs": 800}}}}), encoding="utf-8")
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_", "CLAUDE", "HERDR_"))}
+            env.update(HOME=_posix(home), USERPROFILE=str(home), AIFY_SERVICE_REGISTRY=str(registry))
+            codex_input = json.dumps({"session_id": "codex-thread-1", "turn_id": "t1", "transcript_path": None,
+                                      "cwd": str(home), "hook_event_name": "UserPromptSubmit", "model": "m",
+                                      "permission_mode": "default", "prompt": "hi"})
+            run = lambda extra: subprocess.run([_bash(), "-c", command], input=codex_input, capture_output=True,
+                                               text=True, env={**env, **extra}, timeout=30)
+            plain = run({})
+            assert (plain.returncode, plain.stdout, _TurnStartService.seen) == (0, "", []), plain.stderr
+            agent = run({"AIFY_AGENT_ID": "probe-agent"})
+            assert agent.returncode == 0, agent.stderr
+            assert json.loads(agent.stdout) == {"hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit", "additionalContext": "OPERATOR RULE"}}, agent.stdout
+            assert [path for path, _ in _TurnStartService.seen] == ["/events/turn-start"]
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_codex_hash_is_the_one_codex_itself_records():
