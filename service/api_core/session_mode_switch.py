@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from service.api_core.capabilities import _default_capabilities_for
+from service.api_core.channel_delivery import live_resident_session
 from service.api_core.definition_guard import defined_mode
 from service.api_core.live_process_probes import (
     PROBE_ERROR,
@@ -240,7 +241,7 @@ async def _follow_under_lock(db, agent_id: str, *, now: str) -> dict[str, Any] |
 
 async def resident_drives(db, row):
     """True, False, or PROBE_ERROR: whether a resident may still drive this agent, from a live console, a live channel
-    sidecar, or a fresh resident bridge. A read that failed is PROBE_ERROR, never False."""
+    sidecar, a live resident session, or a fresh resident bridge. A read that failed is PROBE_ERROR, never False."""
     terminal = await terminal_state(db, row["id"])
     sidecar = await channel_sidecar_state(db, row["id"])
     if True in (terminal, sidecar):
@@ -248,6 +249,8 @@ async def resident_drives(db, row):
     if PROBE_ERROR in (terminal, sidecar):
         return PROBE_ERROR
     try:
+        if await live_resident_session(db, row["id"]):
+            return True
         lease = int((await _load_settings(db)).get("resident_lease_seconds", 150) or 150)
         return await _resident_bridge_is_fresh(db, row, lease_seconds=lease)
     except Exception:

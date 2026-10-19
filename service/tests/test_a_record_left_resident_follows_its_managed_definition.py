@@ -112,6 +112,15 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         self.bridge("sidecar-1", "channel-sidecar")
         self.assert_kept("a resident with a live channel sidecar was switched under it")
 
+    def test_a_live_resident_session_keeps_the_resident(self):
+        self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, started_at, last_seen) "
+                 "VALUES ('sess-1', 'lead', ?, 'claude-code', 'resident', 'running', ?, ?)",
+                 (ENV["environment_id"], now(), now()))
+        self.assert_kept("a resident with a live session was switched under it")
+        self.sql("UPDATE agent_sessions SET status = 'stopped' WHERE id = 'sess-1'")
+        self.push()
+        self.assertEqual(self.mode(), "managed", "CONTROL: a stopped session, as llama-manager's is, does not keep it")
+
     def test_a_fresh_resident_bridge_keeps_the_resident(self):
         self.bridge("resident-1", "")
         self.leave_resident({"bridgeInstanceId": "resident-1"})

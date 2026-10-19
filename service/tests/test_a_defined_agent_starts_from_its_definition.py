@@ -202,7 +202,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                          'start it through its launcher on that host'))
         self.push("s1", 2, [valid("coder", revision=2, mode="managed")])
         self.assertEqual(self.rows("SELECT session_mode FROM agents WHERE id = 'coder'")[0]["session_mode"],
-                         "resident", "control: the effective mode is still resident")
+                         "managed", "no resident drives it, so the record follows its definition (B3)")
         started = self.start("coder")
         self.assertEqual((started.status_code, started.json().get("spawnRequested")), (200, True), started.text)
 
