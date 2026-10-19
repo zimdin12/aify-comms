@@ -212,6 +212,8 @@ class CohortTest(unittest.TestCase):
         self.assertEqual((broken, rep.decide(totals[('strict', 'claim')])[1]), ([], rep.BRANCHES['never-known']))
         _, broken = rep.explain(rows[:2])
         self.assertEqual(len(broken), 1, 'four unknowns unexplained')
+        _, broken = rep.explain([*rows[:2], (1, 'strict', 'claim', rep.FAULT, 4)])
+        self.assertEqual(broken, [], 'a fault explains its unknown in the sum')
         self.assertEqual(rep.decide({rep.UNKNOWN: 100, 'deliveryUnknown:never-known:closed:no': 45,
                                      'deliveryUnknown:withheld:closed:no': 40, rep.FAULT: 15})[1], 'no-majority')
         self.assertTrue(rep.decide({rep.UNKNOWN: 2, rep.FAULT: 2})[1].startswith('no-causal-choice'))
@@ -234,3 +236,13 @@ class CohortTest(unittest.TestCase):
             out = rep.report(db, 7, 'read-time')
         self.assertEqual((out['status'], [w['id'] for w in out['windows']], out['hours']), ('complete', [7, 8], 9.0))
         self.assertEqual(out['decisions']['strict']['decision'], rep.BRANCHES['lost'], 'the open window is not read')
+        with closing(sqlite3.connect(':memory:')) as db:
+            db.execute('CREATE TABLE status_shadow_windows (id INTEGER PRIMARY KEY, comms_build TEXT, opened_at TEXT, '
+                       'closed_at TEXT, close_reason TEXT)')
+            db.execute('CREATE TABLE status_shadow_window_counts (window_id INTEGER, owner TEXT, variant TEXT, '
+                       'source TEXT, name TEXT, count INTEGER)')
+            db.execute("INSERT INTO status_shadow_windows VALUES (7, 'b', ?, ?, 'rotation')", (H(0), H(6)))
+            db.execute("INSERT INTO status_shadow_window_counts VALUES (7, 'busy', 'strict', 'claim', ?, 5)",
+                       ('unavailable:delivery-turn',))
+            out = rep.report(db, 7, 'read-time')
+        self.assertEqual((len(out['sumBroken']), out['decisions']), (1, {}), 'a broken sum decides nothing')
