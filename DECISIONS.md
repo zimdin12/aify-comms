@@ -20,7 +20,7 @@ Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-1
 
 ## The status switch: the C8 evidence bar, and one machine per defined agent (Steven, 2026-10-19)
 
-- **C8 is "mixed".** Per-disagreement evidence (the why: agent, both answers, raw inputs, versions) is built
+- **C8 is "mixed".** He allowed "mixed or full"; mixed was the recommendation, so it is the bar. Per-disagreement evidence (the why: agent, both answers, raw inputs, versions) is built
   for the decisions that hold or hand over real messages: the word, live counts, promotion, readiness, busy,
   queue and claim. Reminder and stranded switch on counts plus his sign-off on a sample. In his words: "do not
   spend too much time on this. but reasonable amount to get proof and work proof based". All of it is temporary
