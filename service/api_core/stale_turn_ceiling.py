@@ -20,6 +20,8 @@ receipt is missing, the record cannot be read, more than one record holds the ag
 today's busy row, or the fold has no authoritative expiry for that turn. It reads the fold, so the owner stays
 fold-unverified until fold provenance lands; this slice measures and does not qualify.
 """
+import math
+
 from service.api_core import comms_view as cv
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
@@ -28,18 +30,48 @@ from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.clock import iso_to_epoch
 
 CEILING = 'stale-turn ceiling'
-UNREADABLE = object()  # the decision's receipt is missing or cannot be read
+EXCLUDED, UNKNOWN_ELIGIBILITY = 'excluded', 'eligibility-unknown'
+KNOWN_RELEASES = ('no-row', 'read-error')  # receipts of a decision that released delivery without a ceiling
 
 
-def today_ceiling(receipt):
-    """PURE. (holds, anchor, column), or None when today applied no ceiling: the receipt read no busy row."""
-    if not receipt or receipt.get('read') != 'row' or not int(receipt.get('turn_busy') or 0):
-        return None
+def _finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def classify(receipt):
+    """PURE. The population a receipt belongs to (the B6c population contract, design rev2):
+
+    - EXCLUDED: a readable receipt of a decision that applied no ceiling: a row that is not busy, no row, or a read
+      error. Nothing is recorded. It needs no clock, since it never had one.
+    - UNKNOWN_ELIGIBILITY: no receipt, an unreadable or malformed discriminator or busy field, or a busy row without a
+      finite numeric clock. Counted unavailable, never compared, with no today answer.
+    - an eligible busy row: (holds, anchor, column), today's strict arm on the legacy anchor selection, `started or
+      touched` as parsed; two unusable anchors keep anchor and column None (today's real answer is then False).
+    """
+    if not isinstance(receipt, dict):
+        return UNKNOWN_ELIGIBILITY
+    read = receipt.get('read')
+    if read in KNOWN_RELEASES:
+        return EXCLUDED
+    if read != 'row':
+        return UNKNOWN_ELIGIBILITY
+    try:
+        busy = int(receipt.get('turn_busy') or 0)  # the decision's own reading of the column
+    except (TypeError, ValueError):
+        return UNKNOWN_ELIGIBILITY
+    if not busy:
+        return EXCLUDED
+    now = receipt.get('nowEpoch')
+    if not _finite_number(now):
+        return UNKNOWN_ELIGIBILITY
     started = iso_to_epoch(str(receipt.get('turn_started_at') or ''))
     touched = iso_to_epoch(str(receipt.get('turn_updated_at') or ''))
-    holds = turn_is_still_live(started_epoch=started, touched_epoch=touched, renewable=False,
-                               now_epoch=receipt['nowEpoch'], strict_seconds=TURN_BUSY_BACKSTOP_SECONDS)
-    return holds, started or touched, 'turn_started_at' if started else 'turn_updated_at'
+    holds = turn_is_still_live(started_epoch=started, touched_epoch=touched, renewable=False, now_epoch=now,
+                               strict_seconds=TURN_BUSY_BACKSTOP_SECONDS)
+    anchor = started or touched
+    if not anchor:
+        return holds, None, None
+    return holds, anchor, 'turn_started_at' if started else 'turn_updated_at'
 
 
 def ceiling_candidate(frame, now):
@@ -58,36 +90,32 @@ def ceiling_candidate(frame, now):
 
 def observe_ceiling(decision, busy, site):
     """Record today's strict ceiling beside the candidate's. Never raises and never changes today's answer: a failure
-    anywhere before the recording is recorded once as 'shadow-error' (the recording itself is contained)."""
+    anywhere before the recording is recorded once as 'shadow-error', with no today answer (the recording itself is
+    contained)."""
     try:
         _observe(decision, busy, site)
     except Exception:
         try:
-            cv.record_answer(CEILING, NO_VARIANT, site, getattr(decision, 'holds', None), (NOT_KNOWN, 'shadow-error'),
-                             fold=True)
+            cv.record_answer(CEILING, NO_VARIANT, site, None, (NOT_KNOWN, 'shadow-error'), fold=True)
         except Exception:
             pass  # best effort: a broken recorder records nothing
 
 
 def _observe(decision, busy, site):
-    try:
-        today = today_ceiling(decision.receipt) if decision.receipt is not None else UNREADABLE
-    except Exception:
-        today = UNREADABLE
-    if today is None:
+    today = classify(decision.receipt)
+    if today == EXCLUDED:
         return
     basis = busy.basis if busy else None
+    if today == UNKNOWN_ELIGIBILITY:  # counted, never compared, and no answer stands in for today's
+        cv.record_answer(CEILING, NO_VARIANT, site, None, (NOT_KNOWN, UNKNOWN_ELIGIBILITY), binding=cv.binding_of(basis),
+                         fold=True)
+        return
     holder = None
-    try:
-        if today is UNREADABLE:  # counted, never compared: whether today applied a ceiling cannot be read
-            today, answer = (decision.holds, None, None), (NOT_KNOWN, 'comms-receipt')
-        elif basis is None:
-            answer = NOT_KNOWN, 'shadow-error'
-        else:
-            value, reason, holder = ceiling_candidate(basis.frame, decision.receipt['nowEpoch'])
-            answer = value, reason
-    except Exception:
+    if basis is None:
         answer = NOT_KNOWN, 'shadow-error'
+    else:
+        value, reason, holder = ceiling_candidate(basis.frame, decision.receipt['nowEpoch'])
+        answer = value, reason
     holds, anchor, column = today
     cv.record_answer(CEILING, NO_VARIANT, site, holds, answer, lambda: cv.basis_item(
         CEILING, NO_VARIANT, site, basis, holds, answer[0],

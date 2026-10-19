@@ -12,6 +12,7 @@ from unittest import mock
 
 from service.api_core import comms_view as cv, delivery_turns as dt, partial_status_shadow as shadow
 from service.api_core import shadow_evidence, shadow_provenance, stale_turn_ceiling as stc
+from service.api_core import claim_gating as cg
 from service.api_core.claim_gating import BusyDecision, turn_busy_decision
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS as CEILING_S
 from service.db import get_db
@@ -19,6 +20,7 @@ from service.tests import test_p7_witness_delivery_hold as p7
 from service.tests._base import FastApiTestCase
 from service.tests.delivery_witnesses import HOLD_LAW, INPUT_ADAPTER
 from service.tests.test_busy_consumers import CLOSED, FRESH, _Sites
+from service.tests.test_shadow_evidence_e2 import decide_busy
 
 NK = dt.NOT_KNOWN
 NOW = 1_800_000_000.0
@@ -45,28 +47,47 @@ def frame(*holders, at=NOW, others_unknown=False):
 
 class TodayTest(unittest.TestCase):
     def test_begun_within_and_past_the_ceiling(self):
-        self.assertEqual(stc.today_ceiling(receipt(100))[0], True)
-        self.assertEqual(stc.today_ceiling(receipt(2000))[0], False)
+        self.assertEqual(stc.classify(receipt(100))[0], True)
+        self.assertEqual(stc.classify(receipt(2000))[0], False)
 
     def test_the_boundary_is_inclusive_today(self):
-        self.assertEqual(stc.today_ceiling(receipt(CEILING_S))[0], True)
-        self.assertEqual(stc.today_ceiling(receipt(CEILING_S + 1))[0], False)
+        self.assertEqual(stc.classify(receipt(CEILING_S))[0], True)
+        self.assertEqual(stc.classify(receipt(CEILING_S + 1))[0], False)
 
     def test_a_future_anchor_is_a_law_class_today_false_candidate_true(self):
-        self.assertEqual(stc.today_ceiling(receipt(-1))[0], False, 'today refuses a negative age')
+        self.assertEqual(stc.classify(receipt(-1))[0], False, 'today refuses a negative age')
         self.assertEqual(stc.ceiling_candidate(frame(holder(NOW + 1 + CEILING_S)), NOW)[:2], (True, None))
 
     def test_a_verified_renewal_does_not_extend_the_strict_arm(self):
-        self.assertEqual(stc.today_ceiling(receipt(2000, touched_ago=5, renewal='verified'))[0], False)
+        self.assertEqual(stc.classify(receipt(2000, touched_ago=5, renewal='verified'))[0], False)
 
-    def test_an_anchorless_row_names_the_fallback_column(self):
-        holds, anchor, column = stc.today_ceiling(receipt(None, touched_ago=60))
+    def test_the_anchor_follows_the_parsed_selection(self):
+        holds, anchor, column = stc.classify(receipt(None, touched_ago=60))
         self.assertEqual((holds, anchor, column), (True, NOW - 60, 'turn_updated_at'))
-        self.assertEqual(stc.today_ceiling(receipt(100))[1:], (NOW - 100, 'turn_started_at'))
+        malformed = dict(receipt(100, touched_ago=60), turn_started_at='not-a-time')
+        self.assertEqual(stc.classify(malformed), (True, NOW - 60, 'turn_updated_at'),
+                         'a nonempty start that does not parse falls back to the touch')
+        self.assertEqual(stc.classify(receipt(100))[1:], (NOW - 100, 'turn_started_at'))
 
-    def test_no_busy_row_is_no_ceiling_decision(self):
-        for r in (receipt(busy=0), dict(read='no-row'), dict(read='read-error')):
-            self.assertIsNone(stc.today_ceiling(r), r)
+    def test_two_unusable_anchors_invent_no_anchor(self):
+        both = dict(receipt(100), turn_started_at='junk', turn_updated_at='')
+        self.assertEqual(stc.classify(both), (False, None, None), "today's real answer, and no number made up")
+
+    def test_known_exclusions_need_no_clock(self):
+        for r in (receipt(busy=0), {'read': 'row', 'turn_busy': None}, {'read': 'no-row'}, {'read': 'read-error'}):
+            self.assertEqual(stc.classify(r), stc.EXCLUDED, r)
+
+    def test_what_cannot_be_read_is_eligibility_unknown(self):
+        def without_clock(value):
+            r = receipt(100)
+            r['nowEpoch'] = value
+            return r
+        cases = [None, 'a string', {'read': 'other'}, {'turn_busy': 1}, dict(receipt(100), turn_busy='busy'),
+                 without_clock(None), without_clock(True), without_clock(float('nan')), without_clock(float('inf')),
+                 without_clock(str(NOW))]
+        for r in cases:
+            self.assertEqual(stc.classify(r), stc.UNKNOWN_ELIGIBILITY, r)
+        self.assertEqual(stc.classify(receipt(100))[0], True, 'CONTROL: an intact busy row is eligible')
 
 
 class CandidateTest(unittest.TestCase):
@@ -81,7 +102,10 @@ class CandidateTest(unittest.TestCase):
         self.assertEqual(stc.ceiling_candidate(frame(holder(NOW - 1, freshness='fresh')), NOW)[:2], (False, None))
 
     def test_it_is_judged_at_the_receipts_instant_not_the_frames(self):
+        # The expiry lies strictly between the receipt's clock and the frame's, so the two clocks disagree.
         self.assertEqual(stc.ceiling_candidate(frame(holder(NOW + 50), at=NOW + 100), NOW)[:2], (True, None))
+        self.assertEqual(stc.ceiling_candidate(frame(holder(NOW + 150), at=NOW + 100), NOW)[:2], (True, None),
+                         'CONTROL: an expiry past both clocks holds either way')
 
     def test_each_unknown_names_its_reason_and_is_never_false(self):
         cases = {
@@ -112,9 +136,10 @@ class ParityTest(FastApiTestCase):
             self.client.post('/api/v1/agents', json={'agentId': agent, 'role': 'coder'}).raise_for_status()
             INPUT_ADAPTER.apply(self._db_path, agent, case.spec)
             decision = asyncio.run(decide(agent))
-            today = stc.today_ceiling(decision.receipt)
-            if decision.renewal == 'verified' or today is None:
-                self.assertFalse(today is None and decision.holds, f'{agent}: a hold with no ceiling decision')
+            today = stc.classify(decision.receipt)
+            self.assertNotEqual(today, stc.UNKNOWN_ELIGIBILITY, f'{agent}: a real receipt was unreadable')
+            if decision.renewal == 'verified' or today == stc.EXCLUDED:
+                self.assertFalse(today == stc.EXCLUDED and decision.holds, f'{agent}: a hold with no ceiling decision')
                 continue
             compared += 1
             self.assertEqual(today[0], decision.holds, agent)
@@ -161,13 +186,45 @@ class ObserverTest(unittest.TestCase):
         self.observe(receipt(100), frame(holder(NOW + 1)))
         self.assertEqual(self.owner()['counts']['observed'], 1, 'CONTROL: the busy row is observed, the idle one not')
 
-    def test_a_missing_or_unreadable_receipt_or_basis_is_unavailable(self):
+    def test_unknown_eligibility_is_counted_apart_and_never_compared(self):
         self.observe(None, frame(holder(NOW + 1)))
         unreadable = receipt(100)
         del unreadable['nowEpoch']
         self.observe(unreadable, frame(holder(NOW + 1)))
-        self.observe(receipt(100), None)
-        self.assertEqual(self.owner()['unavailableByReason'], {'claim': {'comms-receipt': 2, 'shadow-error': 1}})
+        self.observe(receipt(100), None)  # eligible, but the candidate has no basis
+        self.observe({'read': 'no-row'}, None)  # a known exclusion stays excluded whatever the basis
+        owner = self.owner()
+        self.assertEqual(owner['unavailableByReason'], {'claim': {'eligibility-unknown': 2, 'shadow-error': 1}})
+        counts = owner['counts']
+        self.assertEqual((counts['evaluated'], counts['partialCompared'], counts['unavailable']), (3, 0, 3))
+        self.assertEqual(counts['partialCompared'] + counts['unavailable'], counts['evaluated'])
+
+    def test_the_real_receipt_failure_is_eligibility_unknown_beside_an_intact_control(self):
+        healthy, _ = decide_busy(rows=(1,))
+
+        class Unreadable:
+            def __iter__(self):
+                raise RuntimeError('receipt builder broken')
+        with mock.patch.object(cg, 'TURN_COLUMNS', Unreadable()):
+            broken, _ = decide_busy(rows=(1,))
+        self.assertEqual((broken.holds, broken.receipt), (True, None), 'CONTROL: the seam kept the real decision')
+        for decision in (healthy, broken):
+            stc.observe_ceiling(decision, cv.BusyObservation(
+                {}, cv.Basis(decision, frame(holder(NOW + 1)), None, 'not-needed', ('m', 'a'))), 'claim')
+        counts = self.owner()['counts']
+        self.assertEqual((counts['evaluated'], counts['partialCompared']), (2, 1), 'the intact row is compared')
+        self.assertEqual(self.owner()['unavailableByReason'], {'claim': {'eligibility-unknown': 1}})
+
+    def test_unknown_eligibility_records_no_today_answer(self):
+        seen = []
+        real = self.recorder.record_owner
+
+        def spy(owner, variant, site, today, *args, **kwargs):
+            seen.append(today)
+            return real(owner, variant, site, today, *args, **kwargs)
+        with mock.patch.object(self.recorder, 'record_owner', spy):
+            self.observe(None, frame(holder(NOW + 1)))
+        self.assertEqual(seen, [None], 'neither decision.holds nor a made-up False stands in for today')
 
     def test_an_observation_marks_a_fold_read(self):
         self.observe(receipt(100), frame(holder(NOW + 1)))
