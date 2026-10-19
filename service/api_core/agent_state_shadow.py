@@ -75,6 +75,12 @@ def _decode(raw):
         raise InvalidPublication('invalid UTF8 JSON') from error
 
 
+def _build(value):
+    """B6a: an aify-env build, when published, is a nonempty string of at most 200 characters. An unknown build is
+    omitted, never null."""
+    _require(type(value) is str and 0 < len(value) <= 200, 'expected build string')
+
+
 def _record(record):
     # name, role and launch arrived with C1: optional, so a publisher from before them is still read.
     _object(record, ('agentId', 'lifetime', 'state', 'stateCause', 'busy', 'process', 'turn'), ('name', 'role', 'launch'))
@@ -105,7 +111,9 @@ def _record(record):
         _integer(process['pid'], 1)
     turn = record['turn']
     if turn is not None:
-        _object(turn, ('open', 'startedAtUs', 'lastEventAtUs', 'awaitingInput', 'busyIf'))
+        _object(turn, ('open', 'startedAtUs', 'lastEventAtUs', 'awaitingInput', 'busyIf'), ('ageMs',))
+        if 'ageMs' in turn:  # B6: the turn's age on the publisher's clock when it published
+            _integer(turn['ageMs'])
         for key in ('open', 'awaitingInput'):
             _flag(turn[key])
         for key in ('startedAtUs', 'lastEventAtUs'):
@@ -121,13 +129,15 @@ def _validate(body):
     _word(kind, {'snapshot', 'changes', 'unavailable'})
     common = ('kind', 'machineId', 'instance', 'generation', 'incarnationId', 'publication', 'inputs')
     if kind == 'unavailable':
-        _object(body, (*common, 'reason'))
+        _object(body, (*common, 'reason'), ('build',))
         _text(body['reason'])
     elif kind == 'snapshot':
-        _object(body, (*common, 'complete', 'agents'), ('removed',))
+        _object(body, (*common, 'complete', 'agents'), ('removed', 'build'))
         _require(body['complete'] is True, 'snapshot must be complete')
     else:
-        _object(body, (*common, 'agents', 'removed'))
+        _object(body, (*common, 'agents', 'removed'), ('build',))
+    if 'build' in body:
+        _build(body['build'])
     for key in ('machineId', 'instance', 'incarnationId'):
         _text(body[key])
     for key in ('generation', 'publication'):
@@ -210,6 +220,8 @@ class AgentStateShadowStore:
             except Exception:
                 shadow.invalidate_safe(key)
                 projection = None
+            if body['kind'] != 'unavailable' or projection is None:  # what this publication put into effect (B6a)
+                shadow.recorder.provenance.applied(projection)
             # The delivery-turn fold reads the same committed publication, or loses what it knew (S2c slice 2).
             delivery_turns.publish_applied(projection, shadow.mirror.view())
             return ApplyResult(True)

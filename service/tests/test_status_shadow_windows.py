@@ -219,9 +219,9 @@ class ShadowWindowsTest(FastApiTestCase):
         owner = self.owner()
         self.recorder.record('refresh', 'blocked', 'online')  # before the drain: in no window
         original = self.windows.ShadowWindows._open
-        async def open_with_a_concurrent_observation(db, versions, at):
+        async def open_with_a_concurrent_observation(db, versions, at, seed):
             self.recorder.record('engine-status', 'online', 'online')  # after the drain, before the commit
-            return await original(db, versions, at)
+            return await original(db, versions, at, seed)
         with patch.object(self.windows.ShadowWindows, '_open', staticmethod(open_with_a_concurrent_observation)):
             self.wait(owner.start(self.v1, '2026-10-18T10:00:00Z'))
         self.wait(owner.tick(self.v1, '2026-10-18T10:00:30Z'))

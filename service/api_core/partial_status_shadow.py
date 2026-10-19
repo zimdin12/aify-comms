@@ -11,6 +11,7 @@ from service.status_engine import VALID_STATUSES
 from service.api_core.definition_schema import MODES
 from service.api_core.shadow_classes import classify, env_inputs
 from service.api_core.shadow_evidence import EVIDENCE_OWNERS, EvidenceBuffer, word_item
+from service.api_core.shadow_provenance import Provenance
 from service.api_core.shadow_owners import (COUNT_NAMES, NO_VARIANT, OWNERS as PURPOSES, UNOBSERVED, WORD, OwnerTally,
                                             checked_key, variants_of)
 
@@ -32,9 +33,10 @@ class Record:
     busy_if: tuple | None = None  # (strict, verifiedRenewal) of the record's turn, for comms_view's busy laws
     process: tuple | None = None  # (state, verified) of the record's process, for worker readiness (S2c slice 5)
     # S2c-E: the validated record as canonical JSON bytes, frozen at application (None over RAW_LIMIT), and the
-    # (generation, incarnation, publication, applied_at) of the publication that set it.
+    # (generation, incarnation, publication, applied_at, build) of the publication that set it (build: B6a).
     raw: bytes | None = None
     origin: tuple | None = None
+    age_ms: int | None = None  # turn.ageMs as published (B6), for the fold's start estimate
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,7 @@ class Projection:
     removed: tuple
     incarnation: str | None = None
     publication: int | None = None
+    build: str | None = None  # the publishing aify-env's build, when it published one (B6a)
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,7 @@ class Publisher:
     loss: bool = False
     incarnation: str | None = None
     publication: int | None = None
+    build: str | None = None  # of the last DATA publication: an unavailable one never changes it
 
 
 RAW_LIMIT = 16384  # bytes of one record's canonical JSON the evidence keeps; a larger record keeps none (S2c-E)
@@ -75,14 +79,15 @@ def raw_bytes(record):
 
 def prepare(body, applied_at):
     """Detach only validated fields before opening the acceptance transaction."""
-    origin = (body['generation'], body['incarnationId'], body['publication'], applied_at)
+    build = body.get('build')
+    origin = (body['generation'], body['incarnationId'], body['publication'], applied_at, build)
     return Projection((body['machineId'], body['instance']), body['kind'], body['generation'],
                       applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r),
                                                turn_busy_if(r), (r['process']['state'], r['process']['verified']),
-                                               raw_bytes(r), origin)
+                                               raw_bytes(r), origin, (r['turn'] or {}).get('ageMs'))
                                         for r in body.get('agents', ())),
                       tuple((r['agentId'], r['lifetime']) for r in body.get('removed', ())),
-                      body['incarnationId'], body['publication'])
+                      body['incarnationId'], body['publication'], build)
 
 
 def turn_clock(record):
@@ -107,7 +112,8 @@ class Mirror:
         old = view.get(key)
         view[key] = Publisher(old.generation if old else None, old.data_applied_at if old else None,
                               False, True, old.rows if old else (), True,
-                              old.incarnation if old else None, old.publication if old else None)
+                              old.incarnation if old else None, old.publication if old else None,
+                              old.build if old else None)
         self._view = MappingProxyType(view)
 
     def feed(self, projection):
@@ -117,7 +123,8 @@ class Mirror:
         if p.kind == 'unavailable':
             view[p.key] = Publisher(old.generation if old else None, old.data_applied_at if old else None,
                                     old.complete if old else False, True, old.rows if old else (), False,
-                                    old.incarnation if old else None, old.publication if old else None)
+                                    old.incarnation if old else None, old.publication if old else None,
+                                    old.build if old else None)
         else:
             replace = p.kind == 'snapshot' or old is None or old.generation != p.generation
             rows = {} if replace else {r.agent_id: r for r in old.rows}
@@ -128,7 +135,7 @@ class Mirror:
             rows.update((r.agent_id, r) for r in p.rows)
             complete = p.kind == 'snapshot' or (not replace and old.complete)
             view[p.key] = Publisher(p.generation, p.data_applied_at, complete, False, tuple(rows.values()), False,
-                                    p.incarnation, p.publication)
+                                    p.incarnation, p.publication, p.build)
         self._view = MappingProxyType(view)
 
 
@@ -263,9 +270,12 @@ class Recorder:
         self._healthy = set()  # publisher keys a comparison completed for
         # One item per counted disagreement of an evidence owner, taken beside `take()` with no await between (S2c-E).
         self.evidence = EvidenceBuffer()
+        # The env builds and fold readers behind what was counted (B6a), taken beside `take()` the same way.
+        self.provenance = Provenance()
 
     def record(self, source, actual=None, candidate=None, reason=None, non_evaluation=False, inputs=None, scope=None,
-               env_inputs=None, evidence=None):
+               env_inputs=None, evidence=None, binding=None):
+        self.provenance.observe(WORD, binding, False)
         observation = Observation(actual if actual in VALID_STATUSES else None,
                                   candidate if candidate in VALID_STATUSES else None, reason, inputs)
         names = ['observed']
@@ -306,10 +316,12 @@ class Recorder:
                 counts[name] += 1
             self._pending[(WORD, NO_VARIANT, source, name)] += 1
 
-    def record_owner(self, owner, variant, site, today, candidate, reason=None, evidence=None):
+    def record_owner(self, owner, variant, site, today, candidate, reason=None, evidence=None, binding=None, fold=False):
         """One evaluation of a non-word owner: today's answer and the candidate's, or why the candidate has none.
-        `evidence` builds the item a counted disagreement of an evidence owner keeps."""
+        `evidence` builds the item a counted disagreement of an evidence owner keeps; `binding` is the env view this
+        evaluation consulted and `fold` whether it read the delivery-turn fold, both counted with it (B6a)."""
         key = checked_key(owner, variant, site)
+        self.provenance.observe(owner, binding, fold)
         tally = self._owners.setdefault(key[:2], OwnerTally())
         names = tally.record(site, today, candidate, reason)
         for name in names:
@@ -323,6 +335,10 @@ class Recorder:
         taken = dict(self._pending), frozenset(self._lost), frozenset(self._healthy)
         self._pending, self._lost, self._healthy = Counter(), set(), set()
         return taken
+
+    def take_provenance(self):
+        """(builds, fold owners, seed) since the last take, reseeded from the mirror as it stands now."""
+        return self.provenance.take(bind())
 
     def report(self):
         counts = {name: sum(row[name] for row in self._counts.values()) for name in COUNT_NAMES}
@@ -398,7 +414,8 @@ def observe(binding, agent_row, inputs, actual, source):
         except Exception:
             candidate, reason = None, 'unknown-loss'  # scope stays None: what was lost cannot be told
         recorder.record(source, actual, candidate, reason, inputs=projected, scope=scope, env_inputs=env,
-                        evidence=lambda: word_item(binding, identity, inputs, actual, candidate, source))
+                        evidence=lambda: word_item(binding, identity, inputs, actual, candidate, source),
+                        binding=binding)
     except Exception:
         # The recorder itself is observational. Never mutate or interrupt current status.
         pass

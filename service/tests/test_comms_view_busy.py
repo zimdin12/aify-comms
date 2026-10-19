@@ -309,10 +309,10 @@ class _SiteObservation:
         """The real recorder for strict; P-1's record and its fallback both raise."""
         real = self.recorder.record_owner
 
-        def record(owner, variant, site, today, candidate, reason=None):
+        def record(owner, variant, site, today, candidate, reason=None, **kwargs):
             if variant == 'P-1':
                 raise RuntimeError('recorder broken for P-1')
-            return real(owner, variant, site, today, candidate, reason)
+            return real(owner, variant, site, today, candidate, reason, **kwargs)
         return mock.patch.object(self.recorder, 'record_owner', side_effect=record)
 
     def assert_one_strict_and_no_p1(self, site):

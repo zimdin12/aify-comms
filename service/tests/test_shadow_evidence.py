@@ -34,10 +34,10 @@ def inputs(**extra):
 
 
 def body(generation=1, publication=1, instance='i1', state='idle', machine=MACHINE, pad=0, agents=('a',),
-         kind='snapshot'):
+         kind='snapshot', build=None):
     records = [dict(env_row(agent), state=state, **({'pad': 'x' * pad} if pad else {})) for agent in agents]
     value = dict(kind=kind, machineId=machine, instance=instance, generation=generation, incarnationId='boot',
-                 publication=publication, inputs={}, agents=records, removed=[])
+                 publication=publication, inputs={}, agents=records, removed=[], **({'build': build} if build else {}))
     return dict(value, complete=True) if kind == 'snapshot' else value
 
 
@@ -403,6 +403,10 @@ class RotationTest(_Evidence):
 
 
 class ReadTest(_Evidence):
+    def feed(self, applied, **kwargs):
+        # One known env build throughout, so a window can qualify on its builds (B6a); E1's other tests publish none.
+        super().feed(applied, **dict(dict(build='envA'), **kwargs))
+
     def history(self, versions=V):
         """W1: 2 complete word items, 1 incomplete, a reminder disagreement; closed by a version change."""
         owner = windows.ShadowWindows(self.recorder)

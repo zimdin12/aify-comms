@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 import json
 
 from service.api_core.shadow_evidence import BOOT_ID
+from service.api_core.shadow_provenance import UNKNOWN as UNKNOWN_BUILD, as_json, env_coherent, fold_unverified, parse_set
 from service.db import E1_EVIDENCE_OWNERS
 from service.api_core.shadow_owners import OWNERS, variants_of
 
@@ -61,6 +62,20 @@ async def append(db, window, items, gaps):
     row = await (await db.execute(
         'SELECT evidence_rows, evidence_bytes, opened_at FROM status_shadow_windows WHERE id = ?', (window,))).fetchone()
     return row[0], row[1], row[2]
+
+
+async def add_provenance(db, window, builds, fold):
+    """Inside the caller's transaction. Union this batch's env builds and fold readers into the window; returns the
+    builds the window held before. A stored set that cannot be read is kept as 'unknown', never repaired."""
+    row = await (await db.execute(
+        'SELECT env_builds, fold_unverified FROM status_shadow_windows WHERE id = ?', (window,))).fetchone()
+    seen = parse_set(row[0]) if row else None
+    readers = parse_set(row[1]) if row else None
+    seen = frozenset((UNKNOWN_BUILD,)) if seen is None else seen
+    readers = frozenset(fold) if readers is None else readers | fold
+    await db.execute('UPDATE status_shadow_windows SET env_builds = ?, fold_unverified = ? WHERE id = ?',
+                     (as_json(seen | builds), as_json(readers), window))
+    return seen
 
 
 async def _totals(db, window):
@@ -107,13 +122,16 @@ def instrumentation(owners, owner):
     return 'evidence' if owner in owners else 'counts-only'
 
 
-def coverage(totals, owners, clean):
+def coverage(totals, owners, clean, coherent=True, fold=frozenset()):
     """PURE. Every owner and variant, each with its sites' partition and whether that site's evidence is complete.
-    `owners` is window_owners(...) for the window; `clean` whether it closed keeping every batch."""
+    `owners` is window_owners(...) for the window; `clean` whether it closed keeping every batch; `coherent` whether
+    it saw exactly one known env build; `fold` the owners whose fold reads it recorded (B6a). Each refusal is named in
+    the owner's `gaps`, and an owner with a gap is never complete."""
     rows = []
     for owner in OWNERS:
         level = instrumentation(owners, owner)
-        evidence = level == 'evidence'
+        gaps = [gap for gap, present in (('env-version', not coherent), ('fold-context', owner in fold)) if present]
+        evidence = level == 'evidence' and not gaps
         for variant in variants_of(owner):
             sites = {}
             for (o, v, site), t in sorted(totals.items()):
@@ -122,13 +140,13 @@ def coverage(totals, owners, clean):
                 holds = t['disagreed'] == t['completeRows'] + t['incompleteRows'] + sum(t['missing'].values())
                 sites[site] = dict(t, partitionHolds=holds, complete=evidence and clean and holds and
                                    t['incompleteRows'] == 0 and not t['missing'])
-            rows.append(dict(owner=owner, variant=variant, instrumentation=level, sites=sites))
+            rows.append(dict(owner=owner, variant=variant, instrumentation=level, gaps=gaps, sites=sites))
     return rows
 
 
 def _window(row):
     keys = ('id', 'commsBuild', 'envBuild', 'wrapperBuild', 'openedAt', 'flushedAt', 'closedAt', 'closeReason',
-            'flushedSeq', 'evidenceRows', 'evidenceBytes', 'bootId', 'evidenceOwners')
+            'flushedSeq', 'evidenceRows', 'evidenceBytes', 'bootId', 'evidenceOwners', 'envBuilds', 'foldUnverified')
     return dict(zip(keys, row))
 
 
@@ -140,7 +158,8 @@ async def read_page(db, window_id, after=0, limit=PAGE_LIMIT, frontier=None, own
     try:
         row = await (await db.execute(
             'SELECT id, comms_build, env_build, wrapper_build, opened_at, flushed_at, closed_at, close_reason, '
-            'flushed_seq, evidence_rows, evidence_bytes, boot_id, evidence_owners FROM status_shadow_windows WHERE id = ?',
+            'flushed_seq, evidence_rows, evidence_bytes, boot_id, evidence_owners, env_builds, fold_unverified '
+            'FROM status_shadow_windows WHERE id = ?',
             (window_id,))).fetchone()
         if row is None:
             return await _expired(db, window_id)
@@ -166,7 +185,8 @@ async def read_page(db, window_id, after=0, limit=PAGE_LIMIT, frontier=None, own
                 items=[json.loads(payload) for _, payload in page],
                 nextAfter=page[-1][0] if page else after, hasMore=len(items) > limit,
                 coverage=coverage(totals, window_owners(window['bootId'] is not None, window['evidenceOwners']),
-                                  window['closeReason'] in CLEAN_CLOSES and not stale))
+                                  window['closeReason'] in CLEAN_CLOSES and not stale,
+                                  env_coherent(window['envBuilds']), fold_unverified(window['foldUnverified'])))
 
 
 async def _expired(db, window_id):
@@ -182,11 +202,15 @@ async def _expired(db, window_id):
                             openedAt=row[3], flushedAt=summary['flushedAt'], closedAt=row[4], closeReason=row[5],
                             flushedSeq=summary['flushedSeq'], evidenceRows=summary['evidenceRows'],
                             evidenceBytes=summary['evidenceBytes'], bootId=summary['bootId'],
-                            evidenceOwners=stored, deletedAt=row[7], expired=True, provisional=False),
+                            evidenceOwners=stored, envBuilds=summary.get('envBuilds'),
+                            foldUnverified=summary.get('foldUnverified'), deletedAt=row[7], expired=True,
+                            provisional=False),
                 frontier=summary['flushedSeq'], windowFrontier=summary['flushedSeq'], staleFrontier=False, items=[],
                 nextAfter=0, hasMore=False,
                 coverage=coverage({tuple(t['key']): t['totals'] for t in summary['totals']},
-                                  window_owners(summary['instrumented'], stored), False))
+                                  window_owners(summary['instrumented'], stored), False,
+                                  env_coherent(summary.get('envBuilds')),
+                                  fold_unverified(summary.get('foldUnverified'))))
 
 
 async def expire(db, at):
@@ -197,8 +221,8 @@ async def expire(db, at):
     async def old_windows():
         rows = await (await db.execute(
             'SELECT id, comms_build, wrapper_build, opened_at, closed_at, close_reason, flushed_seq, evidence_rows, '
-            'evidence_bytes, boot_id, env_build, flushed_at, evidence_owners FROM status_shadow_windows '
-            'WHERE closed_at IS NOT NULL')).fetchall()
+            'evidence_bytes, boot_id, env_build, flushed_at, evidence_owners, env_builds, fold_unverified '
+            'FROM status_shadow_windows WHERE closed_at IS NOT NULL')).fetchall()
         return [r for r in rows if _parse(r[4]) < cutoff]
     if not await old_windows():
         return 0  # the usual tick: no write lock taken
@@ -209,7 +233,8 @@ async def expire(db, at):
             totals = await _totals(db, r[0])
             # Every field a live read shows, as the window held it: an unknown env build stays an explicit null.
             summary = dict(flushedSeq=r[6], evidenceRows=r[7], evidenceBytes=r[8], bootId=r[9], envBuild=r[10],
-                           flushedAt=r[11], evidenceOwners=r[12], instrumented=r[9] is not None,
+                           flushedAt=r[11], evidenceOwners=r[12], envBuilds=r[13], foldUnverified=r[14],
+                           instrumented=r[9] is not None,
                            totals=[dict(key=list(k), totals=t) for k, t in sorted(totals.items())])
             await db.execute(
                 'INSERT INTO status_shadow_window_tombstones (window_id, comms_build, wrapper_build, opened_at, '

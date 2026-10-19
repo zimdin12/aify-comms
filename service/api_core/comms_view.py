@@ -26,6 +26,7 @@ from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.shadow_owners import variants_of
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.api_core.shadow_evidence import item
+from service.api_core.shadow_provenance import LOST
 from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.clock import iso_to_epoch
 
@@ -171,6 +172,11 @@ class BusyObservation:
     basis: Basis | None = None
 
 
+def binding_of(basis):
+    """The env view a busy basis was captured from; LOST when the evaluation failed before holding one."""
+    return basis.frame.binding if basis is not None and basis.frame.binding is not None else LOST
+
+
 def basis_body(basis):
     """(today, candidate inputs, missing): the explicit projection of a basis. The frame's binding is custody for the
     census and is never serialized itself."""
@@ -202,16 +208,16 @@ async def _compute(db, agent_row, decision):
     return answers, Basis(decision, frame, renewal, source, (agent_row['machine_id'], agent_id))
 
 
-def record_answer(owner, variant, site, today, answer, evidence=None):
+def record_answer(owner, variant, site, today, answer, evidence=None, binding=None, fold=False):
     """One observation, contained: a recording that raises is recorded once more as 'shadow-error', then dropped.
-    `evidence` builds a counted disagreement's item (S2c-E)."""
+    `evidence` builds a counted disagreement's item (S2c-E); `binding` and `fold` say what it consulted (B6a)."""
     value, reason = answer
     try:
         shadow.recorder.record_owner(owner, variant, site, today, None if value is NOT_KNOWN else value, reason,
-                                     evidence=evidence)
+                                     evidence=evidence, binding=binding, fold=fold)
     except Exception:
         try:
-            shadow.recorder.record_owner(owner, variant, site, today, None, 'shadow-error')
+            shadow.recorder.record_owner(owner, variant, site, today, None, 'shadow-error', binding=binding, fold=fold)
         except Exception:
             pass  # best effort: a broken recorder records nothing
 
@@ -228,5 +234,6 @@ async def observe_busy(db, agent_row, decision, site):
         answer = results[variant] if results else (NOT_KNOWN, 'shadow-error')
         record_answer(OWNER, variant, site, decision.holds, answer,
                       lambda variant=variant, answer=answer: basis_item(
-                          OWNER, variant, site, basis, decision.holds, answer[0], candidate_extra=dict(reason=answer[1])))
+                          OWNER, variant, site, basis, decision.holds, answer[0], candidate_extra=dict(reason=answer[1])),
+                      binding_of(basis), fold=True)
     return BusyObservation(results, basis)

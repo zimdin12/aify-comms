@@ -21,6 +21,7 @@ stranded are counts-only by the operator's C8 ruling, so they keep none.
 from service.api_core import comms_view as cv, delivery_turns as dt
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.shadow_owners import NO_VARIANT
+from service.api_core.shadow_provenance import LOST
 from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS
 
 QUEUE, CLAIM = 'send-time queue', 'claim'
@@ -138,7 +139,7 @@ def observe_queue(occupied, today, decision, busy, occupancy=None):
     cv.record_answer(QUEUE, NO_VARIANT, 'send-time', bool(today), answer, lambda: cv.basis_item(
         QUEUE, NO_VARIANT, 'send-time', _basis(busy), bool(today), answer[0],
         dict(occupied=occupied, hasActiveRun=active, queuedRuns=queued),
-        dict(occupied=occupied, hold=hold, reason=answer[1])))
+        dict(occupied=occupied, hold=hold, reason=answer[1])), cv.binding_of(_basis(busy)), fold=True)
 
 
 async def observe_claim(db, agent_row, withheld, steerable, decision, busy, read_steerable):
@@ -159,10 +160,12 @@ async def observe_claim(db, agent_row, withheld, steerable, decision, busy, read
     cv.record_answer(CLAIM, NO_VARIANT, 'claim', bool(withheld), answer, lambda: cv.basis_item(
         CLAIM, NO_VARIANT, 'claim', _basis(busy), bool(withheld), answer[0],
         dict(withheld=bool(withheld), todaySteerable=_steerability(today_steerable, 'not-asked')),
-        dict(hold=hold, shadowSteerable=_steerability(shadow_steerable, 'not-read'), reason=answer[1])))
+        dict(hold=hold, shadowSteerable=_steerability(shadow_steerable, 'not-read'), reason=answer[1])),
+        cv.binding_of(_basis(busy)), fold=True)
 
 
 async def observe_reminder(db, agent_id, run_id, today, *, blocked, occupied, agent_row=UNREAD):
+    binding = None  # blocked, occupied or unassociated: no env view consulted
     try:
         if blocked:
             answer = False, None
@@ -170,11 +173,16 @@ async def observe_reminder(db, agent_id, run_id, today, *, blocked, occupied, ag
             answer = True, None
         else:
             machine = await _machine(db, agent_id, agent_row)
-            answer = ((NOT_KNOWN, 'association') if machine is NOT_KNOWN
-                      else other_work(cv.capture(machine, agent_id), run_id))
+            if machine is NOT_KNOWN:
+                answer = NOT_KNOWN, 'association'
+            else:
+                binding = LOST  # until the capture below holds one
+                frame = cv.capture(machine, agent_id)
+                binding = frame.binding if frame.binding is not None else LOST
+                answer = other_work(frame, run_id)
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(REMINDER, NO_VARIANT, 'reminder', bool(today), answer)
+    cv.record_answer(REMINDER, NO_VARIANT, 'reminder', bool(today), answer, binding=binding, fold=True)
 
 
 async def observe_stranded(db, agent_id, run_id, today):
@@ -184,4 +192,4 @@ async def observe_stranded(db, agent_id, run_id, today):
                   else stranded_candidate(dt.FOLD.turn(machine, agent_id), run_id))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(STRANDED, NO_VARIANT, 'stranded', bool(today), answer)
+    cv.record_answer(STRANDED, NO_VARIANT, 'stranded', bool(today), answer, fold=True)  # the fold only: no env view

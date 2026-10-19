@@ -19,7 +19,8 @@ open or unknown delivery turn unknown.
 THE START ESTIMATE (`appliedAt - ageMs`, kept per turn at its minimum) is authoritative only for a turn this fold saw
 begin after a closed observation, and only while every applied publication of it was consumed and carried an age. A
 withheld or ageless one makes it non-authoritative for good: a later or smaller age cannot prove nothing earlier was
-missed. aify-env does not publish ageMs yet (B6), so live every estimate is unknown.
+missed. The application stamp is whole seconds, so the sample is (stamp + its resolution) - ageMs: never before
+the true start, at most one resolution later than the receipt-minus-age it stands for (B6).
 
 RECORD FRESHNESS (slice 4, for the reminder skip) is when a lineage's open turn last advanced, on the application
 clock, bound to that turn's startedAtUs. It has its own baseline, apart from the delivery effects: a lineage with no
@@ -28,7 +29,7 @@ reappears unchanged is not an advance. A quiet republication never refreshes it,
 """
 from dataclasses import dataclass, replace
 
-from service.clock import iso_to_epoch
+from service.clock import NOW_RESOLUTION_SECONDS, iso_to_epoch
 
 
 class _Unknown:
@@ -150,8 +151,8 @@ class DeliveryTurns:
                                             else reporter_clear(turn, run_id))
 
     def env_applied(self, projection, view, age_ms=None):
-        """One publication the receiver committed, with the view it produced. `age_ms` maps an agent to its turn age;
-        the wire carries none yet (B6)."""
+        """One publication the receiver committed, with the view it produced. `age_ms` maps an agent to its turn age,
+        as the publication carried it (B6)."""
         machine = projection.key[0]
         at = iso_to_epoch(projection.data_applied_at, None)
         for record in projection.rows:
@@ -197,7 +198,7 @@ class DeliveryTurns:
         old = self._estimates.get(key)
         if old is None:
             old = Estimate(None, previous is not None and previous.open is False)
-        sample = None if age is None else at - age / 1000
+        sample = None if age is None else at + NOW_RESOLUTION_SECONDS - age / 1000
         if sample is None:
             self._estimates[key] = Estimate(old.minimum, False)
         else:
@@ -231,6 +232,6 @@ def publish_applied(projection, view):
         if projection is None:
             FOLD.lose_everything()
         else:
-            FOLD.env_applied(projection, view)
+            FOLD.env_applied(projection, view, {r.agent_id: r.age_ms for r in projection.rows if r.age_ms is not None})
     except Exception:
         FOLD.lose_everything()

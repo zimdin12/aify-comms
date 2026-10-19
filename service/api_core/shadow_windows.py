@@ -2,7 +2,10 @@
 
 A WINDOW is one stretch of continuous recording on one version triple (comms, env, wrapper build). It closes, and
 the next one opens, when the service restarts, when a publication loss begins or ends, when a version changes, or
-when its evidence rotates (shadow_evidence_store: a size or age bound, tested after this tick's append).
+when its evidence rotates (shadow_evidence_store: a size or age bound, tested after this tick's append). The env
+build is not sampled: the recorder's provenance hands over every build its observations and applied publications
+depended on (B6a), the window keeps their union, and a batch bringing a build the window has not seen closes it after
+the append. That window then holds two builds and never qualifies; the next opens from the builds still in effect.
 A closed window is never reopened or merged, so an interruption stays visible as a gap between windows rather than
 disappearing into a running total. Its counts are deltas taken from the in-process recorder.
 
@@ -20,6 +23,7 @@ from service import clock
 from service.db import get_db
 from service.api_core import partial_status_shadow as shadow, shadow_evidence_store as evidence_store
 from service.api_core.shadow_evidence import BOOT_ID, EVIDENCE_OWNERS, owners_json
+from service.api_core.shadow_provenance import as_json
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +33,7 @@ FLUSH_SECONDS = 30
 @dataclass(frozen=True)
 class Versions:
     comms: str
-    env: str | None = None  # null until aify-env publishes its build (B6); never guessed
+    env: str | None = None  # retired by B6a: a window's env builds come from its observations, not from here
     wrapper: str | None = None
 
 
@@ -73,12 +77,13 @@ class ShadowWindows:
         # from here on is flushed into the window this opens.
         self.recorder.take()
         self.recorder.evidence.take()
+        _, _, seed = self.recorder.take_provenance()
         db = await self._connect()
         try:
             await db.execute('BEGIN IMMEDIATE')
             await db.execute("UPDATE status_shadow_windows SET closed_at = flushed_at, close_reason = 'service-restart' "
                              "WHERE closed_at IS NULL")
-            window = await self._open(db, versions, at)
+            window = await self._open(db, versions, at, seed)
             await db.commit()
             # Adopted at the commit, before the awaited close: a close that fails cannot leave the owner behind it.
             self._window, self._versions = window, versions
@@ -89,6 +94,7 @@ class ShadowWindows:
         """Flush what was recorded into the current window, then close it if this flush ends its continuity."""
         pending, lost_seen, healthy_seen = self.recorder.take()
         items, gaps = self.recorder.evidence.take()  # no await between: the items are the counts' disagreements
+        builds, fold, seed = self.recorder.take_provenance()  # and the builds and fold readers behind them
         reason, still_in_loss = next_reason(flush_lost=self._flush_lost, versions_changed=versions != self._versions,
                                             in_loss=self._in_loss, lost_seen=lost_seen, healthy_seen=healthy_seen)
         self._flush_lost = True  # until this flush commits: a failure from here on loses the counts just taken
@@ -104,12 +110,17 @@ class ShadowWindows:
                     'DO UPDATE SET count = count + excluded.count', (window, owner, variant, site, name, count))
             await db.execute('UPDATE status_shadow_windows SET flushed_at = ? WHERE id = ?', (at, window))
             rows, size, opened_at = await evidence_store.append(db, window, items, gaps)
+            seen = await evidence_store.add_provenance(db, window, builds, fold)
+            # After the append: the batch that brought a new build is in this window. A window that opened with no env
+            # view in effect (a restart's empty mirror) takes its first builds without closing.
+            if reason is None and seen and not builds <= seen:
+                reason = 'version-change'
             if reason is None and evidence_store.rotation_due(rows, size, opened_at, at):
                 reason = 'rotation'
             if reason:
                 await db.execute('UPDATE status_shadow_windows SET closed_at = ?, close_reason = ? WHERE id = ?',
                                  (at, reason, window))
-                window = await self._open(db, versions, at)
+                window = await self._open(db, versions, at, seed)
             await db.commit()
             # Adopted at the commit, before the awaited close: a close that fails cannot leave the owner behind it.
             self._window, self._versions, self._in_loss, self._flush_lost = window, versions, still_in_loss, False
@@ -117,11 +128,13 @@ class ShadowWindows:
             await db.close()
 
     @staticmethod
-    async def _open(db, versions, at):
+    async def _open(db, versions, at, seed):
+        """`seed` is the env builds in effect when the window opens."""
         cursor = await db.execute(
             'INSERT INTO status_shadow_windows (comms_build, env_build, wrapper_build, opened_at, flushed_at, boot_id, '
-            'evidence_owners) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (versions.comms, versions.env, versions.wrapper, at, at, BOOT_ID, owners_json(EVIDENCE_OWNERS)))
+            'evidence_owners, env_builds, fold_unverified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (versions.comms, versions.env, versions.wrapper, at, at, BOOT_ID, owners_json(EVIDENCE_OWNERS),
+             as_json(seed), as_json(())))
         return cursor.lastrowid
 
 

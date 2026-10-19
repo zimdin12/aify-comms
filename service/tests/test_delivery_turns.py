@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from service.api_core import delivery_turns as dt
+from service.clock import NOW_RESOLUTION_SECONDS
 from service.api_core.partial_status_shadow import Projection, Publisher, Record
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_state_receiver import AT, body, row, wire
@@ -16,6 +17,7 @@ from service.tests.test_agent_state_receiver import AT, body, row, wire
 A, B = ('m', 'a'), ('m', 'b')  # two publishers (instances) on one machine
 HOST = ' Host '  # the receiver fixture's publishing machine
 T0 = 1_000.0
+R = NOW_RESOLUTION_SECONDS  # an estimate's anchor is the stamp plus its resolution (B6)
 
 
 def record(agent='x', lifetime='L', clock=None):
@@ -129,7 +131,8 @@ class FoldTest(unittest.TestCase):
 
 
 class EstimateTest(unittest.TestCase):
-    """strictExpiry = the earliest appliedAt - ageMs of a turn seen to begin, while every publication was consumed."""
+    """strictExpiry = the earliest (appliedAt + R) - ageMs of a turn seen to begin, while every publication was
+    consumed. R is the application stamp's resolution: a whole-second stamp names an instant up to R later (B6)."""
 
     def begun(self, fold, age=1000):
         publish(fold, A, iso(T0), record(clock=(False, 0, 1)))
@@ -139,7 +142,7 @@ class EstimateTest(unittest.TestCase):
         fold = dt.DeliveryTurns()
         self.begun(fold, age=1000)
         publish(fold, A, iso(T0 + 20), record(clock=(True, 5, 6)), ages={'x': 15_000})
-        self.assertEqual(fold.strict_expiry('m', 'x', 'L', 5), T0 + 5 + dt.STRICT_SECONDS)
+        self.assertEqual(fold.strict_expiry('m', 'x', 'L', 5), T0 + 5 + R + dt.STRICT_SECONDS)
 
     def test_a_turn_running_at_the_first_sighting_has_no_expiry(self):
         fold = dt.DeliveryTurns()
@@ -161,7 +164,7 @@ class EstimateTest(unittest.TestCase):
                 publish(fold, B, iso(T0 + 12), record(clock=(True, 5, 6)), holders=[A, B], ages=ages)
                 publish(fold, A, iso(T0 + 14), record(clock=(True, 5, 7)), ages={'x': 1000})
                 self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
-                self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9, 'M kept for diagnostics')
+                self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9 + R, 'M kept for diagnostics')
 
     def test_a_withheld_closed_sample_of_the_same_turn_is_never_recovered(self):
         fold = dt.DeliveryTurns()
@@ -170,18 +173,18 @@ class EstimateTest(unittest.TestCase):
         publish(fold, B, iso(T0 + 12), record(clock=(False, 5, 6)), holders=[A, B])
         publish(fold, A, iso(T0 + 14), record(clock=(True, 5, 7)), ages={'x': 1000})
         self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
-        self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9, 'M kept for diagnostics')
+        self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9 + R, 'M kept for diagnostics')
 
     def test_a_consumed_closed_sample_of_the_turn_counts_toward_its_estimate(self):
         ageless = dt.DeliveryTurns()
         self.begun(ageless, age=1000)
         publish(ageless, A, iso(T0 + 12), record(clock=(False, 5, 6)))
         self.assertIs(ageless.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN, 'a closed sample without an age')
-        self.assertEqual(ageless._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9)
+        self.assertEqual(ageless._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9 + R)
         earlier = dt.DeliveryTurns()
         self.begun(earlier, age=1000)
         publish(earlier, A, iso(T0 + 12), record(clock=(False, 5, 6)), ages={'x': 9000})
-        self.assertEqual(earlier.strict_expiry('m', 'x', 'L', 5), T0 + 3 + dt.STRICT_SECONDS, 'its earlier start counts')
+        self.assertEqual(earlier.strict_expiry('m', 'x', 'L', 5), T0 + 3 + R + dt.STRICT_SECONDS, 'its earlier start counts')
 
     def test_a_closed_sample_never_begins_an_estimate(self):
         fold = dt.DeliveryTurns()
@@ -194,9 +197,9 @@ class EstimateTest(unittest.TestCase):
         for fold in (lost, healthy):
             self.begun(fold, age=1000)
         lost.lose_everything()
-        self.assertEqual(healthy.strict_expiry('m', 'x', 'L', 5), T0 + 9 + dt.STRICT_SECONDS, 'control: the twin')
+        self.assertEqual(healthy.strict_expiry('m', 'x', 'L', 5), T0 + 9 + R + dt.STRICT_SECONDS, 'control: the twin')
         self.assertIs(lost.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
-        self.assertEqual(lost._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9)
+        self.assertEqual(lost._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9 + R)
         publish(lost, A, iso(T0 + 20), record(clock=(True, 5, 8)), ages={'x': 1000})
         self.assertIs(lost.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN, 'and nothing after the loss restores it')
 
@@ -205,7 +208,7 @@ class EstimateTest(unittest.TestCase):
         self.begun(fold, age=1000)
         # aify-env restarted: instance B now publishes the same lifetime and turn, and A has left the view.
         publish(fold, B, iso(T0 + 40), record(clock=(True, 5, 9)), holders=[B], ages={'x': 31_000})
-        self.assertEqual(fold.strict_expiry('m', 'x', 'L', 5), T0 + 9 + dt.STRICT_SECONDS)
+        self.assertEqual(fold.strict_expiry('m', 'x', 'L', 5), T0 + 9 + R + dt.STRICT_SECONDS)
 
 
 class CapturePointsTest(FastApiTestCase):
@@ -255,7 +258,7 @@ class CapturePointsTest(FastApiTestCase):
         with patch.object(shadow, 'prepare', side_effect=ValueError('unreadable')):
             self.assertTrue(self.apply(body(publication=1)).applied)
         estimate = self.fold._estimates[(HOST, 'alpha', 'real-old', 5)]
-        self.assertEqual((estimate.minimum, estimate.authoritative), (T0 + 9, False))
+        self.assertEqual((estimate.minimum, estimate.authoritative), (T0 + 9 + R, False))
 
     def test_a_publication_the_fold_cannot_read_loses_everything(self):
         self.fold._turns[(HOST, 'alpha')] = dt.reporter_busy(dt.CLOSED, 'r1', 'b', T0)

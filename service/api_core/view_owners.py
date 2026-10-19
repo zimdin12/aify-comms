@@ -22,6 +22,7 @@ from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.live_process_probes import PROBE_ERROR, channel_sidecar_state, wrapper_child_state
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.shadow_evidence import item, row_facts
+from service.api_core.shadow_provenance import LOST
 from service.api_core.shadow_owners import NO_VARIANT
 from service.status_engine import is_live_agent_status
 
@@ -136,7 +137,7 @@ def _agent_record(agent_row):
 def observe_live_count(agent_row, live, site, held):
     """`live` is the site's own answer and `held` the status it computed it from, which the association row's status
     (row 1's flag) need not equal."""
-    evidence = None
+    evidence, binding = None, LOST
     try:
         binding, association, record, reason = _agent_record(agent_row)
         conflict = conflict_age(binding, association) if reason == 'ambiguous-association' else None
@@ -146,12 +147,12 @@ def observe_live_count(agent_row, live, site, held):
                                 answer[0], dict(held=held, live=bool(live), association=row_facts(agent_row)))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(LIVE_COUNTS, NO_VARIANT, site, bool(live), answer, evidence)
+    cv.record_answer(LIVE_COUNTS, NO_VARIANT, site, bool(live), answer, evidence, binding)
 
 
 def observe_promotion(agent_row, base, effective, dispatch_state, site):
     """`base` and `effective` are the site's own `_status_with_dispatch` input and result."""
-    today, evidence = effective == 'working' and base != 'working', None
+    today, evidence, binding = effective == 'working' and base != 'working', None, LOST
     try:
         active = (dispatch_state or {}).get('activeRun') or {}
         running = active.get('status') == 'running'
@@ -164,7 +165,7 @@ def observe_promotion(agent_row, base, effective, dispatch_state, site):
                                      association=row_facts(agent_row)))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(PROMOTION, NO_VARIANT, site, today, answer, evidence)
+    cv.record_answer(PROMOTION, NO_VARIANT, site, today, answer, evidence, binding)
 
 
 def liveness_receipt(session_mode, live_session, worker_row, runtime, channel_enabled, branch, sidecar, console, child):
@@ -181,8 +182,8 @@ def liveness_receipt(session_mode, live_session, worker_row, runtime, channel_en
 
 async def observe_readiness(db, agent_row, liveness, site):
     """`liveness` is the site's own `_WorkerLiveness` for this agent, from this evaluation."""
-    binding = association = process = component = state = None
-    probe = 'not-probed'
+    association = process = component = state = None
+    binding, probe = LOST, 'not-probed'
     try:
         binding, association, record, reason = _agent_record(agent_row)  # frozen before the one await below
         process = (NOT_KNOWN, reason) if reason == 'association' else process_answer(record, reason)
@@ -201,4 +202,4 @@ async def observe_readiness(db, agent_row, liveness, site):
         READINESS, NO_VARIANT, site, agent_row['id'], binding, association, today, answer[0],
         dict(hasLiveWorker=today, delivery=liveness.delivery, receipt=liveness.receipt),
         dict(process=process, component=component, state=state, shadowProbe=probe, reason=answer[1]),
-        [] if liveness.receipt is not None else ['comms-receipt']))
+        [] if liveness.receipt is not None else ['comms-receipt']), binding)

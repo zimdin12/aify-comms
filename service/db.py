@@ -230,6 +230,10 @@ STATUS_SHADOW_WINDOW_MIGRATIONS = {
     "evidence_rows": "ALTER TABLE status_shadow_windows ADD COLUMN evidence_rows INTEGER NOT NULL DEFAULT 0",
     "evidence_bytes": "ALTER TABLE status_shadow_windows ADD COLUMN evidence_bytes INTEGER NOT NULL DEFAULT 0",
     "boot_id": "ALTER TABLE status_shadow_windows ADD COLUMN boot_id TEXT",
+    # B6a: the env builds behind the window's counts, and the owners that read the delivery-turn fold. No backfill:
+    # a window from before them has neither recorded, so it reads incoherent and fold-unverified.
+    "env_builds": "ALTER TABLE status_shadow_windows ADD COLUMN env_builds TEXT",
+    "fold_unverified": "ALTER TABLE status_shadow_windows ADD COLUMN fold_unverified TEXT",
 }
 
 

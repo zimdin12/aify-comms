@@ -34,7 +34,7 @@ GAP_REASONS = ('pending-overflow', 'item-too-large', 'builder-error', 'encode-er
 PENDING_ITEMS = 2000
 PENDING_BYTES = 4 * 1024 * 1024
 ITEM_BYTES = 64 * 1024
-ENV_NOT_PUBLISHED = 'not-published'  # aify-env publishes no build until B6
+ENV_NOT_PUBLISHED = 'not-published'  # a publication that carried no build (before B6b, or boot identity unknown)
 BOOT_ID = uuid.uuid4().hex  # one per process: (BOOT_ID, seq) names an item, and a window never spans two processes
 
 
@@ -106,12 +106,13 @@ def census(binding, association):
         held = [r for r in p.rows if r.agent_id == agent_id]
         publishers.append(dict(machine=mid, instance=instance, generation=p.generation, incarnation=p.incarnation,
                                publication=p.publication, dataAppliedAt=p.data_applied_at, complete=p.complete,
-                               unavailable=p.unavailable, loss=p.loss, holds=bool(held), envBuild=ENV_NOT_PUBLISHED))
+                               unavailable=p.unavailable, loss=p.loss, holds=bool(held),
+                               envBuild=p.build or ENV_NOT_PUBLISHED))
         for r in held:
-            generation, incarnation, publication, applied_at = r.origin or (None, None, None, None)
+            generation, incarnation, publication, applied_at, build = (*(r.origin or ()), None, None, None, None, None)[:5]
             records.append(dict(machine=mid, instance=instance, raw=None if r.raw is None else r.raw.decode('utf-8'),
                                 origin=dict(generation=generation, incarnation=incarnation, publication=publication,
-                                            appliedAt=applied_at, envBuild=ENV_NOT_PUBLISHED)))
+                                            appliedAt=applied_at, envBuild=build or ENV_NOT_PUBLISHED)))
             if r.raw is None or r.origin is None:
                 missing.append('env-raw')
     return dict(consulted=True, at=binding.at, lost=False, publishers=publishers, records=records), missing

@@ -25,6 +25,11 @@ def now() -> str:
     return time.strftime(ISO_SECONDS, time.gmtime())
 
 
+#: now() truncates, so a stamp t names an instant in [t, t + NOW_RESOLUTION_SECONDS). A bound that must never fall
+#: before the real instant adds it (the status shadow's turn-start estimate, B6).
+NOW_RESOLUTION_SECONDS = 1.0
+
+
 def iso_to_epoch(value: Any, default: float | None = 0.0) -> float | None:
     """Epoch seconds, or `default` for an empty or unparseable value. Pass `default=None` where an
     unknown time must be told apart from 1970."""
