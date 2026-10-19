@@ -6,7 +6,7 @@ from unittest import mock
 from service import clock
 from service.api_core import comms_view as cv, delivery_turns as dt, partial_status_shadow as shadow
 from service.api_core import busy_consumers as bc, shadow_provenance as prov, shadow_windows as windows
-from service.api_core import shadow_evidence as ev
+from service.api_core import shadow_evidence as ev, shadow_evidence_store as store
 from service.api_core.claim_gating import BusyDecision
 from service.tests import test_agent_state_receiver as rx, test_shadow_evidence as e1
 from service.tests._base import FastApiTestCase
@@ -268,6 +268,26 @@ class FoldContextTest(_Held):
         self.assertEqual((expired['expired'], expired['envBuilds'], expired['foldUnverified']),
                          (True, window['envBuilds'], window['foldUnverified']), 'the tombstone keeps both records')
         self.assertEqual(expired_gaps, gaps, 'and answers the same refusals')
+
+    def test_a_named_gap_is_never_complete_and_unknown_alone_is_never_coherent(self):
+        totals = {('busy', 'strict', 'claim'): dict(disagreed=1, completeRows=1, incompleteRows=0, missing={})}
+
+        def site(**kwargs):
+            row = next(r for r in store.coverage(totals, frozenset({'busy'}), True, **kwargs) if r['variant'] == 'strict')
+            return row['gaps'], row['sites']['claim']['complete']
+        self.assertEqual(site(), ([], True), 'the control: no gap, complete')
+        self.assertEqual(site(coherent=False), (['env-version'], False))
+        self.assertEqual(site(fold=frozenset({'busy'})), (['fold-context'], False))
+        self.assertEqual([prov.env_coherent(s) for s in ('["A"]', '["unknown"]', '["A","B"]', None)],
+                         [True, False, False, False])
+
+    def test_each_interval_starts_with_the_builds_still_in_effect(self):
+        provenance = prov.Provenance()
+        provenance.applied(projection('A'))
+        in_effect = shadow.Binding(shadow.MappingProxyType({('m', 'i1'): shadow.Publisher(
+            1, FRESH, True, False, (record('A'),), build='A')}), NOW)
+        self.assertEqual(provenance.take(in_effect)[0], {'A'})
+        self.assertEqual(provenance.take(in_effect)[0], {'A'}, 'a quiet interval still carries the builds in effect')
 
     def test_iii_a_window_without_its_fold_record_refuses_every_fold_owner(self):
         self.assertEqual(prov.fold_unverified(None), frozenset(prov.FOLD_OWNERS))
