@@ -44,7 +44,7 @@ class TransitionTest(unittest.TestCase):
     def test_a_busy_on_an_unknown_turn_knows_the_run_but_not_the_start(self):
         turn = dt.reporter_busy(dt.NOTHING_KNOWN, 'r1', 'b', T0)
         self.assertEqual((turn.open, turn.run_id), (True, 'r1'))
-        self.assertIs(turn.started_at, dt.UNKNOWN)
+        self.assertIs(turn.started_at, dt.NOT_KNOWN)
 
     def test_a_wrong_run_clear_on_a_seeded_turn_establishes_nothing(self):
         self.assertEqual(dt.reporter_clear(dt.NOTHING_KNOWN, 'r9'), dt.NOTHING_KNOWN)
@@ -143,14 +143,14 @@ class EstimateTest(unittest.TestCase):
     def test_a_turn_running_at_the_first_sighting_has_no_expiry(self):
         fold = dt.DeliveryTurns()
         publish(fold, A, iso(T0), record(clock=(True, 5, 5)), ages={'x': 1000})
-        self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.UNKNOWN)
+        self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
 
     def test_a_publication_without_an_age_makes_its_turn_unknown_for_good(self):
         fold = dt.DeliveryTurns()
         self.begun(fold)
         publish(fold, A, iso(T0 + 20), record(clock=(True, 5, 6)))
         publish(fold, A, iso(T0 + 30), record(clock=(True, 5, 7)), ages={'x': 30_000})
-        self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.UNKNOWN)
+        self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
 
     def test_a_withheld_same_turn_sample_is_never_recovered_by_uniqueness(self):
         for ages in (None, {'x': 9_000}):  # no age, or one that would have made an earlier minimum
@@ -159,7 +159,7 @@ class EstimateTest(unittest.TestCase):
                 self.begun(fold, age=1000)
                 publish(fold, B, iso(T0 + 12), record(clock=(True, 5, 6)), holders=[A, B], ages=ages)
                 publish(fold, A, iso(T0 + 14), record(clock=(True, 5, 7)), ages={'x': 1000})
-                self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.UNKNOWN)
+                self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
                 self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9, 'M kept for diagnostics')
 
     def test_a_same_durable_turn_restart_keeps_minimum_and_authority(self):

@@ -2,7 +2,7 @@
 
 A FOLD, never a copy of today's row: it never reads or writes `agent_turn_state`. It folds C6's merge rules from
 their own inputs: a delivery reporter's statement (busy or clear for run R), and aify-env's records as the receiver
-applies them. What it has not seen it does not know, so every field is known or UNKNOWN, and an agent it has never
+applies them. What it has not seen it does not know, so every field is known or NOT_KNOWN, and an agent it has never
 heard of is entirely unknown, exactly as a seed with every field unknown would be.
 
 ENV EVIDENCE is read per lineage, (machineId, agentId, lifetime), and only while one publisher on that machine holds
@@ -24,20 +24,20 @@ from service.clock import iso_to_epoch
 
 class _Unknown:
     def __repr__(self):
-        return 'UNKNOWN'
+        return 'NOT_KNOWN'
 
 
-UNKNOWN = _Unknown()
+NOT_KNOWN = _Unknown()
 STRICT_SECONDS = 1800  # C6 strictExpiry: the earliest start estimate plus the strict turn bound
 
 
 @dataclass(frozen=True)
 class DeliveryTurn:
-    open: object = UNKNOWN
-    run_id: object = UNKNOWN
-    started_at: object = UNKNOWN  # epoch seconds
-    touched_at: object = UNKNOWN
-    owner: object = UNKNOWN  # the reporting bridge, which today's renewal check asks about
+    open: object = NOT_KNOWN
+    run_id: object = NOT_KNOWN
+    started_at: object = NOT_KNOWN  # epoch seconds
+    touched_at: object = NOT_KNOWN
+    owner: object = NOT_KNOWN  # the reporting bridge, which today's renewal check asks about
 
 
 NOTHING_KNOWN = DeliveryTurn()
@@ -60,7 +60,7 @@ class Estimate:
 
 def reporter_busy(turn, run_id, owner, at):
     """C6: open, runId R, touched now, started now only if it was (known to be) closed."""
-    started = at if turn.open is False else turn.started_at if turn.open is True else UNKNOWN
+    started = at if turn.open is False else turn.started_at if turn.open is True else NOT_KNOWN
     return DeliveryTurn(open=True, run_id=run_id, started_at=started, touched_at=at, owner=owner)
 
 
@@ -68,7 +68,7 @@ def reporter_clear(turn, run_id):
     """C6: closes only if the turn's runId is R. With the run unknown, whether it closes is unknown."""
     if turn.open is False:
         return turn
-    if turn.run_id is UNKNOWN:
+    if turn.run_id is NOT_KNOWN:
         return NOTHING_KNOWN
     return CLOSED if turn.run_id == run_id else turn
 
@@ -114,7 +114,7 @@ class DeliveryTurns:
     def strict_expiry(self, machine, agent_id, lifetime, started_us):
         estimate = self._estimates.get((machine, agent_id, lifetime, started_us))
         if estimate is None or not estimate.authoritative or estimate.minimum is None:
-            return UNKNOWN
+            return NOT_KNOWN
         return estimate.minimum + STRICT_SECONDS
 
     def reporter(self, agent_id, busy, run_id, owner, at):
