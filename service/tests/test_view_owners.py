@@ -35,17 +35,17 @@ class CandidateTest(unittest.TestCase):
             ('misconfigured', rec('misconfigured'), None, False, (False, None)),
             ('a state with no word', rec('nonsense'), None, False, U('unknown-state')),
             ('row 3: stale', None, 'stale', False, (False, None)),
-            ('row 4: two records are unknown, live today', None, 'ambiguous-association', False, (True, None)),
+            ('a conflict carries the conflict_age answer', None, 'ambiguous-association', False, (False, None)),
             ('rows 2/2b: no record (D8 gap)', None, 'missing-row', False, U('no-record')),
             ('a lost view', None, 'unknown-loss', False, U('unknown-loss')),
             ('row 1 possible over a live answer', rec('idle'), None, True, U('operator-stop')),
-            ('row 1 possible over row 4', None, 'ambiguous-association', True, U('operator-stop')),
+            ('row 1 cannot change an all-stale conflict', None, 'ambiguous-association', True, (False, None)),
             ('row 1 cannot change a non-live answer', None, 'stale', True, (False, None)),
             ('row 1 possible over an unknown', None, 'missing-row', True, U('operator-stop')),
         )
         for name, record, reason, stopped, expected in cases:
             with self.subTest(name):
-                self.assertEqual(vo.live_candidate(record, reason, stopped), expected)
+                self.assertEqual(vo.live_candidate(record, reason, stopped, (False, None)), expected)
 
     def test_promotion_is_row_5_after_every_row_above_it(self):
         for state in ('idle', 'shell', 'starting', 'available'):
@@ -127,6 +127,115 @@ class _Shadow:
 
     def owner(self, name):
         return self.recorder.report()['byPurpose'][name]['variants']['-']
+
+
+STALE_A, STALE_B, FRESH_B = '2026-10-19T00:00:00Z', '2026-10-19T00:01:00Z', '2026-10-19T00:09:50Z'
+
+
+class ConflictAgeTest(_Shadow, unittest.TestCase):
+    """Two publishers on the agent's machine hold it: rows 3 and 4, through the real Mirror, bind and observer."""
+
+    ROW = {'id': 'a', 'machine_id': MACHINE, 'status': 'online'}
+
+    def feed(self, instance, applied, *records, kind='snapshot', machine=MACHINE, generation=1):
+        self.mirror.feed(shadow.Projection((machine, instance), kind, generation, applied,
+                                           records or (rec('idle'),), ()))
+
+    def observe(self, live=True, row=None):
+        vo.observe_live_count(row or self.ROW, live, 'gate')
+        return self.owner(vo.LIVE_COUNTS)
+
+    def test_an_all_stale_conflict_is_row_3_offline(self):
+        self.feed('i1', STALE_A); self.feed('i2', STALE_B)
+        self.assertEqual(shadow.compare(shadow.bind(), (MACHINE, 'a')), (None, 'ambiguous-association'),
+                         'the word comparison is unchanged: a conflict before any freshness')
+        self.observe(live=False)
+        report = self.observe(live=True)
+        self.assertEqual((report['counts']['partialAgreed'], report['disagreementsByKey']),
+                         (1, [dict(site='gate', today='true', candidate='false', count=1)]),
+                         'offline today agrees; online today disagrees')
+
+    def test_a_fresh_conflict_is_row_4_unknown_and_live(self):
+        self.feed('i1', FRESH); self.feed('i2', FRESH_B)
+        self.assertEqual(self.observe(live=True)['counts']['partialAgreed'], 1)
+
+    def test_a_mixed_conflict_is_a_disclosed_gap(self):
+        self.feed('i1', STALE_A); self.feed('i2', FRESH)
+        self.assertEqual(self.observe()['unavailableByReason'], {'gate': {'mixed-age-conflict': 1}})
+
+    def test_a_holder_it_cannot_read_names_why(self):
+        cases = (('lost', lambda: self.mirror.invalidate((MACHINE, 'i2')), 'unknown-loss'),
+                 ('incomplete', lambda: self.feed('i2', FRESH, kind='delta', generation=2), 'unknown-knowledge'),
+                 ('unavailable', lambda: self.feed('i2', FRESH, kind='unavailable'), 'publisher-unavailable'))
+        for name, fault, reason in cases:
+            with self.subTest(name):
+                self.mirror._view = shadow.MappingProxyType({})
+                self.feed('i1', STALE_A); self.feed('i2', STALE_B)
+                fault()
+                answer = vo.conflict_age(shadow.bind(), (MACHINE, 'a'))
+                self.assertEqual(answer, U(reason))
+
+    def test_a_publisher_that_might_hold_a_third_record_withholds_it_but_another_machine_does_not(self):
+        cases = (('lost', lambda: self.mirror.invalidate((MACHINE, 'i3'))),
+                 ('incomplete', lambda: self.feed('i3', FRESH, shadow.Record('other', 'L', 'idle'), kind='delta',
+                                                  generation=2)),
+                 ('unavailable', lambda: self.feed('i3', FRESH, kind='unavailable')))
+        for name, fault in cases:
+            with self.subTest(name):
+                self.mirror._view = shadow.MappingProxyType({})
+                self.feed('i1', STALE_A); self.feed('i2', STALE_B)
+                self.feed('i3', FRESH, shadow.Record('other', 'L', 'idle'))
+                fault()
+                self.assertEqual(vo.conflict_age(shadow.bind(), (MACHINE, 'a')), U('record-knowledge'))
+        self.mirror._view = shadow.MappingProxyType({})
+        self.feed('i1', STALE_A); self.feed('i2', STALE_B)
+        self.feed('x1', FRESH, kind='delta', machine='win32:elsewhere')
+        self.assertEqual(vo.conflict_age(shadow.bind(), (MACHINE, 'a')), (False, None),
+                         'a publisher on another machine says nothing about this association')
+
+    def test_each_predicate_is_asked_of_the_whole_population_in_order(self):
+        def publisher(applied, *, loss=False, complete=True, unavailable=False, holds=True):
+            rows = (rec('idle'),) if holds else (shadow.Record('other', 'L', 'idle'),)
+            return shadow.Publisher(1, applied, complete, unavailable, rows, loss)
+
+        def answer(*publishers, at=NOW):
+            for order in (publishers, tuple(reversed(publishers))):
+                view = shadow.MappingProxyType({(MACHINE, f'i{n}'): p for n, p in enumerate(order)})
+                yield vo.conflict_age(shadow.Binding(view, at), (MACHINE, 'a'))
+        cases = (
+            ('holder loss before incomplete',
+             (publisher(STALE_A, complete=False), publisher(STALE_B, loss=True)), U('unknown-loss')),
+            ('incomplete before unavailable',
+             (publisher(STALE_A, unavailable=True), publisher(STALE_B, complete=False)), U('unknown-knowledge')),
+            ('a holder before a non-holder',
+             (publisher(STALE_A, unavailable=True), publisher(FRESH, loss=True, holds=False), publisher(STALE_B)),
+             U('publisher-unavailable')),
+            ('a non-holder before a clock',
+             (publisher('not-a-time'), publisher(STALE_B), publisher(FRESH, complete=False, holds=False)),
+             U('record-knowledge')),
+            ('invalid before future',
+             (publisher('2026-10-19T01:00:00Z'), publisher('not-a-time')), U('invalid-clock')),
+            ('a future clock', (publisher('2026-10-19T01:00:00Z'), publisher(STALE_B)), U('future')),
+        )
+        for name, publishers, expected in cases:
+            with self.subTest(name):
+                self.assertEqual(set(answer(*publishers)), {expected}, 'the same answer in either insertion order')
+
+    def test_row_1_masks_only_what_it_could_change(self):
+        stopped = dict(self.ROW, status='stopped')
+        self.feed('i1', FRESH); self.feed('i2', FRESH_B)
+        self.observe(live=False, row=stopped)
+        self.mirror._view = shadow.MappingProxyType({})
+        self.feed('i1', STALE_A); self.feed('i2', STALE_B)
+        report = self.observe(live=False, row=stopped)
+        self.assertEqual((report['unavailableByReason'], report['counts']['partialAgreed']),
+                         ({'gate': {'operator-stop': 1}}, 1), 'a fresh conflict is withheld; a stale one stays False')
+
+    def test_one_bind_serves_the_record_and_the_conflict(self):
+        self.feed('i1', STALE_A); self.feed('i2', STALE_B)
+        with mock.patch.object(shadow, 'bind', wraps=shadow.bind) as bind:
+            vo.observe_live_count(self.ROW, False, 'gate')
+        self.assertEqual(bind.call_count, 1)
 
 
 class ReadinessObserverTest(_Shadow, unittest.TestCase):

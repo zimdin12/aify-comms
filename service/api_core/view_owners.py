@@ -35,15 +35,44 @@ def _row_1(answer, stopped):
     return (NOT_KNOWN, 'operator-stop') if stopped and answer[0] is not False else answer
 
 
-def live_candidate(record, reason, stopped):
-    """PURE. Today's `is_live_agent_status`, on C6's word."""
+def conflict_age(binding, association):
+    """PURE. Rows 3 and 4 for an agent more than one publisher holds, from the same frozen view and time: every holder
+    stale is row 3 (offline), every holder fresh is row 4 (`unknown`), and anything this view cannot establish is
+    unknown. Each predicate is asked of the whole population, in this order: a holder lost, incomplete or
+    unavailable; any other publisher on the machine unreadable (it might hold a fresher record); an invalid then a
+    future clock; then the ages. A mixed fresh and stale conflict is a disclosed gap, not a ruling."""
+    machine, agent_id = association
+    mine = [p for (mid, _), p in binding.view.items() if mid == machine]
+    holds = [any(r.agent_id == agent_id for r in p.rows) for p in mine]
+    holders = [p for p, held in zip(mine, holds) if held]
+    others = [p for p, held in zip(mine, holds) if not held]
+    for unreadable, reason in ((lambda p: p.loss, 'unknown-loss'), (lambda p: not p.complete, 'unknown-knowledge'),
+                               (lambda p: p.unavailable, 'publisher-unavailable')):
+        if any(unreadable(p) for p in holders):
+            return NOT_KNOWN, reason
+    if any(p.loss or not p.complete or p.unavailable for p in others):
+        return NOT_KNOWN, 'record-knowledge'
+    ages = {shadow.age_class(p.data_applied_at, binding.at) for p in holders}
+    for clock in ('invalid-clock', 'future'):
+        if clock in ages:
+            return NOT_KNOWN, clock
+    if ages == {'stale'}:
+        return False, None
+    if ages == {'fresh'}:
+        return is_live_agent_status('unknown'), None
+    return NOT_KNOWN, 'mixed-age-conflict'
+
+
+def live_candidate(record, reason, stopped, conflict=None):
+    """PURE. Today's `is_live_agent_status`, on C6's word. `conflict` is conflict_age's answer when more than one
+    publisher holds the agent."""
     if reason is None:
         word = shadow.candidate_word(record.state)
         answer = (is_live_agent_status(word), None) if word else (NOT_KNOWN, 'unknown-state')
     elif reason == 'stale':
         answer = False, None
     elif reason == 'ambiguous-association':
-        answer = is_live_agent_status('unknown'), None
+        answer = conflict
     else:
         answer = NOT_KNOWN, 'no-record' if reason == 'missing-row' else reason
     return _row_1(answer, stopped)
@@ -93,17 +122,21 @@ def _stopped(agent_row):
 
 
 def _agent_record(agent_row):
-    """The agent's record and its reason, from one bind, by the association the site already holds."""
+    """(binding, association, record, reason): one bind, by the association the site already holds, so every later
+    read of this evaluation uses the same frozen view and time."""
     association = shadow.association(agent_row) if agent_row is not None else None
     if association is None:
-        return None, 'association'
-    return shadow.record_for(shadow.bind(), association)
+        return None, None, None, 'association'
+    binding = shadow.bind()
+    return (binding, association, *shadow.record_for(binding, association))
 
 
 def observe_live_count(agent_row, live, site):
     try:
-        record, reason = _agent_record(agent_row)
-        answer = (NOT_KNOWN, reason) if reason == 'association' else live_candidate(record, reason, _stopped(agent_row))
+        binding, association, record, reason = _agent_record(agent_row)
+        conflict = conflict_age(binding, association) if reason == 'ambiguous-association' else None
+        answer = ((NOT_KNOWN, reason) if reason == 'association'
+                  else live_candidate(record, reason, _stopped(agent_row), conflict))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
     cv.record_answer(LIVE_COUNTS, NO_VARIANT, site, bool(live), answer)
@@ -114,7 +147,7 @@ def observe_promotion(agent_row, base, effective, dispatch_state, site):
     try:
         active = (dispatch_state or {}).get('activeRun') or {}
         running = active.get('status') == 'running'
-        record, reason = _agent_record(agent_row) if running else (None, None)
+        _, _, record, reason = _agent_record(agent_row) if running else (None, None, None, None)
         answer = ((NOT_KNOWN, reason) if reason == 'association'
                   else promotion_candidate(record, reason, running, _stopped(agent_row)))
     except Exception:
@@ -125,7 +158,7 @@ def observe_promotion(agent_row, base, effective, dispatch_state, site):
 async def observe_readiness(db, agent_row, liveness, site):
     """`liveness` is the site's own `_WorkerLiveness` for this agent, from this evaluation."""
     try:
-        record, reason = _agent_record(agent_row)  # frozen before the one await below; nothing is read again after it
+        _, _, record, reason = _agent_record(agent_row)  # frozen before the one await below; nothing is read after it
         process = (NOT_KNOWN, reason) if reason == 'association' else process_answer(record, reason)
         component, state = liveness.delivery
         if state == 'unread' and process[0] is not False:
