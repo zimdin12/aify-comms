@@ -160,7 +160,9 @@ class DeliveryTurns:
         self._lineages[lineage] = clock
         if clock is None:
             return
-        if clock.open:
+        # Every consumed publication of a turn counts toward its estimate, open or closed; only an open one may begin
+        # an estimate, so a closed sample never mints authority.
+        if clock.open or (*lineage, clock.started_us) in self._estimates:
             self._estimate(lineage, previous, clock, at, age)
         turn = self.turn(machine, record.agent_id)
         self._turns[(machine, record.agent_id)] = env_effect(turn, env_change(previous, clock), at)

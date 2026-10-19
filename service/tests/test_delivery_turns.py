@@ -172,6 +172,23 @@ class EstimateTest(unittest.TestCase):
         self.assertIs(fold.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN)
         self.assertEqual(fold._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9, 'M kept for diagnostics')
 
+    def test_a_consumed_closed_sample_of_the_turn_counts_toward_its_estimate(self):
+        ageless = dt.DeliveryTurns()
+        self.begun(ageless, age=1000)
+        publish(ageless, A, iso(T0 + 12), record(clock=(False, 5, 6)))
+        self.assertIs(ageless.strict_expiry('m', 'x', 'L', 5), dt.NOT_KNOWN, 'a closed sample without an age')
+        self.assertEqual(ageless._estimates[('m', 'x', 'L', 5)].minimum, T0 + 9)
+        earlier = dt.DeliveryTurns()
+        self.begun(earlier, age=1000)
+        publish(earlier, A, iso(T0 + 12), record(clock=(False, 5, 6)), ages={'x': 9000})
+        self.assertEqual(earlier.strict_expiry('m', 'x', 'L', 5), T0 + 3 + dt.STRICT_SECONDS, 'its earlier start counts')
+
+    def test_a_closed_sample_never_begins_an_estimate(self):
+        fold = dt.DeliveryTurns()
+        publish(fold, A, iso(T0), record(clock=(False, 0, 1)))
+        publish(fold, A, iso(T0 + 5), record(clock=(False, 7, 2)), ages={'x': 1000})
+        self.assertNotIn(('m', 'x', 'L', 7), fold._estimates)
+
     def test_a_loss_keeps_each_minimum_and_ends_its_authority(self):
         lost, healthy = dt.DeliveryTurns(), dt.DeliveryTurns()
         for fold in (lost, healthy):
