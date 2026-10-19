@@ -24,7 +24,8 @@ UNKNOWN_BUILD = 'unknown'
 LOST = object()  # the observer meant to consult an env view and holds none: unknown, never "consulted nothing"
 #: The owners whose candidates read the delivery-turn fold (comms_view and busy_consumers). Used only to read a window
 #: whose fold record is missing or malformed: every one of them is then refused.
-FOLD_OWNERS = ('busy', 'send-time queue', 'claim', 'reminder skip (B21)', 'stranded-reply guard (B26)')
+FOLD_OWNERS = ('busy', 'send-time queue', 'claim', 'reminder skip (B21)', 'stranded-reply guard (B26)',
+               'stale-turn ceiling')
 
 
 #: What an aify-env build may be: printable ASCII with no space, 1-200 characters. aify-env sends a hex digest prefix;
