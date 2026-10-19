@@ -27,8 +27,15 @@ def projection(build, publication=1, kind='snapshot', rows=None):
 
 
 class ReceiverTest(FastApiTestCase):
-    """D3 and ageMs at the real route."""
+    """D3 and ageMs at the real route, on this test's own mirror, recorder and fold: the route feeds the process
+    globals, and a build left there would seed every later window in this worker."""
     post = rx.AgentStateReceiverTest.post
+
+    def setUp(self):
+        super().setUp()
+        for p in (mock.patch.object(shadow, 'mirror', shadow.Mirror()), mock.patch.object(shadow, 'recorder',
+                  shadow.Recorder()), mock.patch.object(dt, 'FOLD', dt.DeliveryTurns())):
+            p.start(); self.addCleanup(p.stop)
 
     def turned(self, **turn):
         record_ = rx.row()
