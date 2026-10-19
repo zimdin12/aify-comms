@@ -23,6 +23,15 @@ def tag(fold, lifetimes=('L',), at=T0):
     return fold.diagnostic('m', 'x', set(lifetimes), at)
 
 
+def steps(fold, *operations):
+    """The fold's semantic state after EACH operation, so a difference cannot hide behind a later reset."""
+    states = []
+    for operation in operations:
+        operation()
+        states.append((dict(fold._turns), dict(fold._lineages), dict(fold._estimates), dict(fold._fresh)))
+    return states
+
+
 def established_close():
     """A's open-to-closed pair: the delivery turn is known closed, and A's lineage baseline is closed."""
     fold = dt.DeliveryTurns()
@@ -100,12 +109,11 @@ class OriginTest(unittest.TestCase):
 
     def test_a_diagnostic_that_fails_changes_no_fold_state(self):
         def history(fold):
-            publish(fold, A, '1970-01-01T00:16:40Z', record(clock=OPEN), ages={'x': 10})
-            publish(fold, A, '1970-01-01T00:16:41Z', record(clock=CLOSED_5))
-            fold.reporter('m', 'x', True, 'r1', 'bridge', T0)
-            publish(fold, B, '1970-01-01T00:16:42Z', record(clock=CLOSED_5), holders=[A, B])
-            fold.lose_everything()
-            return (fold._turns, fold._lineages, fold._estimates, fold._fresh)
+            return steps(fold, lambda: publish(fold, A, '1970-01-01T00:16:40Z', record(clock=OPEN), ages={'x': 10}),
+                         lambda: publish(fold, A, '1970-01-01T00:16:41Z', record(clock=CLOSED_5)),
+                         lambda: fold.reporter('m', 'x', True, 'r1', 'bridge', T0),
+                         lambda: publish(fold, B, '1970-01-01T00:16:42Z', record(clock=CLOSED_5), holders=[A, B]),
+                         fold.lose_everything)
         healthy = history(dt.DeliveryTurns())
         faulty_fold = dt.DeliveryTurns()
         with mock.patch.object(dt, 'origin_after', side_effect=RuntimeError('diagnostic broken')), \
@@ -125,12 +133,11 @@ class OriginTest(unittest.TestCase):
                 raise RuntimeError('reporter store broken')
 
         def history(fold):
-            publish(fold, A, '1970-01-01T00:16:40Z', record(clock=OPEN))
-            publish(fold, A, '1970-01-01T00:16:41Z', record(clock=CLOSED_5))
-            fold.reporter('m', 'x', True, 'r1', 'bridge', T0)
-            fold.lose_everything()
-            fold.reporter('m', 'x', True, 'r2', 'bridge', T0 + 1)
-            return (fold._turns, fold._lineages, fold._estimates, fold._fresh)
+            return steps(fold, lambda: publish(fold, A, '1970-01-01T00:16:40Z', record(clock=OPEN), ages={'x': 10}),
+                         lambda: publish(fold, A, '1970-01-01T00:16:41Z', record(clock=CLOSED_5)),
+                         lambda: fold.reporter('m', 'x', True, 'r1', 'bridge', T0),
+                         fold.lose_everything,
+                         lambda: fold.reporter('m', 'x', True, 'r2', 'bridge', T0 + 1))
         healthy = history(dt.DeliveryTurns())
         self.assertEqual(tag(dt.DeliveryTurns()), 'deliveryUnknown:never-known:absent:no', 'CONTROL: a working store')
         for name, store in (('_origin', BrokenOrigins), ('_reported', BrokenReporters)):
