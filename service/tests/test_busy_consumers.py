@@ -10,7 +10,8 @@ from unittest import mock
 
 import aiosqlite
 
-from service.api_core import busy_consumers as bc, comms_view as cv, delivery_turns as dt, partial_status_shadow as shadow
+from service.api_core import busy_consumers as bc, comms_view as cv, delivery_turns as dt
+from service.api_core import partial_status_shadow as shadow
 from service.clock import iso_to_epoch
 from service.tests import test_p7_witness_delivery_hold as p7, test_reply_reminders as rr
 from service.tests import test_stranded_reply_fail as sr
