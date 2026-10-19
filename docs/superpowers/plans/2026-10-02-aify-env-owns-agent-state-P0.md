@@ -340,7 +340,9 @@ The run-correlated readers keep today's expressions on these facts:
 
 **The stale anchor (N2).** Every record carries `turn.ageMs`, the turn's age on the publisher's clock when it
 published. Each application gives an estimate of the start on aify-comms' clock: `appliedAt - ageMs`. That is never
-earlier than the true start, because a publication cannot be applied before it was sent. aify-comms keeps the
+earlier than the true start, because a publication cannot be applied before it was sent, provided the publisher's
+clock does not step forward during the turn (amended 2026-10-19: a forward step inflates the age; the fold-provenance
+slice in 2026-10-19-s2c-owners.md step 6 owns making that age unknown before C8). aify-comms keeps the
 **earliest** estimate per turn (`startedAt` identifies the turn), and `strictExpiry` is that estimate plus 1800 s.
 
 The bound, named: a stale turn holds until 1800 s after its start, **plus the smallest delivery delay of any
