@@ -25,8 +25,8 @@ from service.api_core.shadow_provenance import (
     as_json,
     env_coherent,
     fold_unverified,
+    parse_builds,
     parse_owners,
-    parse_set,
 )
 from service.db import E1_EVIDENCE_OWNERS
 from service.api_core.shadow_owners import OWNERS, variants_of
@@ -77,7 +77,7 @@ async def add_provenance(db, window, builds, fold):
     in the union, and an unreadable fold record is left exactly as stored, so it keeps refusing every fold owner."""
     row = await (await db.execute(
         'SELECT env_builds, fold_unverified FROM status_shadow_windows WHERE id = ?', (window,))).fetchone()
-    seen = parse_set(row[0]) if row else None
+    seen = parse_builds(row[0]) if row else None
     seen = frozenset((UNKNOWN_BUILD,)) if seen is None else seen
     readers = parse_owners(row[1]) if row else None
     stored_fold = row[1] if readers is None and row else as_json((readers or frozenset()) | fold)

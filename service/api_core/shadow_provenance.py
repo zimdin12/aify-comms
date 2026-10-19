@@ -16,6 +16,7 @@ the fold marks that owner, and a marked owner is never complete in that window, 
 separately reviewed fold-provenance slice may lift this; B6 does not.
 """
 import json
+import re
 
 from service.api_core.shadow_owners import OWNERS
 
@@ -24,6 +25,15 @@ LOST = object()  # the observer meant to consult an env view and holds none: unk
 #: The owners whose candidates read the delivery-turn fold (comms_view and busy_consumers). Used only to read a window
 #: whose fold record is missing or malformed: every one of them is then refused.
 FOLD_OWNERS = ('busy', 'send-time queue', 'claim', 'reminder skip (B21)', 'stranded-reply guard (B26)')
+
+
+#: What an aify-env build may be: printable ASCII with no space, 1-200 characters. aify-env sends a hex digest prefix;
+#: the grammar is what the receiver admits, so every build it ever stores encodes as UTF-8 and reads back unchanged.
+BUILD = re.compile(r'[\x21-\x7e]{1,200}')
+
+
+def is_build(value):
+    return type(value) is str and BUILD.fullmatch(value) is not None
 
 
 def as_json(values):
@@ -42,9 +52,15 @@ def parse_set(stored):
     return frozenset(values)
 
 
+def parse_builds(stored):
+    """PURE. A stored env build set, or None when it is missing, malformed or holds something no build can be."""
+    builds = parse_set(stored)
+    return builds if builds is not None and all(is_build(b) for b in builds) else None
+
+
 def env_coherent(stored):
     """PURE. A window qualifies on its env builds only when it saw exactly one, and that one is known."""
-    builds = parse_set(stored)
+    builds = parse_builds(stored)
     return builds is not None and len(builds) == 1 and UNKNOWN_BUILD not in builds
 
 

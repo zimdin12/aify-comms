@@ -350,3 +350,72 @@ class FoldRecordTest(_Windows):
                 self.assertEqual((window['expired'], window['closeReason'], window['foldUnverified']),
                                  (True, 'version-change', stored), 'never repaired, through expiry')
                 self.assertEqual((gaps[('busy', 'strict')], gaps[('claim', '-')]), (busy, claim))
+
+
+class BuildGrammarTest(_Windows):
+    """R3: only a build the windows can persist is admitted; an admitted one is stored and read back unchanged."""
+    post = rx.AgentStateReceiverTest.post
+
+    def raw(self, value):
+        import json
+        return json.dumps(value, ensure_ascii=True).encode('ascii')  # the wire as ASCII-escaped JSON
+
+    def test_r3_a_build_the_store_cannot_encode_is_refused_at_ingress_and_never_reaches_a_window(self):
+        for bad in ('\ud800', 'café', 'two words'):
+            with self.subTest(build=ascii(bad)):
+                self.assertEqual(self.post(self.raw(rx.body(build=bad))).status_code, 422)
+        self.assertEqual(self.post(self.raw(rx.body(build='0a1b2c3d4e5f'))).status_code, 204)
+        self.wait(self.owner.start(e1.V, e1.at(0)))
+        self.wait(self.owner.tick(e1.V, e1.at(10)))
+        self.assertEqual(self.window(1)[0]['envBuilds'], '["0a1b2c3d4e5f"]', 'the admitted build, persisted as sent')
+
+    def test_r2_a_stored_build_set_no_build_could_make_is_unknown(self):
+        self.assertEqual([prov.env_coherent(s) for s in ('[""]', '[]', '["a b"]', '["0a1b"]')],
+                         [False, False, False, True])
+
+
+class EngagedFoldTest(_Windows):
+    """R4: real A publications give the fold its history; the mirror then holds only B; a registered-machine stranded
+    comparison reads that A history, which a fold reset would lose. The refusal is asserted only after that."""
+    post = rx.AgentStateReceiverTest.post
+    MACHINE = 'linux:test-host'
+    START = 1_700_000_000_000_000
+
+    def publish(self, build, publication, open_):
+        record_ = rx.row('alpha')
+        record_['turn'] = dict(record_['turn'], open=open_, startedAtUs=self.START, lastEventAtUs=self.START + 5,
+                               ageMs=1000)
+        value = rx.body(machineId=self.MACHINE, publication=publication, agents=[record_], build=build)
+        self.assertEqual(self.post(value).status_code, 204)
+
+    def test_r4_a_b_only_window_reads_retained_a_fold_history_and_is_refused_through_close_and_expiry(self):
+        answer = self.client.post('/api/v1/agents', json={'agentId': 'alpha', 'role': 'coder', 'machineId': self.MACHINE})
+        self.assertEqual(answer.status_code, 200, answer.text)
+        self.publish('env-A', 1, True)
+        self.publish('env-A', 2, False)  # the turn ends under A: the delivery turn is known closed, from A
+        lineage = (self.MACHINE, 'alpha', 'real-old', self.START)
+        a_minimum = self.fold._estimates[lineage].minimum
+        self.publish('env-B', 3, False)  # B republishes the same closed turn: the mirror is B only
+        self.assertEqual([p.build for p in self.mirror.view().values()], ['env-B'])
+        self.assertEqual((self.fold.turn(self.MACHINE, 'alpha'), self.fold._estimates[lineage].minimum),
+                         (dt.CLOSED, a_minimum), 'the fold still holds what A taught it')
+        self.wait(self.owner.start(e1.V, e1.at(0)))
+
+        async def stranded():
+            from service.db import get_db
+            db = await get_db()
+            try:
+                await bc.observe_stranded(db, 'alpha', 'run-1', False)
+            finally:
+                await db.close()
+        self.wait(stranded())
+        counts = self.recorder.report()['byPurpose']['stranded-reply guard (B26)']['variants']['-']['counts']
+        self.assertEqual((counts['partialCompared'], counts['unavailable']), (1, 0),
+                         'a successful comparison on the registered machine, read from the A-derived closed turn')
+        self.wait(self.owner.tick(e1.V, e1.at(10)))
+        self.wait(self.owner.tick(e1.V2, e1.at(20)))  # a clean close
+        window, gaps = self.window(1)
+        self.assertEqual((window['envBuilds'], window['closeReason'], gaps[('stranded-reply guard (B26)', '-')],
+                          gaps[(shadow.WORD, '-')]), ('["env-B"]', 'version-change', ['fold-context'], []))
+        self.assertEqual(self.wait(windows.expire_windows('2026-11-03T10:00:00Z')), 1)
+        self.assertEqual(self.window(1)[1][('stranded-reply guard (B26)', '-')], ['fold-context'])

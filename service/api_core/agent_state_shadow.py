@@ -4,6 +4,7 @@ import hashlib
 import asyncio
 
 from service.api_core import delivery_turns, partial_status_shadow as shadow
+from service.api_core.shadow_provenance import is_build
 
 _INGEST_LOCK = asyncio.Lock()
 import json
@@ -76,9 +77,9 @@ def _decode(raw):
 
 
 def _build(value):
-    """B6a: an aify-env build, when published, is a nonempty string of at most 200 characters. An unknown build is
-    omitted, never null."""
-    _require(type(value) is str and 0 < len(value) <= 200, 'expected build string')
+    """B6a: an aify-env build, when published, is printable ASCII with no space, 1-200 characters (shadow_provenance's
+    grammar). An unknown build is omitted, never null."""
+    _require(is_build(value), 'expected build string')
 
 
 def _record(record):
