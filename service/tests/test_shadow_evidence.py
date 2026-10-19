@@ -32,10 +32,12 @@ def inputs(**extra):
                         env_reachable=True, disabled=False, bridge_stale=False, has_live_session=True, **extra)
 
 
-def body(generation=1, publication=1, instance='i1', state='idle', machine=MACHINE, pad=0, agents=('a',)):
+def body(generation=1, publication=1, instance='i1', state='idle', machine=MACHINE, pad=0, agents=('a',),
+         kind='snapshot'):
     records = [dict(env_row(agent), state=state, **({'pad': 'x' * pad} if pad else {})) for agent in agents]
-    return dict(kind='snapshot', complete=True, machineId=machine, instance=instance, generation=generation,
-                incarnationId='boot', publication=publication, inputs={}, agents=records, removed=[])
+    value = dict(kind=kind, machineId=machine, instance=instance, generation=generation, incarnationId='boot',
+                 publication=publication, inputs={}, agents=records, removed=[])
+    return dict(value, complete=True) if kind == 'snapshot' else value
 
 
 async def _wrap(connect, proxy):
@@ -168,6 +170,26 @@ class ItemTest(_Evidence):
                          dict(sha=pin['dependencies']['aify-wrapper'].rsplit('#', 1)[1], label='pinned'))
         self.assertEqual(item['versions']['runningWrapper'], 'unknown')
 
+    def test_a_record_keeps_the_origin_it_was_applied_with_not_its_publishers_later_one(self):
+        self.feed(at(0), generation=1, publication=1)
+        self.feed(at(20), generation=1, publication=2, kind='changes', agents=('b',))  # leaves a's record alone
+        self.disagree(at(25))
+        [item], _ = self.taken()
+        [record] = item['env']['records']
+        self.assertEqual((record['origin']['publication'], record['origin']['appliedAt']), (1, at(0)))
+        self.assertEqual([(p['publication'], p['dataAppliedAt']) for p in item['env']['publishers']], [(2, at(20))])
+
+    def test_the_census_says_what_the_candidate_could_not_read_and_what_it_never_consulted(self):
+        self.assertEqual(ev.census(shadow.Binding(None, None, True), (MACHINE, 'a')),
+                         (dict(consulted=True, at=None, lost=True), ['env-view']))
+        self.assertEqual(ev.census(None, (MACHINE, 'a')), (dict(consulted=False), []))
+        self.feed(at(0))
+        self.now = at(10)
+        vo.observe_promotion(ROW, 'idle', 'working', {}, 'preflight')  # today promotes with no running run
+        [item], _ = self.taken()
+        self.assertEqual((item['today'], item['candidate'], item['env'], item['evalAt'], item['incomplete']),
+                         (True, False, dict(consulted=False), None, []))
+
     def test_a_record_over_the_raw_limit_is_kept_as_an_incomplete_item(self):
         self.feed(at(0), pad=shadow.RAW_LIMIT)
         self.disagree(at(10))
@@ -221,6 +243,14 @@ class WindowHistoryTest(_Evidence):
             owner._connect = connect
             raise OSError('database unavailable')
         owner._connect = unavailable
+
+    def test_a_disagreement_before_the_window_opens_is_in_no_window(self):
+        self.feed(at(0))
+        self.disagree(at(1))
+        owner = self.owner()
+        self.wait(owner.start(V, at(2)))
+        self.wait(owner.tick(V, at(30)))
+        self.assertEqual(self.stored(), {})
 
     def test_the_recovery_batch_stays_in_the_failing_window_0_30_45_60(self):
         owner = self.owner()
@@ -382,6 +412,8 @@ class ReadTest(_Evidence):
         self.feed(at(3), pad=shadow.RAW_LIMIT)
         self.disagree(at(4), source='engine-status')
         self.recorder.record_owner(READINESS, '-', 'claim', False, True)
+        with mock.patch.object(ev, 'ITEM_BYTES', 10):
+            self.disagree(at(5), source='cache-broadcast')  # a gap, not an item
         self.wait(owner.tick(V, at(10)))
         self.wait(owner.tick(V2, at(20)))
         return owner
@@ -396,6 +428,9 @@ class ReadTest(_Evidence):
             disagreed=2, completeRows=2, incompleteRows=0, missing={}, partitionHolds=True, complete=True))
         self.assertEqual(self.site(page, shadow.WORD, 'engine-status'), dict(
             disagreed=1, completeRows=0, incompleteRows=1, missing={}, partitionHolds=True, complete=False))
+        self.assertEqual(self.site(page, shadow.WORD, 'cache-broadcast'), dict(
+            disagreed=1, completeRows=0, incompleteRows=0, missing={'item-too-large': 1}, partitionHolds=True,
+            complete=False))
         readiness = next(r for r in page['coverage'] if r['owner'] == READINESS)
         self.assertEqual((readiness['instrumentation'], readiness['sites']['claim']['complete']),
                          ('not-instrumented', False))
