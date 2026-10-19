@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 from service.api_core import channel_delivery as cd, comms_view as cv, live_process_probes as probes
-from service.api_core import partial_status_shadow as shadow, view_owners as vo
+from service.api_core import partial_status_shadow as shadow, status_inputs, view_owners as vo
 from service.api_core.delivery_turns import NOT_KNOWN as NK
 from service.db import get_db
 from service.tests._base import FastApiTestCase
@@ -241,6 +241,10 @@ class DeliveryTagTest(_Db):
                          'a live sidecar with no console: not live, no_console, delivery True')
         self._register('cl-b', runtime='claude-code', sessionMode='managed')
         self.assertEqual(self._liveness('cl-b'), cd._WorkerLiveness(False, True, False, ('sidecar', False)))
+        self._register('cl-c', runtime='claude-code', sessionMode='managed')
+        self._terminal('cl-c', 'claude-aify')
+        self.assertEqual(self._liveness('cl-c'), cd._WorkerLiveness(False, True, False, ('sidecar', False)),
+                         'a live console with a dead sidecar: not live, no_sidecar, delivery False')
 
     def test_a_read_that_raised_is_an_error_not_an_absence_and_today_is_unchanged(self):
         self._register('cl-e', runtime='claude-code', sessionMode='managed')
@@ -440,3 +444,226 @@ class SitesTest(_Shadow, _Db):
         with mock.patch.object(self.recorder, 'record_owner', side_effect=RuntimeError('recorder broken')):
             self.assertEqual(self.roster(), before)
             self.assertEqual(asyncio.run(twin()), '')
+
+
+ARMS = ('healthy', 'candidate-fault', 'recorder-fault')
+
+
+class SiteOutcomeTest(_Shadow, _Db):
+    """Per site, today's outcome under each arm: the observer healthy, every candidate raising, and the recorder
+    raising. Each arm that writes runs on its own fresh, equivalent agent; each expectation is fixed by the fixture."""
+
+    def arm(self, name):
+        if name == 'candidate-fault':
+            patches = [mock.patch.object(vo, fn, side_effect=RuntimeError('candidate broken'))
+                       for fn in ('live_candidate', 'promotion_candidate', 'readiness_candidate')]
+        elif name == 'recorder-fault':
+            patches = [mock.patch.object(self.recorder, 'record_owner', side_effect=RuntimeError('recorder broken'))]
+        else:
+            patches = []
+        self.mocks = [p.start() for p in patches]
+        for p in patches:
+            self.addCleanup(p.stop)
+        return patches
+
+    def end(self, patches):
+        """Stop the arm, and prove a fault arm reached the observer: a fault nobody hit proves nothing."""
+        for p in patches:
+            p.stop()
+        if patches:
+            self.assertTrue(any(m.called for m in self.mocks), 'the fault was never reached')
+
+    def managed(self, agent_id, *, worker=False):
+        self._register(agent_id, runtime='claude-code', sessionMode='managed')
+        self.publish(*[shadow.Record(a, 'L', 'idle', (), None, None, ('running', 'yes'))
+                       for a in self.published + [agent_id]])
+        self.published.append(agent_id)
+        if worker:
+            self._bridge(agent_id, 'channel-sidecar')
+            self._terminal(agent_id, 'claude-aify')
+
+    def setUp(self):
+        super().setUp()
+        self.published = []
+
+    roster = SitesTest.roster
+
+    def run_db(self, coro_fn):
+        async def run():
+            db = await get_db()
+            try:
+                return await coro_fn(db)
+            finally:
+                await db.close()
+        return asyncio.run(run())
+
+    def test_the_analytics_counts(self):
+        self.managed('an-avail')
+        self._register('an-off', runtime='codex', sessionMode='resident', sessionHandle='t')
+        self._register('an-stop', runtime='codex', sessionMode='managed')
+        self._exec("UPDATE agents SET status = 'stopped' WHERE id = 'an-stop'")
+        self.assertEqual({a: s for a, (s, _) in self.roster().items()},
+                         {'an-avail': 'available', 'an-off': 'offline', 'an-stop': 'stopped'},
+                         'the fixture: one live status (available) beside two non-live ones')
+        for name in ARMS:
+            with self.subTest(name):
+                patches = self.arm(name)
+                counts = [self.client.get(path).json()['onlineAgents']
+                          for path in ('/api/v1/analytics', '/api/v1/analytics/pulse')]
+                self.end(patches)
+                self.assertEqual(counts, [1, 1])
+
+    def test_the_send_preflight(self):
+        for name in ARMS:
+            with self.subTest(name):
+                agent = f'pf-{name}'
+                self.managed(agent)
+                patches = self.arm(name)
+                answer = self.client.post('/api/v1/messages/send', json={
+                    'from_agent': 'dashboard', 'to': agent, 'type': 'info', 'subject': 's', 'body': 'b', 'trigger': True})
+                self.end(patches)
+                self.assertEqual(answer.status_code, 200, answer.text)
+                body = answer.json()
+                decision = [(h['targetAgentId'], h['reason'].split(':')[0]) for h in body.get('notStarted') or []]
+                self.assertEqual((body['ok'], body['stored'], body['recipientStatus'][agent]['status'],
+                                  body['recipientStatus'][agent]['unread'], decision, self._rows_of(agent)),
+                                 (True, True, 'available', 1,
+                                  [(agent, 'Cannot start managed claude-code for this agent')], []),
+                                 'an undefined managed agent: stored in its inbox, the wake refused, no run')
+
+    def _rows_of(self, agent):
+        conn = sqlite3.connect(self._db_path)
+        try:
+            return conn.execute('SELECT id, status, body FROM dispatch_runs WHERE target_agent = ? ORDER BY id',
+                                (agent,)).fetchall()
+        finally:
+            conn.close()
+
+    def test_the_buffer_full_rejection(self):
+        from service.api_core import dispatch_runs
+        for name in ARMS:
+            with self.subTest(name):
+                agent = f'bf-{name}'
+                self.managed(agent)
+                self._exec("INSERT INTO dispatch_runs (id, from_agent, target_agent, dispatch_mode, execution_mode, "
+                           "message_type, subject, body, priority, status, queue_if_busy, requested_at) VALUES "
+                           "(?, 'dashboard', ?, 'start_if_possible', 'managed', 'info', 's', 'first', 'normal', "
+                           "'queued', 1, datetime('now'))", (f'run-{agent}', agent))
+                patches = self.arm(name)
+                with mock.patch.object(dispatch_runs, '_append_pending_dispatch_body', return_value=None):
+                    answer = self.client.post('/api/v1/messages/send', json={
+                        'from_agent': 'dashboard', 'to': agent, 'type': 'info', 'subject': 's2', 'body': 'second',
+                        'trigger': True, 'queueIfBusy': True})
+                self.end(patches)
+                self.assertEqual(answer.status_code, 200, answer.text)
+                refused = [h for h in answer.json().get('notStarted') or [] if h.get('targetAgentId') == agent]
+                self.assertEqual([(h['reason'], h['recipientStatus'], h['hasActiveRun'], h['bufferedCount'])
+                                  for h in refused], [('buffer_full', 'available', False, 1)], answer.json())
+                self.assertEqual(self._rows_of(agent), [(f'run-{agent}', 'queued', 'first')],
+                                 'the buffered run is kept unchanged and nothing new is stored')
+
+    def test_the_engine_and_legacy_consume_the_worker_result(self):
+        for name in ARMS:
+            for worker in (True, False):
+                with self.subTest(arm=name, worker=str(worker)):
+                    agent = f'wk-{name}-{worker}'.lower()
+                    self.managed(agent, worker=worker)
+                    patches = self.arm(name)
+                    inputs, cache = self.run_db(lambda db: asyncio.gather(
+                        status_inputs._gather_status_inputs(db, self._row(agent)),
+                        status_inputs._compute_live_status_cache(db, self._row(agent))))
+                    self.end(patches)
+                    self.assertEqual(inputs.worker_present, worker)
+                    self.assertEqual(cache['status'], 'online' if worker else 'available')
+
+    def test_the_twin_refusal_engages_and_stays_quiet(self):
+        from service.api_core.dispatch_start import twin_refusal
+        for name in ARMS:
+            for live in (True, False):
+                with self.subTest(arm=name, live=str(live)):
+                    agent = f'tw-{name}-{live}'.lower()
+                    self._register(agent, runtime='codex', sessionMode='resident', sessionHandle=f't-{agent}')
+                    if live:
+                        self._exec("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, status, "
+                                   "started_at, last_seen) VALUES (?, ?, 'env', 'codex', 'running', "
+                                   "strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+                                   (f's-{agent}', agent))
+                    patches = self.arm(name)
+                    refusal = self.run_db(lambda db: twin_refusal(db, self._row(agent)))
+                    self.end(patches)
+                    self.assertEqual(bool(refusal), live, refusal)
+
+
+class ReadinessCompositionTest(_Shadow, _Db):
+    """The legacy site's composition on this test's own DB: today's `_worker_liveness_for`, then the observer with the
+    production probes. Attempts and the matching SELECTs are counted apart, for today and for the observer."""
+
+    def setUp(self):
+        super().setUp()
+        self.attempts = []
+        real = dict(vo.PROBES)
+
+        def spy(component):
+            async def probe(db, agent_id):
+                self.attempts.append(component)
+                return await real[component](db, agent_id)
+            return probe
+        p = mock.patch.dict(vo.PROBES, {c: spy(c) for c in real})
+        p.start(); self.addCleanup(p.stop)
+
+    def compose(self, agent, *, live_session, fail_child=False):
+        selects = []
+
+        class Counting:
+            def __init__(self, db):
+                self.db = db
+
+            def __getattr__(self, name):
+                return getattr(self.db, name)
+
+            def execute(self, sql, *args):
+                if 'managed-wrapper-child' in sql:
+                    selects.append(1)
+                    if fail_child:
+                        raise RuntimeError('bridge table unreadable')
+                return self.db.execute(sql, *args)
+
+        async def run():
+            db = await get_db()
+            try:
+                counted = Counting(db)
+                liveness = await cd._worker_liveness_for(counted, self._row(agent), agent_session_mode='managed',
+                                                         live_session=live_session)
+                today = len(selects)
+                await vo.observe_readiness(counted, self._row(agent), liveness, 'legacy')
+                return liveness, today, len(selects) - today
+            finally:
+                await db.close()
+        self.attempts.clear()
+        liveness, today, added = asyncio.run(run())
+        return liveness.delivery, today, len(self.attempts), added
+
+    def codex(self, agent, process, *, terminal=False, child=False):
+        self._register(agent, runtime='codex', sessionMode='managed')
+        self.publish(shadow.Record(agent, 'L', 'idle', (), None, None, process))
+        if terminal:
+            self._terminal(agent, 'codex-aify')
+        if child:
+            self._bridge(agent, 'managed-wrapper-child')
+
+    def test_an_unread_child_costs_one_attempt_and_one_select(self):
+        self.codex('co-unread', ('running', 'yes'), terminal=True, child=True)
+        self.assertEqual(self.compose('co-unread', live_session=True), (('wrapper-child', 'unread'), 0, 1, 1))
+        self.assertEqual(self.owner(vo.READINESS)['counts']['partialAgreed'], 1, 'the child the shadow read is live')
+
+    def test_a_decisive_process_false_reads_nothing(self):
+        self.codex('co-exited', ('exited', 'no'), terminal=True, child=True)
+        self.assertEqual(self.compose('co-exited', live_session=True), (('wrapper-child', 'unread'), 0, 0, 0))
+
+    def test_a_child_today_read_or_failed_is_never_read_again(self):
+        self.codex('co-read', ('running', 'yes'), child=True)
+        self.assertEqual(self.compose('co-read', live_session=False), (('wrapper-child', True), 1, 0, 0))
+        self.codex('co-err', ('running', 'yes'), child=True)
+        self.assertEqual(self.compose('co-err', live_session=False, fail_child=True),
+                         (('wrapper-child', probes.PROBE_ERROR), 1, 0, 0))
+        self.assertEqual(self.owner(vo.READINESS)['unavailableByReason'], {'legacy': {'delivery': 1}})
