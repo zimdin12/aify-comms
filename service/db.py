@@ -549,9 +549,11 @@ async def _migrate_status_shadow_window_counts(db: aiosqlite.Connection):
         return
     await db.execute("ALTER TABLE status_shadow_window_counts RENAME TO status_shadow_window_counts_before_variant")
     await db.execute(STATUS_SHADOW_WINDOW_COUNTS)
-    await db.execute(
+    cursor = await db.execute(
+        "SELECT window_id, owner, source, name, count FROM status_shadow_window_counts_before_variant")
+    await db.executemany(
         "INSERT INTO status_shadow_window_counts (window_id, owner, variant, source, name, count) "
-        "SELECT window_id, owner, '-', source, name, count FROM status_shadow_window_counts_before_variant")
+        "VALUES (?, ?, '-', ?, ?, ?)", await cursor.fetchall())
     await db.execute("DROP TABLE status_shadow_window_counts_before_variant")
 
 
