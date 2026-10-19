@@ -6,6 +6,7 @@ answer and its outcome do not move whatever the observer does.
 """
 import asyncio
 import contextlib
+import json
 import sqlite3
 import unittest
 from unittest import mock
@@ -142,7 +143,7 @@ class ConflictAgeTest(_Shadow, unittest.TestCase):
                                            records or (rec('idle'),), ()))
 
     def observe(self, live=True, row=None):
-        vo.observe_live_count(row or self.ROW, live, 'gate')
+        vo.observe_live_count(row or self.ROW, live, 'gate', 'online' if live else 'offline')
         return self.owner(vo.LIVE_COUNTS)
 
     def test_an_all_stale_conflict_is_row_3_offline(self):
@@ -234,7 +235,7 @@ class ConflictAgeTest(_Shadow, unittest.TestCase):
     def test_one_bind_serves_the_record_and_the_conflict(self):
         self.feed('i1', STALE_A); self.feed('i2', STALE_B)
         with mock.patch.object(shadow, 'bind', wraps=shadow.bind) as bind:
-            vo.observe_live_count(self.ROW, False, 'gate')
+            vo.observe_live_count(self.ROW, False, 'gate', 'offline')
         self.assertEqual(bind.call_count, 1)
 
 
@@ -480,11 +481,21 @@ class SitesTest(_Shadow, _Db):
         self.assertEqual((live_counts['counts']['partialAgreed'], live_counts['disagreementsByKey']),
                          (2, [dict(site='gate', today='false', candidate='true', count=1)]),
                          'the offline payload beside an idle record; the two online payloads agree')
+        [item], _ = self.recorder.evidence.take()
+        self.assertEqual(json.loads(item.payload)['comms'], dict(
+            held='offline', live=False, association=dict(id='m-agent', machineId=row['machine_id'], status=row['status'])))
 
     def test_the_analytics_counts_are_observed(self):
-        for path in ('/api/v1/analytics', '/api/v1/analytics/pulse'):
-            answer = self.client.get(path)
-            self.assertEqual(answer.status_code, 200, answer.text)
+        calls = []
+        real = vo.observe_live_count
+        with mock.patch.object(vo, 'observe_live_count', side_effect=lambda *a: (calls.append(a), real(*a))):
+            for path in ('/api/v1/analytics', '/api/v1/analytics/pulse'):
+                answer = self.client.get(path)
+                self.assertEqual(answer.status_code, 200, answer.text)
+        from service.status_engine import is_live_agent_status
+        self.assertEqual(sorted((site, live, is_live_agent_status(held)) for _, live, site, held in calls),
+                         [('series', False, False), ('series', True, True), ('summary', False, False),
+                          ('summary', True, True)], 'each site hands over the status its own answer came from')
         self.assertEqual({s: n >= 2 for s, n in self.sites(vo.LIVE_COUNTS).items() if s != 'gate'},
                          {'summary': True, 'series': True})
 

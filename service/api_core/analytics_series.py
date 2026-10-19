@@ -296,7 +296,7 @@ async def _build_online_agent_board(
             # MISCONFIGURED agent as live -- an agent the contract defines as one that can never
             # start -- and `online_count` is the denominator of fleet utilization below.
             live = is_live_agent_status(status)
-            view_owners.observe_live_count(row, live, 'series')  # the status shadow's (S2c slice 5); never raises
+            view_owners.observe_live_count(row, live, 'series', status)  # the status shadow's (S2c slice 5); never raises
             if not live:
                 continue
             online_count += 1

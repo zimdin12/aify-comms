@@ -103,7 +103,7 @@ async def _enforce_env_reachable_gate(
     # is covered by it without anyone remembering this line.
     live = is_live_agent_status(status)
     # The status shadow's (S2c slice 5): `association_row` is diagnostic only and never replaces `agent_row`'s lookup.
-    view_owners.observe_live_count(association_row, live, 'gate')
+    view_owners.observe_live_count(association_row, live, 'gate', status)
     if not live:
         return payload
     if str(payload.get("sessionMode") or "").lower() != "managed":

@@ -1,7 +1,8 @@
 """The status shadow comparison, persisted in version-bound windows (status-switch plan S2a).
 
 A WINDOW is one stretch of continuous recording on one version triple (comms, env, wrapper build). It closes, and
-the next one opens, when the service restarts, when a publication loss begins or ends, or when a version changes.
+the next one opens, when the service restarts, when a publication loss begins or ends, when a version changes, or
+when its evidence rotates (shadow_evidence_store: a size or age bound, tested after this tick's append).
 A closed window is never reopened or merged, so an interruption stays visible as a gap between windows rather than
 disappearing into a running total. Its counts are deltas taken from the in-process recorder.
 
@@ -17,7 +18,8 @@ from dataclasses import dataclass
 
 from service import clock
 from service.db import get_db
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import partial_status_shadow as shadow, shadow_evidence_store as evidence_store
+from service.api_core.shadow_evidence import BOOT_ID
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ class ShadowWindows:
         # Drained BEFORE the window opens: what was recorded until now belongs to no window, and everything recorded
         # from here on is flushed into the window this opens.
         self.recorder.take()
+        self.recorder.evidence.take()
         db = await self._connect()
         try:
             await db.execute('BEGIN IMMEDIATE')
@@ -85,6 +88,7 @@ class ShadowWindows:
     async def tick(self, versions, at):
         """Flush what was recorded into the current window, then close it if this flush ends its continuity."""
         pending, lost_seen, healthy_seen = self.recorder.take()
+        items, gaps = self.recorder.evidence.take()  # no await between: the items are the counts' disagreements
         reason, still_in_loss = next_reason(flush_lost=self._flush_lost, versions_changed=versions != self._versions,
                                             in_loss=self._in_loss, lost_seen=lost_seen, healthy_seen=healthy_seen)
         self._flush_lost = True  # until this flush commits: a failure from here on loses the counts just taken
@@ -99,6 +103,9 @@ class ShadowWindows:
                     'VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (window_id, owner, variant, source, name) '
                     'DO UPDATE SET count = count + excluded.count', (window, owner, variant, site, name, count))
             await db.execute('UPDATE status_shadow_windows SET flushed_at = ? WHERE id = ?', (at, window))
+            rows, size, opened_at = await evidence_store.append(db, window, items, gaps)
+            if reason is None and evidence_store.rotation_due(rows, size, opened_at, at):
+                reason = 'rotation'
             if reason:
                 await db.execute('UPDATE status_shadow_windows SET closed_at = ?, close_reason = ? WHERE id = ?',
                                  (at, reason, window))
@@ -112,8 +119,8 @@ class ShadowWindows:
     @staticmethod
     async def _open(db, versions, at):
         cursor = await db.execute(
-            'INSERT INTO status_shadow_windows (comms_build, env_build, wrapper_build, opened_at, flushed_at) '
-            'VALUES (?, ?, ?, ?, ?)', (versions.comms, versions.env, versions.wrapper, at, at))
+            'INSERT INTO status_shadow_windows (comms_build, env_build, wrapper_build, opened_at, flushed_at, boot_id) '
+            'VALUES (?, ?, ?, ?, ?, ?)', (versions.comms, versions.env, versions.wrapper, at, at, BOOT_ID))
         return cursor.lastrowid
 
 
@@ -162,6 +169,19 @@ async def run_periodic(versions, windows=None, every=FLUSH_SECONDS):
             await windows.tick(versions, clock.now())
         except Exception as error:
             logger.warning('status shadow window flush failed: %s', error)
+        try:
+            await expire_windows(clock.now())
+        except Exception as error:
+            logger.warning('status shadow window expiry failed: %s', error)
+
+
+async def expire_windows(at):
+    """Its own transaction, so an expiry that fails never costs a flush."""
+    db = await get_db()
+    try:
+        return await evidence_store.expire(db, at)
+    finally:
+        await db.close()
 
 
 async def stop(task):

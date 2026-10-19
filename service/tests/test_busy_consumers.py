@@ -417,10 +417,10 @@ class SendTimeQueueSiteTest(_Sites, p7.SendTimeQueueWitness):
     def test_a_busy_recording_failure_leaves_the_queue_its_computed_hold(self):
         real = self.recorder.record_owner
 
-        def busy_broken(owner, *args):
+        def busy_broken(owner, *args, **kwargs):
             if owner == 'busy':
                 raise RuntimeError('busy recorder broken')
-            return real(owner, *args)
+            return real(owner, *args, **kwargs)
         self.fold._turns[(p7.MACHINE, 'q-rec')] = dt.DeliveryTurn(True, 'r', self.at(100), self.at(50), 'b')
         with mock.patch.object(self.recorder, 'record_owner', side_effect=busy_broken):
             self._assert_waits('q-rec', self._queue_send('q-rec', FRESH))

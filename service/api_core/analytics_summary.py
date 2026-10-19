@@ -252,7 +252,7 @@ async def _agent_tallies(db) -> tuple[int, int, int]:
         # `online_agents` is the utilization denominator below. It also excluded `stale`,
         # a status this engine stopped producing, so that half guarded nothing.
         live = is_live_agent_status(status)
-        view_owners.observe_live_count(row, live, 'summary')  # the status shadow's (S2c slice 5); never raises
+        view_owners.observe_live_count(row, live, 'summary', status)  # the status shadow's (S2c slice 5); never raises
         if live:
             online_agents += 1
         if status.startswith("working"):

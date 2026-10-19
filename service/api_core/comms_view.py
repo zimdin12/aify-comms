@@ -151,11 +151,13 @@ async def _compute(db, agent_row, decision):
     return {variant: holds_delivery(frame, renewal, variant) for variant in LAWS}
 
 
-def record_answer(owner, variant, site, today, answer):
-    """One observation, contained: a recording that raises is recorded once more as 'shadow-error', then dropped."""
+def record_answer(owner, variant, site, today, answer, evidence=None):
+    """One observation, contained: a recording that raises is recorded once more as 'shadow-error', then dropped.
+    `evidence` builds a counted disagreement's item (S2c-E)."""
     value, reason = answer
     try:
-        shadow.recorder.record_owner(owner, variant, site, today, None if value is NOT_KNOWN else value, reason)
+        shadow.recorder.record_owner(owner, variant, site, today, None if value is NOT_KNOWN else value, reason,
+                                     evidence=evidence)
     except Exception:
         try:
             shadow.recorder.record_owner(owner, variant, site, today, None, 'shadow-error')

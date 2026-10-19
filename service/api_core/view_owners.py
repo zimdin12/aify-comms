@@ -21,6 +21,7 @@ from service.api_core import comms_view as cv, partial_status_shadow as shadow
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.live_process_probes import PROBE_ERROR, channel_sidecar_state, wrapper_child_state
 from service.api_core.manual_status import _MANUAL_STATUSES
+from service.api_core.shadow_evidence import item, row_facts
 from service.api_core.shadow_owners import NO_VARIANT
 from service.status_engine import is_live_agent_status
 
@@ -131,28 +132,38 @@ def _agent_record(agent_row):
     return (binding, association, *shadow.record_for(binding, association))
 
 
-def observe_live_count(agent_row, live, site):
+def observe_live_count(agent_row, live, site, held):
+    """`live` is the site's own answer and `held` the status it computed it from, which the association row's status
+    (row 1's flag) need not equal."""
+    evidence = None
     try:
         binding, association, record, reason = _agent_record(agent_row)
         conflict = conflict_age(binding, association) if reason == 'ambiguous-association' else None
         answer = ((NOT_KNOWN, reason) if reason == 'association'
                   else live_candidate(record, reason, _stopped(agent_row), conflict))
+        evidence = lambda: item(LIVE_COUNTS, NO_VARIANT, site, association[1], binding, association, bool(live),
+                                answer[0], dict(held=held, live=bool(live), association=row_facts(agent_row)))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(LIVE_COUNTS, NO_VARIANT, site, bool(live), answer)
+    cv.record_answer(LIVE_COUNTS, NO_VARIANT, site, bool(live), answer, evidence)
 
 
 def observe_promotion(agent_row, base, effective, dispatch_state, site):
     """`base` and `effective` are the site's own `_status_with_dispatch` input and result."""
+    today, evidence = effective == 'working' and base != 'working', None
     try:
         active = (dispatch_state or {}).get('activeRun') or {}
         running = active.get('status') == 'running'
-        _, _, record, reason = _agent_record(agent_row) if running else (None, None, None, None)
+        binding, association, record, reason = _agent_record(agent_row) if running else (None, None, None, None)
         answer = ((NOT_KNOWN, reason) if reason == 'association'
                   else promotion_candidate(record, reason, running, _stopped(agent_row)))
+        evidence = lambda: item(PROMOTION, NO_VARIANT, site, agent_row['id'], binding, association, today, answer[0],
+                                dict(base=base, effective=effective,
+                                     activeRun=dict(runId=active.get('runId'), status=active.get('status')),
+                                     association=row_facts(agent_row)))
     except Exception:
         answer = NOT_KNOWN, 'shadow-error'
-    cv.record_answer(PROMOTION, NO_VARIANT, site, effective == 'working' and base != 'working', answer)
+    cv.record_answer(PROMOTION, NO_VARIANT, site, today, answer, evidence)
 
 
 async def observe_readiness(db, agent_row, liveness, site):

@@ -224,6 +224,22 @@ AGENT_TURN_STATE_BACKFILLS = (
 )
 
 
+#: S2c-E E1: a window's evidence frontier and totals, and the process that recorded it.
+STATUS_SHADOW_WINDOW_MIGRATIONS = {
+    "flushed_seq": "ALTER TABLE status_shadow_windows ADD COLUMN flushed_seq INTEGER NOT NULL DEFAULT 0",
+    "evidence_rows": "ALTER TABLE status_shadow_windows ADD COLUMN evidence_rows INTEGER NOT NULL DEFAULT 0",
+    "evidence_bytes": "ALTER TABLE status_shadow_windows ADD COLUMN evidence_bytes INTEGER NOT NULL DEFAULT 0",
+    "boot_id": "ALTER TABLE status_shadow_windows ADD COLUMN boot_id TEXT",
+}
+
+
+async def _migrate_status_shadow_windows(db: aiosqlite.Connection):
+    existing = {row[1] for row in await (await db.execute("PRAGMA table_info(status_shadow_windows)")).fetchall()}
+    for column, statement in STATUS_SHADOW_WINDOW_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def _migrate_agents_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agents)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -668,6 +684,7 @@ async def init_db(db_path: Path = None):
         await _migrate_agent_lifecycle_requests_table(db)
         await _migrate_agent_status_state_table(db)
         await _migrate_status_shadow_window_counts(db)
+        await _migrate_status_shadow_windows(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)
         await _drop_retired_tables(db)
