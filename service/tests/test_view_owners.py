@@ -5,6 +5,7 @@ today's unchanged answer; the readiness observer's inputs and its one bounded re
 answer and its outcome do not move whatever the observer does.
 """
 import asyncio
+import contextlib
 import sqlite3
 import unittest
 from unittest import mock
@@ -453,7 +454,10 @@ class SiteOutcomeTest(_Shadow, _Db):
     """Per site, today's outcome under each arm: the observer healthy, every candidate raising, and the recorder
     raising. Each arm that writes runs on its own fresh, equivalent agent; each expectation is fixed by the fixture."""
 
+    @contextlib.contextmanager
     def arm(self, name):
+        """One arm's patches, stopped even when the site raises (so no fault leaks into the next arm); a fault arm
+        must be shown reached, since a fault nobody hit proves nothing."""
         if name == 'candidate-fault':
             patches = [mock.patch.object(vo, fn, side_effect=RuntimeError('candidate broken'))
                        for fn in ('live_candidate', 'promotion_candidate', 'readiness_candidate')]
@@ -461,17 +465,14 @@ class SiteOutcomeTest(_Shadow, _Db):
             patches = [mock.patch.object(self.recorder, 'record_owner', side_effect=RuntimeError('recorder broken'))]
         else:
             patches = []
-        self.mocks = [p.start() for p in patches]
-        for p in patches:
-            self.addCleanup(p.stop)
-        return patches
-
-    def end(self, patches):
-        """Stop the arm, and prove a fault arm reached the observer: a fault nobody hit proves nothing."""
-        for p in patches:
-            p.stop()
+        mocks = [p.start() for p in patches]
+        try:
+            yield
+        finally:
+            for p in patches:
+                p.stop()
         if patches:
-            self.assertTrue(any(m.called for m in self.mocks), 'the fault was never reached')
+            self.assertTrue(any(m.called for m in mocks), 'the fault was never reached')
 
     def managed(self, agent_id, *, worker=False):
         self._register(agent_id, runtime='claude-code', sessionMode='managed')
@@ -507,10 +508,9 @@ class SiteOutcomeTest(_Shadow, _Db):
                          'the fixture: one live status (available) beside two non-live ones')
         for name in ARMS:
             with self.subTest(name):
-                patches = self.arm(name)
-                counts = [self.client.get(path).json()['onlineAgents']
-                          for path in ('/api/v1/analytics', '/api/v1/analytics/pulse')]
-                self.end(patches)
+                with self.arm(name):
+                    counts = [self.client.get(path).json()['onlineAgents']
+                              for path in ('/api/v1/analytics', '/api/v1/analytics/pulse')]
                 self.assertEqual(counts, [1, 1])
 
     def test_the_send_preflight(self):
@@ -518,10 +518,9 @@ class SiteOutcomeTest(_Shadow, _Db):
             with self.subTest(name):
                 agent = f'pf-{name}'
                 self.managed(agent)
-                patches = self.arm(name)
-                answer = self.client.post('/api/v1/messages/send', json={
-                    'from_agent': 'dashboard', 'to': agent, 'type': 'info', 'subject': 's', 'body': 'b', 'trigger': True})
-                self.end(patches)
+                with self.arm(name):
+                    answer = self.client.post('/api/v1/messages/send', json={
+                        'from_agent': 'dashboard', 'to': agent, 'type': 'info', 'subject': 's', 'body': 'b', 'trigger': True})
                 self.assertEqual(answer.status_code, 200, answer.text)
                 body = answer.json()
                 decision = [(h['targetAgentId'], h['reason'].split(':')[0]) for h in body.get('notStarted') or []]
@@ -549,12 +548,11 @@ class SiteOutcomeTest(_Shadow, _Db):
                            "message_type, subject, body, priority, status, queue_if_busy, requested_at) VALUES "
                            "(?, 'dashboard', ?, 'start_if_possible', 'managed', 'info', 's', 'first', 'normal', "
                            "'queued', 1, datetime('now'))", (f'run-{agent}', agent))
-                patches = self.arm(name)
-                with mock.patch.object(dispatch_runs, '_append_pending_dispatch_body', return_value=None):
-                    answer = self.client.post('/api/v1/messages/send', json={
-                        'from_agent': 'dashboard', 'to': agent, 'type': 'info', 'subject': 's2', 'body': 'second',
-                        'trigger': True, 'queueIfBusy': True})
-                self.end(patches)
+                with self.arm(name):
+                    with mock.patch.object(dispatch_runs, '_append_pending_dispatch_body', return_value=None):
+                        answer = self.client.post('/api/v1/messages/send', json={
+                            'from_agent': 'dashboard', 'to': agent, 'type': 'info', 'subject': 's2', 'body': 'second',
+                            'trigger': True, 'queueIfBusy': True})
                 self.assertEqual(answer.status_code, 200, answer.text)
                 refused = [h for h in answer.json().get('notStarted') or [] if h.get('targetAgentId') == agent]
                 self.assertEqual([(h['reason'], h['recipientStatus'], h['hasActiveRun'], h['bufferedCount'])
@@ -568,11 +566,10 @@ class SiteOutcomeTest(_Shadow, _Db):
                 with self.subTest(arm=name, worker=str(worker)):
                     agent = f'wk-{name}-{worker}'.lower()
                     self.managed(agent, worker=worker)
-                    patches = self.arm(name)
-                    inputs, cache = self.run_db(lambda db: asyncio.gather(
-                        status_inputs._gather_status_inputs(db, self._row(agent)),
-                        status_inputs._compute_live_status_cache(db, self._row(agent))))
-                    self.end(patches)
+                    with self.arm(name):
+                        inputs, cache = self.run_db(lambda db: asyncio.gather(
+                            status_inputs._gather_status_inputs(db, self._row(agent)),
+                            status_inputs._compute_live_status_cache(db, self._row(agent))))
                     self.assertEqual(inputs.worker_present, worker)
                     self.assertEqual(cache['status'], 'online' if worker else 'available')
 
@@ -588,9 +585,8 @@ class SiteOutcomeTest(_Shadow, _Db):
                                    "started_at, last_seen) VALUES (?, ?, 'env', 'codex', 'running', "
                                    "strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
                                    (f's-{agent}', agent))
-                    patches = self.arm(name)
-                    refusal = self.run_db(lambda db: twin_refusal(db, self._row(agent)))
-                    self.end(patches)
+                    with self.arm(name):
+                        refusal = self.run_db(lambda db: twin_refusal(db, self._row(agent)))
                     self.assertEqual(bool(refusal), live, refusal)
 
 
