@@ -26,7 +26,7 @@ def frame(*holders, others_unknown=False, delivery=dt.CLOSED):
 
 
 def both(f, renewal=None):
-    return {v: cv.holds_delivery(f, renewal, v) for v in cv.VARIANTS}
+    return {v: cv.holds_delivery(f, renewal, v) for v in cv.LAWS}
 
 
 class HoldsDeliveryTest(unittest.TestCase):
@@ -195,13 +195,13 @@ class ObserverTest(unittest.TestCase):
                 calls, _ = self.observe(BusyDecision(False, 'bridge-1', renewal))
                 self.assertEqual(calls, 0)
         for decision in (BusyDecision(False, 'bridge-1', 'error'), BusyDecision(False, 'other', 'verified')):
-            with self.subTest(decision=decision):
+            with self.subTest(decision=repr(decision)):
                 calls, _ = self.observe(decision)
                 self.assertEqual(calls, 1, 'an error is no known negative; another owner is another question')
 
     def test_no_read_when_the_delivery_turn_does_not_need_one(self):
-        for delivery in (LIVE, dt.CLOSED, dt.NOTHING_KNOWN):
-            with self.subTest(delivery=delivery):
+        for name, delivery in (('live', LIVE), ('closed', dt.CLOSED), ('unknown', dt.NOTHING_KNOWN)):
+            with self.subTest(delivery=name):
                 self.delivery = delivery
                 self.assertEqual(self.observe()[0], 0)
 
@@ -233,8 +233,8 @@ class ObserverTest(unittest.TestCase):
     def test_a_capture_failure_records_both_variants_unavailable(self):
         with mock.patch.object(cv, 'capture', side_effect=RuntimeError('mirror unreadable')):
             _, busy = self.observe()
-        self.assertEqual({v: busy[v]['unavailableByReason'] for v in cv.VARIANTS},
-                         {v: {'claim': {'shadow-error': 1}} for v in cv.VARIANTS})
+        self.assertEqual({v: busy[v]['unavailableByReason'] for v in cv.LAWS},
+                         {v: {'claim': {'shadow-error': 1}} for v in cv.LAWS})
 
     def test_cancellation_still_propagates(self):
         async def cancelled(*args):

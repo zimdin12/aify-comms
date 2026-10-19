@@ -18,13 +18,14 @@ from dataclasses import dataclass
 
 from service.api_core import delivery_turns as dt, partial_status_shadow as shadow
 from service.api_core.claim_gating import turn_lease_renewal
+from service.api_core.delivery_turns import NOT_KNOWN
+from service.api_core.shadow_owners import variants_of
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.clock import iso_to_epoch
 
-NOT_KNOWN = dt.NOT_KNOWN
 OWNER = 'busy'
-VARIANTS = ('strict', 'P-1')
+LAWS = variants_of(OWNER)  # strict and P-1, as the recorder's roster names them
 REASON_ORDER = ('record-knowledge', 'strict-expiry', 'delivery-turn', 'renewal')
 
 
@@ -84,7 +85,7 @@ def _live(turn, renewable, at):
                               now_epoch=at, strict_seconds=TURN_BUSY_BACKSTOP_SECONDS)
 
 
-def _record(holder, variant, at):
+def _record_disjunct(holder, variant, at):
     if holder.freshness == 'unknown':
         return NOT_KNOWN, 'record-knowledge'
     if holder.freshness == 'fresh':
@@ -96,7 +97,7 @@ def _record(holder, variant, at):
     return at < holder.expiry, None
 
 
-def _delivery(frame, renewal):
+def _delivery_disjunct(frame, renewal):
     turn = frame.delivery
     if turn.open is False:
         return False, None
@@ -111,10 +112,10 @@ def _delivery(frame, renewal):
 
 def holds_delivery(frame, renewal, variant):
     """PURE. (True | False | NOT_KNOWN, reason): the three-valued OR of C6's disjuncts under one law."""
-    answers = [_record(h, variant, frame.at) for h in frame.holders]
+    answers = [_record_disjunct(h, variant, frame.at) for h in frame.holders]
     if frame.others_unknown:
         answers.append((NOT_KNOWN, 'record-knowledge'))
-    answers.append(_delivery(frame, renewal))
+    answers.append(_delivery_disjunct(frame, renewal))
     if any(value is True for value, _ in answers):
         return True, None
     unknown = {reason for value, reason in answers if value is NOT_KNOWN}
@@ -147,14 +148,14 @@ async def observe_busy(db, agent_row, decision, site):
         agent_id = agent_row['id']
         frame = capture(agent_row['machine_id'], agent_id)
         renewal = await _renewal(db, agent_id, frame, decision)
-        results = {variant: holds_delivery(frame, renewal, variant) for variant in VARIANTS}
-        for variant in VARIANTS:
+        results = {variant: holds_delivery(frame, renewal, variant) for variant in LAWS}
+        for variant in LAWS:
             value, reason = results[variant]
             shadow.recorder.record_owner(OWNER, variant, site, decision.holds,
                                          None if value is NOT_KNOWN else value, reason)
             recorded.add(variant)
     except Exception:
-        for variant in VARIANTS:
+        for variant in LAWS:
             if variant not in recorded:
                 try:
                     shadow.recorder.record_owner(OWNER, variant, site, decision.holds, None, 'shadow-error')
