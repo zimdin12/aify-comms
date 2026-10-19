@@ -54,6 +54,15 @@ class Frame:
     others_unknown: bool  # a publisher on the machine whose rows cannot be read might hold the agent
     delivery: dt.DeliveryTurn
     binding: object = None  # the one bind this frame was read from: custody for the env census, never serialized
+    delivery_tag: str | None = None  # why `delivery` is unknown, read with it (D-UNKNOWN, diagnostic only)
+
+
+def _delivery_tag(machine, agent_id, holders, at):
+    """The fold's diagnostic for this frame, never raising: a lookup that fails is a fault, never a stratum."""
+    try:
+        return dt.FOLD.diagnostic(machine, agent_id, {h.lifetime for h in holders}, at)
+    except Exception:
+        return dt.DIAGNOSTIC_FAULT
 
 
 def capture(machine, agent_id):
@@ -62,7 +71,7 @@ def capture(machine, agent_id):
     at = iso_to_epoch(binding.at, None)
     turn = dt.FOLD.turn(machine, agent_id)
     if binding.loss or at is None:
-        return Frame(at, (), True, turn, binding)
+        return Frame(at, (), True, turn, binding, _delivery_tag(machine, agent_id, (), at))
     holders, others_unknown, publishers = [], False, 0
     for (mid, instance), publisher in binding.view.items():
         if mid != machine:
@@ -81,7 +90,8 @@ def capture(machine, agent_id):
             expiry = dt.FOLD.strict_expiry(machine, agent_id, r.lifetime, r.clock[1]) if is_open else NOT_KNOWN
             advanced = dt.FOLD.advanced_at(machine, agent_id, r.lifetime, r.clock[1]) if is_open else NOT_KNOWN
             holders.append(Holder(age, r.busy_if, r.clock, expiry, advanced, (mid, instance), r.lifetime))
-    return Frame(at, tuple(holders), others_unknown or not publishers, turn, binding)
+    return Frame(at, tuple(holders), others_unknown or not publishers, turn, binding,
+                 _delivery_tag(machine, agent_id, holders, at))
 
 
 def needs_renewal(frame):
@@ -112,7 +122,7 @@ def _delivery_disjunct(frame, renewal):
     turn = frame.delivery
     if turn.open is False:
         return False, None
-    if turn.open is NOT_KNOWN or any(v is NOT_KNOWN for v in (turn.started_at, turn.touched_at, turn.owner)):
+    if not dt.delivery_known(turn):
         return NOT_KNOWN, 'delivery-turn'
     if frame.at is None:  # a lost binding has no clock to age the turn against
         return NOT_KNOWN, 'delivery-turn'
@@ -208,13 +218,14 @@ async def _compute(db, agent_row, decision):
     return answers, Basis(decision, frame, renewal, source, (agent_row['machine_id'], agent_id))
 
 
-def record_answer(owner, variant, site, today, answer, evidence=None, binding=None, fold=False):
+def record_answer(owner, variant, site, today, answer, evidence=None, binding=None, fold=False, explain=None):
     """One observation, contained: a recording that raises is recorded once more as 'shadow-error', then dropped.
-    `evidence` builds a counted disagreement's item (S2c-E); `binding` and `fold` say what it consulted (B6a)."""
+    `evidence` builds a counted disagreement's item (S2c-E); `binding` and `fold` say what it consulted (B6a);
+    `explain` is (reason, name), counted only beside that reason (D-UNKNOWN)."""
     value, reason = answer
     try:
         shadow.recorder.record_owner(owner, variant, site, today, None if value is NOT_KNOWN else value, reason,
-                                     evidence=evidence, binding=binding, fold=fold)
+                                     evidence=evidence, binding=binding, fold=fold, explain=explain)
     except Exception:
         try:
             shadow.recorder.record_owner(owner, variant, site, today, None, 'shadow-error', binding=binding, fold=fold)
@@ -235,5 +246,6 @@ async def observe_busy(db, agent_row, decision, site):
         record_answer(OWNER, variant, site, decision.holds, answer,
                       lambda variant=variant, answer=answer: basis_item(
                           OWNER, variant, site, basis, decision.holds, answer[0], candidate_extra=dict(reason=answer[1])),
-                      binding_of(basis), fold=True)
+                      binding_of(basis), fold=True,
+                      explain=basis and ('delivery-turn', basis.frame.delivery_tag or dt.DIAGNOSTIC_FAULT))
     return BusyObservation(results, basis)

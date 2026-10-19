@@ -317,14 +317,19 @@ class Recorder:
                 counts[name] += 1
             self._pending[(WORD, NO_VARIANT, source, name)] += 1
 
-    def record_owner(self, owner, variant, site, today, candidate, reason=None, evidence=None, binding=None, fold=False):
+    def record_owner(self, owner, variant, site, today, candidate, reason=None, evidence=None, binding=None, fold=False,
+                     explain=None):
         """One evaluation of a non-word owner: today's answer and the candidate's, or why the candidate has none.
         `evidence` builds the item a counted disagreement of an evidence owner keeps; `binding` is the env view this
-        evaluation consulted and `fold` whether it read the delivery-turn fold, both counted with it (B6a)."""
+        evaluation consulted and `fold` whether it read the delivery-turn fold, both counted with it (B6a). `explain`
+        is (reason, name): `name` is counted only when this evaluation counted 'unavailable:<reason>', so an
+        explanation never outnumbers what it explains (D-UNKNOWN)."""
         key = checked_key(owner, variant, site)
         self.provenance.observe(owner, binding, fold)
         tally = self._owners.setdefault(key[:2], OwnerTally())
         names = tally.record(site, today, candidate, reason)
+        if explain and f'unavailable:{explain[0]}' in names:
+            names = [*names, explain[1]]
         for name in names:
             self._pending[(*key, name)] += 1
         if 'partialDisagreed' in names and owner in EVIDENCE_OWNERS:

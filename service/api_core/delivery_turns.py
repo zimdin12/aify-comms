@@ -22,6 +22,10 @@ withheld or ageless one makes it non-authoritative for good: a later or smaller 
 missed. The application stamp is whole seconds, so the sample is (stamp + its resolution) - ageMs: never before
 the true start, at most one resolution later than the receipt-minus-age it stands for (B6).
 
+WHERE AN UNKNOWN CAME FROM (D-UNKNOWN, a diagnostic deleted with the shadow): each agent's delivery turn keeps the op
+on its last known-to-unknown edge, or 'never-known'. A write that leaves it unknown never rewrites that origin, so a
+later quiet or first sample cannot hide a withhold or a loss. Nothing reads it to decide anything.
+
 RECORD FRESHNESS (slice 4, for the reminder skip) is when a lineage's open turn last advanced, on the application
 clock, bound to that turn's startedAtUs. It has its own baseline, apart from the delivery effects: a lineage with no
 baseline (first seen, after a withhold, after a loss) knows nothing of when its turn last moved, so a withheld clock that
@@ -66,6 +70,38 @@ class EnvClock:
 class Estimate:
     minimum: float | None
     authoritative: bool
+
+
+NEVER_KNOWN = 'never-known'
+#: The known-to-unknown edges the fold has, by the op that makes them, as reported; any other edge is unclassified.
+EDGES = {'withheld': 'withheld', 'env-ambiguous-closed': 'ambiguous-closed', 'lost': 'lost', NEVER_KNOWN: NEVER_KNOWN}
+DIAGNOSTIC_FAULT = 'deliveryUnknownFault'
+
+
+def delivery_known(turn):
+    """PURE. Whether C6's delivery disjunct can answer from this turn: known closed, or open with its start, touch and
+    owner known. Otherwise it answers 'delivery-turn'."""
+    return turn.open is False or (turn.open is True and all(
+        v is not NOT_KNOWN for v in (turn.started_at, turn.touched_at, turn.owner)))
+
+
+def origin_after(before, after, origin, op):
+    """PURE. An agent's origin after one write: none once its turn is known, `op` on a known-to-unknown edge, and
+    otherwise the origin it had."""
+    if delivery_known(after):
+        return None
+    return op if delivery_known(before) else origin
+
+
+def lineage_stratum(entries):
+    """PURE. `entries` holds one (present, clock) per distinct lifetime the frame holds a record of: 'no-record',
+    'multiple', or that one lineage's 'absent', 'null', 'open' or 'closed'."""
+    if not entries:
+        return 'no-record'
+    if len(entries) > 1:
+        return 'multiple'
+    present, clock = entries[0]
+    return 'absent' if not present else 'null' if clock is None else 'open' if clock.open else 'closed'
 
 
 def reporter_busy(turn, run_id, owner, at):
@@ -129,9 +165,36 @@ class DeliveryTurns:
         self._lineages = {}  # (machine, agent, lifetime) -> EnvClock, or None after a null turn
         self._estimates = {}  # (machine, agent, lifetime, started_us) -> Estimate
         self._fresh = {}  # (machine, agent, lifetime) -> freshness_after's entry
+        self._origin = {}  # (machine, agent) -> origin_after's value; outlives lose_everything
+        self._reported = set()  # (machine, agent) a reporter wrote since boot
 
     def turn(self, machine, agent_id):
         return self._turns.get((machine, agent_id), NOTHING_KNOWN)
+
+    def _write(self, key, after, op):
+        """The turn first; its diagnostic origin after, contained, so a diagnostic failure never changes the fold."""
+        before = self._turns.get(key, NOTHING_KNOWN)
+        self._turns[key] = after
+        try:
+            self._origin[key] = origin_after(before, after, self._origin.get(key, NEVER_KNOWN), op)
+        except Exception:
+            self._origin[key] = 'diagnostic-fault'
+
+    def diagnostic(self, machine, agent_id, lifetimes, at):
+        """The count name explaining an unknown delivery turn: 'deliveryUnknown:<origin>:<lineage>:<reporter>', for
+        the lifetimes the frame holds records of. A frame with no clock answers 'delivery-turn' from a turn it may
+        know, so its origin is 'binding-lost'."""
+        key = (machine, agent_id)
+        if at is None:
+            origin = 'binding-lost'
+        elif delivery_known(self.turn(machine, agent_id)):
+            origin = 'not-eligible'
+        else:
+            origin = self._origin.get(key, NEVER_KNOWN)
+            origin = EDGES.get(origin, f'unclassified:{origin}')
+        lineages = [(machine, agent_id, lifetime) for lifetime in sorted(set(lifetimes), key=str)]
+        lineage = lineage_stratum([(k in self._lineages, self._lineages.get(k)) for k in lineages])
+        return f"deliveryUnknown:{origin}:{lineage}:{'yes' if key in self._reported else 'no'}"
 
     def strict_expiry(self, machine, agent_id, lifetime, started_us):
         estimate = self._estimates.get((machine, agent_id, lifetime, started_us))
@@ -147,8 +210,9 @@ class DeliveryTurns:
 
     def reporter(self, machine, agent_id, busy, run_id, owner, at):
         turn = self.turn(machine, agent_id)
-        self._turns[(machine, agent_id)] = (reporter_busy(turn, run_id, owner, at) if busy
-                                            else reporter_clear(turn, run_id))
+        self._reported.add((machine, agent_id))
+        self._write((machine, agent_id), reporter_busy(turn, run_id, owner, at) if busy else reporter_clear(turn, run_id),
+                    'reporter-busy' if busy else 'reporter-clear')
 
     def env_applied(self, projection, view, age_ms=None):
         """One publication the receiver committed, with the view it produced. `age_ms` maps an agent to its turn age,
@@ -168,11 +232,17 @@ class DeliveryTurns:
     def lose_everything(self):
         """An applied publication the fold could not read: no knowledge survives it and no estimate stays
         authoritative, while each minimum is kept for diagnostics (Rule A)."""
+        for key, turn in self._turns.items():
+            try:
+                if delivery_known(turn):
+                    self._origin[key] = 'lost'
+            except Exception:
+                self._origin[key] = 'diagnostic-fault'
         self._turns, self._lineages, self._fresh = {}, {}, {}
         self._estimates = {key: Estimate(e.minimum, False) for key, e in self._estimates.items()}
 
     def _withhold(self, machine, record, clock):
-        self._turns[(machine, record.agent_id)] = NOTHING_KNOWN
+        self._write((machine, record.agent_id), NOTHING_KNOWN, 'withheld')
         self._fresh.pop((machine, record.agent_id, record.lifetime), None)  # no baseline survives a withhold
         if clock:  # open or closed: any applied observation of that turn the fold did not consume
             key = (machine, record.agent_id, record.lifetime, clock.started_us)
@@ -191,7 +261,8 @@ class DeliveryTurns:
         if clock.open or (*lineage, clock.started_us) in self._estimates:
             self._estimate(lineage, previous, clock, at, age)
         turn = self.turn(machine, record.agent_id)
-        self._turns[(machine, record.agent_id)] = env_effect(turn, env_change(previous, clock), at)
+        change = env_change(previous, clock)
+        self._write((machine, record.agent_id), env_effect(turn, change, at), f'env-{change}')
 
     def _estimate(self, lineage, previous, clock, at, age):
         key = (*lineage, clock.started_us)
