@@ -20,6 +20,7 @@ from typing import Any, Optional
 
 from fastapi import Request
 
+from service.api_core import busy_consumers
 from service.api_core.send_preflight import _preflight_live_send_recipients
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
@@ -243,6 +244,7 @@ async def _run_contract_reminders_once(
             continue
 
         terminal_blocked_without_live_backing = False
+        agent_row = busy_consumers.UNREAD  # this iteration's row for the target, if the terminal check reads one
         if (
             str(row["dispatch_mode"] or "").strip().lower() == "terminal"
             and str(row["status"] or "").strip().lower() in {"claimed", "running"}
@@ -277,7 +279,12 @@ async def _run_contract_reminders_once(
         turn_fresh, turn_run_id = await _turn_busy_state(db, row["target_agent"])
         busy_for_other_work = turn_fresh and turn_run_id != row["id"]
         target_busy = bool(active_state.get("hasActiveRun")) or busy_for_other_work
-        if target_busy and not terminal_blocked_without_live_backing:
+        reminder_skipped = target_busy and not terminal_blocked_without_live_backing
+        await busy_consumers.observe_reminder(  # the status shadow's comparison (S2c slice 4); never raises
+            db, row["target_agent"], row["id"], reminder_skipped, blocked=terminal_blocked_without_live_backing,
+            occupied=bool(active_state.get("hasActiveRun")), agent_row=agent_row,
+        )
+        if reminder_skipped:
             reason = "target is busy; reminder will be retried when the agent is idle"
             skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
             await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)

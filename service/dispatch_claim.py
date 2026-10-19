@@ -49,7 +49,8 @@ from service.api_core.claim_gating import (
     _release_stale_console_owner_for_claim,
     turn_busy_decision,
 )
-from service.api_core import comms_view
+from service.api_core import busy_consumers, comms_view
+from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.events import _append_dispatch_event
 from service.api_core.claim_run_selection import _select_claimable_run
@@ -363,23 +364,34 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
             decision = await turn_busy_decision(db, req.agentId)
         except Exception:
             decision = None  # unreadable turn state: the normal claim flow proceeds, as below
-        if decision is not None:  # the status shadow's comparison (S2c slice 3); never raises
-            await comms_view.observe_busy(db, agent, decision, 'claim')
+        # The status shadow's comparisons (S2c slices 3 and 4) never raise and never change the answer. The busy
+        # early-return gate is observed once: before its commit when it withholds, else after the gate.
+        busy = await comms_view.observe_busy(db, agent, decision, 'claim') if decision is not None else None
+        steerable, gate_observed = None, False
+
+        def read_steerable():  # one question, asked by today's gate and, only when today did not, by the shadow
+            return _has_claimable_steerable_run(
+                db,
+                agent_row=agent,
+                supported_modes=supported_modes,
+                agent_runtime=agent_runtime,
+            )
         try:
             if decision is not None and decision.holds:
                 hold_explicit_queue = True
-                if not await _has_claimable_steerable_run(
-                    db,
-                    agent_row=agent,
-                    supported_modes=supported_modes,
-                    agent_runtime=agent_runtime,
-                ):
+                steerable = NOT_KNOWN  # asked: it stays unknown if the helper raises
+                steerable = await read_steerable()
+                if not steerable:
+                    gate_observed = True
+                    await busy_consumers.observe_claim(db, agent, True, steerable, decision, busy, read_steerable)
                     await db.commit()
                     return {"ok": True, "run": None}
         except Exception:
             # If turn state is unreadable, fall through and let the normal claim
             # flow proceed — better to deliver than block.
             pass
+        if not gate_observed:
+            await busy_consumers.observe_claim(db, agent, False, steerable, decision, busy, read_steerable)
 
         run_cursor = await db.execute(
             """

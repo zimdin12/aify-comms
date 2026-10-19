@@ -27,6 +27,7 @@ import json
 import logging
 import time
 
+from service.api_core import busy_consumers
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.authored_failures import NO_WORKER_LEFT_TO_REPLY, turn_interrupted
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
@@ -138,7 +139,9 @@ async def _fail_stranded_delivered_reply_runs(db, *, limit: int = 200) -> list[d
             "SELECT turn_busy, turn_run_id FROM agent_turn_state WHERE agent_id = ?",
             (target,),
         )).fetchone()
-        if turn is not None and int(turn["turn_busy"] or 0) == 1 and str(turn["turn_run_id"] or "").strip() == run_id:
+        working = turn is not None and int(turn["turn_busy"] or 0) == 1 and str(turn["turn_run_id"] or "").strip() == run_id
+        await busy_consumers.observe_stranded(db, target, run_id, working)  # the status shadow's (S2c slice 4)
+        if working:
             continue
         # A CAUSE WE RECORDED IS NEVER A CAUSE WE COULD NOT DETERMINE. If this agent's turn was
         # interrupted while this run was open, say so: the undetermined text lists a throttle and a

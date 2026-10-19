@@ -14,7 +14,7 @@ from __future__ import annotations
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
-from service.api_core import comms_view
+from service.api_core import busy_consumers, comms_view
 from service.api_core.claim_gating import turn_busy_decision
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
@@ -86,13 +86,12 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
             except Exception:
                 decision = None
             is_turn_busy = decision.holds if decision is not None else False
-            if decision is not None:  # the status shadow's comparison (S2c slice 3); never raises
-                await comms_view.observe_busy(db, row, decision, 'send-time')
-            if (
-                dispatch_state.get("hasActiveRun")
-                or int(dispatch_state.get("queuedRuns") or 0) > 0
-                or is_turn_busy
-            ):
+            # The status shadow's comparisons (S2c slices 3 and 4); neither raises nor changes the answer.
+            busy = await comms_view.observe_busy(db, row, decision, 'send-time') if decision is not None else None
+            occupied = bool(dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0)
+            queue_held = occupied or is_turn_busy
+            busy_consumers.observe_queue(occupied, queue_held, decision, busy)
+            if queue_held:
                 continue
         execution_mode = str(_execution_mode or "").strip().lower()
         # Native-managed runtimes (codex/pi/opencode/hermes) — only

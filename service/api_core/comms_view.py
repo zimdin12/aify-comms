@@ -36,6 +36,7 @@ class Holder:
     busy_if: tuple | None = None  # (strict, verifiedRenewal)
     clock: tuple | None = None  # (open, startedAtUs, lastEventAtUs)
     expiry: object = NOT_KNOWN  # the fold's strictExpiry for that turn, epoch seconds
+    advanced_at: object = NOT_KNOWN  # when that open turn last advanced, on the application clock (slice 4)
 
 
 @dataclass(frozen=True)
@@ -67,9 +68,10 @@ def capture(machine, agent_id):
             others_unknown = others_unknown or not rows
             continue
         for r in rows:
-            expiry = (dt.FOLD.strict_expiry(machine, agent_id, r.lifetime, r.clock[1])
-                      if r.clock and r.clock[0] else NOT_KNOWN)
-            holders.append(Holder(age, r.busy_if, r.clock, expiry))
+            is_open = bool(r.clock and r.clock[0])
+            expiry = dt.FOLD.strict_expiry(machine, agent_id, r.lifetime, r.clock[1]) if is_open else NOT_KNOWN
+            advanced = dt.FOLD.advanced_at(machine, agent_id, r.lifetime, r.clock[1]) if is_open else NOT_KNOWN
+            holders.append(Holder(age, r.busy_if, r.clock, expiry, advanced))
     return Frame(at, tuple(holders), others_unknown or not publishers, turn)
 
 
@@ -140,24 +142,34 @@ async def _renewal(db, agent_id, frame, decision):
         return NOT_KNOWN
 
 
-async def observe_busy(db, agent_row, decision, site):
-    """Record today's busy answer beside C6's under both laws. Never raises (cancellation excepted) and never
-    changes today's answer; a variant already recorded is not recorded again."""
-    recorded = set()
+async def _compute(db, agent_row, decision):
+    agent_id = agent_row['id']
+    frame = capture(agent_row['machine_id'], agent_id)
+    renewal = await _renewal(db, agent_id, frame, decision)
+    return {variant: holds_delivery(frame, renewal, variant) for variant in LAWS}
+
+
+def record_answer(owner, variant, site, today, answer):
+    """One observation, contained: a recording that raises is recorded once more as 'shadow-error', then dropped."""
+    value, reason = answer
     try:
-        agent_id = agent_row['id']
-        frame = capture(agent_row['machine_id'], agent_id)
-        renewal = await _renewal(db, agent_id, frame, decision)
-        results = {variant: holds_delivery(frame, renewal, variant) for variant in LAWS}
-        for variant in LAWS:
-            value, reason = results[variant]
-            shadow.recorder.record_owner(OWNER, variant, site, decision.holds,
-                                         None if value is NOT_KNOWN else value, reason)
-            recorded.add(variant)
+        shadow.recorder.record_owner(owner, variant, site, today, None if value is NOT_KNOWN else value, reason)
     except Exception:
-        for variant in LAWS:
-            if variant not in recorded:
-                try:
-                    shadow.recorder.record_owner(OWNER, variant, site, decision.holds, None, 'shadow-error')
-                except Exception:
-                    pass  # best effort: a broken recorder records nothing
+        try:
+            shadow.recorder.record_owner(owner, variant, site, today, None, 'shadow-error')
+        except Exception:
+            pass  # best effort: a broken recorder records nothing
+
+
+async def observe_busy(db, agent_row, decision, site):
+    """Record today's busy answer beside C6's under both laws, and return C6's answers ({law: (value, reason)}, or
+    None when they could not be computed) for the consumers that read the same frame. Never raises (cancellation
+    excepted) and never changes today's answer; a variant already recorded is not recorded again, and a recording
+    that fails never takes the computed answers with it."""
+    try:
+        results = await _compute(db, agent_row, decision)
+    except Exception:
+        results = None
+    for variant in LAWS:
+        record_answer(OWNER, variant, site, decision.holds, results[variant] if results else (NOT_KNOWN, 'shadow-error'))
+    return results

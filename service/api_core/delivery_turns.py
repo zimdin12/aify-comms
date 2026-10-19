@@ -20,6 +20,11 @@ THE START ESTIMATE (`appliedAt - ageMs`, kept per turn at its minimum) is author
 begin after a closed observation, and only while every applied publication of it was consumed and carried an age. A
 withheld or ageless one makes it non-authoritative for good: a later or smaller age cannot prove nothing earlier was
 missed. aify-env does not publish ageMs yet (B6), so live every estimate is unknown.
+
+RECORD FRESHNESS (slice 4, for the reminder skip) is when a lineage's open turn last advanced, on the application
+clock, bound to that turn's startedAtUs. It has its own baseline, apart from the delivery effects: a lineage with no
+baseline (first seen, after a withhold, after a loss) knows nothing of when its turn last moved, so a withheld clock that
+reappears unchanged is not an advance. A quiet republication never refreshes it, and no turn inherits another's time.
 """
 from dataclasses import dataclass, replace
 
@@ -93,6 +98,17 @@ def env_change(previous, now):
     return 'ambiguous-closed' if now.last_event_us != previous.last_event_us else 'quiet'
 
 
+def freshness_after(entry, clock, at):
+    """PURE. A lineage's (baseline clock, (startedAtUs, appliedAt) | NOT_KNOWN) after one consumed observation.
+    An absent entry is no baseline; an entry whose baseline is a closed or null turn is a known closed one."""
+    if entry is None or clock is None or not clock.open:
+        return clock, NOT_KNOWN
+    base, value = entry
+    if base is None or not base.open or base.started_us != clock.started_us or base.last_event_us != clock.last_event_us:
+        return clock, (clock.started_us, at)  # closed to open, a new start, or an advance: each applied now
+    return clock, value
+
+
 def env_effect(turn, change, at):
     """C6's record-driven merge rules on the delivery turn."""
     if change == 'ended':
@@ -111,6 +127,7 @@ class DeliveryTurns:
         self._turns = {}
         self._lineages = {}  # (machine, agent, lifetime) -> EnvClock, or None after a null turn
         self._estimates = {}  # (machine, agent, lifetime, started_us) -> Estimate
+        self._fresh = {}  # (machine, agent, lifetime) -> freshness_after's entry
 
     def turn(self, machine, agent_id):
         return self._turns.get((machine, agent_id), NOTHING_KNOWN)
@@ -120,6 +137,12 @@ class DeliveryTurns:
         if estimate is None or not estimate.authoritative or estimate.minimum is None:
             return NOT_KNOWN
         return estimate.minimum + STRICT_SECONDS
+
+    def advanced_at(self, machine, agent_id, lifetime, started_us):
+        """When that lineage's open turn last advanced, if it is the turn named; otherwise NOT_KNOWN."""
+        entry = self._fresh.get((machine, agent_id, lifetime))
+        value = entry[1] if entry else NOT_KNOWN
+        return value[1] if value is not NOT_KNOWN and value[0] == started_us else NOT_KNOWN
 
     def reporter(self, machine, agent_id, busy, run_id, owner, at):
         turn = self.turn(machine, agent_id)
@@ -144,11 +167,12 @@ class DeliveryTurns:
     def lose_everything(self):
         """An applied publication the fold could not read: no knowledge survives it and no estimate stays
         authoritative, while each minimum is kept for diagnostics (Rule A)."""
-        self._turns, self._lineages = {}, {}
+        self._turns, self._lineages, self._fresh = {}, {}, {}
         self._estimates = {key: Estimate(e.minimum, False) for key, e in self._estimates.items()}
 
     def _withhold(self, machine, record, clock):
         self._turns[(machine, record.agent_id)] = NOTHING_KNOWN
+        self._fresh.pop((machine, record.agent_id, record.lifetime), None)  # no baseline survives a withhold
         if clock:  # open or closed: any applied observation of that turn the fold did not consume
             key = (machine, record.agent_id, record.lifetime, clock.started_us)
             old = self._estimates.get(key)
@@ -158,6 +182,7 @@ class DeliveryTurns:
         lineage = (machine, record.agent_id, record.lifetime)
         previous = self._lineages.get(lineage)
         self._lineages[lineage] = clock
+        self._fresh[lineage] = freshness_after(self._fresh.get(lineage), clock, at)
         if clock is None:
             return
         # Every consumed publication of a turn counts toward its estimate, open or closed; only an open one may begin
