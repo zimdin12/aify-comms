@@ -4,7 +4,8 @@ Each test names the obligation it holds (design rev2, D1-D4). Items are read thr
 encoder, so a value that cannot be named becomes a counted gap exactly as it would live.
 """
 import asyncio
-from dataclasses import asdict, replace
+from dataclasses import replace
+import hashlib
 import json
 import math
 from unittest import mock
@@ -84,6 +85,38 @@ class BusyItemTest(_Busy):
                          {('m', 'i1'): ('L1', [False, False], [False, 0, 1]),
                           ('m', 'i2'): ('L2', [True, True], [True, 0, 1])})
 
+    def test_r2_each_holders_expiry_and_advance_stay_with_its_own_publisher_lifetime_and_turn(self):
+        # Both turns open, on distinct starts, re-fed in setUp's reversed order; the fold answers per (lifetime, start).
+        self.mirror.feed(shadow.Projection(('m', 'i2'), 'snapshot', 1, FRESH, (record('L2', (True, 7, 8), (True, True)),), ()))
+        self.mirror.feed(shadow.Projection(('m', 'i1'), 'snapshot', 1, FRESH, (record('L1', (True, 5, 6), (False, False)),), ()))
+        expiry = {('L1', 5): 1111.0, ('L2', 7): 2222.0}
+        advanced = {('L1', 5): 111.0, ('L2', 7): 222.0}
+        with mock.patch.object(self.fold, 'strict_expiry', side_effect=lambda m, a, life, start: expiry[(life, start)]), \
+                mock.patch.object(self.fold, 'advanced_at', side_effect=lambda m, a, life, start: advanced[(life, start)]):
+            self.observe()
+        busy = self.items()[0][0]['candidateInputs']['busy']
+        self.assertEqual({tuple(h['publisher']): (h['lifetime'], h['clock'][1], h['expiry'], h['advancedAt'])
+                          for h in busy['holders']},
+                         {('m', 'i1'): ('L1', 5, 1111.0, 111.0), ('m', 'i2'): ('L2', 7, 2222.0, 222.0)})
+
+    def test_r3_todays_real_decision_without_its_receipt_is_the_items_and_incomplete(self):
+        healthy, _ = decide_busy(rows=(1,))
+
+        class Unreadable:
+            def __iter__(self):
+                raise RuntimeError('receipt builder broken')
+        with mock.patch.object(cg, 'TURN_COLUMNS', Unreadable()):
+            broken, _ = decide_busy(rows=(1,))
+        self.assertEqual((broken.holds, broken.receipt, replace(broken, receipt=None)),
+                         (True, None, replace(healthy, receipt=None)))
+        self.mirror.feed(shadow.Projection(('m', 'i2'), 'snapshot', 1, FRESH, (record('L2', (False, 0, 1), (False, False)),), ()))
+        self.fold._turns[('m', 'a')] = dt.CLOSED  # C6 holds nothing; today's real decision holds
+        self.observe(broken)
+        items, _ = self.items()
+        self.assertEqual(self.disagreed('busy'), 2)
+        self.assertEqual([(i['comms']['busy'], i['incomplete']) for i in items],
+                         [(dict(holds=True, owner='bridge-1', renewal='verified', receipt=None), ['comms-receipt'])] * 2)
+
     def test_the_item_holds_todays_receipt_the_frame_and_the_census_of_the_frames_own_binding(self):
         self.observe()
         item = self.items()[0][0]
@@ -157,39 +190,44 @@ class ReadinessItemTest(tvo._Shadow, unittest.TestCase):
         self.assertEqual(missing['incomplete'], ['comms-receipt'])
 
 
+def decide_busy(rows=(), table=True, bridges=True):
+    """(today's real turn_busy_decision on an in-memory DB, how many clock reads it made)."""
+    clocks = []
+    real = cg.datetime
+
+    class Counted:
+        @staticmethod
+        def now(tz=None):
+            clocks.append(1)
+            return real.now(tz)
+
+    async def run():
+        db = await aiosqlite.connect(':memory:')
+        db.row_factory = aiosqlite.Row
+        try:
+            if table:
+                await db.execute('CREATE TABLE agent_turn_state (agent_id TEXT, turn_busy INTEGER, '
+                                 'turn_updated_at TEXT, turn_started_at TEXT, turn_bridge_id TEXT)')
+            for busy in rows:
+                await db.execute("INSERT INTO agent_turn_state VALUES ('a', ?, "
+                                 "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-10 seconds'), "
+                                 "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-3000 seconds'), 'bridge-1')", (busy,))
+            if bridges:
+                await db.execute('CREATE TABLE bridge_instances (id TEXT, agent_id TEXT, superseded_by TEXT, '
+                                 'last_seen TEXT)')
+                await db.execute("INSERT INTO bridge_instances VALUES ('bridge-1', 'a', '', datetime('now'))")
+            with mock.patch.object(cg, 'datetime', Counted):
+                return await cg.turn_busy_decision(db, 'a')
+        finally:
+            await db.close()
+    return asyncio.run(run()), len(clocks)
+
+
 class TodaysBusyReceiptTest(unittest.TestCase):
     """turn_busy_decision's receipt on every return path, and the one clock read only where today already made it."""
 
-    def decide(self, rows=(), table=True, bridges=True):
-        clocks = []
-        real = cg.datetime
-
-        class Counted:
-            @staticmethod
-            def now(tz=None):
-                clocks.append(1)
-                return real.now(tz)
-
-        async def run():
-            db = await aiosqlite.connect(':memory:')
-            db.row_factory = aiosqlite.Row
-            try:
-                if table:
-                    await db.execute('CREATE TABLE agent_turn_state (agent_id TEXT, turn_busy INTEGER, '
-                                     'turn_updated_at TEXT, turn_started_at TEXT, turn_bridge_id TEXT)')
-                for busy in rows:
-                    await db.execute("INSERT INTO agent_turn_state VALUES ('a', ?, "
-                                     "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-10 seconds'), "
-                                     "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-3000 seconds'), 'bridge-1')", (busy,))
-                if bridges:
-                    await db.execute('CREATE TABLE bridge_instances (id TEXT, agent_id TEXT, superseded_by TEXT, '
-                                     'last_seen TEXT)')
-                    await db.execute("INSERT INTO bridge_instances VALUES ('bridge-1', 'a', '', datetime('now'))")
-                with mock.patch.object(cg, 'datetime', Counted):
-                    return await cg.turn_busy_decision(db, 'a')
-            finally:
-                await db.close()
-        return asyncio.run(run()), len(clocks)
+    def decide(self, **kwargs):
+        return decide_busy(**kwargs)
 
     def test_d4_no_row_read_error_and_a_real_zero_are_three_receipts_with_no_clock(self):
         (no_row, c1), (error, c2), (zero, c3) = self.decide(), self.decide(table=False), self.decide(rows=(0,))
@@ -248,6 +286,25 @@ class TodaysLivenessReceiptTest(tvo._Db):
         self.assertIsNone(vo.liveness_receipt('managed', True, Row(), 'codex', False, 'none', 1, 2, 3))
 
 
+class ReadinessProducerTest(tvo._Shadow, tvo._Db):
+    def test_r3_a_failed_receipt_leaves_todays_four_fields_and_its_packet_records_an_incomplete_item(self):
+        self._register('cl', runtime='claude-code', sessionMode='managed')
+        self._bridge('cl', 'channel-sidecar')  # a live sidecar with no console: today not live, the delivery True
+        self.publish(shadow.Record('cl', 'L', 'idle', (), None, None, ('running', 'yes'), b'{}',
+                                   (1, 'boot', 1, tvo.FRESH)))
+        healthy = self._liveness('cl', receipt=True)
+        with mock.patch.object(vo, 'dict', side_effect=RuntimeError('receipt broken'), create=True):
+            faulted = self._liveness('cl', receipt=True)
+        self.assertIsNotNone(healthy.receipt)
+        self.assertEqual((faulted[:4], faulted.receipt), (healthy[:4], None))
+        self.assertEqual(faulted[:4], (False, False, True, ('sidecar', True)))
+        asyncio.run(vo.observe_readiness(None, self._row('cl'), faulted, 'legacy'))
+        [item] = [json.loads(i.payload) for i in self.recorder.evidence.take()[0]]
+        self.assertEqual(self.owner(vo.READINESS)['counts']['partialDisagreed'], 1)
+        self.assertEqual((item['today'], item['candidate'], item['comms']['receipt'], item['incomplete']),
+                         (False, True, None, ['comms-receipt']))
+
+
 class CoverageTest(unittest.TestCase):
     def test_d3_counts_only_and_unknown_are_never_complete(self):
         totals = {('busy', 'strict', 'claim'): dict(disagreed=1, completeRows=1, incompleteRows=0, missing={})}
@@ -294,9 +351,21 @@ class CoverageTest(unittest.TestCase):
         buffer.capture(('busy', 'strict', 'claim'), lambda: dict(agentId='a', evalAt=None, incomplete=[], x=object()))
         self.assertEqual(buffer.take(), ((), {('busy', 'strict', 'claim', 'encode-error'): 1}))
 
-    def test_the_word_item_bytes_are_unchanged_by_reading_fields_instead_of_asdict(self):
-        inputs = e1.inputs(config_defect='bad config')
-        self.assertEqual(ev.encode(dict(inputs=inputs)), ev.encode(dict(inputs=asdict(inputs))))
+    def test_r1_a_whole_word_item_keeps_e1s_bytes(self):
+        # The oracle is the payload main a424f8da (E1's code) wrote for this same fixed evaluation, measured by the
+        # scratchpad's word_oracle.py: 1613 bytes, sha256 55ae3107... E2's version without candidateInputs omitted
+        # measured 1636.
+        recorder, mirror = shadow.Recorder(), shadow.Mirror()
+        versions = dict(comms=dict(build='fixed000', dirty=False, builtAt='2026-10-19T00:00:00Z'),
+                        wrapperPin=dict(sha='pin00000', label='pinned'), runningWrapper='unknown', env='per-publisher')
+        with mock.patch.object(shadow, 'recorder', recorder), mock.patch.object(shadow, 'mirror', mirror), \
+                mock.patch.object(shadow, 'clock', return_value=e1.at(10)), \
+                mock.patch.object(ev, 'VERSIONS', versions), mock.patch.object(ev, 'BOOT_ID', 'boot0000'):
+            mirror.feed(shadow.prepare(e1.body(), e1.at(0)))
+            shadow.observe(shadow.bind(), e1.ROW, e1.inputs(config_defect='bad config'), 'offline', 'refresh')
+            [item], gaps = recorder.evidence.take()
+        self.assertEqual((gaps, len(item.payload), hashlib.sha256(item.payload).hexdigest()),
+                         ({}, 1613, '55ae3107f483b8675324f9e1c49dc3b75bbcb814d6454e303e999369130f22d8'))
 
 
 class WindowOwnersTest(e1._Evidence):

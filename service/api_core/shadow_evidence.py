@@ -122,10 +122,12 @@ def item(owner, variant, site, agent_id, binding, association, today, candidate,
     """One evaluation's evidence: both answers, what comms consumed, what the candidate consumed besides the env
     records, and the env census. `missing` names inputs the caller could not keep (E2: 'comms-receipt')."""
     env, absent = census(binding, association)
-    return dict(owner=owner, variant=variant, site=site, agentId=agent_id,
-                evalAt=None if binding is None else binding.at, today=today, candidate=candidate, comms=comms,
-                candidateInputs=candidate_inputs, env=env, versions=VERSIONS,
-                incomplete=sorted(set(absent) | set(missing)))
+    body = dict(owner=owner, variant=variant, site=site, agentId=agent_id,
+                evalAt=None if binding is None else binding.at, today=today, candidate=candidate, comms=comms, env=env,
+                versions=VERSIONS, incomplete=sorted(set(absent) | set(missing)))
+    if candidate_inputs is not None:  # E1's items carry none, and keep E1's envelope byte for byte
+        body['candidateInputs'] = candidate_inputs
+    return body
 
 
 def word_item(binding, association, inputs, actual, candidate, source):
