@@ -76,3 +76,36 @@ ASSUMED: the env record has no run id (P0:17), so pairing "both open in one eval
 - C:\Docker\aify-comms\service\api_core\delivery_turns.py
 - C:\Docker\aify-comms\service\api_core\shadow_provenance.py
 - C:\Docker\aify-comms\service\api_core\shadow_evidence.py
+
+## Population contract (rev2, 2026-10-20; replaces the denominator rule in sections 1 and 2)
+
+The design review withdrew the first GO over the missing receipt. That review then accepted this contract as clarified, and it is frozen here. Every class below is decided from the receipt that today's read already produced. No SQL is added.
+
+1. **Known exclusion: record nothing.** This covers a readable receipt of a decision that applied no ceiling:
+   - `read=='row'` with `int(turn_busy or 0) == 0` (the decision's own reading of the column);
+   - `read=='no-row'`;
+   - `read=='read-error'`.
+
+   These are classified before any clock is required, because such receipts carry none. They stay excluded whatever `busy.basis` is. No `excluded:<read>` counter is added in this slice.
+2. **Eligible: a busy row with a finite numeric `nowEpoch`.** A bool, NaN, an infinity or a string does not count as finite numeric. Today's side is the strict arm, using the legacy anchor selection exactly: `started or touched`, as parsed by `iso_to_epoch`.
+   - A malformed but non-empty start falls back to the touch.
+   - A future age is false (`turn_is_still_live`).
+   - Two unusable anchors keep `todayAnchor`, `anchorColumn` and `todayExpiry` as None. Today's answer is then its real False.
+   - With a basis, the candidate is compared, or is unavailable with its own reason. With `busy.basis` None, the answer is `unavailable:shadow-error`.
+3. **Unknown eligibility: `unavailable:eligibility-unknown`.** This covers:
+   - no receipt, which is the seam that keeps the decision when receipt construction fails (`claim_gating.py:355-365`);
+   - a receipt that is not a mapping;
+   - an unknown discriminator;
+   - a busy field that cannot be read;
+   - a busy row without a usable clock.
+
+   Its today answer is None. Neither `decision.holds` nor an invented False substitutes for it, and it is never compared.
+4. **Counting.** `evaluated` counts eligible attempts plus unknown-eligibility attempts. It is not a count of proven ceiling applications. Only `partialCompared` is a real comparison, and `partialCompared + unavailable == evaluated` holds.
+
+The earlier clarifications are kept:
+- The whole observer is contained; a failure before the recording counts `shadow-error` once, with no today answer.
+- The candidate reads the captured `holder.expiry`.
+- Both sides use one clock, but there is no common snapshot.
+- The fold-read and the missing-record controls are separate.
+- M5 places the expiry strictly between the two clocks, with a same-side control.
+- The conservative `fold-context` refusal stays until fold provenance lands. Nothing here qualifies a window.
