@@ -503,16 +503,27 @@ class ClaimSiteTest(_Sites, p7.ClaimHoldWitness):
                          [dict(site='claim', today='false', candidate='true', count=2)])
 
     def test_a_commit_failure_after_a_withhold_is_still_one_observation(self):
-        real_commit, failed = aiosqlite.Connection.commit, []
+        real_commit, failed, later = aiosqlite.Connection.commit, [], []
 
         async def commit(conn):
             if self.observed and not failed:
                 failed.append(1)
                 raise RuntimeError('commit failed')
+            if failed:
+                later.append(1)
             return await real_commit(conn)
         with mock.patch.object(aiosqlite.Connection, 'commit', new=commit):
-            self._claim('c-commit', FRESH)
+            body = self._claim('c-commit', FRESH)
         self.assertEqual((failed, self.observed), ([1], [True]), 'the gate falls through as today, observed once')
+        # Today's fall-through reaches selection with the explicit queue held: the unsteerable resident run is skipped
+        # and the canary is cancelled as a mode mismatch. The early return would have left the canary queued.
+        self.assertEqual(body, {'ok': True, 'run': None})
+        rows = self._rows("SELECT id, status, claim_bridge_id FROM dispatch_runs WHERE target_agent = ?", ('c-commit',))
+        self.assertEqual({r['id']: (r['status'], r['claim_bridge_id'] or '') for r in rows},
+                         {'run-c-commit': ('queued', ''), 'canary-c-commit': ('cancelled', '')})
+        events = self._rows("SELECT event_type FROM dispatch_events WHERE run_id = ?", ('canary-c-commit',))
+        self.assertEqual([e['event_type'] for e in events], ['skipped'])
+        self.assertEqual(later, [1], 'selection\'s own commit succeeds after the failed one, and persists the above')
 
     def test_a_failing_observer_changes_nothing(self):
         with mock.patch.object(bc, 'claim_candidate', side_effect=RuntimeError('broken')):
