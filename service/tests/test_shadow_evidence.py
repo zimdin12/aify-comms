@@ -469,11 +469,11 @@ class ReadTest(_Evidence):
             self.disagree(at(when))
         self.wait(owner.tick(V, at(10)))
         first = self.page(1, limit=2)
-        self.assertEqual((first['frontier'], [i['event']['seq'] for i in first['items']], first['hasMore']),
-                         (5, [1, 2], True))
+        self.assertEqual((first['frontier'], [i['event']['seq'] for i in first['items']], first['hasMore'],
+                          first['window']['provisional']), (5, [1, 2], True, True))
         self.disagree(at(11))
         self.disagree(at(12))
-        self.wait(owner.tick(V, at(20)))  # appends 6 and 7 between the pages
+        self.wait(owner.tick(V2, at(20)))  # appends 6 and 7 between the pages, then closes W cleanly
         seen, after = [1, 2], first['nextAfter']
         while True:
             page = self.page(1, after=after, limit=2, frontier=first['frontier'])
@@ -482,7 +482,19 @@ class ReadTest(_Evidence):
             if not page['hasMore']:
                 break
         self.assertEqual(seen, [1, 2, 3, 4, 5])
-        self.assertEqual(self.page(1, limit=200)['frontier'], 7)
+        refresh = self.site(page, shadow.WORD, 'refresh')
+        self.assertEqual((page['window']['closeReason'], page['staleFrontier'], page['windowFrontier'],
+                          page['window']['provisional'], refresh['completeRows'], refresh['complete']),
+                         ('version-change', True, 7, True, 7, False),
+                         'the old prefix keeps the whole window\'s totals but never their admission')
+        older = self.page(1, frontier=3)
+        self.assertEqual(([i['event']['seq'] for i in older['items']], older['staleFrontier'],
+                          older['window']['provisional'], self.site(older, shadow.WORD, 'refresh')['complete']),
+                         ([1, 2, 3], True, True, False), 'an older bound on a closed window is not final either')
+        fresh = self.page(1, limit=200)
+        self.assertEqual(([i['event']['seq'] for i in fresh['items']], fresh['frontier'], fresh['staleFrontier'],
+                          fresh['window']['provisional'], self.site(fresh, shadow.WORD, 'refresh')['complete']),
+                         ([1, 2, 3, 4, 5, 6, 7], 7, False, False, True), 'the healthy control: the whole closed window')
 
     def test_a_filtered_read_ends_when_no_row_sits_at_the_frontier(self):
         owner = windows.ShadowWindows(self.recorder)

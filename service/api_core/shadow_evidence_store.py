@@ -11,7 +11,8 @@ range, versions and totals, so an expired window answers 'expired' rather than l
 
 A READ is one page of one window, bound to the frontier its first page saw, with each owner's COVERAGE: disagreed =
 complete items + incomplete items + gaps, and complete only for an evidence owner whose partition holds with
-nothing incomplete or missing, in a window that closed cleanly. An open window's read is provisional.
+nothing incomplete or missing, in a window that closed cleanly. An open window's read is provisional, and so is a
+read bound below the window's own frontier: the totals then count items the read does not enumerate.
 """
 from datetime import datetime, timedelta
 import json
@@ -131,10 +132,15 @@ async def read_page(db, window_id, after=0, limit=PAGE_LIMIT, frontier=None, own
     finally:
         await db.rollback()
     page = items[:limit]
-    return dict(window=dict(window, expired=False, provisional=window['closedAt'] is None),
-                frontier=bound, items=[json.loads(payload) for _, payload in page],
+    # The totals are the window's at its own flushed_seq. A read bound below it enumerates fewer items than they
+    # count, so it is never final: provisional, nothing complete, and the reader restarts at windowFrontier.
+    stale = bound < window['flushedSeq']
+    return dict(window=dict(window, expired=False, provisional=window['closedAt'] is None or stale),
+                frontier=bound, windowFrontier=window['flushedSeq'], staleFrontier=stale,
+                items=[json.loads(payload) for _, payload in page],
                 nextAfter=page[-1][0] if page else after, hasMore=len(items) > limit,
-                coverage=coverage(totals, window['bootId'] is not None, window['closeReason'] in CLEAN_CLOSES))
+                coverage=coverage(totals, window['bootId'] is not None,
+                                  window['closeReason'] in CLEAN_CLOSES and not stale))
 
 
 async def _expired(db, window_id):
@@ -147,7 +153,8 @@ async def _expired(db, window_id):
     return dict(window=dict(id=row[0], commsBuild=row[1], wrapperBuild=row[2], openedAt=row[3], closedAt=row[4],
                             closeReason=row[5], deletedAt=row[7], expired=True, provisional=False,
                             flushedSeq=summary['flushedSeq'], evidenceRows=summary['evidenceRows']),
-                frontier=summary['flushedSeq'], items=[], nextAfter=0, hasMore=False,
+                frontier=summary['flushedSeq'], windowFrontier=summary['flushedSeq'], staleFrontier=False, items=[],
+                nextAfter=0, hasMore=False,
                 coverage=coverage({tuple(t['key']): t['totals'] for t in summary['totals']}, summary['instrumented'],
                                   False))
 
