@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -289,9 +290,20 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
 
 
 async def _turn_lease_is_renewable(db, agent_id: str, bridge_id: str) -> bool:
-    """Is something INDEPENDENTLY OBSERVABLE still claiming this turn?
+    """`turn_lease_renewal` as today's gates read it: an unreadable bridge state is False, the strict anchor."""
+    try:
+        return await turn_lease_renewal(db, agent_id, bridge_id) == "verified"
+    except Exception:
+        # Unreadable bridge state is not evidence of a live claim. Fall back to the strict anchor,
+        # which is the safe direction: it releases work rather than stranding it.
+        return False
 
-    True only when `turn_bridge_id` names a bridge row that exists, belongs to THIS agent, and has
+
+async def turn_lease_renewal(db, agent_id: str, bridge_id: str) -> str:
+    """Is something INDEPENDENTLY OBSERVABLE still claiming this turn? 'verified' or 'negative'; a failed read raises,
+    so a reader that must not mistake an error for a known negative can tell them apart (status-switch S2c).
+
+    'verified' only when `turn_bridge_id` names a bridge row that exists, belongs to THIS agent, and has
     heartbeated inside the same staleness window the dead-bridge sweep uses. Ownership is checked
     because matching on id alone would let any live bridge on the host renew any agent's turn.
 
@@ -300,38 +312,46 @@ async def _turn_lease_is_renewable(db, agent_id: str, bridge_id: str) -> bool:
     """
     owner = str(bridge_id or "").strip()
     if not owner or owner == "user-prompt-submit":
-        return False
-    try:
-        row = await (await db.execute(
-            """
-            SELECT 1 FROM bridge_instances
-            WHERE id = ? AND COALESCE(agent_id, '') = ?
-              -- SUPERSEDED IS NOT AN OWNER, and a superseded bridge can still be beating:
-              -- supersession is a server-side fact and a replaced bridge is never told it lost, so
-              -- it keeps heartbeating and re-stamping. Existence plus freshness alone would let the
-              -- one thing that marks it as no longer the owner be the one thing this never reads.
-              -- Same clause as the live-wrapper predicate in `agent_sessions.py`.
-              AND COALESCE(superseded_by, '') = ''
-              AND datetime(last_seen) > datetime('now', ?)
-              -- ...and not WILDLY ahead of us. `> now - stale` is satisfied for ever by a stamp
-              -- hours in the future, so a bad write would make a dead bridge renewable permanently.
-              -- The tolerance is what keeps ordinary container/host skew from reading as bogus.
-              AND datetime(last_seen) <= datetime('now', ?)
-            """,
-            (
-                owner, agent_id,
-                f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds",
-                f"+{BRIDGE_CLOCK_SKEW_TOLERANCE_SECONDS} seconds",
-            ),
-        )).fetchone()
-    except Exception:
-        # Unreadable bridge state is not evidence of a live claim. Fall back to the strict anchor,
-        # which is the safe direction: it releases work rather than stranding it.
-        return False
-    return row is not None
+        return "negative"
+    row = await (await db.execute(
+        """
+        SELECT 1 FROM bridge_instances
+        WHERE id = ? AND COALESCE(agent_id, '') = ?
+          -- SUPERSEDED IS NOT AN OWNER, and a superseded bridge can still be beating:
+          -- supersession is a server-side fact and a replaced bridge is never told it lost, so
+          -- it keeps heartbeating and re-stamping. Existence plus freshness alone would let the
+          -- one thing that marks it as no longer the owner be the one thing this never reads.
+          -- Same clause as the live-wrapper predicate in `agent_sessions.py`.
+          AND COALESCE(superseded_by, '') = ''
+          AND datetime(last_seen) > datetime('now', ?)
+          -- ...and not WILDLY ahead of us. `> now - stale` is satisfied for ever by a stamp
+          -- hours in the future, so a bad write would make a dead bridge renewable permanently.
+          -- The tolerance is what keeps ordinary container/host skew from reading as bogus.
+          AND datetime(last_seen) <= datetime('now', ?)
+        """,
+        (
+            owner, agent_id,
+            f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds",
+            f"+{BRIDGE_CLOCK_SKEW_TOLERANCE_SECONDS} seconds",
+        ),
+    )).fetchone()
+    return "verified" if row is not None else "negative"
+
+
+@dataclass(frozen=True)
+class BusyDecision:
+    """Today's delivery-hold answer, and the ownership question it asked on the way: the owner it queried (stripped)
+    and what it learned, 'verified', 'negative' or 'error'. Both None when it never reached the question."""
+    holds: bool
+    owner: Optional[str] = None
+    renewal: Optional[str] = None
 
 
 async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
+    return (await turn_busy_decision(db, agent_id)).holds
+
+
+async def turn_busy_decision(db, agent_id: str) -> BusyDecision:
     """True when the RAW turn_busy flag may still hold delivery back.
 
     The delivery gates (send-time queue decision + /dispatch/claim) key on the raw
@@ -409,9 +429,9 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
         )).fetchone()
     except Exception:
         # Unreadable turn state must never block delivery — better to deliver.
-        return False
+        return BusyDecision(False)
     if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
-        return False
+        return BusyDecision(False)
     # Prefer the START anchor; fall back to the last-touch column for rows written before the anchor
     # existed. The fallback is deliberately NOT "release when unanchored": that would deliver
     # mid-turn to every legacy agent at once. Boot backfills the anchor, so the fallback is a
@@ -426,14 +446,18 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     # agent with a live bridge kept its work while the dashboard said it had stopped after thirty
     # minutes. `turn_liveness_policy.turn_is_still_live` is the single answer; this
     # function still owns the OWNERSHIP question, because that needs the database.
-    _renewable = await _turn_lease_is_renewable(db, agent_id, _owner)
-    return turn_is_still_live(
+    try:
+        _renewal = await turn_lease_renewal(db, agent_id, _owner)
+    except Exception:
+        _renewal = "error"  # read as today always has: not renewable
+    holds = turn_is_still_live(
         started_epoch=_started,
         touched_epoch=_touched,
-        renewable=_renewable,
+        renewable=_renewal == "verified",
         now_epoch=datetime.now(timezone.utc).timestamp(),
         strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
     )
+    return BusyDecision(holds, _owner.strip(), _renewal)
 # v0.5.4: `_mark_dispatch_source_messages_read` arrived from the control plane. It is the one WRITE in
 # this module, and it is here because `_dispatch_source_message_ids` — which decides what to mark — is
 # already here: separating the question from the single act that consumes its answer would put a

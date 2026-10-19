@@ -27,6 +27,7 @@ class Record:
     state: str
     inputs: tuple = ()  # shadow_classes.env_inputs: the closed facts a disagreement class may read
     clock: tuple | None = None  # (open, startedAtUs, lastEventAtUs) of the record's turn, for the delivery-turn fold
+    busy_if: tuple | None = None  # (strict, verifiedRenewal) of the record's turn, for comms_view's busy laws
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ class Publisher:
 def prepare(body, applied_at):
     """Detach only validated fields before opening the acceptance transaction."""
     return Projection((body['machineId'], body['instance']), body['kind'], body['generation'],
-                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r))
+                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r), turn_busy_if(r))
                                         for r in body.get('agents', ())),
                       tuple((r['agentId'], r['lifetime']) for r in body.get('removed', ())))
 
@@ -60,6 +61,11 @@ def prepare(body, applied_at):
 def turn_clock(record):
     turn = record['turn']
     return None if turn is None else (turn['open'], turn['startedAtUs'], turn['lastEventAtUs'])
+
+
+def turn_busy_if(record):
+    turn = record['turn']
+    return None if turn is None else (turn['busyIf']['strict'], turn['busyIf']['verifiedRenewal'])
 
 
 class Mirror:

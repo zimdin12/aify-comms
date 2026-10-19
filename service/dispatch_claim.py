@@ -47,8 +47,9 @@ from service.api_core.claim_gating import (
     _has_claimable_steerable_run,
     _mark_dispatch_source_messages_read,
     _release_stale_console_owner_for_claim,
-    _turn_busy_holds_delivery,
+    turn_busy_decision,
 )
+from service.api_core import comms_view
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.events import _append_dispatch_event
 from service.api_core.claim_run_selection import _select_claimable_run
@@ -351,15 +352,21 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         # headless runs) so a genuinely-uninjectable target still waits for the
         # turn to end.
         hold_explicit_queue = False
+        # Explicit queue means exactly "after this turn": key on the RAW harness signal,
+        # never on derived status (that reinterpretation is what let queued sends land
+        # mid-turn, #236). The ONE bound is the anti-strand ceiling — see
+        # _turn_busy_holds_delivery: an abandoned turn_busy=1 that the dead-bridge sweeper
+        # cannot reach (hook-owned turns, live bridge) would otherwise hold queued work
+        # FOREVER, and for a target without `steer` the early return below makes that agent
+        # permanently deaf while status already reports it idle.
         try:
-            # Explicit queue means exactly "after this turn": key on the RAW harness signal,
-            # never on derived status (that reinterpretation is what let queued sends land
-            # mid-turn, #236). The ONE bound is the anti-strand ceiling — see
-            # _turn_busy_holds_delivery: an abandoned turn_busy=1 that the dead-bridge sweeper
-            # cannot reach (hook-owned turns, live bridge) would otherwise hold queued work
-            # FOREVER, and for a target without `steer` the early return below makes that agent
-            # permanently deaf while status already reports it idle.
-            if await _turn_busy_holds_delivery(db, req.agentId):
+            decision = await turn_busy_decision(db, req.agentId)
+        except Exception:
+            decision = None  # unreadable turn state: the normal claim flow proceeds, as below
+        if decision is not None:  # the status shadow's comparison (S2c slice 3); never raises
+            await comms_view.observe_busy(db, agent, decision, 'claim')
+        try:
+            if decision is not None and decision.holds:
                 hold_explicit_queue = True
                 if not await _has_claimable_steerable_run(
                     db,
