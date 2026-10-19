@@ -14,7 +14,7 @@ from __future__ import annotations
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
-from service.api_core import busy_consumers, comms_view
+from service.api_core import busy_consumers, comms_view, stale_turn_ceiling
 from service.api_core.claim_gating import turn_busy_decision
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
@@ -88,6 +88,8 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
             is_turn_busy = decision.holds if decision is not None else False
             # The status shadow's comparisons (S2c slices 3 and 4); neither raises nor changes the answer.
             busy = await comms_view.observe_busy(db, row, decision, 'send-time') if decision is not None else None
+            if decision is not None:
+                stale_turn_ceiling.observe_ceiling(decision, busy, 'send-time')
             occupied = bool(dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0)
             queue_held = occupied or is_turn_busy
             busy_consumers.observe_queue(occupied, queue_held, decision, busy,

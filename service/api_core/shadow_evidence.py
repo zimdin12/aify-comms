@@ -27,7 +27,7 @@ from service.config import get_config
 #: The owners whose disagreements keep items: E1's three, and E2's four, which hold or hand over real messages. Reminder
 #: and stranded stay counts-only (the operator's C8 ruling, 2026-10-19), and so does any owner not named here.
 EVIDENCE_OWNERS = frozenset((WORD, 'live counts', 'running-run promotion',
-                             'busy', 'send-time queue', 'claim', 'worker readiness'))
+                             'busy', 'send-time queue', 'claim', 'worker readiness', 'stale-turn ceiling'))
 if not EVIDENCE_OWNERS <= set(OWNERS):
     raise ValueError('an evidence owner is not a C8 owner')
 GAP_REASONS = ('pending-overflow', 'item-too-large', 'builder-error', 'encode-error')

@@ -49,7 +49,7 @@ from service.api_core.claim_gating import (
     _release_stale_console_owner_for_claim,
     turn_busy_decision,
 )
-from service.api_core import busy_consumers, comms_view
+from service.api_core import busy_consumers, comms_view, stale_turn_ceiling
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.events import _append_dispatch_event
@@ -367,6 +367,8 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         # The status shadow's comparisons (S2c slices 3 and 4) never raise and never change the answer. The busy
         # early-return gate is observed once: before its commit when it withholds, else after the gate.
         busy = await comms_view.observe_busy(db, agent, decision, 'claim') if decision is not None else None
+        if decision is not None:
+            stale_turn_ceiling.observe_ceiling(decision, busy, 'claim')
         steerable, gate_observed = None, False
 
         def read_steerable():  # one question, asked by today's gate and, only when today did not, by the shadow
