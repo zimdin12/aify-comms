@@ -17,6 +17,8 @@ separately reviewed fold-provenance slice may lift this; B6 does not.
 """
 import json
 
+from service.api_core.shadow_owners import OWNERS
+
 UNKNOWN_BUILD = 'unknown'
 LOST = object()  # the observer meant to consult an env view and holds none: unknown, never "consulted nothing"
 #: The owners whose candidates read the delivery-turn fold (comms_view and busy_consumers). Used only to read a window
@@ -46,9 +48,15 @@ def env_coherent(stored):
     return builds is not None and len(builds) == 1 and UNKNOWN_BUILD not in builds
 
 
-def fold_unverified(stored):
-    """PURE. The owners whose fold reads a window recorded; every fold owner when the record is missing or malformed."""
+def parse_owners(stored):
+    """PURE. A stored fold record as owner names, or None when it is missing, malformed or names an unknown owner."""
     owners = parse_set(stored)
+    return owners if owners is not None and owners <= set(OWNERS) else None
+
+
+def fold_unverified(stored):
+    """PURE. The owners whose fold reads a window recorded; every fold owner when the record cannot be read."""
+    owners = parse_owners(stored)
     return frozenset(FOLD_OWNERS) if owners is None else owners
 
 
@@ -67,6 +75,8 @@ def builds_of(binding):
     builds = set()
     for publisher in binding.view.values():
         builds.add(publisher.build or UNKNOWN_BUILD)
+        if publisher.loss:  # an unrecovered loss: what that publisher would have applied since is not known
+            builds.add(UNKNOWN_BUILD)
         builds.update(origin_build(record) for record in publisher.rows)
     return frozenset(builds)
 

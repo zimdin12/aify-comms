@@ -25,6 +25,7 @@ from service.api_core.shadow_provenance import (
     as_json,
     env_coherent,
     fold_unverified,
+    parse_owners,
     parse_set,
 )
 from service.db import E1_EVIDENCE_OWNERS
@@ -72,15 +73,16 @@ async def append(db, window, items, gaps):
 
 async def add_provenance(db, window, builds, fold):
     """Inside the caller's transaction. Union this batch's env builds and fold readers into the window; returns the
-    builds the window held before. A stored set that cannot be read is kept as 'unknown', never repaired."""
+    builds the window held before. A record that cannot be read is never repaired: unreadable builds become 'unknown'
+    in the union, and an unreadable fold record is left exactly as stored, so it keeps refusing every fold owner."""
     row = await (await db.execute(
         'SELECT env_builds, fold_unverified FROM status_shadow_windows WHERE id = ?', (window,))).fetchone()
     seen = parse_set(row[0]) if row else None
-    readers = parse_set(row[1]) if row else None
     seen = frozenset((UNKNOWN_BUILD,)) if seen is None else seen
-    readers = frozenset(fold) if readers is None else readers | fold
+    readers = parse_owners(row[1]) if row else None
+    stored_fold = row[1] if readers is None and row else as_json((readers or frozenset()) | fold)
     await db.execute('UPDATE status_shadow_windows SET env_builds = ?, fold_unverified = ? WHERE id = ?',
-                     (as_json(seen | builds), as_json(readers), window))
+                     (as_json(seen | builds), stored_fold, window))
     return seen
 
 

@@ -293,3 +293,60 @@ class FoldContextTest(_Held):
         self.assertEqual(prov.fold_unverified(None), frozenset(prov.FOLD_OWNERS))
         self.assertEqual(prov.fold_unverified('{"x": 1}'), frozenset(prov.FOLD_OWNERS))
         self.assertEqual(prov.fold_unverified('[]'), frozenset())
+
+
+class PublisherLossTest(_Windows):
+    """R1: a publication the receiver could not apply leaves its publisher lost, and that loss stays unknown in every
+    seed until a later publication of it applies."""
+    post = rx.AgentStateReceiverTest.post
+
+    def run_case(self, recover):
+        self.post(rx.body(build='env-A'))
+        self.wait(self.owner.start(e1.V, e1.at(0)))
+        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unreadable publication')):
+            self.post(rx.body(build='env-A', publication=2))  # committed, but the mirror could not take it
+        if recover:
+            self.post(rx.body(build='env-A', publication=3))  # a snapshot that applies: the publisher recovers
+        self.wait(self.owner.tick(e1.V, e1.at(10)))  # the loss interval closes window 1; window 2 opens
+        shadow.observe(shadow.bind(), (' Host ', 'alpha'), e1.inputs(), 'online', 'refresh')  # reads no fold
+        self.wait(self.owner.tick(e1.V, e1.at(20)))  # quiet: no recovery
+        return self.window(2)
+
+    def test_r1_an_unrecovered_publisher_loss_keeps_the_reopened_window_unknown(self):
+        window, gaps = self.run_case(recover=False)
+        self.assertEqual((window['envBuilds'], gaps[(shadow.WORD, '-')]), ('["env-A","unknown"]', ['env-version']))
+
+    def test_the_twin_that_recovered_reopens_coherent(self):
+        window, gaps = self.run_case(recover=True)
+        self.assertEqual((window['envBuilds'], gaps[(shadow.WORD, '-')]), ('["env-A"]', []))
+
+
+class FoldRecordTest(_Windows):
+    """R2: a fold record that cannot be read is never repaired by a later append, and an owner it does not know makes
+    it unreadable; valid records are read exactly."""
+    CASES = ((None, ['fold-context'], ['fold-context']), ('{"x": 1}', ['fold-context'], ['fold-context']),
+             ('["busy-typo"]', ['fold-context'], ['fold-context']), ('[]', [], []),
+             ('["busy"]', ['fold-context'], []))
+
+    def store(self, window_id, value):
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(self._db_path)) as db:
+            db.execute('UPDATE status_shadow_windows SET fold_unverified = ? WHERE id = ?', (value, window_id))
+            db.commit()
+
+    def test_r2_every_record_survives_a_quiet_flush_a_clean_close_and_expiry_as_stored(self):
+        self.apply(projection('A'))  # one known build throughout: the fold record is the only gap under test
+        self.wait(self.owner.start(e1.V, e1.at(0)))
+        versions = (e1.V, e1.V2)
+        for index, (stored, _, _) in enumerate(self.CASES):
+            self.store(index + 1, stored)
+            self.wait(self.owner.tick(versions[index % 2], e1.at(10 * index + 5)))  # a quiet flush into it
+            self.wait(self.owner.tick(versions[(index + 1) % 2], e1.at(10 * index + 9)))  # a clean close
+        self.assertEqual(self.wait(windows.expire_windows('2026-11-03T10:00:00Z')), len(self.CASES))
+        for index, (stored, busy, claim) in enumerate(self.CASES):
+            with self.subTest(stored=str(stored)):
+                window, gaps = self.window(index + 1)
+                self.assertEqual((window['expired'], window['closeReason'], window['foldUnverified']),
+                                 (True, 'version-change', stored), 'never repaired, through expiry')
+                self.assertEqual((gaps[('busy', 'strict')], gaps[('claim', '-')]), (busy, claim))
