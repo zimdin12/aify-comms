@@ -135,6 +135,41 @@ class TodaysDecisionTest(unittest.TestCase):
                          "an unreadable bridge table is today's strict anchor, and tagged as the error it was")
 
 
+class FrozenThroughRealCaptureTest(unittest.TestCase):
+    """The frame comes from a real Mirror and a real fold; the world changes while the one read is pending."""
+
+    def setUp(self):
+        self.mirror, self.fold, self.recorder = shadow.Mirror(), dt.DeliveryTurns(), shadow.Recorder()
+        for p in (mock.patch.object(shadow, 'mirror', self.mirror), mock.patch.object(dt, 'FOLD', self.fold),
+                  mock.patch.object(shadow, 'recorder', self.recorder),
+                  mock.patch.object(shadow, 'clock', return_value='2026-10-19T00:10:00Z')):
+            p.start(); self.addCleanup(p.stop)
+        at = 1792368600.0  # 2026-10-19T00:10:00Z
+        self.feed(busy_if=(False, False))  # a fresh idle record: the record disjunct is false
+        self.fold._turns[('m', 'a')] = dt.DeliveryTurn(True, 'r', at - 5000, at - 10, 'bridge-1')  # expired start
+
+    def feed(self, busy_if):
+        record = shadow.Record('a', 'L', 'idle', (), (False, 0, 1), busy_if)
+        self.mirror.feed(shadow.Projection(('m', 'i1'), 'snapshot', 1, '2026-10-19T00:09:50Z', (record,), ()))
+
+    def test_a_record_and_a_turn_that_change_during_the_read_are_not_read(self):
+        asked = []
+
+        async def read_while_the_world_moves(db, agent_id, owner):
+            asked.append((agent_id, owner))
+            self.feed(busy_if=(True, True))  # the mirror now says busy
+            self.fold.reporter('m', 'a', True, 'r2', 'bridge-2', 1792368600.0)  # and a new owner opens a turn
+            return 'negative'
+        with mock.patch.object(cv, 'turn_lease_renewal', side_effect=read_while_the_world_moves):
+            asyncio.run(cv.observe_busy(None, {'id': 'a', 'machine_id': 'm'}, BusyDecision(False), 'claim'))
+        self.assertEqual(asked, [('a', 'bridge-1')])
+        busy = self.recorder.report()['byPurpose']['busy']['variants']
+        self.assertEqual({v: busy[v]['counts']['partialAgreed'] for v in cv.LAWS}, {'strict': 1, 'P-1': 1},
+                         'frozen: an idle record and an expired, unrenewed turn hold nothing')
+        # Contrast: the source really did change, so a capture after the read would have said busy.
+        self.assertEqual(cv.holds_delivery(cv.capture('m', 'a'), 'negative', 'strict'), (True, None))
+
+
 class _Bridges:
     """A real sqlite bridge table, so the ownership read is the shipping SELECT; `execute` is counted."""
 
@@ -268,6 +303,21 @@ class _SiteObservation:
                         mock.patch.object(cv, 'observe_busy', new=counted)):
             patcher.start(); self.addCleanup(patcher.stop)
 
+    def strict_records_p1_fails(self):
+        """The real recorder for strict; P-1's record and its fallback both raise."""
+        real = self.recorder.record_owner
+
+        def record(owner, variant, site, today, candidate, reason=None):
+            if variant == 'P-1':
+                raise RuntimeError('recorder broken for P-1')
+            return real(owner, variant, site, today, candidate, reason)
+        return mock.patch.object(self.recorder, 'record_owner', side_effect=record)
+
+    def assert_one_strict_and_no_p1(self, site):
+        busy = self.recorder.report()['byPurpose']['busy']['variants']
+        self.assertEqual(busy['strict']['bySite'][site]['observed'], 1, 'the successful prefix, counted once')
+        self.assertFalse(busy['P-1']['instrumented'])
+
     def open_expired_turn(self, agent_id, owner):
         from service.clock import iso_to_epoch, now
         at = iso_to_epoch(now())
@@ -300,6 +350,18 @@ class SendTimeSiteTest(_SiteObservation, p7.SendTimeQueueWitness):
             self._assert_waits('obs-broken', self._queue_send('obs-broken', FRESH))
         self.assertEqual(self.busy()['P-1']['unavailableByReason'], {'send-time': {'shadow-error': 1}})
 
+    def test_a_compute_failure_changes_nothing_and_records_the_failure(self):
+        with mock.patch.object(cv, 'holds_delivery', side_effect=RuntimeError('broken')):
+            self._assert_waits('obs-compute', self._queue_send('obs-compute', FRESH))
+        busy = self.busy()
+        self.assertEqual({v: busy[v]['unavailableByReason'] for v in cv.LAWS},
+                         {v: {'send-time': {'shadow-error': 1}} for v in cv.LAWS})
+
+    def test_a_failing_fallback_record_changes_nothing_and_never_replays(self):
+        with self.strict_records_p1_fails():
+            self._assert_waits('obs-record', self._queue_send('obs-record', FRESH))
+        self.assert_one_strict_and_no_p1('send-time')
+
     def test_an_unexpected_acquisition_failure_releases_as_today_and_observes_nothing(self):
         from service.api_core import dispatch_launch
         with mock.patch.object(dispatch_launch, 'turn_busy_decision', side_effect=RuntimeError('unreadable')):
@@ -325,6 +387,18 @@ class ClaimSiteTest(_SiteObservation, p7.ClaimHoldWitness):
     def test_a_failing_observer_changes_nothing_and_records_the_failure(self):
         with mock.patch.object(cv, 'capture', side_effect=RuntimeError('broken')):
             self._assert_held('obs-broken', self._claim('obs-broken', FRESH))
+
+    def test_a_compute_failure_changes_nothing_and_records_the_failure(self):
+        with mock.patch.object(cv, 'holds_delivery', side_effect=RuntimeError('broken')):
+            self._assert_held('obs-compute', self._claim('obs-compute', FRESH))
+        busy = self.recorder.report()['byPurpose']['busy']['variants']
+        self.assertEqual({v: busy[v]['unavailableByReason'] for v in cv.LAWS},
+                         {v: {'claim': {'shadow-error': 1}} for v in cv.LAWS})
+
+    def test_a_failing_fallback_record_changes_nothing_and_never_replays(self):
+        with self.strict_records_p1_fails():
+            self._assert_held('obs-record', self._claim('obs-record', FRESH))
+        self.assert_one_strict_and_no_p1('claim')
 
     def test_an_unexpected_acquisition_failure_continues_the_claim_as_today(self):
         from service import dispatch_claim
