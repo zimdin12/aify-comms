@@ -6,9 +6,9 @@
 // the only symptom is a reply that makes no sense in context.
 //
 // THE TWO RULES THIS PINS:
-//   * PREFERRED BEATS NEWEST — a thread whose cwd matches this workspace wins over a more recent one
-//     that does not, and recency only decides WITHIN a tier. Sorting first and filtering second
-//     would resume the newest conversation on the machine.
+//   * ONLY THIS WORKSPACE — a thread whose cwd matches this workspace wins over a more recent one
+//     that does not, and when none matches the answer is "", never the newest thread elsewhere
+//     (that fallback bound an agent to the operator's own conversation on 2026-10-19).
 //   * PATHS COMPARE NORMALISED — Codex stores Windows cwds with backslashes while the bridge passes
 //     forward slashes, so a literal `===` fell through and the cwd branch never fired. That bug is
 //     recorded in the function's own comment; here it is a failing assertion if it comes back.
@@ -105,18 +105,32 @@ const thread = (id, over = {}) => ({ id, cwd: "C:/work/repo", updatedAt: 1, ...o
   assert.equal(windowsCwd, "mine",
     "a backslash cwd from Codex must match a forward-slash cwd from the bridge — this is the bug");
 
-  // With no match anywhere, the fallback tier is used rather than nothing being resumed.
-  const fallback = pickNewestCodexThreadId(
+  // WAS "b" (the newest overall). Changed 2026-10-20: with no cwd match there is no thread to bind.
+  // `thread/list` lists every rollout on the machine, and this fallback bound a fresh agent to the
+  // operator's own Codex Desktop conversation on 2026-10-19. This is the assertion that goes red if
+  // the fallback returns.
+  const noMatch = pickNewestCodexThreadId(
     { threads: [thread("a", { cwd: "C:/x", updatedAt: 1 }), thread("b", { cwd: "C:/y", updatedAt: 9 })] },
     "C:/work/repo",
   );
-  assert.equal(fallback, "b", "no cwd match falls back to the newest overall");
+  assert.equal(noMatch, "", "no cwd match binds nothing, never the newest thread from another workspace");
 
-  // An absent cwd on either side cannot manufacture a match.
+  // An absent cwd on either side cannot manufacture a match. WAS "a" (a fallback candidate); changed
+  // 2026-10-20 for the same reason: a thread with no cwd cannot be shown to belong to this workspace.
   assert.equal(
     pickNewestCodexThreadId({ threads: [thread("a", { cwd: "", updatedAt: 5 })] }, "C:/work/repo"),
-    "a",
-    "a thread with no cwd is a fallback candidate, not a preferred one",
+    "",
+    "a thread with no cwd is not this workspace's thread",
+  );
+  assert.equal(
+    pickNewestCodexThreadId({ threads: [thread("a", { updatedAt: 5 })] }, ""),
+    "",
+    "an empty workspace cwd matches nothing, even a thread that has a cwd",
+  );
+  assert.equal(
+    pickNewestCodexThreadId({ threads: [thread("a", { cwd: "", updatedAt: 5 })] }, ""),
+    "",
+    "two empty cwds are not a match: neither names a workspace",
   );
 
   // Alternative cwd field names the API has used.
@@ -133,9 +147,14 @@ const thread = (id, over = {}) => ({ id, cwd: "C:/work/repo", updatedAt: 1, ...o
     assert.equal(picked, "mine", `\`${field}\` is honoured as the thread's directory`);
   }
 
-  // Threads with no id are skipped rather than returned as "".
+  // Threads with no id are skipped rather than returned as "". The workspace cwd WAS "" here; changed
+  // 2026-10-20 to this workspace's, because an empty cwd now matches nothing and the case would no
+  // longer reach the id check it exists to pin.
   assert.equal(
-    pickNewestCodexThreadId({ threads: [{ id: "", updatedAt: 99 }, thread("real", { updatedAt: 1 })] }, ""),
+    pickNewestCodexThreadId(
+      { threads: [{ id: "", cwd: "C:/work/repo", updatedAt: 99 }, thread("real", { updatedAt: 1 })] },
+      "C:/work/repo",
+    ),
     "real",
   );
 

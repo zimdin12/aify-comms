@@ -10,12 +10,15 @@
 // never fired. The failure mode of that bug is not an error — it is picking the newest thread
 // from the wrong directory.
 //
-// PREFERRED BEATS NEWEST. A thread whose cwd matches wins over a more recent one that does not,
-// and only within a tier does recency decide. Sorting first and filtering second would resume the
-// most recent conversation on the machine rather than the most recent one for THIS workspace.
+// ONLY THIS WORKSPACE, OR NOTHING. A thread whose cwd matches the agent's workspace is the only
+// candidate, and recency decides among those. When none matches the answer is "", never the newest
+// thread elsewhere: `thread/list` lists every rollout on the machine, not only the live ones, so that
+// fallback bound a fresh agent (workspace C:/Docker/aify-dashboard) to the operator's own
+// 264 MB Codex Desktop conversation on 2026-10-19. Its first dispatch called thread/resume on it,
+// failed with "Max payload size exceeded", and still wrote a record into that conversation's rollout.
+// No thread is recoverable (the agent gets one of its own); somebody else's thread is not.
 //
-// Bodies byte-identical to what stood in `runtimes-codex.js`; all three gained `export`, which is
-// the only substitution.
+// Extracted from `runtimes-codex.js` in v0.5.4, where all three were module-private.
 
 export function parseTimestamp(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -57,19 +60,15 @@ export function pickNewestCodexThreadId(listResult, cwd) {
   // Normalize both sides: Codex stores Windows thread cwds with backslashes,
   // but our bridge passes forward-slash paths now, so a literal === comparison
   // would silently fall through and pick the wrong thread.
+  // An empty cwd on either side matches nothing: it cannot say which workspace a thread belongs to.
   const normalizedCwd = normalizePathForCompare(cwd);
-  const preferred = [];
-  const fallback = [];
-
-  for (const thread of threads) {
-    const id = String(thread?.id || "").trim();
-    if (!id) continue;
+  if (!normalizedCwd) return "";
+  const candidates = threads.filter((thread) => {
+    if (!String(thread?.id || "").trim()) return false;
     const threadCwd = normalizePathForCompare(thread?.cwd || thread?.directory || thread?.worktree || "");
-    if (normalizedCwd && threadCwd && threadCwd === normalizedCwd) preferred.push(thread);
-    else fallback.push(thread);
-  }
+    return threadCwd === normalizedCwd;
+  });
 
-  const candidates = preferred.length ? preferred : fallback;
   candidates.sort((a, b) => {
     const aTime = parseTimestamp(a?.updatedAt || a?.lastUpdatedAt || a?.createdAt || a?.timestamp);
     const bTime = parseTimestamp(b?.updatedAt || b?.lastUpdatedAt || b?.createdAt || b?.timestamp);

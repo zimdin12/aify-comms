@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverCodexLiveThreadId } from "../runtimes.js";
 import { sealedChildEnv } from "./_child-env.mjs";
@@ -22,11 +24,13 @@ function pickPort() {
   });
 }
 
-async function withFakeCodexAppServer(fn) {
+// The fake reports its own process cwd as every thread's cwd, so `serverCwd` is the workspace its
+// threads belong to.
+async function withFakeCodexAppServer(fn, serverCwd = process.cwd()) {
   const port = await pickPort();
   const url = `ws://127.0.0.2:${port}`;
   const child = spawn(process.execPath, [fakeServer, "--listen", url], {
-    cwd: process.cwd(),
+    cwd: serverCwd,
     env: {
       ...sealedChildEnv(),
       FAKE_CODEX_RESIDENT_THREAD: "resident-thread-data-shape",
@@ -47,5 +51,23 @@ await withFakeCodexAppServer(async (url) => {
   const id = await discoverCodexLiveThreadId({ appServerUrl: url }, process.cwd());
   assert.equal(id, "resident-thread-data-shape");
 });
+
+// A fresh agent whose app server lists only threads from ANOTHER workspace discovers no thread. The
+// fallback to the newest thread anywhere bound a fresh agent to the operator's own Codex Desktop
+// conversation on 2026-10-19; `thread/list` lists every rollout on the machine, not the live ones.
+{
+  const elsewhere = mkdtempSync(join(tmpdir(), "aify-foreign-workspace-"));
+  try {
+    await withFakeCodexAppServer(async (url) => {
+      assert.equal(await discoverCodexLiveThreadId({ appServerUrl: url }, process.cwd()), "",
+        "a thread from another workspace must never be bound");
+      // Control: the same server's thread IS found from the workspace it belongs to.
+      assert.equal(await discoverCodexLiveThreadId({ appServerUrl: url }, realpathSync(elsewhere)),
+        "resident-thread-data-shape");
+    }, elsewhere);
+  } finally {
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+}
 
 console.log("codex-live-thread-discovery.test.js: all assertions passed");

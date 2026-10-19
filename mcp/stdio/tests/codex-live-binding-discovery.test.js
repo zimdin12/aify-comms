@@ -66,14 +66,16 @@ function pickPort() {
   });
 }
 
-async function withFakeAppServers(count, thread, fn) {
+// The fake reports its own process cwd as every thread's cwd, so `serverCwd` is the workspace its
+// threads belong to.
+async function withFakeAppServers(count, thread, fn, { serverCwd = process.cwd() } = {}) {
   const children = [];
   const urls = [];
   try {
     for (let i = 0; i < count; i += 1) {
       const url = `ws://127.0.0.2:${await pickPort()}`;
       const child = spawn(process.execPath, [FAKE, "--listen", url], {
-        cwd: process.cwd(),
+        cwd: serverCwd,
         env: { ...sealedChildEnv(), FAKE_CODEX_RESIDENT_THREAD: thread, FAKE_CODEX_THREAD_LIST_KEY: "data" },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -160,6 +162,27 @@ test("one live app server binds by CWD when no session handle is given", async (
     assert.equal(result.threadId, "thread-cwd");
     assert.equal(result.runtimeConfig.appServerUrl, url);
   });
+});
+
+test("one live server whose threads are all in ANOTHER workspace binds nothing", async () => {
+  // The 2026-10-19 case. A fresh agent has no handle, and the only live server's threads belong to a
+  // different directory. This used to return that server with its newest thread, which is how an
+  // agent was bound to the operator's own Codex Desktop conversation. Null means message-only, which
+  // is recoverable; the foreign thread is not.
+  clearMarkers();
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "aify-foreign-workspace-"));
+  try {
+    await withFakeAppServers(1, "thread-foreign", async ([url]) => {
+      writeMarker("live", { appServerUrl: url });
+      const result = await discoverCodexLiveBinding({ cwd: process.cwd() });
+      assert.equal(result, null, JSON.stringify(result));
+      // Control: the same server IS bound when asked from the workspace its thread is in.
+      const control = await discoverCodexLiveBinding({ cwd: fs.realpathSync(elsewhere) });
+      assert.equal(control?.threadId, "thread-foreign", JSON.stringify(control));
+    }, { serverCwd: elsewhere });
+  } finally {
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  }
 });
 
 test("a SESSION HANDLE that one server holds binds to that server", async () => {

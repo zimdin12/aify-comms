@@ -467,7 +467,6 @@ async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
       runtimeConfig,
       threads,
       preferredThreadId: pickNewestCodexThreadId(listResult, cwd),
-      fallbackThreadId: pickNewestCodexThreadId(listResult, ""),
     };
   } catch {
     return null;
@@ -563,14 +562,9 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
     };
   }
 
-  if (!normalizedSessionHandle && !byCwd.length && inspected.length === 1) {
-    return {
-      runtimeConfig: inspected[0].runtimeConfig,
-      threadId: String(inspected[0].fallbackThreadId || "").trim(),
-      ambiguous: false,
-    };
-  }
-
+  // No thread in this workspace binds nothing, not even the server: one live app server whose
+  // threads are all elsewhere belongs to another workspace, and its newest thread is somebody
+  // else's conversation (codex-thread-selection.js records the 2026-10-19 case).
   if (!normalizedSessionHandle && byCwd.length > 1) {
     return {
       runtimeConfig: null,
