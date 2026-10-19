@@ -50,9 +50,10 @@ def _no_wake_handle(comms, comms_word, env, env_word):
 
 
 def _awaiting_input_differs(comms, comms_word, env, env_word):
-    """Both sides hold the turn open and disagree on whether it waits for input. Both apply the same blocked and
-    unblocked events, so this is the gap between the launcher's two posts or an event one side dropped; telling them
-    apart needs the event ages aify-env does not publish yet (B6)."""
+    """Both sides hold the turn open and disagree on whether it waits for input (B6, cause open). Both apply the same
+    blocked and unblocked events, but comms also infers a wait from a live terminal's tail (`_agent_awaiting_input`,
+    ORed in by both status-input producers). So the difference may be the gap between the launcher's two posts, an
+    event one side dropped, or that inference; event ages alone cannot tell the last apart."""
     return (env.get('turnOpen') is True and comms.get('in_turn') is True
             and comms.get('awaiting_input') is not env.get('awaitingInput'))
 
