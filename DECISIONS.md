@@ -30,6 +30,10 @@ Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-1
   remove there, define here; no move feature.
 - **Q5, yes:** a WSL aify-env may run to prove multi-environment in 0.9.12, and it is removed once 0.9 is done
   and deployed.
+- **One switch, not two (asked 2026-10-19 evening).** Offered splitting the word from the delivery hold, he
+  ruled: "build all and we switch all together. in total it is faster overall." Every owner's work is built,
+  then one gate and one switch. He also called out the pace: slices are built in parallel and the next one starts
+  while a review is pending, rather than one design-review-build-merge loop at a time.
 
 ## 0.9.8: a message that cannot wake its agent is kept, and the answer says so (2026-10-14/16)
 
