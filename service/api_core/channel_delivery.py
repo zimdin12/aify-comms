@@ -408,5 +408,7 @@ async def live_resident_session(db, agent_id: str) -> bool:
     """True when the agent's current session is a resident one in a live status: the evidence the resident branch of
     `_has_live_worker_for` reads, asked whatever the record's mode says. Raises when the read does."""
     session = await _current_agent_session_row(db, agent_id)
-    return (session is not None and _normalize_session_mode(session["mode"] or "") == "resident"
+    # agent_sessions.mode is 'managed-warm' | 'resident': compared as stored, never through the agents-column
+    # normaliser, which reads 'managed-warm' as resident (test_session_mode_vocabularies_stay_apart.py).
+    return (session is not None and session["mode"] == "resident"
             and str(session["status"] or "").strip().lower() in _LIVE_SESSION_STATUSES)
