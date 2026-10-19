@@ -6,8 +6,9 @@ excepted) and never changes today's answer.
 
 Each candidate is true, false or unknown, and an unknown is never counted as false. An input is read only when it
 can change the answer: an occupied or queued run decides the queue, a terminal block or an active run decides the
-reminder skip, a known-false hold decides the claim. The first unknown input, in the order the expression reads it,
-names the reason.
+reminder skip, a known-false hold decides the claim, a delivery turn known to be on this run decides the reminder's
+"other work". The first unknown input, in the order the expression reads it, names the reason; the reminder reads its
+inputs in the approved order: association, record knowledge, the delivery turn.
 
 A consumer that needs the fold associates the agent by its REGISTERED machine (`agents.machine_id`), the key the
 heartbeat feeds the fold under: reused from a row the caller read for the same agent in the same evaluation, else one
@@ -58,7 +59,10 @@ def claim_candidate(hold, steerable):
 
 
 def _fresh_since(at, then, reason):
-    return (NOT_KNOWN, reason) if then is NOT_KNOWN or then is None else (at - then <= TURN_BUSY_STALE_SECONDS, None)
+    """Within 120 s of `at`; unknown when either side is: a lost binding has no clock."""
+    if at is None or then is NOT_KNOWN or then is None:
+        return NOT_KNOWN, reason
+    return at - then <= TURN_BUSY_STALE_SECONDS, None
 
 
 def _record_fresh(holder, at):
@@ -66,7 +70,7 @@ def _record_fresh(holder, at):
         return NOT_KNOWN, 'record-knowledge'
     if not (holder.clock and holder.clock[0]):
         return False, None
-    return _fresh_since(at, holder.advanced_at, 'record-freshness')
+    return _fresh_since(at, holder.advanced_at, 'record-knowledge')
 
 
 def other_work(frame, run_id):
@@ -83,7 +87,7 @@ def other_work(frame, run_id):
     records = [_record_fresh(h, frame.at) for h in frame.holders]
     if frame.others_unknown:
         records.append((NOT_KNOWN, 'record-knowledge'))
-    return _all(_any(delivery_fresh, *records), other_run)
+    return _all(_any(*records, delivery_fresh), other_run)  # record knowledge before the delivery turn
 
 
 def stranded_candidate(turn, run_id):

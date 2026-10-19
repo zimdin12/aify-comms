@@ -79,7 +79,7 @@ def needs_renewal(frame):
     """Only a known-open delivery turn its strict bound no longer holds asks who still claims it."""
     turn = frame.delivery
     known = turn.open is True and all(v is not NOT_KNOWN for v in (turn.started_at, turn.touched_at, turn.owner))
-    return known and not _live(turn, False, frame.at)
+    return known and frame.at is not None and not _live(turn, False, frame.at)
 
 
 def _live(turn, renewable, at):
@@ -104,6 +104,8 @@ def _delivery_disjunct(frame, renewal):
     if turn.open is False:
         return False, None
     if turn.open is NOT_KNOWN or any(v is NOT_KNOWN for v in (turn.started_at, turn.touched_at, turn.owner)):
+        return NOT_KNOWN, 'delivery-turn'
+    if frame.at is None:  # a lost binding has no clock to age the turn against
         return NOT_KNOWN, 'delivery-turn'
     if _live(turn, False, frame.at):
         return True, None

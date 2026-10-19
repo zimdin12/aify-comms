@@ -61,7 +61,16 @@ class CandidateTest(unittest.TestCase):
             ('this run\'s own delivery turn masks an unknown record', frame(holder(advanced=NK), delivery=turn()),
              (False, None)),
             ('another run, touched 200 s ago', frame(delivery=turn(run='other', touched=AT - 200)), (False, None)),
-            ('an open record whose last advance is unknown', frame(holder(advanced=NK)), U('record-freshness')),
+            ('an open record whose last advance is unknown', frame(holder(advanced=NK)), U('record-knowledge')),
+            ('no readable publisher and an unknown delivery turn', frame(others_unknown=True, delivery=dt.NOTHING_KNOWN),
+             U('record-knowledge')),
+            ('records known false and an unknown delivery turn', frame(holder(open_=False), delivery=dt.NOTHING_KNOWN),
+             U('delivery-turn')),
+            ('unknown records beside another run touched 10 s ago', frame(others_unknown=True, delivery=turn(run='o')),
+             (True, None)),
+            ('unknown records beside another run\'s untouched turn', frame(others_unknown=True,
+                                                                        delivery=turn(run='o', touched=NK)),
+             U('record-knowledge')),
             ('an unreadable publisher', frame(others_unknown=True), U('record-knowledge')),
             ('an unreadable holder', frame(holder(freshness='unknown')), U('record-knowledge')),
             ('an unknown delivery turn', frame(delivery=dt.NOTHING_KNOWN), U('delivery-turn')),
@@ -154,6 +163,39 @@ class CaptureFreshnessTest(unittest.TestCase):
                 mirror.feed(projection)
                 fold.env_applied(projection, mirror.view())
             self.assertEqual(cv.capture('m', 'a').holders[0].advanced_at, iso_to_epoch('2026-10-19T00:09:30Z'))
+
+
+class LostBindingTest(unittest.TestCase):
+    """A binding the mirror could not give: capture keeps the fold's turn but has no clock (Frame.at is None)."""
+
+    def setUp(self):
+        self.fold = dt.DeliveryTurns()
+        self.fold._turns[('m', 'a')] = turn(run='r')
+        for p in (mock.patch.object(dt, 'FOLD', self.fold),
+                  mock.patch.object(shadow, 'clock', side_effect=RuntimeError('clock unreadable'))):
+            p.start(); self.addCleanup(p.stop)
+        self.lost = cv.capture('m', 'a')
+
+    def test_the_capture_is_a_real_lost_binding(self):
+        self.assertEqual((self.lost.at, self.lost.holders, self.lost.others_unknown), (None, (), True))
+        self.assertEqual(self.lost.delivery, turn(run='r'))
+
+    def test_a_known_turn_on_this_run_still_decides_the_reminder(self):
+        self.assertEqual(bc.other_work(self.lost, 'r'), (False, None), 'same run: not other work, clock or no clock')
+        self.assertEqual(bc.other_work(self.lost, 'other'), U('record-knowledge'), 'another run: unknown, not False')
+        recorder = shadow.Recorder()
+        with mock.patch.object(shadow, 'recorder', recorder):
+            for run in ('r', 'other'):
+                asyncio.run(bc.observe_reminder(None, 'a', run, False, blocked=False, occupied=False,
+                                                agent_row={'machine_id': 'm'}))
+        reminder = recorder.report()['byPurpose'][bc.REMINDER]['variants']['-']
+        self.assertEqual((reminder['counts']['partialAgreed'], reminder['unavailableByReason']),
+                         (1, {'reminder': {'record-knowledge': 1}}), 'compared, never shadow-error')
+
+    def test_busy_is_unknown_with_a_reason_and_asks_no_owner(self):
+        self.assertFalse(cv.needs_renewal(self.lost))
+        self.assertEqual({law: cv.holds_delivery(self.lost, None, law) for law in cv.LAWS},
+                         {law: U('record-knowledge') for law in cv.LAWS})
 
 
 class _Db:
