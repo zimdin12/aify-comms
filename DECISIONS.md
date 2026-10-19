@@ -18,6 +18,19 @@ Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-1
 - **Q4, yes: the dashboard's pushed status and its polled status come from one view**, so a live update and
   a page refresh cannot disagree.
 
+## The status switch: the C8 evidence bar, and one machine per defined agent (Steven, 2026-10-19)
+
+- **C8 is "mixed".** Per-disagreement evidence (the why: agent, both answers, raw inputs, versions) is built
+  for the decisions that hold or hand over real messages: the word, live counts, promotion, readiness, busy,
+  queue and claim. Reminder and stranded switch on counts plus his sign-off on a sample. In his words: "do not
+  spend too much time on this. but reasonable amount to get proof and work proof based". All of it is temporary
+  and is deleted with the shadow in 0.9.9.
+- **Q6, yes: a defined agent's Edit form offers only environments on its own machine.** The service already
+  refuses another machine's environment for an agent an aify-env defines. Moving an agent between machines is
+  remove there, define here; no move feature.
+- **Q5, yes:** a WSL aify-env may run to prove multi-environment in 0.9.12, and it is removed once 0.9 is done
+  and deployed.
+
 ## 0.9.8: a message that cannot wake its agent is kept, and the answer says so (2026-10-14/16)
 
 **A message to an agent that cannot be woken is stored in its inbox by the SERVICE, and the answer says the

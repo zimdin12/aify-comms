@@ -77,7 +77,9 @@ These are settled (DECISIONS c8756959, P-1 1791194105933), and C6's word table c
    - Order:
      1. Launchers post only to aify-env, and Steven relaunches.
      2. The legacy routes switch to accept-and-ignore (C7).
-     3. The engine, detectors, tables and shadow recorder are deleted.
+     3. The engine, detectors, tables and shadow recorder are deleted, including the S2c-E evidence:
+        `status_shadow_evidence`, `status_shadow_evidence_gaps`, `status_shadow_window_tombstones`, the windows'
+        evidence columns, `shadow_evidence.py`, `shadow_evidence_store.py` and `GET /agent-state/shadow-evidence`.
    - Each deletion needs proof that no live route reaches it (the C2 discriminator).
    - pi and opencode stay deprecated and kept.
 
