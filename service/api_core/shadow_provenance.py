@@ -17,7 +17,7 @@ separately reviewed fold-provenance slice may lift this; B6 does not.
 """
 import json
 
-UNKNOWN = 'unknown'
+UNKNOWN_BUILD = 'unknown'
 LOST = object()  # the observer meant to consult an env view and holds none: unknown, never "consulted nothing"
 #: The owners whose candidates read the delivery-turn fold (comms_view and busy_consumers). Used only to read a window
 #: whose fold record is missing or malformed: every one of them is then refused.
@@ -43,7 +43,7 @@ def parse_set(stored):
 def env_coherent(stored):
     """PURE. A window qualifies on its env builds only when it saw exactly one, and that one is known."""
     builds = parse_set(stored)
-    return builds is not None and len(builds) == 1 and UNKNOWN not in builds
+    return builds is not None and len(builds) == 1 and UNKNOWN_BUILD not in builds
 
 
 def fold_unverified(stored):
@@ -55,7 +55,7 @@ def fold_unverified(stored):
 def origin_build(record):
     """The build of the publication that set this record, else 'unknown'."""
     origin = record.origin
-    return (origin[4] if origin is not None and len(origin) > 4 else None) or UNKNOWN
+    return (origin[4] if origin is not None and len(origin) > 4 else None) or UNKNOWN_BUILD
 
 
 def builds_of(binding):
@@ -63,10 +63,10 @@ def builds_of(binding):
     if binding is None:
         return frozenset()
     if binding is LOST or binding.loss or binding.view is None:
-        return frozenset((UNKNOWN,))
+        return frozenset((UNKNOWN_BUILD,))
     builds = set()
     for publisher in binding.view.values():
-        builds.add(publisher.build or UNKNOWN)
+        builds.add(publisher.build or UNKNOWN_BUILD)
         builds.update(origin_build(record) for record in publisher.rows)
     return frozenset(builds)
 
@@ -82,23 +82,23 @@ class Provenance:
         try:
             self._builds |= builds_of(binding)
         except Exception:
-            self._builds.add(UNKNOWN)
+            self._builds.add(UNKNOWN_BUILD)
         if fold:
             self._fold.add(owner)
 
     def applied(self, projection):
         """A publication the receiver applied to the mirror; None when it could not be read (the view was lost)."""
         try:
-            self._builds.add(UNKNOWN if projection is None else projection.build or UNKNOWN)
+            self._builds.add(UNKNOWN_BUILD if projection is None else projection.build or UNKNOWN_BUILD)
         except Exception:
-            self._builds.add(UNKNOWN)
+            self._builds.add(UNKNOWN_BUILD)
 
     def take(self, seed_binding):
         """(builds, fold owners, seed) since the last take. The builds reseed from `seed_binding`, the mirror now."""
         try:
             seed = builds_of(seed_binding)
         except Exception:
-            seed = frozenset((UNKNOWN,))
+            seed = frozenset((UNKNOWN_BUILD,))
         taken = frozenset(self._builds), frozenset(self._fold), seed
         self._builds, self._fold = set(seed), set()
         return taken

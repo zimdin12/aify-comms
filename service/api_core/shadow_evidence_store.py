@@ -20,7 +20,13 @@ from datetime import datetime, timedelta
 import json
 
 from service.api_core.shadow_evidence import BOOT_ID
-from service.api_core.shadow_provenance import UNKNOWN as UNKNOWN_BUILD, as_json, env_coherent, fold_unverified, parse_set
+from service.api_core.shadow_provenance import (
+    UNKNOWN_BUILD,
+    as_json,
+    env_coherent,
+    fold_unverified,
+    parse_set,
+)
 from service.db import E1_EVIDENCE_OWNERS
 from service.api_core.shadow_owners import OWNERS, variants_of
 
