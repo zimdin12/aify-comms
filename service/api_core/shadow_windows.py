@@ -21,7 +21,6 @@ from service.api_core import partial_status_shadow as shadow
 
 logger = logging.getLogger(__name__)
 
-OWNER = 'status word'
 FLUSH_SECONDS = 30
 
 
@@ -94,11 +93,11 @@ class ShadowWindows:
         try:
             await db.execute('BEGIN IMMEDIATE')
             # A version change is noticed after the counts were recorded, so they belong to the window being closed.
-            for (source, name), count in pending.items():
+            for (owner, variant, site, name), count in pending.items():
                 await db.execute(
-                    'INSERT INTO status_shadow_window_counts (window_id, owner, source, name, count) VALUES (?, ?, ?, ?, ?) '
-                    'ON CONFLICT (window_id, owner, source, name) DO UPDATE SET count = count + excluded.count',
-                    (window, OWNER, source, name, count))
+                    'INSERT INTO status_shadow_window_counts (window_id, owner, variant, source, name, count) '
+                    'VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (window_id, owner, variant, source, name) '
+                    'DO UPDATE SET count = count + excluded.count', (window, owner, variant, site, name, count))
             await db.execute('UPDATE status_shadow_windows SET flushed_at = ? WHERE id = ?', (at, window))
             if reason:
                 await db.execute('UPDATE status_shadow_windows SET closed_at = ?, close_reason = ? WHERE id = ?',
@@ -119,7 +118,7 @@ class ShadowWindows:
 
 
 async def recent_windows(limit=20):
-    """The newest windows first, each with its counts as {owner: {source: {name: count}}}."""
+    """The newest windows first, each with its counts as {owner: {variant: {site: {name: count}}}}."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -131,10 +130,10 @@ async def recent_windows(limit=20):
         if by_id:
             marks = ','.join('?' * len(by_id))
             cursor = await db.execute(
-                f'SELECT window_id, owner, source, name, count FROM status_shadow_window_counts WHERE window_id IN ({marks})',
-                tuple(by_id))
-            for window_id, owner, source, name, count in await cursor.fetchall():
-                by_id[window_id]['counts'].setdefault(owner, {}).setdefault(source, {})[name] = count
+                'SELECT window_id, owner, variant, source, name, count FROM status_shadow_window_counts '
+                f'WHERE window_id IN ({marks})', tuple(by_id))
+            for window_id, owner, variant, site, name, count in await cursor.fetchall():
+                by_id[window_id]['counts'].setdefault(owner, {}).setdefault(variant, {}).setdefault(site, {})[name] = count
         return windows
     finally:
         await db.close()

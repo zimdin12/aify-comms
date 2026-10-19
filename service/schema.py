@@ -16,6 +16,21 @@ fresh install and missing on every upgrade, which is the worst of both.
 """
 from __future__ import annotations
 
+#: Named apart from SCHEMA because `db._migrate_status_shadow_window_counts` creates it again: a table from before
+#: `variant` joined the primary key is rebuilt, and SQLite cannot change a primary key in place. `source` is the call
+#: site that computed today's answer (for the status word, its source).
+STATUS_SHADOW_WINDOW_COUNTS = """CREATE TABLE IF NOT EXISTS status_shadow_window_counts (
+    window_id INTEGER NOT NULL,
+    owner TEXT NOT NULL,
+    variant TEXT NOT NULL,
+    source TEXT NOT NULL,
+    name TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (window_id, owner, variant, source, name),
+    FOREIGN KEY (window_id) REFERENCES status_shadow_windows(id)
+);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
@@ -652,16 +667,7 @@ CREATE TABLE IF NOT EXISTS status_shadow_windows (
     closed_at TEXT,
     close_reason TEXT
 );
-CREATE TABLE IF NOT EXISTS status_shadow_window_counts (
-    window_id INTEGER NOT NULL,
-    owner TEXT NOT NULL,
-    source TEXT NOT NULL,
-    name TEXT NOT NULL,
-    count INTEGER NOT NULL,
-    PRIMARY KEY (window_id, owner, source, name),
-    FOREIGN KEY (window_id) REFERENCES status_shadow_windows(id)
-);
-
+""" + STATUS_SHADOW_WINDOW_COUNTS + """
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,
     working_at TEXT NOT NULL,

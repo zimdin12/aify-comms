@@ -9,13 +9,12 @@ from service.clock import now as clock
 from service.status_engine import VALID_STATUSES
 from service.api_core.definition_schema import MODES
 from service.api_core.shadow_classes import classify, env_inputs
+from service.api_core.shadow_owners import (COUNT_NAMES, NO_VARIANT, OWNERS as PURPOSES, UNOBSERVED, WORD, OwnerTally,
+                                            checked_key, variants_of)
 
 SCOPE = 'partial-freshness-base-word'
+OWNER_SCOPE = 'comms-view'
 SOURCES = ('refresh', 'cache-broadcast', 'engine-status')
-PURPOSES = ('status word', 'busy', 'send-time queue', 'claim', 'worker readiness', 'live counts',
-            'reminder skip (B21)', 'stranded-reply guard (B26)', 'running-run promotion', 'stale-turn ceiling')
-COUNT_NAMES = ('observed', 'nonEvaluation', 'evaluated', 'partialCompared', 'partialAgreed',
-               'partialDisagreed', 'unavailable')
 REASONS = ('unknown-knowledge', 'publisher-unavailable', 'missing-row', 'ambiguous-association',
            'stale', 'invalid-clock', 'future', 'unknown-state', 'unknown-loss')
 CLASSES = ('partial-agree', 'partial-disagree', 'unavailable', 'non-evaluation', 'unknown-loss')
@@ -206,7 +205,8 @@ class Recorder:
         # Triage only (status-switch plan S1); admission classifies by input predicates, never by these keys.
         self._disagreements = {}
         self._classes = Counter()  # disagreement class name -> count (S2b)
-        # What was recorded since the last `take()`, for the persisted windows (status-switch plan S2a).
+        self._owners = {}  # (owner, variant) -> OwnerTally, for the nine owners after the word (S2c)
+        # What was recorded since the last `take()`, keyed (owner, variant, site, name), for the persisted windows.
         self._pending = Counter()
         self._lost = set()  # scopes whose loss was observed: publisher keys, ALL_PUBLISHERS, or None (unknown)
         self._healthy = set()  # publisher keys a comparison completed for
@@ -250,20 +250,33 @@ class Recorder:
         for name in names:
             if name in counts:
                 counts[name] += 1
-            self._pending[(source, name)] += 1
+            self._pending[(WORD, NO_VARIANT, source, name)] += 1
+
+    def record_owner(self, owner, variant, site, today, candidate, reason=None):
+        """One evaluation of a non-word owner: today's answer and the candidate's, or why the candidate has none."""
+        key = checked_key(owner, variant, site)
+        tally = self._owners.setdefault(key[:2], OwnerTally())
+        for name in tally.record(site, today, candidate, reason):
+            self._pending[(*key, name)] += 1
 
     def take(self):
-        """Since the last take: the counts keyed (source, name), the scopes a loss was observed for, and the publisher
-        keys a comparison completed for. All three reset."""
+        """Since the last take: the counts keyed (owner, variant, site, name), the scopes a loss was observed for, and
+        the publisher keys a comparison completed for. All three reset."""
         taken = dict(self._pending), frozenset(self._lost), frozenset(self._healthy)
         self._pending, self._lost, self._healthy = Counter(), set(), set()
         return taken
 
     def report(self):
         counts = {name: sum(row[name] for row in self._counts.values()) for name in COUNT_NAMES}
-        purposes = {p: dict(instrumented=False, comparisonScope='not-instrumented', counts=None,
-                            bySource=None, neverObservedClasses=None) for p in PURPOSES}
-        purposes['status word'] = dict(instrumented=True, comparisonScope=SCOPE, counts=counts,
+        purposes = {}
+        for owner in PURPOSES[1:]:
+            variants = {v: self._owners[(owner, v)].report() if (owner, v) in self._owners else dict(UNOBSERVED)
+                        for v in variants_of(owner)}
+            instrumented = any(row['instrumented'] for row in variants.values())
+            purposes[owner] = dict(instrumented=instrumented,
+                                   comparisonScope=OWNER_SCOPE if instrumented else 'not-instrumented',
+                                   variants=variants)
+        purposes[WORD] = dict(instrumented=True, comparisonScope=SCOPE, counts=counts,
                                       bySource=copy.deepcopy(self._counts),
                                       neverObservedClasses=[c for c in CLASSES if c not in self._seen],
                                       lastBySource={s: {c: None if o is None else
@@ -277,11 +290,12 @@ class Recorder:
                                           for (s, m, a, c), (n, i) in sorted(
                                               self._disagreements.items(),
                                               key=lambda kv: (-kv[1][0], *(str(part) for part in kv[0])))])
-        return dict(schemaVersion=1, scope=SCOPE, window='process', coverageComplete=False,
+        return dict(schemaVersion=2, scope=SCOPE, window='process', coverageComplete=False,
                     qualification='UNAVAILABLE', fullQualifiedComparisons=0,
                     qualificationGaps=['turn.ageMs', 'runtime provenance', 'roster gates',
                                        'running-run promotion', 'other nine C8 owners'],
-                    versions=dict(env=None, wrapper=None, comms=None), byPurpose=purposes)
+                    versions=dict(env=None, wrapper=None, comms=None),
+                    byPurpose={owner: purposes[owner] for owner in PURPOSES})
 
 
 mirror = Mirror()

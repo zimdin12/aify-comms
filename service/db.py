@@ -11,7 +11,7 @@ from service.change_feed import CHANGE_FEED
 from service.db_pool import ConnectionPool
 from service.legacy_removal_receipt import legacy_removal_consequence
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
-from service.schema import SCHEMA
+from service.schema import SCHEMA, STATUS_SHADOW_WINDOW_COUNTS
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
@@ -541,6 +541,20 @@ AGENT_STATUS_STATE_BACKFILLS = (
 )
 
 
+async def _migrate_status_shadow_window_counts(db: aiosqlite.Connection):
+    """Status-switch S2c: a count is keyed by its owner's variant too. A table from before that is rebuilt once,
+    every row kept under the no-variant `-`, since SQLite cannot change a primary key in place."""
+    cursor = await db.execute("PRAGMA table_info(status_shadow_window_counts)")
+    if "variant" in {row[1] for row in await cursor.fetchall()}:
+        return
+    await db.execute("ALTER TABLE status_shadow_window_counts RENAME TO status_shadow_window_counts_before_variant")
+    await db.execute(STATUS_SHADOW_WINDOW_COUNTS)
+    await db.execute(
+        "INSERT INTO status_shadow_window_counts (window_id, owner, variant, source, name, count) "
+        "SELECT window_id, owner, '-', source, name, count FROM status_shadow_window_counts_before_variant")
+    await db.execute("DROP TABLE status_shadow_window_counts_before_variant")
+
+
 async def _migrate_agent_status_state_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agent_status_state)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -651,6 +665,7 @@ async def init_db(db_path: Path = None):
         await _migrate_definition_requests_table(db)
         await _migrate_agent_lifecycle_requests_table(db)
         await _migrate_agent_status_state_table(db)
+        await _migrate_status_shadow_window_counts(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)
         await _drop_retired_tables(db)

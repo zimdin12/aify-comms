@@ -31,7 +31,7 @@ class ShadowWindowsTest(FastApiTestCase):
         return list(reversed(self.wait(self.windows.recent_windows(200))))
 
     def counts(self, window):
-        return window['counts'].get('status word', {})
+        return window['counts'].get('status word', {}).get('-', {})
 
     def test_counts_are_deltas_in_the_window_they_were_recorded_in(self):
         owner = self.owner()

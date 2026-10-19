@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_state_receiver import body, row, wire, AT
 from service.status_engine import StatusInputs
+from service.api_core import shadow_owners
 
 
 def inputs():
@@ -372,7 +373,9 @@ class PartialShadowTest(FastApiTestCase):
         self.assertFalse(before['coverageComplete']); self.assertEqual(before['qualification'], 'UNAVAILABLE')
         self.assertEqual(len(before['byPurpose']), 10)
         for name, value in before['byPurpose'].items():
-            if name != 'status word': self.assertIsNone(value['counts']); self.assertFalse(value['instrumented'])
+            if name != 'status word':
+                self.assertFalse(value['instrumented'])
+                self.assertTrue(all(v == shadow_owners.UNOBSERVED for v in value['variants'].values()))
         text = json.dumps(before)
         for secret in ('alpha', 'CaseSensitive', 'real-old', ' Host ', 'private', 'original'):
             self.assertNotIn(secret, text)

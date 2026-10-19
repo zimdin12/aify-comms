@@ -16,10 +16,13 @@ const purposes = ["status word", "busy", "send-time queue", "claim", "worker rea
 const gaps = ["turn.ageMs", "runtime provenance", "roster gates", "running-run promotion", "other nine C8 owners"];
 const counts = (disagreed = 0) => ({ observed: 5, nonEvaluation: 1, evaluated: 4, partialCompared: 3, partialAgreed: 3 - disagreed, partialDisagreed: disagreed, unavailable: 1 });
 const zero = () => Object.fromEntries(Object.keys(counts()).map(k => [k, 0]));
+const unmeasured = () => ({ instrumented: false, counts: null, bySite: null, unavailableByReason: null, disagreementsByKey: null });
+const variantsOf = name => name === "busy" ? ["strict", "P-1"] : ["-"];
+const measured = () => ({ instrumented: true, counts: counts(1), bySite: { "claim-gate": counts(1) }, unavailableByReason: { "no-age": 1 }, disagreementsByKey: [{ site: "claim-gate", today: "true", candidate: "false", count: 1 }] });
 function fixture(disagreed = 0) {
-  const byPurpose = Object.fromEntries(purposes.map(name => [name, { instrumented: false, comparisonScope: "not-instrumented", counts: null, bySource: null, neverObservedClasses: null }]));
+  const byPurpose = Object.fromEntries(purposes.map(name => [name, { instrumented: false, comparisonScope: "not-instrumented", variants: Object.fromEntries(variantsOf(name).map(v => [v, unmeasured()])) }]));
   byPurpose["status word"] = { instrumented: true, comparisonScope: "partial-freshness-base-word", counts: counts(disagreed), bySource: { refresh: counts(disagreed), "cache-broadcast": zero(), "engine-status": zero() }, neverObservedClasses: [], unavailableByReason: {} };
-  return { schemaVersion: 1, scope: "partial-freshness-base-word", window: "process", coverageComplete: false, qualification: "UNAVAILABLE", fullQualifiedComparisons: 0, versions: { env: null, wrapper: null, comms: null }, qualificationGaps: [...gaps], byPurpose };
+  return { schemaVersion: 2, scope: "partial-freshness-base-word", window: "process", coverageComplete: false, qualification: "UNAVAILABLE", fullQualifiedComparisons: 0, versions: { env: null, wrapper: null, comms: null }, qualificationGaps: [...gaps], byPurpose };
 }
 
 test("partial agreement retains bounded evidence but never qualifies or passes", async () => {
@@ -32,7 +35,7 @@ test("partial agreement retains bounded evidence but never qualifies or passes",
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "skipped");
   assert.deepEqual(verdict.shadow.byPurpose["status word"].counts, counts());
-  assert.equal(verdict.shadow.byPurpose.busy.counts, null);
+  assert.deepEqual(verdict.shadow.byPurpose.busy.variants, { strict: { instrumented: false, counts: null }, "P-1": { instrumented: false, counts: null } });
   assert.deepEqual(verdict.shadow.versions, input.versions);
   assert.deepEqual(verdict.shadow.qualificationGaps, gaps);
   assert.doesNotMatch(JSON.stringify(verdict), /PRIVATE|SECRET|lastObservation|unavailableByReason|neverObservedClasses/);
@@ -56,6 +59,18 @@ test("partial disagreement is a failed row with failure glyph and retained count
   assert.equal(buildReport([{ id: "agent-state-shadow", ...verdict }]).failed, 1);
 });
 
+test("a measured owner variant is accepted, projected without its keys, and counted in the detail", async () => {
+  const { shadowReportVerdict } = await load();
+  const input = fixture();
+  Object.assign(input.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" });
+  input.byPurpose.busy.variants.strict = measured();
+  const verdict = shadowReportVerdict(input);
+  assert.equal(verdict.code, "skipped");
+  assert.deepEqual(verdict.shadow.byPurpose.busy.variants.strict, { instrumented: true, counts: counts(1) });
+  assert.match(verdict.detail, /1 of 9 other owners instrumented/);
+  assert.doesNotMatch(JSON.stringify(verdict.shadow), /claim-gate|no-age|disagreementsByKey/);
+});
+
 test("unreadable and zero-comparison evidence never passes", async () => {
   const { shadowReportVerdict, checkAgentStateShadow } = await load();
   const empty = fixture();
@@ -75,11 +90,16 @@ test("unreadable and zero-comparison evidence never passes", async () => {
 test("malformed schema, scope, counts and unknown owners refuse all evidence", async () => {
   const { shadowReportVerdict } = await load();
   const edits = [
-    r => r.schemaVersion = 2, r => r.scope = "full", r => r.window = "fleet",
+    r => r.schemaVersion = 1, r => r.scope = "full", r => r.window = "fleet",
     r => r.coverageComplete = true, r => r.qualification = "QUALIFIED", r => r.fullQualifiedComparisons = 1,
     r => r.versions.env = "HEAD", r => delete r.versions.wrapper, r => r.qualificationGaps = [],
     r => delete r.byPurpose.busy, r => r.byPurpose.extra = r.byPurpose.busy,
     r => r.byPurpose.busy.counts = zero(), r => r.byPurpose.busy.instrumented = true,
+    r => delete r.byPurpose.busy.variants["P-1"], r => r.byPurpose.claim.variants.strict = unmeasured(),
+    r => r.byPurpose.busy.variants.strict = measured(),
+    r => { r.byPurpose.busy.variants.strict = measured(); r.byPurpose.busy.instrumented = true; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...measured(), bySite: { "claim-gate": zero() } }; },
+    r => { Object.assign(r.byPurpose.busy, { instrumented: true, comparisonScope: "comms-view" }); r.byPurpose.busy.variants.strict = { ...unmeasured(), counts: zero() }; },
     r => r.byPurpose["status word"].comparisonScope = "full",
     r => r.byPurpose["status word"].counts.observed++,
     r => r.byPurpose["status word"].counts.evaluated++,

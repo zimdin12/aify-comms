@@ -211,4 +211,4 @@ class ClassesThroughThePublicationTest(FastApiTestCase):
         self.assertEqual(report['disagreementsByClass'], {'comms-only-stop': 1})
         asyncio.run(owner.tick(shadow_windows.Versions(comms='c1'), '2026-10-07T09:00:30Z'))
         [window] = asyncio.run(shadow_windows.recent_windows(1))
-        self.assertEqual(window['counts']['status word']['refresh']['class:comms-only-stop'], 1)
+        self.assertEqual(window['counts']['status word']['-']['refresh']['class:comms-only-stop'], 1)
