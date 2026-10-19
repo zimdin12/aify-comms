@@ -38,7 +38,7 @@ def _finite_number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def classify(receipt):
+def ceiling_population(receipt):
     """PURE. The population a receipt belongs to (the B6c population contract, design rev2):
 
     - EXCLUDED: a readable receipt of a decision that applied no ceiling: a row that is not busy, no row, or a read
@@ -102,7 +102,7 @@ def observe_ceiling(decision, busy, site):
 
 
 def _observe(decision, busy, site):
-    today = classify(decision.receipt)
+    today = ceiling_population(decision.receipt)
     if today == EXCLUDED:
         return
     basis = busy.basis if busy else None

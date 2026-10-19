@@ -47,35 +47,35 @@ def frame(*holders, at=NOW, others_unknown=False):
 
 class TodayTest(unittest.TestCase):
     def test_begun_within_and_past_the_ceiling(self):
-        self.assertEqual(stc.classify(receipt(100))[0], True)
-        self.assertEqual(stc.classify(receipt(2000))[0], False)
+        self.assertEqual(stc.ceiling_population(receipt(100))[0], True)
+        self.assertEqual(stc.ceiling_population(receipt(2000))[0], False)
 
     def test_the_boundary_is_inclusive_today(self):
-        self.assertEqual(stc.classify(receipt(CEILING_S))[0], True)
-        self.assertEqual(stc.classify(receipt(CEILING_S + 1))[0], False)
+        self.assertEqual(stc.ceiling_population(receipt(CEILING_S))[0], True)
+        self.assertEqual(stc.ceiling_population(receipt(CEILING_S + 1))[0], False)
 
     def test_a_future_anchor_is_a_law_class_today_false_candidate_true(self):
-        self.assertEqual(stc.classify(receipt(-1))[0], False, 'today refuses a negative age')
+        self.assertEqual(stc.ceiling_population(receipt(-1))[0], False, 'today refuses a negative age')
         self.assertEqual(stc.ceiling_candidate(frame(holder(NOW + 1 + CEILING_S)), NOW)[:2], (True, None))
 
     def test_a_verified_renewal_does_not_extend_the_strict_arm(self):
-        self.assertEqual(stc.classify(receipt(2000, touched_ago=5, renewal='verified'))[0], False)
+        self.assertEqual(stc.ceiling_population(receipt(2000, touched_ago=5, renewal='verified'))[0], False)
 
     def test_the_anchor_follows_the_parsed_selection(self):
-        holds, anchor, column = stc.classify(receipt(None, touched_ago=60))
+        holds, anchor, column = stc.ceiling_population(receipt(None, touched_ago=60))
         self.assertEqual((holds, anchor, column), (True, NOW - 60, 'turn_updated_at'))
         malformed = dict(receipt(100, touched_ago=60), turn_started_at='not-a-time')
-        self.assertEqual(stc.classify(malformed), (True, NOW - 60, 'turn_updated_at'),
+        self.assertEqual(stc.ceiling_population(malformed), (True, NOW - 60, 'turn_updated_at'),
                          'a nonempty start that does not parse falls back to the touch')
-        self.assertEqual(stc.classify(receipt(100))[1:], (NOW - 100, 'turn_started_at'))
+        self.assertEqual(stc.ceiling_population(receipt(100))[1:], (NOW - 100, 'turn_started_at'))
 
     def test_two_unusable_anchors_invent_no_anchor(self):
         both = dict(receipt(100), turn_started_at='junk', turn_updated_at='')
-        self.assertEqual(stc.classify(both), (False, None, None), "today's real answer, and no number made up")
+        self.assertEqual(stc.ceiling_population(both), (False, None, None), "today's real answer, and no number made up")
 
     def test_known_exclusions_need_no_clock(self):
         for r in (receipt(busy=0), {'read': 'row', 'turn_busy': None}, {'read': 'no-row'}, {'read': 'read-error'}):
-            self.assertEqual(stc.classify(r), stc.EXCLUDED, r)
+            self.assertEqual(stc.ceiling_population(r), stc.EXCLUDED, r)
 
     def test_what_cannot_be_read_is_eligibility_unknown(self):
         def without_clock(value):
@@ -86,8 +86,8 @@ class TodayTest(unittest.TestCase):
                  without_clock(None), without_clock(True), without_clock(float('nan')), without_clock(float('inf')),
                  without_clock(str(NOW))]
         for r in cases:
-            self.assertEqual(stc.classify(r), stc.UNKNOWN_ELIGIBILITY, r)
-        self.assertEqual(stc.classify(receipt(100))[0], True, 'CONTROL: an intact busy row is eligible')
+            self.assertEqual(stc.ceiling_population(r), stc.UNKNOWN_ELIGIBILITY, r)
+        self.assertEqual(stc.ceiling_population(receipt(100))[0], True, 'CONTROL: an intact busy row is eligible')
 
 
 class CandidateTest(unittest.TestCase):
@@ -136,7 +136,7 @@ class ParityTest(FastApiTestCase):
             self.client.post('/api/v1/agents', json={'agentId': agent, 'role': 'coder'}).raise_for_status()
             INPUT_ADAPTER.apply(self._db_path, agent, case.spec)
             decision = asyncio.run(decide(agent))
-            today = stc.classify(decision.receipt)
+            today = stc.ceiling_population(decision.receipt)
             self.assertNotEqual(today, stc.UNKNOWN_ELIGIBILITY, f'{agent}: a real receipt was unreadable')
             if decision.renewal == 'verified' or today == stc.EXCLUDED:
                 self.assertFalse(today == stc.EXCLUDED and decision.holds, f'{agent}: a hold with no ceiling decision')
