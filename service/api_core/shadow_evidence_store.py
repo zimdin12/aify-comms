@@ -150,9 +150,11 @@ async def _expired(db, window_id):
     if row is None:
         return None
     summary = json.loads(row[6])
-    return dict(window=dict(id=row[0], commsBuild=row[1], wrapperBuild=row[2], openedAt=row[3], closedAt=row[4],
-                            closeReason=row[5], deletedAt=row[7], expired=True, provisional=False,
-                            flushedSeq=summary['flushedSeq'], evidenceRows=summary['evidenceRows']),
+    return dict(window=dict(id=row[0], commsBuild=row[1], envBuild=summary['envBuild'], wrapperBuild=row[2],
+                            openedAt=row[3], flushedAt=summary['flushedAt'], closedAt=row[4], closeReason=row[5],
+                            flushedSeq=summary['flushedSeq'], evidenceRows=summary['evidenceRows'],
+                            evidenceBytes=summary['evidenceBytes'], bootId=summary['bootId'], deletedAt=row[7],
+                            expired=True, provisional=False),
                 frontier=summary['flushedSeq'], windowFrontier=summary['flushedSeq'], staleFrontier=False, items=[],
                 nextAfter=0, hasMore=False,
                 coverage=coverage({tuple(t['key']): t['totals'] for t in summary['totals']}, summary['instrumented'],
@@ -167,7 +169,8 @@ async def expire(db, at):
     async def old_windows():
         rows = await (await db.execute(
             'SELECT id, comms_build, wrapper_build, opened_at, closed_at, close_reason, flushed_seq, evidence_rows, '
-            'evidence_bytes, boot_id FROM status_shadow_windows WHERE closed_at IS NOT NULL')).fetchall()
+            'evidence_bytes, boot_id, env_build, flushed_at FROM status_shadow_windows WHERE closed_at IS NOT NULL'
+        )).fetchall()
         return [r for r in rows if _parse(r[4]) < cutoff]
     if not await old_windows():
         return 0  # the usual tick: no write lock taken
@@ -176,7 +179,9 @@ async def expire(db, at):
         old = await old_windows()
         for r in old:
             totals = await _totals(db, r[0])
-            summary = dict(flushedSeq=r[6], evidenceRows=r[7], evidenceBytes=r[8], instrumented=r[9] is not None,
+            # Every field a live read shows, as the window held it: an unknown env build stays an explicit null.
+            summary = dict(flushedSeq=r[6], evidenceRows=r[7], evidenceBytes=r[8], bootId=r[9], envBuild=r[10],
+                           flushedAt=r[11], instrumented=r[9] is not None,
                            totals=[dict(key=list(k), totals=t) for k, t in sorted(totals.items())])
             await db.execute(
                 'INSERT INTO status_shadow_window_tombstones (window_id, comms_build, wrapper_build, opened_at, '

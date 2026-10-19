@@ -402,10 +402,10 @@ class RotationTest(_Evidence):
 
 
 class ReadTest(_Evidence):
-    def history(self):
+    def history(self, versions=V):
         """W1: 2 complete word items, 1 incomplete, a readiness disagreement; closed by a version change."""
         owner = windows.ShadowWindows(self.recorder)
-        self.wait(owner.start(V, at(0)))
+        self.wait(owner.start(versions, at(0)))
         self.feed(at(0))
         self.disagree(at(1))
         self.disagree(at(2))
@@ -414,7 +414,7 @@ class ReadTest(_Evidence):
         self.recorder.record_owner(READINESS, '-', 'claim', False, True)
         with mock.patch.object(ev, 'ITEM_BYTES', 10):
             self.disagree(at(5), source='cache-broadcast')  # a gap, not an item
-        self.wait(owner.tick(V, at(10)))
+        self.wait(owner.tick(versions, at(10)))
         self.wait(owner.tick(V2, at(20)))
         return owner
 
@@ -508,10 +508,18 @@ class ReadTest(_Evidence):
         self.assertEqual(([i['event']['seq'] for i in page['items']], page['hasMore'], page['frontier']), ([1], False, 2))
 
     def test_an_expired_window_leaves_a_tombstone_and_the_open_one_stays(self):
-        self.history()
+        self.history(windows.Versions(comms='aaaa1111', env='env-build-1'))
+        live = self.page(1)['window']
+        self.assertEqual((live['envBuild'], live['wrapperBuild']), ('env-build-1', None),
+                         'a known build and an unknown one, both before expiry')
+        self.assertGreater(live['evidenceBytes'], 0)
         self.assertEqual(self.wait(windows.expire_windows('2026-11-02T10:00:19Z')), 0, 'not yet 14 days')
         self.assertEqual(self.wait(windows.expire_windows('2026-11-03T10:00:00Z')), 1)
         page = self.page(1)
+        kept = ('id', 'commsBuild', 'envBuild', 'wrapperBuild', 'openedAt', 'flushedAt', 'closedAt', 'closeReason',
+                'flushedSeq', 'evidenceRows', 'evidenceBytes', 'bootId')
+        self.assertEqual({k: page['window'][k] for k in kept}, {k: live[k] for k in kept},
+                         'the tombstone answers every version and total the live window did, nulls included')
         self.assertEqual((page['window']['expired'], page['items'], page['hasMore'], page['frontier']),
                          (True, [], False, 3))
         self.assertEqual(self.site(page, shadow.WORD, 'refresh'), dict(
