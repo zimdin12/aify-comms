@@ -514,7 +514,8 @@ class ReadTest(_Evidence):
         response = self.client.get('/api/v1/agent-state/shadow-evidence', params=dict(window=1, limit=1))
         self.assertEqual(response.status_code, 200)
         self.assertEqual((response.json()['frontier'], len(response.json()['items'])), (3, 1))
-        self.assertEqual(self.client.get('/api/v1/agent-state/shadow-evidence', params=dict(window=99)).status_code, 404)
+        unknown = self.client.get('/api/v1/agent-state/shadow-evidence', params=dict(window=99))
+        self.assertEqual((unknown.status_code, unknown.json()['detail']), (404, 'no shadow window 99'))
 
     def test_a_window_from_before_evidence_is_not_instrumented(self):
         with closing(sqlite3.connect(self._db_path)) as db:

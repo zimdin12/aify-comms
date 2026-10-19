@@ -124,6 +124,9 @@ LEFT_BEHIND = {
     #: MUST keep naming the OLD id. Recording that the old id is retired is the entire point of the
     #: row the rename writes.
     ("agent_tombstones", "agent_id"): "the tombstone is ABOUT the old id",
+    #: An immutable record of one past evaluation (S2c-E); its payload bytes name the same id, so a repointed
+    #: column would contradict its own evidence.
+    ("status_shadow_evidence", "agent_id"): "evidence of a past evaluation, under the id it had then",
     #: Who asked for the spawn, not who it is for. `spawn_requests.agent_id` is the subject and IS
     #: repointed.
     ("spawn_requests", "created_by"): "requester audit, not the subject of the rename",

@@ -257,7 +257,7 @@ class ObserverTest(unittest.TestCase):
     def test_a_recording_failure_never_replays_and_never_raises(self):
         calls = []
 
-        def record(owner, variant, site, today, candidate, reason=None):
+        def record(owner, variant, site, today, candidate, reason=None, **kwargs):
             calls.append((variant, reason))
             if variant == 'P-1':
                 raise RuntimeError('recorder broken for P-1')
