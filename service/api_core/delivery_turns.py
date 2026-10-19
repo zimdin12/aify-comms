@@ -252,6 +252,17 @@ class DeliveryTurns:
                     self._origin[key] = 'lost'
         self._note(note)
 
+    def forget(self, machine, records):
+        """A retired publisher's lineages (B5): no baseline survives, and no estimate of their turns stays
+        authoritative, so a later observation of the same lineage under another key reads as a first sight. The agents'
+        delivery turns are untouched: proof that a publisher's workers ended clears no reporter's run."""
+        lineages = {(machine, r.agent_id, r.lifetime) for r in records}
+        for lineage in lineages:
+            self._lineages.pop(lineage, None)
+            self._fresh.pop(lineage, None)
+        self._estimates = {key: Estimate(e.minimum, False) if key[:3] in lineages else e
+                           for key, e in self._estimates.items()}
+
     def _withhold(self, machine, record, clock):
         self._write((machine, record.agent_id), NOTHING_KNOWN, 'withheld')
         self._fresh.pop((machine, record.agent_id, record.lifetime), None)  # no baseline survives a withhold

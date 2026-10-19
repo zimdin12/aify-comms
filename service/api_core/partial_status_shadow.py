@@ -116,6 +116,13 @@ class Mirror:
                               old.build if old else None)
         self._view = MappingProxyType(view)
 
+    def retire(self, key):
+        """Drop a retired publisher: it holds no record and no build from now on. Returns what it held."""
+        view = dict(self._view)
+        old = view.pop(key, None)
+        self._view = MappingProxyType(view)
+        return old
+
     def feed(self, projection):
         p = projection
         view = dict(self._view)
