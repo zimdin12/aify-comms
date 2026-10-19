@@ -24,11 +24,16 @@ def tag(fold, lifetimes=('L',), at=T0):
 
 
 def steps(fold, *operations):
-    """The fold's semantic state after EACH operation, so a difference cannot hide behind a later reset."""
+    """The fold's semantic state after EACH operation, with what that operation raised, if anything: a difference
+    cannot hide behind a later reset, and an escaping fault reaches the equality assertion instead of ending it."""
     states = []
     for operation in operations:
-        operation()
-        states.append((dict(fold._turns), dict(fold._lineages), dict(fold._estimates), dict(fold._fresh)))
+        try:
+            operation()
+            raised = None
+        except Exception as error:
+            raised = type(error).__name__
+        states.append((raised, dict(fold._turns), dict(fold._lineages), dict(fold._estimates), dict(fold._fresh)))
     return states
 
 
