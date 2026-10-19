@@ -210,6 +210,12 @@ async def _agent_has_live_terminal(db, agent_id: str) -> bool:
     row). Mirrors the live-truth join the dashboard agent-dot already trusts; the
     session deriver uses it so the badge stops reading the stale denorm.
     """
+    return await terminal_state(db, agent_id) is True
+
+
+async def terminal_state(db, agent_id: str):
+    """`_agent_has_live_terminal`'s read: True, False, or PROBE_ERROR when the read raised, so a guard that must fail
+    closed can tell an error from a terminal that is not there."""
     if db is None:
         return False
     live_ph = ",".join("?" for _ in LIVE_SESSION_STATUSES)
@@ -226,7 +232,7 @@ async def _agent_has_live_terminal(db, agent_id: str) -> bool:
         )
         return (await cur.fetchone()) is not None
     except Exception:
-        return False
+        return PROBE_ERROR
 
 
 async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:

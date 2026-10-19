@@ -13,6 +13,12 @@ from fastapi import HTTPException
 
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.definition_guard import defined_mode
+from service.api_core.live_process_probes import (
+    PROBE_ERROR,
+    _resident_bridge_is_fresh,
+    channel_sidecar_state,
+    terminal_state,
+)
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or, _normalize_machine_id
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
@@ -29,8 +35,10 @@ logger = logging.getLogger("aify_comms.api_core.session_mode_switch")
 
 
 async def switch_session_mode(db, agent_id: str, row, new_mode: str, *, requested_by: str, force: bool,
-                              now: str) -> dict[str, Any]:
+                              now: str, start_backing: bool = True) -> dict[str, Any]:
     """Apply a switch of `agent_id` (its `agents` `row`) to `new_mode` inside the caller's transaction.
+    `start_backing=False` moves only the record: a switch that follows a definition starts nothing, since a start is
+    the host's.
 
     Returns `{changed: False, previousMode}` when it is already there, else `{changed: True, previousMode,
     effectiveRuntime, sessionHandle, warnings, sideEffects}`. Raises HTTPException where the switch is refused."""
@@ -155,11 +163,12 @@ async def switch_session_mode(db, agent_id: str, row, new_mode: str, *, requeste
     # row) does NOT roll back the mode change — operators can still
     # re-spawn/attach manually. Failures surface in the response's
     # `sideEffects.error` field.
-    settings = await _load_settings(db)
     side_effects: dict[str, Any] = {}
-    await _start_managed_backing_after_switch(
-        db, agent_id, new_mode, runtime, settings, requested_by, now, logger, side_effects,
-    )
+    if start_backing:
+        settings = await _load_settings(db)
+        await _start_managed_backing_after_switch(
+            db, agent_id, new_mode, runtime, settings, requested_by, now, logger, side_effects,
+        )
     if forced_resident_warning:
         switch_warnings.insert(0, forced_resident_warning)
     return {"changed": True, "previousMode": current_mode, "effectiveRuntime": effective_runtime,
@@ -227,3 +236,40 @@ async def _follow_under_lock(db, agent_id: str, *, now: str) -> dict[str, Any] |
         return await switch_session_mode(db, agent_id, row, "resident", requested_by="definition", force=False, now=now)
     except HTTPException:
         return None
+
+
+async def resident_drives(db, row):
+    """True, False, or PROBE_ERROR: whether a resident may still drive this agent, from a live console, a live channel
+    sidecar, or a fresh resident bridge. A read that failed is PROBE_ERROR, never False."""
+    terminal = await terminal_state(db, row["id"])
+    sidecar = await channel_sidecar_state(db, row["id"])
+    if True in (terminal, sidecar):
+        return True
+    if PROBE_ERROR in (terminal, sidecar):
+        return PROBE_ERROR
+    try:
+        lease = int((await _load_settings(db)).get("resident_lease_seconds", 150) or 150)
+        return await _resident_bridge_is_fresh(db, row, lease_seconds=lease)
+    except Exception:
+        return PROBE_ERROR
+
+
+async def follow_definition_to_managed(db, agent_id: str, *, now: str) -> dict[str, Any] | None:
+    """Switch a defined agent's record to managed when its definition asks for managed and no resident drives it (B3).
+
+    The definition is the authority: a record left resident by its last run read offline while its host offered it as
+    startable. Only the record moves; nothing is started, since the start is the host's. A resident still driving it
+    keeps it, and the next push asks again; a liveness read that failed switches nothing. Inside the caller's
+    transaction (the definition push). None when nothing switched."""
+    if await defined_mode(db, agent_id) != "managed":
+        return None
+    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if row is None or _normalize_session_mode(row["session_mode"] or "resident") != "resident":
+        return None
+    if await resident_drives(db, row) is not False:
+        return None
+    try:
+        return await switch_session_mode(db, agent_id, row, "managed", requested_by="definition", force=False, now=now,
+                                         start_backing=False)
+    except HTTPException:
+        return None  # refused before any write (an active run); the next push asks again
