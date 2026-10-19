@@ -49,11 +49,20 @@ def _no_wake_handle(comms, comms_word, env, env_word):
     return comms_word in ('offline', 'misconfigured') and comms.get('wake_handle_absent') is True
 
 
+def _awaiting_input_differs(comms, comms_word, env, env_word):
+    """Both sides hold the turn open and disagree on whether it waits for input. Both apply the same blocked and
+    unblocked events, so this is the gap between the launcher's two posts or an event one side dropped; telling them
+    apart needs the event ages aify-env does not publish yet (B6)."""
+    return (env.get('turnOpen') is True and comms.get('in_turn') is True
+            and comms.get('awaiting_input') is not env.get('awaitingInput'))
+
+
 DISAGREEMENT_CLASSES = (
     DisagreementClass('no-wake-handle', 'policy:Q3', _no_wake_handle),
     DisagreementClass('comms-only-stop', 'B2', _comms_only_stop),
     DisagreementClass('background-shell-unpublished', 'B4', _background_shell_unpublished),
     DisagreementClass('turn-open-differs', 'B6', _turn_open_differs),
+    DisagreementClass('awaiting-input-differs', 'B6', _awaiting_input_differs),
 )
 
 

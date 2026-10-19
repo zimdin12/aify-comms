@@ -50,7 +50,7 @@ def env_side(facts, turn_open):
                                         capture_output=True, text=True, check=True, timeout=20).stdout)
     record = dict(row(), state=derived['state'], stateCause=derived['cause'], busy=facts['busy'],
                   process=dict(state=facts['process'], verified=facts['verified'], pid=4242 if facts['process'] == 'running' else None),
-                  turn=None if turn_open is None else dict(row()['turn'], open=turn_open))
+                  turn=None if turn_open is None else dict(row()['turn'], open=turn_open, awaitingInput=facts['awaitingInput']))
     return dict(env_inputs(record)), candidate_word(record['state'])
 
 
@@ -115,6 +115,35 @@ class ConstructibleHistoryTest(unittest.TestCase):
                             wake_handle_absent=True, config_defect='no usable wake handle (wakeMode=hermes-missing-handle)')
         self.assertEqual(worded[1], 'misconfigured')
         self.assertEqual(classify(worded[0], worded[1], *running), 'no-wake-handle')
+
+    def test_a_wait_one_side_missed_is_b6_and_a_blocked_screen_is_not(self):
+        held = comms_side(mode='resident', alive=True, worker_present=True, has_live_session=True, in_turn=True)
+        waiting = env_side(env_facts(busy=True, awaitingInput=True), turn_open=True)
+        self.assertEqual(self.key('refresh', held, waiting), ('refresh', 'resident', 'working', 'blocked'))
+        self.assertEqual(classify(held[0], held[1], *waiting), 'awaiting-input-differs')
+        # The reverse: comms heard the wait and aify-env did not.
+        asked = comms_side(mode='resident', alive=True, worker_present=True, has_live_session=True, in_turn=True,
+                           awaiting_input=True)
+        running = env_side(env_facts(busy=True), turn_open=True)
+        self.assertEqual(self.key('refresh', asked, running), ('refresh', 'resident', 'blocked', 'working'))
+        self.assertEqual(classify(asked[0], asked[1], *running), 'awaiting-input-differs')
+        # Same word pair, another cause: aify-env sees a blocked screen and both agree no input is awaited.
+        turn = comms_side(alive=True, worker_present=True, in_turn=True)
+        screen = env_side(env_facts(mode='managed', busy=True, screen={'state': 'blocked', 'fresh': True}), turn_open=True)
+        self.assertEqual(self.key('refresh', turn, screen), ('refresh', 'managed', 'working', 'blocked'))
+        self.assertEqual(screen[0]['stateCause'], 'screen')
+        self.assertEqual(classify(turn[0], turn[1], *screen), 'unresolved:unmatched')
+
+    def test_a_wait_on_a_turn_only_one_side_holds_is_the_turn_difference(self):
+        idle = comms_side(mode='resident', alive=True, worker_present=True, has_live_session=True)
+        waiting = env_side(env_facts(busy=True, awaitingInput=True), turn_open=True)
+        self.assertEqual(self.key('refresh', idle, waiting), ('refresh', 'resident', 'online', 'blocked'))
+        self.assertEqual(classify(idle[0], idle[1], *waiting), 'turn-open-differs')
+        asked = comms_side(mode='resident', alive=True, worker_present=True, has_live_session=True, in_turn=True,
+                           awaiting_input=True)
+        closed = env_side(env_facts(), turn_open=False)
+        self.assertEqual(self.key('refresh', asked, closed), ('refresh', 'resident', 'blocked', 'online'))
+        self.assertEqual(classify(asked[0], asked[1], *closed), 'turn-open-differs')
 
     def test_a_stop_only_comms_knows_is_b2_and_one_aify_env_knows_is_not(self):
         stopped = comms_side(disabled=True)
