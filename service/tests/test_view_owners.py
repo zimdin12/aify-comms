@@ -99,6 +99,9 @@ class RecordForTest(unittest.TestCase):
         odd.feed(shadow.Projection(('m', 'i'), 'snapshot', 1, FRESH, (rec('nonsense'),), ()))
         self.assertEqual(shadow.compare(shadow.Binding(odd.view(), NOW), ('m', 'a')), (None, 'unknown-state'))
         self.assertEqual(shadow.record_for(shadow.Binding(odd.view(), NOW), ('m', 'b')), (None, 'missing-row'))
+        old = shadow.Mirror()
+        old.feed(shadow.Projection(('m', 'i'), 'snapshot', 1, '2026-10-19T00:00:00Z', (rec('idle'),), ()))
+        self.assertEqual(shadow.record_for(shadow.Binding(old.view(), NOW), ('m', 'a')), (None, 'stale'))
 
 
 class PrepareTest(unittest.TestCase):
@@ -165,6 +168,16 @@ class ReadinessObserverTest(_Shadow, unittest.TestCase):
         self.observe(cd._WorkerLiveness(True, False, False, ('sidecar', 'unread')), answer=True,
                      during=lambda: self.publish(rec(process=('exited', 'no'))))
         self.assertEqual(self.owner(vo.READINESS)['counts']['partialAgreed'], 1, 'the frozen running process, read')
+
+    def test_today_promotes_only_a_word_that_changes(self):
+        self.publish(rec('working'))
+        running = {'activeRun': {'status': 'running'}}
+        vo.observe_promotion(self.ROW, 'working', 'working', running, 'serialize')
+        vo.observe_promotion(self.ROW, 'online', 'working', running, 'serialize')
+        promotion = self.owner(vo.PROMOTION)
+        self.assertEqual((promotion['counts']['partialAgreed'], promotion['disagreementsByKey']),
+                         (1, [dict(site='serialize', today='true', candidate='false', count=1)]),
+                         'working stays working: no promotion today; online to working is one')
 
     def test_no_component_and_no_association(self):
         self.publish(rec(process=('running', 'yes')))
@@ -276,6 +289,27 @@ class DeliveryTagTest(_Db):
         self._register('cx-n', runtime='codex', sessionMode='managed')
         self.assertEqual(self._liveness('cx-n'), cd._WorkerLiveness(False, False, False, ('wrapper-child', False)))
 
+    def test_the_flag_branch_reads_the_sidecar_and_a_child_error_is_not_live(self):
+        self._register('cx-flag', runtime='codex', sessionMode='managed', runtimeConfig={'channelEnabled': True})
+        self.assertEqual(self._liveness('cx-flag'), cd._WorkerLiveness(False, True, False, ('sidecar', False)))
+        self._register('cx-err', runtime='codex', sessionMode='managed')
+        self._bridge('cx-err', 'managed-wrapper-child')
+
+        class Failing:
+            def __init__(self, db):
+                self.db = db
+
+            def __getattr__(self, name):
+                return getattr(self.db, name)
+
+            def execute(self, sql, *args):
+                if 'managed-wrapper-child' in sql:
+                    raise RuntimeError('bridge table unreadable')
+                return self.db.execute(sql, *args)
+        self.assertEqual(self._liveness('cx-err', wrap=Failing),
+                         cd._WorkerLiveness(False, False, False, ('wrapper-child', probes.PROBE_ERROR)),
+                         'a fresh child row exists, but the read raised: not live, as today')
+
     def test_a_resident_names_no_component(self):
         self._register('res', runtime='codex', sessionMode='resident')
         self.assertEqual(self._liveness('res', mode='resident', live_session=True).delivery, (None, None))
@@ -328,6 +362,10 @@ class SitesTest(_Shadow, _Db):
         asyncio.run(gate({'status': 'online', 'sessionMode': 'resident'}))
         self.assertEqual(self.sites(vo.LIVE_COUNTS)['gate'], 4)
         self.assertEqual(self.reasons(vo.LIVE_COUNTS)['gate'], {'association': 1})
+        live_counts = self.owner(vo.LIVE_COUNTS)
+        self.assertEqual((live_counts['counts']['partialAgreed'], live_counts['disagreementsByKey']),
+                         (2, [dict(site='gate', today='false', candidate='true', count=1)]),
+                         'the offline payload beside an idle record; the two online payloads agree')
 
     def test_the_analytics_counts_are_observed(self):
         for path in ('/api/v1/analytics', '/api/v1/analytics/pulse'):
