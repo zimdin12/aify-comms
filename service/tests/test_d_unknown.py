@@ -112,7 +112,45 @@ class OriginTest(unittest.TestCase):
                 mock.patch.object(dt, 'delivery_known', side_effect=RuntimeError('diagnostic broken')):
             faulty = history(faulty_fold)
         self.assertEqual(faulty, healthy)
-        self.assertEqual(tag(faulty_fold), 'deliveryUnknown:unclassified:diagnostic-fault:absent:yes')
+        with self.assertRaises(RuntimeError):
+            tag(faulty_fold)  # a failed diagnostic write makes every later explanation a fault
+
+    def test_a_failing_diagnostic_store_never_changes_the_fold_or_passes_for_a_fact(self):
+        class BrokenOrigins(dict):
+            def __setitem__(self, key, value):
+                raise RuntimeError('origin store broken')
+
+        class BrokenReporters(set):
+            def add(self, value):
+                raise RuntimeError('reporter store broken')
+
+        def history(fold):
+            publish(fold, A, '1970-01-01T00:16:40Z', record(clock=OPEN))
+            publish(fold, A, '1970-01-01T00:16:41Z', record(clock=CLOSED_5))
+            fold.reporter('m', 'x', True, 'r1', 'bridge', T0)
+            fold.lose_everything()
+            fold.reporter('m', 'x', True, 'r2', 'bridge', T0 + 1)
+            return (fold._turns, fold._lineages, fold._estimates, fold._fresh)
+        healthy = history(dt.DeliveryTurns())
+        self.assertEqual(tag(dt.DeliveryTurns()), 'deliveryUnknown:never-known:absent:no', 'CONTROL: a working store')
+        for name, store in (('_origin', BrokenOrigins), ('_reported', BrokenReporters)):
+            with self.subTest(store=name):
+                fold = dt.DeliveryTurns()
+                setattr(fold, name, store())
+                self.assertEqual(history(fold), healthy)
+                with self.assertRaises(RuntimeError):
+                    tag(fold)
+
+    def test_a_reporter_whose_diagnostic_fails_is_not_a_lost_fold(self):
+        fold = dt.DeliveryTurns()
+
+        class BrokenReporters(set):
+            def add(self, value):
+                raise RuntimeError('reporter store broken')
+        fold._reported = BrokenReporters()
+        with mock.patch.object(dt, 'FOLD', fold):
+            dt.publish_reporter('m', 'x', (True, 'r1', 'bridge', T0))
+        self.assertEqual((fold.turn('m', 'x').open, fold.turn('m', 'x').run_id), (True, 'r1'), 'not lose_everything')
 
 
 class BusyCountTest(unittest.TestCase):
@@ -228,27 +266,67 @@ class CohortTest(unittest.TestCase):
         self.assertEqual(rep.decide({})[1], 'no-denominator')
 
     def test_the_report_reads_closed_windows_only(self):
-        with closing(sqlite3.connect(':memory:')) as db:
-            db.execute('CREATE TABLE status_shadow_windows (id INTEGER PRIMARY KEY, comms_build TEXT, opened_at TEXT, '
-                       'closed_at TEXT, close_reason TEXT)')
-            db.execute('CREATE TABLE status_shadow_window_counts (window_id INTEGER, owner TEXT, variant TEXT, '
-                       'source TEXT, name TEXT, count INTEGER)')
-            db.executemany('INSERT INTO status_shadow_windows VALUES (?, ?, ?, ?, ?)',
-                           [(7, 'b', H(0), H(5), 'rotation'), (8, 'b', H(5), H(9), 'rotation'), (9, 'b', H(9), None, None)])
-            db.executemany("INSERT INTO status_shadow_window_counts VALUES (?, 'busy', 'strict', 'claim', ?, ?)",
-                           [(7, 'unavailable:delivery-turn', 3), (7, 'deliveryUnknown:lost:closed:no', 3),
-                            (8, 'unavailable:delivery-turn', 1), (8, 'deliveryUnknown:lost:closed:no', 1),
-                            (9, 'unavailable:delivery-turn', 50), (9, 'deliveryUnknown:withheld:closed:no', 50)])
-            out = rep.read_report(db, 7, 'read-time')
+        path = self.database([(7, H(0), H(5), 'rotation'), (8, H(5), H(9), 'rotation'), (9, H(9), None, None)],
+                             [(7, 'lost', 3), (8, 'lost', 1), (9, 'withheld', 50)])
+        out = rep.read_database(path, 7, 'read-time')
         self.assertEqual((out['status'], [w['id'] for w in out['windows']], out['hours']), ('complete', [7, 8], 9.0))
         self.assertEqual(out['decisions']['strict']['decision'], rep.BRANCHES['lost'], 'the open window is not read')
-        with closing(sqlite3.connect(':memory:')) as db:
+        path = self.database([(7, H(0), H(6), 'rotation')], [], extra=[(7, 'unavailable:delivery-turn', 5)])
+        out = rep.read_database(path, 7, 'read-time')
+        self.assertEqual((len(out['sumBroken']), out['decisions']), (1, {}), 'a broken sum decides nothing')
+
+    def database(self, windows, causes, extra=()):
+        """A committed WAL database at a file path, as the service leaves it, read by a fresh connection."""
+        import tempfile, os
+        directory = tempfile.mkdtemp(prefix='d-unknown-')
+        self.addCleanup(lambda: __import__('shutil').rmtree(directory, ignore_errors=True))
+        path = os.path.join(directory, 'aify.db')
+        with closing(sqlite3.connect(path)) as db:
+            db.execute('PRAGMA journal_mode=WAL')
             db.execute('CREATE TABLE status_shadow_windows (id INTEGER PRIMARY KEY, comms_build TEXT, opened_at TEXT, '
                        'closed_at TEXT, close_reason TEXT)')
             db.execute('CREATE TABLE status_shadow_window_counts (window_id INTEGER, owner TEXT, variant TEXT, '
                        'source TEXT, name TEXT, count INTEGER)')
-            db.execute("INSERT INTO status_shadow_windows VALUES (7, 'b', ?, ?, 'rotation')", (H(0), H(6)))
-            db.execute("INSERT INTO status_shadow_window_counts VALUES (7, 'busy', 'strict', 'claim', ?, 5)",
-                       ('unavailable:delivery-turn',))
-            out = rep.read_report(db, 7, 'read-time')
-        self.assertEqual((len(out['sumBroken']), out['decisions']), (1, {}), 'a broken sum decides nothing')
+            db.executemany("INSERT INTO status_shadow_windows VALUES (?, 'b', ?, ?, ?)", windows)
+            rows = [r for w, origin, n in causes for r in ((w, 'unavailable:delivery-turn', n),
+                                                           (w, f'deliveryUnknown:{origin}:closed:no', n))]
+            db.executemany("INSERT INTO status_shadow_window_counts VALUES (?, 'busy', 'strict', 'claim', ?, ?)",
+                           [*rows, *extra])
+            db.commit()
+        return path
+
+    def expire(self, path, window_id):
+        """What expiry does: the closed window and its counts go, in one committed write."""
+        with closing(sqlite3.connect(path)) as db:
+            db.execute('DELETE FROM status_shadow_window_counts WHERE window_id = ?', (window_id,))
+            db.execute('DELETE FROM status_shadow_windows WHERE id = ?', (window_id,))
+            db.commit()
+
+    def test_an_expiry_before_the_read_voids_and_one_between_its_reads_changes_nothing(self):
+        members = [(7, H(0), H(5), 'rotation'), (8, H(5), H(9), 'rotation')]
+        path = self.database(members, [(7, 'never-known', 90), (8, 'lost', 10)])
+        out = rep.read_database(path, 7, 'read-time')
+        self.assertEqual(out['decisions']['strict']['decision'], rep.BRANCHES['never-known'], 'CONTROL: no expiry')
+        test = self
+
+        class ExpiresBetweenReads:
+            """The read-only connection the reader uses, with window 7 expiring right after the window read."""
+            def __init__(self):
+                self.db = sqlite3.connect(f'file:{path}?mode=ro', uri=True, isolation_level=None)
+
+            def execute(self, sql, *args):
+                cursor = self.db.execute(sql, *args)
+                if sql.startswith('SELECT id'):
+                    rows = cursor.fetchall()
+                    test.expire(path, 7)
+                    return mock.Mock(fetchall=lambda: rows)
+                return cursor
+        connection = ExpiresBetweenReads()
+        try:
+            out = rep.read_report(connection, 7, 'read-time')
+        finally:
+            connection.db.close()
+        self.assertEqual((out['status'], out['decisions']['strict']['decision']), ('complete', rep.BRANCHES['never-known']),
+                         'one snapshot: the expired member keeps its counts in this read')
+        out = rep.read_database(path, 7, 'read-time')
+        self.assertEqual((out['status'], out['reason']), ('void', 'window 7 missing or expired'), 'expired before the read')

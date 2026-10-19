@@ -167,23 +167,33 @@ class DeliveryTurns:
         self._fresh = {}  # (machine, agent, lifetime) -> freshness_after's entry
         self._origin = {}  # (machine, agent) -> origin_after's value; outlives lose_everything
         self._reported = set()  # (machine, agent) a reporter wrote since boot
+        self._diagnostics = True  # False once a diagnostic write failed: every later explanation is then a fault
 
     def turn(self, machine, agent_id):
         return self._turns.get((machine, agent_id), NOTHING_KNOWN)
 
+    def _note(self, write):
+        """One diagnostic write, always after the semantic one. A failure makes every later diagnostic a fault, so a
+        stale origin or reporter set never passes for a fact, and it never reaches the fold."""
+        try:
+            write()
+        except Exception:
+            self._diagnostics = False
+
     def _write(self, key, after, op):
-        """The turn first; its diagnostic origin after, contained, so a diagnostic failure never changes the fold."""
         before = self._turns.get(key, NOTHING_KNOWN)
         self._turns[key] = after
-        try:
+
+        def note():
             self._origin[key] = origin_after(before, after, self._origin.get(key, NEVER_KNOWN), op)
-        except Exception:
-            self._origin[key] = 'diagnostic-fault'
+        self._note(note)
 
     def diagnostic(self, machine, agent_id, lifetimes, at):
         """The count name explaining an unknown delivery turn: 'deliveryUnknown:<origin>:<lineage>:<reporter>', for
         the lifetimes the frame holds records of. A frame with no clock answers 'delivery-turn' from a turn it may
-        know, so its origin is 'binding-lost'."""
+        know, so its origin is 'binding-lost'. Raises once any diagnostic write has failed."""
+        if not self._diagnostics:
+            raise RuntimeError('a delivery-turn diagnostic write failed; its origins and reporters are not known')
         key = (machine, agent_id)
         if at is None:
             origin = 'binding-lost'
@@ -209,10 +219,10 @@ class DeliveryTurns:
         return value[1] if value is not NOT_KNOWN and value[0] == started_us else NOT_KNOWN
 
     def reporter(self, machine, agent_id, busy, run_id, owner, at):
-        turn = self.turn(machine, agent_id)
-        self._reported.add((machine, agent_id))
-        self._write((machine, agent_id), reporter_busy(turn, run_id, owner, at) if busy else reporter_clear(turn, run_id),
+        key, turn = (machine, agent_id), self.turn(machine, agent_id)
+        self._write(key, reporter_busy(turn, run_id, owner, at) if busy else reporter_clear(turn, run_id),
                     'reporter-busy' if busy else 'reporter-clear')
+        self._note(lambda: self._reported.add(key))
 
     def env_applied(self, projection, view, age_ms=None):
         """One publication the receiver committed, with the view it produced. `age_ms` maps an agent to its turn age,
@@ -232,14 +242,15 @@ class DeliveryTurns:
     def lose_everything(self):
         """An applied publication the fold could not read: no knowledge survives it and no estimate stays
         authoritative, while each minimum is kept for diagnostics (Rule A)."""
-        for key, turn in self._turns.items():
-            try:
-                if delivery_known(turn):
-                    self._origin[key] = 'lost'
-            except Exception:
-                self._origin[key] = 'diagnostic-fault'
+        known = self._turns  # the old mapping, read only by the diagnostic note after the reset
         self._turns, self._lineages, self._fresh = {}, {}, {}
         self._estimates = {key: Estimate(e.minimum, False) for key, e in self._estimates.items()}
+
+        def note():
+            for key, turn in known.items():
+                if delivery_known(turn):
+                    self._origin[key] = 'lost'
+        self._note(note)
 
     def _withhold(self, machine, record, clock):
         self._write((machine, record.agent_id), NOTHING_KNOWN, 'withheld')

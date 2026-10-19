@@ -91,7 +91,25 @@ def decide(total):
 
 
 def read_report(db, first_id, read_at):
-    """The measurement, read once from a read-only connection."""
+    """The measurement, read in ONE read transaction on an autocommit connection, so an expiry between the window
+    read and the count read cannot drop a member's counts and leave its survivors to decide."""
+    db.execute('BEGIN')
+    try:
+        return _read(db, first_id, read_at)
+    finally:
+        db.execute('ROLLBACK')
+
+
+def read_database(path, first_id, read_at):
+    """The CLI's read: a fresh read-only, autocommit connection, closed after."""
+    connection = sqlite3.connect(f'file:{path}?mode=ro', uri=True, isolation_level=None)
+    try:
+        return read_report(connection, first_id, read_at)
+    finally:
+        connection.close()
+
+
+def _read(db, first_id, read_at):
     rows = db.execute('SELECT id, comms_build, opened_at, closed_at, close_reason FROM status_shadow_windows '
                       'WHERE id >= ? ORDER BY id', (first_id,)).fetchall()
     windows = {r[0]: dict(commsBuild=r[1], openedAt=r[2], closedAt=r[3], closeReason=r[4]) for r in rows}
@@ -114,6 +132,4 @@ def read_report(db, first_id, read_at):
 
 
 if __name__ == '__main__':
-    path, first = sys.argv[1], int(sys.argv[2])
-    with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as connection:
-        print(json.dumps(read_report(connection, first, clock.now()), indent=2))
+    print(json.dumps(read_database(sys.argv[1], int(sys.argv[2]), clock.now()), indent=2))
