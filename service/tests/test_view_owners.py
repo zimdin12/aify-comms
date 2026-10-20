@@ -516,12 +516,14 @@ class SitesTest(_Shadow, _Db):
         self.assertGreaterEqual(self.owner(vo.PROMOTION)['counts']['partialCompared'], 1)
 
     def test_the_buffer_full_path_is_observed(self):
-        from service.api_core import dispatch_runs
+        from service.api_core import dispatch_launch, dispatch_runs
         self._exec("INSERT INTO dispatch_runs (id, from_agent, target_agent, dispatch_mode, execution_mode, "
                    "message_type, subject, body, priority, status, queue_if_busy, requested_at) VALUES "
                    "('run-q', 'dashboard', 'm-agent', 'start_if_possible', 'managed', 'info', 's', 'b', 'normal', "
                    "'queued', 1, datetime('now'))")
-        with mock.patch.object(dispatch_runs, '_append_pending_dispatch_body', return_value=None):
+        # A held send still ensures backing (SW4); the queued run's worker is on its way, so backing holds.
+        with mock.patch.object(dispatch_runs, '_append_pending_dispatch_body', return_value=None), \
+                mock.patch.object(dispatch_launch, '_has_claimable_spawn_request', return_value=True):
             answer = self.client.post('/api/v1/messages/send', json={
                 'from_agent': 'dashboard', 'to': 'm-agent', 'type': 'info', 'subject': 's2', 'body': 'b2',
                 'trigger': True, 'queueIfBusy': True})
@@ -661,7 +663,11 @@ class SiteOutcomeTest(_Shadow, _Db):
             conn.close()
 
     def test_the_buffer_full_rejection(self):
-        from service.api_core import dispatch_runs
+        from service.api_core import dispatch_launch, dispatch_runs
+        # A held send still ensures backing (SW4); the buffered run's worker is on its way, so backing holds.
+        backing = mock.patch.object(dispatch_launch, '_has_claimable_spawn_request', return_value=True)
+        backing.start()
+        self.addCleanup(backing.stop)
         for name in ARMS:
             with self.subTest(name):
                 agent = f'bf-{name}'

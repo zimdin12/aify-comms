@@ -60,9 +60,12 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
         if not row:
             continue
         runtime = _normalize_runtime(row["runtime"] or "generic")
-        # Queue only waits behind real active/queued work. For an idle
-        # terminal-backed target, it should still use the normal live
-        # delivery path instead of creating an orphan dispatch queue.
+        # A HOLD WITHHOLDS DELIVERY; IT NEVER SKIPS BACKING (SW4, the hard-switch plan's ordering rule). The run
+        # stays queued for the claim gate either way. What a held send must not do is put the message on a console
+        # mid-turn; what it must still do is make sure a worker exists, because a recipient with no backing never
+        # publishes the record that would release its hold. Backing is idempotent: a live claimer or a pending
+        # spawn request short-circuits it, so a held send to a live agent starts nothing.
+        deliver_to = console_recipients
         if bool(req.queueIfBusy):
             dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
             # Three signals of "currently busy":
@@ -95,7 +98,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
             busy_consumers.observe_queue(occupied, queue_held, decision, busy,
                                          (dispatch_state.get("hasActiveRun"), dispatch_state.get("queuedRuns")))
             if queue_held:
-                continue
+                deliver_to = {}
         execution_mode = str(_execution_mode or "").strip().lower()
         # Native-managed runtimes (codex/pi/opencode/hermes) — only
         # route through PTY-input when the operator opted into
@@ -196,7 +199,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                         requested_by=req.from_agent,
                     )
                 if console_terminal:
-                    console_recipients[recipient_id] = console_terminal
+                    deliver_to[recipient_id] = console_terminal
                     continue
             continue
         # Managed Claude PTY-input branch — only fires when the
@@ -223,7 +226,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                     requested_by=req.from_agent,
                 )
             if console_terminal:
-                console_recipients[recipient_id] = console_terminal
+                deliver_to[recipient_id] = console_terminal
             else:
                 not_started.append(
                     _dispatch_fix_hint(
@@ -282,7 +285,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                 requested_by=req.from_agent,
             )
         if console_terminal:
-            console_recipients[recipient_id] = console_terminal
+            deliver_to[recipient_id] = console_terminal
 
 
 async def _back_managed_claude_with_a_console(
