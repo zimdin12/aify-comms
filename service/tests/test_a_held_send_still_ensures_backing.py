@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 from service.api_core import dispatch_launch
+from service.api_core.claim_gating import BusyDecision
 
 TERMINAL = {"terminal_id": "term-1", "environment_id": "env-1", "bridge_id": "bridge-1"}
 
@@ -36,7 +37,7 @@ class _Db:
 
 class AHeldSendStillEnsuresBacking(unittest.TestCase):
 
-    def _run(self, *, runtime, execution_mode, held, settings, live_terminal):
+    def _run(self, *, runtime, execution_mode, held, settings, live_terminal, turn_holds=None):
         calls = {"cold": [], "pty": []}
 
         async def cold(db, agent_id, **kw):
@@ -57,10 +58,13 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
             return row, None
 
         async def dispatch_state(db, agent_id):
-            # The hold's first term, an active run; the turn term is left out (decision None) so it cannot decide.
+            # The hold's run terms. With turn_holds None the turn term is left out (decision None) so it cannot decide.
             return {"hasActiveRun": held, "queuedRuns": 0}
 
-        async def no_decision(db, agent_id):
+        async def decision(db, agent_id):
+            return None if turn_holds is None else BusyDecision(holds=turn_holds)
+
+        async def no_observation(*_a, **_k):
             return None
 
         patches = {
@@ -71,7 +75,7 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
             "_has_claimable_spawn_request": no,
             "_auto_return_resident_to_managed_if_possible": passthrough,
             "_get_dispatch_state_for_agent": dispatch_state,
-            "turn_busy_decision": no_decision,
+            "turn_busy_decision": decision,
         }
         for name, value in patches.items():
             patcher = mock.patch.object(dispatch_launch, name, new=value)
@@ -80,6 +84,12 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
         observe = mock.patch.object(dispatch_launch.busy_consumers, "observe_queue", new=lambda *a, **k: None)
         observe.start()
         self.addCleanup(observe.stop)
+        # The status shadow's observers run only beside a decision; they never change the answer.
+        for target, name, value in ((dispatch_launch.comms_view, "observe_busy", no_observation),
+                                    (dispatch_launch.stale_turn_ceiling, "observe_ceiling", lambda *a, **k: None)):
+            patcher = mock.patch.object(target, name, new=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
         console, not_started, failed = {}, [], set()
         req = types.SimpleNamespace(queueIfBusy=True, from_agent="dashboard")
@@ -105,6 +115,17 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
         _, twin = self._run(runtime="generic", execution_mode="", held=False, settings=settings, live_terminal=True)
         self.assertEqual(twin, {"agent-1": TERMINAL}, "the control: the twin is delivered on its console")
         self.assertEqual(held, {}, "a held send must deliver nothing")
+
+    def test_a_recipient_held_only_by_its_turn_is_never_put_on_a_console(self):
+        """No active run and no queued run: the turn alone holds. Its twin carries an engaged decision that does not
+        hold, so both pass through the same branch and only the turn's answer differs."""
+        settings = {"insert_messages_via_console": True, "managed_terminal_backing_enabled": True}
+        _, held = self._run(runtime="generic", execution_mode="", held=False, settings=settings, live_terminal=True,
+                            turn_holds=True)
+        _, twin = self._run(runtime="generic", execution_mode="", held=False, settings=settings, live_terminal=True,
+                            turn_holds=False)
+        self.assertEqual(twin, {"agent-1": TERMINAL}, "the control: the unheld twin is delivered on its console")
+        self.assertEqual(held, {}, "a send held only by the turn must deliver nothing")
 
 
 if __name__ == "__main__":
