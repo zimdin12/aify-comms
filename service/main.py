@@ -382,6 +382,17 @@ async def lifespan(app: FastAPI):
     # a fresh connection per call and no file handle outlives its temporary database.
     CONNECTION_POOL.enable()
 
+    # Restart restore (SW1): the status mirror is reloaded from the saved shadow tables before any task starts and
+    # before a route is served, so no send, claim or ingest sees an empty mirror. A failure quarantines the mirror
+    # (every agent reads unknown) and never blocks startup.
+    from service.api_core import mirror_restore
+    from service.db import get_db
+    try:
+        logger.info(f"Startup mirror restore: {await mirror_restore.restore(get_db)}")
+    except Exception as e:
+        mirror_restore.shadow.quarantine()
+        logger.error(f"Startup mirror restore failed, the mirror is quarantined: {e}")
+
     # Bounded startup reconcile: drain delivered dispatch runs that never got
     # a terminal state (reply-linked, or stale and not requiring a reply) so
     # the open-run ledger does not accumulate forever. Conservative — never

@@ -64,6 +64,7 @@ class Publisher:
     incarnation: str | None = None
     publication: int | None = None
     build: str | None = None  # of the last DATA publication: an unavailable one never changes it
+    restored: bool = False  # loaded from the saved tables at start (SW1): never fresh until a complete snapshot
 
 
 RAW_LIMIT = 16384  # bytes of one record's canonical JSON the evidence keeps; a larger record keeps none (S2c-E)
@@ -83,12 +84,16 @@ def prepare(body, applied_at):
     build = body.get('build')
     origin = (body['generation'], body['incarnationId'], body['publication'], applied_at, build)
     return Projection((body['machineId'], body['instance']), body['kind'], body['generation'],
-                      applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r),
-                                               turn_busy_if(r), (r['process']['state'], r['process']['verified']),
-                                               raw_bytes(r), origin, (r['turn'] or {}).get('ageMs'), r['busy'])
-                                        for r in body.get('agents', ())),
+                      applied_at, tuple(record_of(r, origin) for r in body.get('agents', ())),
                       tuple((r['agentId'], r['lifetime']) for r in body.get('removed', ())),
                       body['incarnationId'], body['publication'], build)
+
+
+def record_of(r, origin):
+    """One validated record's detached fields, from a publication or from its saved `record_json` (SW1)."""
+    return Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r), turn_busy_if(r),
+                  (r['process']['state'], r['process']['verified']), raw_bytes(r), origin,
+                  (r['turn'] or {}).get('ageMs'), r['busy'])
 
 
 def turn_clock(record):
@@ -117,6 +122,13 @@ class Mirror:
                               old.build if old else None)
         self._view = MappingProxyType(view)
 
+    def restore(self, key, publisher):
+        """Install a publisher loaded at start (SW1), never over one an ingest already applied."""
+        if key in self._view:
+            return False
+        self._view = MappingProxyType({**self._view, key: publisher})
+        return True
+
     def retire(self, key):
         """Drop a retired publisher entirely (B5): it holds no record and no build from now on."""
         view = dict(self._view)
@@ -132,7 +144,7 @@ class Mirror:
                                     old.complete if old else False, True, old.rows if old else (),
                                     old.loss if old else False,
                                     old.incarnation if old else None, old.publication if old else None,
-                                    old.build if old else None)
+                                    old.build if old else None, bool(old and old.restored))
         else:
             replace = p.kind == 'snapshot' or old is None or old.generation != p.generation
             rows = {} if replace else {r.agent_id: r for r in old.rows}
@@ -142,8 +154,9 @@ class Mirror:
                         del rows[aid]
             rows.update((r.agent_id, r) for r in p.rows)
             complete = p.kind == 'snapshot' or (not replace and old.complete)
+            # Restored rows stay restored until a complete snapshot: a changes publication completes nothing (SW1).
             view[p.key] = Publisher(p.generation, p.data_applied_at, complete, False, tuple(rows.values()), False,
-                                    p.incarnation, p.publication, p.build)
+                                    p.incarnation, p.publication, p.build, bool(old and old.restored) and not complete)
         self._view = MappingProxyType(view)
 
 
@@ -411,6 +424,14 @@ def _new_mirror():
     return _UnreadableMirror() if _quarantined else Mirror()
 
 
+def quarantine():
+    """No key list can be read: every bind is a loss for the life of the process (B5; SW1 when the saved tables cannot
+    be read at start)."""
+    global mirror, _quarantined
+    _quarantined = True
+    mirror = _new_mirror()
+
+
 def invalidate_safe(key):
     """Keep committed acceptance even if diagnostic invalidation itself fails."""
     global mirror, _quarantined
@@ -437,10 +458,9 @@ def retire_safe(key, before):
     when there is no `before`. An empty Mirror would read as a healthy empty view, and `invalidate_safe(K)` would keep
     K's rows, so neither is used. With no `before` the process is quarantined: no key list exists whose snapshots could
     end the loss, so the loss is the whole view's."""
-    global mirror, _quarantined
+    global mirror
     if before is None:
-        _quarantined = True
-        mirror = _new_mirror()
+        quarantine()
         return (ALL_PUBLISHERS,)
     mirror = _new_mirror()
     lost = tuple(k for k in before if k != key)
