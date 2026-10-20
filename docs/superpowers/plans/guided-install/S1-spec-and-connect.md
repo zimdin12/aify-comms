@@ -196,7 +196,9 @@ Found while building connect: a file-set's `sha256` binds a manifest, but nothin
   backslashes are refused.
 - Connect checks that every listed file at the install root matches its line and that every `entries` file is listed.
   It reports unlisted extra files without failing on them.
-- comms' manifest lists exactly what `copy_bridge_to_native_dir` (install.sh:279-366) materialises, not every
-  tracked file under `mcp/stdio`. S2's acquire step materialises from the same manifest. install.sh is not edited for
-  S1.
+- comms' manifest lists every git-tracked file under `mcp/stdio` at the commit. `copy_bridge_to_native_dir` copies
+  the whole directory (`rsync -a --delete` or `cp -RL`, install.sh:286, 327, 340), so every listed file is on the
+  host. `node_modules` and untracked files are unlisted extras, and their contents are bound only through
+  `package-lock.json`, which is listed. S2's acquire step materialises from the same manifest. install.sh is not
+  edited for S1.
 - The dashboard's artifact is a `package`, so this does not apply to it.
