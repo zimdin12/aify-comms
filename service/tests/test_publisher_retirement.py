@@ -299,6 +299,40 @@ class PublisherRetirementTest(FastApiTestCase):
         self.assertIn(UNKNOWN_BUILD, builds_of(shadow.bind()))
         self.assertEqual(self.read('beta'), (None, 'unknown-loss'))
 
+    def test_an_unknown_population_loss_is_recorded_as_the_whole_view(self):
+        """Review 9fc557b3 (R3): with no key list the loss is the whole view's, recorded at once, before any observer."""
+        self.three_publishers()
+        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')),                 mock.patch.object(self.mirror, 'view', side_effect=RuntimeError('view lost')):
+            self.apply(retired('K', 2))
+        _, lost, _ = shadow.recorder.take()  # before any observe/record
+        self.assertEqual(lost, frozenset({shadow.ALL_PUBLISHERS}))
+        reason, still = next_reason(flush_lost=False, versions_changed=False, in_loss=frozenset(), lost_seen=lost,
+                                    healthy_seen=frozenset())
+        self.assertEqual((reason, still), ('publication-loss', frozenset({shadow.ALL_PUBLISHERS})))
+
+    def test_a_reset_keeps_the_losses_already_known(self):
+        """Review 9fc557b3 (R1 extension): an ordinary reset drops live knowledge but not a loss already recorded; K3's
+        ends only on K3's own publication."""
+        self.three_publishers()
+        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')):
+            self.apply(retired('K', 2))
+        self.assertTrue(shadow.mirror.view()[(OTHER, 'K3')].loss, 'CONTROL: the failed retirement left K3 lost')
+        self.reset_by_a_failed_invalidation(2)
+        self.assertTrue(shadow.mirror.view()[(OTHER, 'K3')].loss, "the reset dropped K3's known loss")
+        self.assertEqual(self.read('gamma', OTHER), (None, 'unknown-loss'))
+        self.apply(snapshot('K3', publication=2, agent='gamma', machine=OTHER, build='b3'))
+        self.assertIsNone(self.read('gamma', OTHER)[1], "K3's own snapshot ends it")
+
+    def test_a_forget_that_fails_after_the_removal_takes_the_same_fallback(self):
+        self.three_publishers()
+        with mock.patch.object(dt.DeliveryTurns, 'forget', side_effect=RuntimeError('fold broken')):
+            self.assertTrue(self.apply(retired('K', 2)).applied)
+        view = shadow.mirror.view()
+        self.assertNotIn((MACHINE, 'K'), view)
+        self.assertTrue(view[(MACHINE, 'K2')].loss and view[(OTHER, 'K3')].loss)
+        _, lost, _ = shadow.recorder.take()
+        self.assertEqual(lost, frozenset({(MACHINE, 'K2'), (OTHER, 'K3')}))
+
     def test_without_quarantine_the_same_reset_recovers_on_a_snapshot(self):
         """CONTROL for the test above: the same reset with no quarantine, and K2's next snapshot recovers it."""
         self.three_publishers()
