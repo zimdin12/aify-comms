@@ -339,6 +339,16 @@ export function controlCapabilitiesForRuntime(runtime) {
   }
 }
 
+/** The session handle the launcher named: AIFY_SESSION_HANDLE, else the runtime's own variable, else "". One answer
+ * for auto-registration and comms_register alike, so a manual registration honours the launcher's id before any
+ * handle cached from an earlier registration. An unexpanded `AIFY_SESSION_HANDLE="${HERMES_SESSION_ID}"` (the wrapper
+ * variable unset) names nothing and must not poison the agent-to-session binding (FIX 2, 2026-06-04). */
+export function launcherSessionHandle(runtime) {
+  const raw = String(process.env.AIFY_SESSION_HANDLE || "");
+  const named = /\$\{.*\}/.test(raw) ? "" : raw;
+  return String(named || defaultSessionHandleForRuntime(runtime) || "").trim();
+}
+
 export function defaultSessionHandleForRuntime(runtime) {
   for (const name of sessionEnvVarsForRuntime(runtime)) {
     const value = String(process.env[name] || "").trim();

@@ -56,7 +56,7 @@ import {
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import {
   defaultCapabilitiesForRuntime,
-  defaultSessionHandleForRuntime,
+  launcherSessionHandle,
   detectRuntime,
   discoverCodexLiveBinding,
   hasCodexLiveAppServer,
@@ -149,7 +149,7 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
         !(hermesGatewayRegistration && !String(sessionHandle || "").trim());
       const initialSessionHandle =
         sessionHandle ||
-        defaultSessionHandleForRuntime(resolvedRuntime) ||
+        launcherSessionHandle(resolvedRuntime) ||
         (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
         "";
       const explicitAppServerUrl = String(appServerUrl || "").trim();

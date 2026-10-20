@@ -98,8 +98,9 @@ async function withFakeAppServer(thread, cwd, fn) {
 }
 
 // Runs one registration in a child and returns { post, visible, text }. `via` is "auto" (startup) or
-// "tool" (comms_register with `args`). `env` holds the codex variables for this case.
-function register({ via, env = {}, args = {} }) {
+// "tool" (comms_register with `args`). `env` holds the codex variables for this case; `prior` is the
+// handle this agent's earlier registration left in the bridge state.
+function register({ via, env = {}, args = {}, prior = null }) {
   const script = `
     import http from "node:http";
     const requests = [];
@@ -132,6 +133,10 @@ function register({ via, env = {}, args = {} }) {
       await makeAutoRegister({ ensureDispatchLoop: () => {} })(0);
     } else {
       const { registerRegistrationTool } = await import(${url("registration-tool.mjs")});
+      if (${JSON.stringify(prior)} !== null) {
+        const { REMOTE_AGENT_STATE } = await import(${url("bridge-agent-state.mjs")});
+        REMOTE_AGENT_STATE.set("codex-owner", { info: { sessionHandle: ${JSON.stringify(prior)} } });
+      }
       const { z } = await import("zod");
       const tools = new Map();
       registerRegistrationTool({ tool: (name, d, s, handler) => tools.set(name, handler) }, z, { ensureDispatchLoop: () => {} });
@@ -250,6 +255,20 @@ test("(c) an explicit id is the handle on the app-server route and through comms
     assert.equal(sessionHandleOf(register({ via: "tool", args: { appServerUrl, sessionHandle: EXPLICIT } })), EXPLICIT,
       "an explicit sessionHandle argument is used as given");
   });
+});
+
+// Both registration paths read the launcher's handle through runtimes.js launcherSessionHandle.
+test("(d) comms_register with only the launcher's AIFY_SESSION_HANDLE publishes that handle over an earlier one", () => {
+  reset();
+  const env = { AIFY_SESSION_HANDLE: EXPLICIT };
+  assert.equal(sessionHandleOf(register({ via: "tool", env, prior: "an-earlier-thread" })), EXPLICIT,
+    "the launcher named this session's thread; the earlier registration's handle is history");
+  assert.equal(sessionHandleOf(register({ via: "tool", env })), EXPLICIT,
+    "with no earlier registration the launcher's handle is still the one published");
+  assert.equal(sessionHandleOf(register({ via: "tool", prior: "an-earlier-thread" })), "an-earlier-thread",
+    "control: with no launcher handle the earlier registration's handle still carries over");
+  assert.equal(sessionHandleOf(register({ via: "tool", env: { AIFY_SESSION_HANDLE: "${HERMES_SESSION_ID}" }, prior: "an-earlier-thread" })),
+    "an-earlier-thread", "an unexpanded launcher placeholder names no thread");
 });
 
 test.after(() => {
