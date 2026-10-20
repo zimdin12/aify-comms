@@ -88,8 +88,9 @@ class CallersCannotWriteTheStopMarkers(FastApiTestCase):
     ADMITTED = ({}, {"status": "idle", "launchMode": "detached"}, {"status": "working", "launchMode": "managed"})
 
     def _registering(self, **fields):
-        """The registration, with its two non-SQL effects recorded: every branch expires the status cache and
-        broadcasts before its commit, and a refusal that came after them would roll the SQL back but not them."""
+        """The registration, with its two non-SQL effects recorded. Every branch expires the status cache before its
+        commit, so a refusal that came after the expiry would roll the SQL back but not the cache. It broadcasts after
+        its commit, so a refusal must come before the commit to leave no broadcast."""
         from service.reconcilers import status_cache
 
         expired, real = [], status_cache._live_state_expire
