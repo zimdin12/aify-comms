@@ -113,16 +113,24 @@ class TheSpecIsServedWithoutAKeyTests(_Served):
         listed = {line.split("  ", 1)[1] for line in response.text.splitlines()}
         self.assertLessEqual(set(spec["artifacts"][0]["entries"]), listed, "an entry the manifest does not list")
 
-    def test_an_unknown_well_known_path_is_never_answered_as_a_document(self):
+    def test_only_the_two_documents_skip_the_key_and_every_near_miss_is_an_unknown_path(self):
+        """The skip is EXACT: the spec route, and a manifest the spec declares. A near-prefix or an
+        undeclared manifest name is behind the key like any unknown path: 401 unkeyed, 404 keyed."""
         self.stamp(_comms_spec())
         client = self.real_client()
-        for path in ("/.well-known/x", "/.well-known/security.txt", "/.well-known/aify-servicex"):
-            for headers in ({}, {"x-api-key": KEY}):
-                with self.subTest(path=path, keyed=bool(headers)):
-                    self.assertNotEqual(client.get(path, headers=headers).status_code, 200)
-        for name in ("other.manifest", "comms-bridge", "comms-bridge.manifest.txt"):
-            with self.subTest(name=name):
-                self.assertEqual(client.get(f"{SPEC_ROUTE}/artifacts/{name}").status_code, 404)
+        for path in (SPEC_ROUTE, MANIFEST_ROUTE):
+            with self.subTest(public=path):
+                self.assertEqual(client.get(path).status_code, 200)
+        unknown = ("/.well-known/x", "/.well-known/security.txt", "/.well-known/aify-servicex",
+                   "/.well-known/aify-servicex/artifacts/comms-bridge.manifest",
+                   f"{SPEC_ROUTE}/artifacts/other.manifest", f"{SPEC_ROUTE}/artifacts/comms-bridge",
+                   f"{SPEC_ROUTE}/artifacts/comms-bridge.manifest.txt")
+        for path in unknown:
+            with self.subTest(path=path):
+                self.assertEqual(client.get(path).status_code, 401, "a near miss skipped the key")
+                self.assertEqual(client.get(path, headers={"x-api-key": KEY}).status_code, 404)
+        # With a trailing slash the framework redirects a KEYED caller to the spec; unkeyed it never skips.
+        self.assertEqual(client.get(f"{SPEC_ROUTE}/", follow_redirects=False).status_code, 401)
 
     def test_the_real_app_serves_both_routes(self):
         paths = {getattr(route, "path", "") for route in walk_routes(create_app())}
@@ -132,9 +140,10 @@ class TheSpecIsServedWithoutAKeyTests(_Served):
 class OnlyAValidSpecForThisBuildIsServedTests(_Served):
     def test_a_spec_stamped_for_another_build_is_refused(self):
         self.stamp(_comms_spec(), build="b" * 40)
+        # A stale spec declares nothing, so its manifest path is behind the key: asked with one here.
         for route in (SPEC_ROUTE, MANIFEST_ROUTE):
             with self.subTest(route):
-                response = self.client().get(route)
+                response = self.client().get(route, headers={"x-api-key": KEY})
                 self.assertEqual(response.status_code, 503)
                 self.assertIn("another build", response.json()["error"])
 
@@ -157,7 +166,7 @@ class OnlyAValidSpecForThisBuildIsServedTests(_Served):
                 self.assertNotEqual(manifest_problems(spec, manifests), [])
                 self.stamp(spec, manifests=manifests)
                 self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
-                self.assertEqual(self.client().get(MANIFEST_ROUTE).status_code, 503)
+                self.assertEqual(self.client().get(MANIFEST_ROUTE, headers={"x-api-key": KEY}).status_code, 503)
 
 
 class TheServedDocumentHoldsTheFormatRulesTests(_Served):

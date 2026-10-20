@@ -21,7 +21,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { commsServiceSpec, fixedFields, manifestText, renderStdioMcp, sha256 } from "../service-spec.mjs";
+import { manifestText, sha256 } from "../file-set-manifest.mjs";
+import { commsServiceSpec, fixedFields, renderStdioMcp } from "../service-spec.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -164,52 +165,68 @@ function plantCredential(dir, endpoint) {
   return { home, registry, credential };
 }
 
-/** A preload that records every path read or stat'ed through node:fs, for the process it runs in. */
+/**
+ * A preload that records, in `<dir>/spy.log`, every path read or stat'ed through node:fs, and one
+ * `loaded <pid>` line per process it runs in. It locates its log from its own URL, so it works in a
+ * child given no environment.
+ */
 function spyPreload(dir) {
+  fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "spy.mjs");
   fs.writeFileSync(file, `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-const log = process.env.SPY_LOG;
-const record = (p) => fs.appendFileSync(log, String(p) + "\\n");
-for (const name of ["readFileSync", "lstatSync", "statSync", "openSync"]) {
+const log = new URL("./spy.log", import.meta.url);
+const append = fs.appendFileSync;
+append(log, "loaded " + process.pid + "\\n");
+for (const name of ["readFileSync", "lstatSync", "statSync"]) {
   const original = fs[name];
-  fs[name] = function (p, ...rest) { record(p); return original.call(this, p, ...rest); };
+  fs[name] = function (p, ...rest) { append(log, String(p) + "\\n"); return original.call(this, p, ...rest); };
 }
 syncBuiltinESMExports();
 `);
-  return pathToFileURL(file).href;
+  const log = path.join(dir, "spy.log");
+  return { preload: pathToFileURL(file).href, read: () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "") };
 }
 
-test("building the spec reads no registry or credential file, though the names' owner would", () => {
+test("building the spec reads no registry or credential, wherever one is planted, though the names' owner would", () => {
   withTempDir((dir) => {
     const repo = path.join(dir, "repo");
     fs.mkdirSync(repo);
     const head = seedRepo(repo, FILES);
     const endpoint = "http://127.0.0.2:1";
     const { home, registry, credential } = plantCredential(dir, endpoint);
-    const preload = spyPreload(dir);
-    const env = { HOME: home, USERPROFILE: home, AIFY_SERVER_URL: endpoint, AIFY_SERVICE_REGISTRY: registry };
-    const touched = (log) => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "");
+    // A matching registry everywhere the environment can point: the parent's AIFY_SERVICE_REGISTRY, the
+    // home default, and the temp root (where the previous design chose its sealed path).
+    const tempRoot = path.join(dir, "tmp");
+    fs.mkdirSync(tempRoot);
+    for (const planted of [path.join(tempRoot, "services.json"), path.join(tempRoot, "aify-service-spec-sealed-0", "services.json")]) {
+      fs.mkdirSync(path.dirname(planted), { recursive: true });
+      fs.copyFileSync(registry, planted);
+    }
+    const env = { HOME: home, USERPROFILE: home, AIFY_SERVER_URL: endpoint, AIFY_SERVICE_REGISTRY: registry,
+      TMP: tempRoot, TEMP: tempRoot, TMPDIR: tempRoot };
 
-    // CONTROL: importing the names' owner in this same environment reads the planted registry, so the
-    // spy can see a module-scope read and an empty log below is not a blind instrument.
-    const controlLog = path.join(dir, "control.log");
-    const control = spawnSync(process.execPath, ["--import", preload, "--input-type=module", "-e",
-      `await import(${JSON.stringify(pathToFileURL(ENDPOINT_MODULE).href)});`],
-    { encoding: "utf8", timeout: 60_000, env: sealedChildEnv({ ...env, SPY_LOG: controlLog }) });
-    assert.equal(control.status, 0, control.stderr);
-    assert.equal(touched(controlLog).includes(registry), true,
-      `control: the spy saw no registry read when the owner was imported directly:\n${touched(controlLog)}`);
-
-    const cliLog = path.join(dir, "cli.log");
-    runSpec(repo, head, { env: { ...env, SPY_LOG: cliLog }, nodeArgs: ["--import", preload] });
-    const seen = touched(cliLog);
-    // The spy ran in this process too: the owner's module-scope read reached the sealed path instead.
-    assert.match(seen, /aify-service-spec-sealed-\d+/, `the spy recorded nothing in the spec build:\n${seen}`);
+    const cli = spyPreload(path.join(dir, "cli-spy"));
+    runSpec(repo, head, { env, nodeArgs: ["--import", cli.preload] });
+    const seen = cli.read();
+    // The prohibited reads first, so a failure names what was read.
     assert.equal(seen.includes(registry), false, `the spec build read the registry:\n${seen}`);
-    assert.equal(seen.includes(path.join(".aify", "credentials")), false, `the spec build touched a credential:\n${seen}`);
-    assert.equal(seen.includes(credential), false);
+    assert.equal(seen.includes(credential) || seen.includes(path.join(".aify", "credentials")), false,
+      `the spec build touched a credential:\n${seen}`);
+    assert.equal(seen.includes(tempRoot), false, `the spec build read under the temp root:\n${seen}`);
+    // Then liveness: the spy ran in the CLI and in the child that loads the names' owner.
+    assert.equal((seen.match(/^loaded \d+$/gm) || []).length, 2, `the spy did not run in both processes:\n${seen}`);
+
+    // ADVERSE CONTROL: the owner imported in this same environment reads the planted registry and
+    // reaches the credential, so the instrument above can see the reads it reports absent.
+    const control = spyPreload(path.join(dir, "control-spy"));
+    const done = spawnSync(process.execPath, ["--import", control.preload, "--input-type=module", "-e",
+      `await import(${JSON.stringify(pathToFileURL(ENDPOINT_MODULE).href)});`],
+    { encoding: "utf8", timeout: 60_000, env: sealedChildEnv(env) });
+    assert.equal(done.status, 0, done.stderr);
+    assert.equal(control.read().includes(registry), true, `control: no registry read:\n${control.read()}`);
+    assert.equal(control.read().includes(credential), true, `control: the credential was not reached:\n${control.read()}`);
   });
 });
 

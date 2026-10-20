@@ -18,7 +18,25 @@ router = APIRouter()
 
 #: Written by scripts/stamp.sh beside `_build_stamp.json`, and copied into the image with service/.
 SPEC_PATH = Path(__file__).resolve().parent.parent / "_service_spec.json"
+SPEC_ROUTE = "/.well-known/aify-service"
+ARTIFACTS_PREFIX = f"{SPEC_ROUTE}/artifacts/"
 MANIFEST_SUFFIX = ".manifest"
+
+
+def is_public_path(path: str) -> bool:
+    """Whether the key middleware lets `path` through: the spec route exactly, and a manifest path only
+    for a manifest the servable spec declares. Exact, never a prefix: `/.well-known/aify-servicex` and an
+    undeclared manifest name stay behind the key like any other path."""
+    if path == SPEC_ROUTE:
+        return True
+    if not path.startswith(ARTIFACTS_PREFIX):
+        return False
+    stamped, _ = _stamped()
+    return stamped is not None and _manifest_for(stamped, path[len(ARTIFACTS_PREFIX):]) is not None
+
+
+def _manifest_for(stamped: dict, name: str):
+    return stamped["manifests"].get(name[:-len(MANIFEST_SUFFIX)]) if name.endswith(MANIFEST_SUFFIX) else None
 
 
 def _stamped():
@@ -29,7 +47,7 @@ def _stamped():
     return served_spec(text, get_config().build_sha)
 
 
-@router.get("/.well-known/aify-service")
+@router.get(SPEC_ROUTE)
 def service_spec():
     stamped, reason = _stamped()
     if stamped is None:
@@ -37,13 +55,13 @@ def service_spec():
     return stamped["spec"]
 
 
-@router.get("/.well-known/aify-service/artifacts/{name}")
+@router.get(ARTIFACTS_PREFIX + "{name}")
 def artifact_manifest(name: str):
     """The `sha256sum` manifest of one bound artifact, exactly the bytes its `sha256` names."""
     stamped, reason = _stamped()
     if stamped is None:
         return JSONResponse({"error": reason}, status_code=503)
-    text = stamped["manifests"].get(name[:-len(MANIFEST_SUFFIX)]) if name.endswith(MANIFEST_SUFFIX) else None
+    text = _manifest_for(stamped, name)
     if text is None:
         return JSONResponse({"error": f"no manifest named {name!r}"}, status_code=404)
     return Response(text.encode("utf-8"), media_type="text/plain; charset=utf-8")

@@ -12,23 +12,35 @@
 // When the commit cannot be bound (no GitHub origin, the revision is absent), the artifact is
 // `{pending: <reason>}` and carries no hash and no manifest.
 //
-// NO CREDENTIAL IS READ. The spec takes its env-var names from `aify-service-endpoint.mjs`, which resolves
-// the service key when it is imported: from the environment, or from the credential the registry names
-// for the endpoint in AIFY_SERVER_URL. So the registry carrier is pointed at a path that exists nowhere
-// BEFORE that module loads (a dynamic import, after this line), and the import finds no registry and so
-// no credential file. A key already in this process's environment stays in memory and is never written.
+// NO CREDENTIAL IS READ, and no path is chosen to make that so. The spec takes its env-var names from
+// `aify-service-endpoint.mjs`, which resolves the service key when it is imported, through the registry
+// and the credential bound to the endpoint its environment names. This process never imports it. The
+// document is built in a CHILD whose environment holds no variable except SystemRoot (which node needs
+// on Windows): with no endpoint named, the resolver returns before it reads any file
+// (registry-credential.mjs, "NO ENDPOINT, NO KEY"), and no key variable exists to be read either.
 
 import { spawnSync } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-import { REGISTRY_ENV_NAME } from "./registry-credential.mjs";
-
-process.env[REGISTRY_ENV_NAME] = join(tmpdir(), `aify-service-spec-sealed-${process.pid}`, "services.json");
-const { commsServiceSpec, manifestText } = await import("./service-spec.mjs");
+import { manifestText } from "./file-set-manifest.mjs";
 
 const STDIO_DIR = "mcp/stdio";
+const SPEC_MODULE = new URL("./service-spec.mjs", import.meta.url).href;
+//: The child reads its inputs on stdin and prints the document; it is handed no environment to resolve from.
+const BUILD_IN_CHILD = `
+const input = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+import(${JSON.stringify(SPEC_MODULE)}).then(({ commsServiceSpec }) => {
+  process.stdout.write(JSON.stringify(commsServiceSpec(input)));
+});`;
+
+/** The document, built where no endpoint, key or registry can be named. */
+function buildSpecInChild(input) {
+  const env = process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {};
+  const done = spawnSync(process.execPath, [...process.execArgv, "-e", BUILD_IN_CHILD],
+    { input: JSON.stringify(input), env, encoding: "utf8", maxBuffer: 1 << 26 });
+  if (done.status !== 0) throw new Error(`building the spec failed: ${String(done.stderr).trim().slice(0, 500)}`);
+  return JSON.parse(done.stdout);
+}
 const EXIT_USAGE = 2;
 
 function git(repoRoot, args, input) {
@@ -92,7 +104,7 @@ if (!repoRoot || !/^[0-9a-f]{40}$/.test(revision || "") || !version || !outFile)
   process.exit(EXIT_USAGE);
 }
 const { source, manifest } = artifactSource(repoRoot, revision);
-const spec = commsServiceSpec({ version, source, manifest });
+const spec = buildSpecInChild({ version, source, manifest });
 const manifests = source.pending ? {} : { [spec.artifacts[0].id]: manifest };
 const temp = `${outFile}.${process.pid}.tmp`;
 writeFileSync(temp, `${JSON.stringify({ buildSha: revision, spec, manifests }, null, 2)}\n`);

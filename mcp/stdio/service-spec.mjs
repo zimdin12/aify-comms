@@ -6,8 +6,8 @@
 // ONE SOURCE FOR THE ENTRY. `register-service-cli.mjs` renders its servers with `renderStdioMcp()`, and
 // writes its fixed fields from the same owner's names; tests/service-spec.test.js holds the spec's
 // `fixed` and `mcp` equal to the entry that CLI writes. The env-var names come from their one owner,
-// `aify-service-endpoint.mjs`. That module resolves a credential when it is imported, so the CLI seals
-// the registry carrier before it imports this file (service-spec-cli.mjs).
+// `aify-service-endpoint.mjs`. That module can resolve a credential when it is imported, so the stamp-time
+// CLI loads this file only in a child whose environment names no endpoint (service-spec-cli.mjs).
 //
 // NO VALUE, ONLY NAMES. The spec carries env-var NAMES, paths and hashes: never a key, never an AIFY_*
 // value (format freeze, rule 4).
@@ -18,9 +18,8 @@
 // files), which a connect REPORTS rather than fails. node_modules is bound only through
 // `package-lock.json`, which is a listed file: the manifest pins the lock, not the installed tree.
 
-import { createHash } from "node:crypto";
-
 import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
+import { sha256 } from "./file-set-manifest.mjs";
 import { SERVICE_NAME } from "./service-name.mjs";
 
 const SPEC_VERSION = 1;
@@ -46,27 +45,6 @@ export function fixedFields() {
 /** Today's stdio rendering, as `register-service-cli.mjs` writes it for a bridge copy at `installRoot`. */
 export function renderStdioMcp(installRoot) {
   return COMMS_MCP_SERVERS.map(({ name, entry }) => ({ name, command: "node", args: [`${installRoot}/${entry}`] }));
-}
-
-/**
- * The file-set manifest: one `sha256sum` line per file (`<64 hex>  <relative/path>`, LF), sorted by
- * path, so `sha256sum -c` can check a materialised copy. Paths are relative to `mcp/stdio`.
- *
- * @param {{path: string, bytes: Buffer}[]} files
- */
-export function manifestText(files) {
-  const lines = files.map(({ path, bytes }) => {
-    if (!path || /[\r\n\\]/.test(path) || path.startsWith("/") || path.split("/").includes("..")) {
-      throw new Error(`manifest: unusable path ${JSON.stringify(path)}`);
-    }
-    return { path, line: `${sha256(bytes)}  ${path}\n` };
-  });
-  lines.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return lines.map(({ line }) => line).join("");
-}
-
-export function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 /**
