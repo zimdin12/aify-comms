@@ -138,3 +138,50 @@ These amend the clauses above. Where they differ, these win.
 6. **The dashboard's register is a non-cooperating writer** (temp file and rename, no lock) until it calls connect or takes the same lock, as step 5 requires naming.
 
 Corrected attribution: dashboard-manager's sandbox PROVED that the installed bin serves a full MCP session when spawned directly. It did not render or read a services.json `mcp` entry, so the entry form (bare bin, or node + file) is ASSUMED on Linux as well as Windows. Their sandbox adds that check once connect renders an entry.
+
+## The concrete document (format owner's shape, accepted 2026-10-20)
+
+The dashboard's spec, as it will be served. comms' spec follows the same shape.
+
+```json
+{
+  "specVersion": 1,
+  "name": "aify-dashboard",
+  "version": "1.3.8",
+  "fixed": {
+    "agentState": { "path": "/api/v1/agent-state" },
+    "sessionInject": { "mcp": true },
+    "advertise": false,
+    "turnStart": { "path": "/events/turn-start", "budgetMs": 800 }
+  },
+  "artifacts": [
+    { "id": "dashboard-bridge", "kind": "package",
+      "source": { "pending": "where a host gets the package waits on the operator (question 01M5CYJH)" },
+      "entries": ["aify-dashboard-bridge"] }
+  ],
+  "mcp": [ { "name": "aify-dashboard", "artifact": "dashboard-bridge", "entry": "aify-dashboard-bridge" } ],
+  "secrets": [
+    { "field": "credentialRef", "required": true, "probe": "api" },
+    { "field": "secretsCredentialRef", "required": false }
+  ],
+  "verify": {
+    "health": { "path": "/health" },
+    "probes": { "api": { "path": "/api/v1/settings/schema", "header": "x-api-key" } }
+  }
+}
+```
+
+comms: `fixed {agentState, endpointEnv, keyEnv}`; one `file-set` artifact with entries `server.js` and
+`claude-channel.js`; `secrets [{field: "credentialRef", required: true, probe: "api"}]`;
+`verify.probes.api {path: "/api/v1/agents", header: "x-api-key"}`.
+
+Rules:
+- `fixed` is copied into the entry verbatim. It may not hold `endpoint`, `mcp`, or any field ending in
+  `CredentialRef`, `credentialRef` included: connect derives the first two, and `secrets` owns the refs. A spec that
+  breaks this is refused.
+- A probe names its header.
+- `secrets[].probe` must name a key in `verify.probes`. A dangling name refuses the spec, and is never read as
+  "stored, not probed".
+- Every probe is checked 200 keyed, 401 unkeyed, 401 wrong key. An absent `probe` means `stored, not probed`.
+- A `pending` artifact carries no `sha256`.
+- `version` is the service's own. It is shown to the operator, and nothing keys on it.
