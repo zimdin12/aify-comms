@@ -1497,13 +1497,13 @@ install_codex_turn_hooks() {
     // OURS is a one-hook group whose command is exactly one this installer wrote for that event: today's, or the 2026-05 curl form. Anything else, a group that only names a file included, is the operator's and keeps its place.
     const exact = (cmds) => (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && cmds.includes(g.hooks[0].command);
     const placed = [];
-    const wire = /* IN PLACE: codex keys trust by a group's index, so appending ours would move the user hooks after it. */(eventKey, cmds, hook = { type: 'command', command: cmds[0], timeout: 3, async: true }) => {
+    const wire = /* NO INDEX MOVES: codex keys trust by a group's index. One group of ours is replaced where it stands, none is appended, and more than one is left as it is, with no trust recorded: removing a duplicate would shift the operator's groups after it. */(eventKey, cmds, hook = { type: 'command', command: cmds[0], timeout: 3, async: true }) => {
       const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
-      const first = groups.findIndex(exact(cmds));
-      const kept = groups.filter(group => !exact(cmds)(group));
+      const owned = groups.map((g, i) => (exact(cmds)(g) ? i : -1)).filter(i => i >= 0);
+      if (owned.length > 1) return console.error('[aify-install] WARN: codex ' + eventKey + ' holds ' + owned.length + ' aify hook groups; left as they are, with no trust recorded. Remove the extra ones and reinstall.');
       const group = { hooks: [hook] };
-      kept.splice(first < 0 ? kept.length : first, 0, group);
-      data.hooks[eventKey] = kept;
+      if (owned.length === 1) groups[owned[0]] = group; else groups.push(group);
+      data.hooks[eventKey] = groups;
       placed.push([eventKey, group]);
     };
     wire('UserPromptSubmit', [startCmd, oldStart]);

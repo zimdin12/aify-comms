@@ -499,6 +499,67 @@ def test_a_hook_that_only_names_an_aify_file_is_never_trusted_or_replaced():
         assert f"{_native(hooks_file)}:user_prompt_submit:{index}:0" in found, "CONTROL: the written hook was trusted"
 
 
+def _current_state_start(home: Path) -> str:
+    """The state start command this installer writes, read from an install into a fresh home."""
+    home.mkdir()
+    _seed(home)
+    _install(home)
+    groups = json.loads((home / ".codex" / "hooks.json").read_text())["hooks"]["UserPromptSubmit"]
+    [command] = [h["command"] for g in groups for h in g["hooks"] if "agent-state-event.mjs" in h["command"]]
+    return command
+
+
+def test_two_aify_groups_in_one_event_are_left_in_place_and_untrusted():
+    """Review of 94e28914: removing a duplicate shifts every operator group after it off the index its trust names. With
+    the 2026-05 curl form and today's command both present, the event is left exactly as it is and nothing in it is
+    trusted anew; the operator's trust for its own group stays where it was."""
+    with tempfile.TemporaryDirectory(prefix="aify-statehooks-dup-") as tmp:
+        start = _current_state_start(Path(tmp) / "probe")
+        home = Path(tmp) / "home"
+        home.mkdir()
+        _seed(home)
+        hooks_file = home / ".codex" / "hooks.json"
+        operator_a = {"hooks": [{"type": "command", "command": "echo a", "timeout": 3}]}
+        operator_b = {"hooks": [{"type": "command", "command": "echo b", "timeout": 3}]}
+        ours_now = {"hooks": [{"type": "command", "command": start, "timeout": 3, "async": True}]}
+        seeded = json.loads(hooks_file.read_text())
+        seeded["hooks"]["UserPromptSubmit"] = [_legacy("turn-start"), operator_a, ours_now, operator_b]
+        hooks_file.write_text(json.dumps(seeded), encoding="utf-8")
+        key_b = f"{_native(hooks_file)}:user_prompt_submit:3:0"
+        config = home / ".codex" / "config.toml"
+        config.write_text(config.read_text() + f"\n[hooks.state.'{key_b}']\ntrusted_hash = \"sha256:operator-b\"\n",
+                          encoding="utf-8")
+        _install(home)
+        groups = json.loads(hooks_file.read_text())["hooks"]["UserPromptSubmit"]
+        assert groups[:4] == [_legacy("turn-start"), operator_a, ours_now, operator_b], "a group moved or was replaced"
+        found, _ = _trust(config.read_text())
+        assert found[key_b] == "sha256:operator-b", "the operator's trust no longer names its own group"
+        for index in (0, 2):
+            assert f"{_native(hooks_file)}:user_prompt_submit:{index}:0" not in found, f"group {index} was trusted"
+        index, _ = _context_hook({"UserPromptSubmit": groups})
+        assert index == 4, "CONTROL: the runner's own group was still appended"
+
+
+def test_one_aify_group_is_replaced_where_it_stands():
+    """The healthy case beside it: one group of ours (the 2026-05 curl form) between two operator groups is replaced
+    in place and trusted there, and the operator group after it keeps its index."""
+    with tempfile.TemporaryDirectory(prefix="aify-statehooks-one-") as tmp:
+        home = Path(tmp)
+        _seed(home)
+        hooks_file = home / ".codex" / "hooks.json"
+        operator_a = {"hooks": [{"type": "command", "command": "echo a", "timeout": 3}]}
+        operator_b = {"hooks": [{"type": "command", "command": "echo b", "timeout": 3}]}
+        seeded = json.loads(hooks_file.read_text())
+        seeded["hooks"]["UserPromptSubmit"] = [operator_a, _legacy("turn-start"), operator_b]
+        hooks_file.write_text(json.dumps(seeded), encoding="utf-8")
+        _install(home)
+        groups = json.loads(hooks_file.read_text())["hooks"]["UserPromptSubmit"]
+        assert (groups[0], groups[2]) == (operator_a, operator_b)
+        assert "agent-state-event.mjs" in groups[1]["hooks"][0]["command"], "the curl form was not replaced in place"
+        found, _ = _trust((home / ".codex" / "config.toml").read_text())
+        assert f"{_native(hooks_file)}:user_prompt_submit:1:0" in found
+
+
 class _TurnStartService(BaseHTTPRequestHandler):
     seen: list = []
 
