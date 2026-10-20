@@ -19,8 +19,8 @@ import sqlite3
 import service.routers.environments as environments
 from service.routers.api_v2 import router  # noqa: F401 -- the base builds the app from it
 from service.tests._base import FastApiTestCase
-from service.tests.defined_agents import define
-from service.tests.write_fence_race import Rival, dump, racing
+from service.tests.defined_agents import define as define_on_host
+from service.tests.write_fence_race import Rival, define, dump, racing
 
 A = {"env": "win32:host-a:default", "machine": "win32:host-a", "bridge": "bridge-a"}
 B = {"env": "win32:host-b:default", "machine": "win32:host-b", "bridge": "bridge-b"}
@@ -61,7 +61,7 @@ class AnEnvironmentStopRefusesDefinedAgents(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def _defined(self, agent_id: str, host=A) -> None:
-        define(self, agent_id, environment_id=host["env"], machine_id=host["machine"], bridge_id=host["bridge"],
+        define_on_host(self, agent_id, environment_id=host["env"], machine_id=host["machine"], bridge_id=host["bridge"],
                workspace="/work")
 
     def _session_on_a(self, agent_id: str, status: str = "running") -> None:
@@ -139,8 +139,13 @@ class AnEnvironmentStopRefusesDefinedAgents(FastApiTestCase):
         for the stop's commit; outside it, it commits first and the stop then disables a defined agent."""
         self._undefined("racing-agent")
         self._session_on_a("racing-agent")
-        rival = Rival(self._db_path, "racing-agent", A["machine"], committed_before=lambda conn: conn.execute(
-            "SELECT COUNT(*) FROM environment_controls WHERE environment_id = ?", (A["env"],)).fetchone()[0] > 0)
+        async def stop_committed(db) -> bool:
+            row = await (await db.execute("SELECT COUNT(*) FROM environment_controls WHERE environment_id = ?",
+                                          (A["env"],))).fetchone()
+            return row[0] > 0
+
+        rival = Rival(self._db_path, change=lambda db: define(db, "racing-agent", A["machine"]),
+                      committed_before=stop_committed)
         restore = racing(environments, "defined_among_sessions_on", rival)
         try:
             stopped = self._stop_a()

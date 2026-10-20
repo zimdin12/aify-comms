@@ -78,6 +78,34 @@ class CallersCannotWriteTheStopMarkers(FastApiTestCase):
         self.assertEqual(seeded.status_code, 200, seeded.text)
         return self.BRANCHES[branch](self)
 
+    #: What each branch stores for (status, launch_mode) when it admits a request, measured on main before B2: the
+    #: upsert takes the caller's values, the manual takeover keeps the row's, console adoption marks it active.
+    LEGACY_STORED = {
+        "ordinary-upsert": lambda fields: (fields.get("status", "idle"), fields.get("launchMode", "detached")),
+        "manual-takeover": lambda fields: ("idle", "detached"),
+        "console-adoption": lambda fields: ("active", "detached"),
+    }
+    ADMITTED = ({}, {"status": "idle", "launchMode": "detached"}, {"status": "working", "launchMode": "managed"})
+
+    def _registering(self, **fields):
+        """The registration, with its two non-SQL effects recorded: every branch expires the status cache and
+        broadcasts before its commit, and a refusal that came after them would roll the SQL back but not them."""
+        from service.reconcilers import status_cache
+
+        expired, real = [], status_cache._live_state_expire
+
+        def expiring(agent_id):
+            expired.append(agent_id)
+            return real(agent_id)
+
+        broadcasts = len(self.ws.broadcasts)
+        status_cache._live_state_expire = expiring
+        try:
+            answer = self._register(**fields)
+        finally:
+            status_cache._live_state_expire = real
+        return answer, expired, [args[0] for args, _ in self.ws.broadcasts[broadcasts:]]
+
     def test_every_registration_branch_refuses_a_stop_marker_and_writes_nothing(self):
         for branch in self.BRANCHES:
             for field, values in (("status", STOPPED), ("launchMode", NONE)):
@@ -85,13 +113,18 @@ class CallersCannotWriteTheStopMarkers(FastApiTestCase):
                     with self.subTest(branch=branch, field=field, value=repr(value)):
                         selector = self._fresh_branch(branch)
                         before = dump(self._db_path)
-                        refused = self._register(sessionMode="resident", **selector, **{field: value})
+                        refused, expired, broadcast = self._registering(sessionMode="resident", **selector,
+                                                                        **{field: value})
                         self.assertEqual(refused.status_code, 422, refused.text)
                         self.assertEqual(dump(self._db_path), before, "a refused registration wrote to the database")
+                        self.assertEqual(expired, [], "a refused registration expired the status cache")
+                        self.assertEqual(broadcast, [], "a refused registration broadcast")
 
     def test_CONTROL_every_registration_branch_admits_omitted_and_ordinary_values(self):
+        """The positive half, per branch and per marker: the branch ran (spied), it expired the cache and broadcast
+        (so the refusal's empty spies mean something), and it stored what it stored before B2."""
         for branch in self.BRANCHES:
-            for fields in ({}, {"status": "idle", "launchMode": "detached"}):
+            for fields in self.ADMITTED:
                 with self.subTest(branch=branch, fields=repr(fields)):
                     selector = self._fresh_branch(branch)
                     taken = []
@@ -103,14 +136,18 @@ class CallersCannotWriteTheStopMarkers(FastApiTestCase):
                             return await real(*args, **kwargs)
                         setattr(registration, name, spy)
                     try:
-                        admitted = self._register(sessionMode="resident", **selector, **fields)
+                        admitted, expired, broadcast = self._registering(sessionMode="resident", **selector, **fields)
                     finally:
                         if name:
                             setattr(registration, name, real)
                     self.assertEqual(admitted.status_code, 200, admitted.text)
                     self.assertEqual(taken, [branch] if name else [], "the selector did not reach its branch")
-                    self.assertNotEqual(self._one("SELECT status, launch_mode FROM agents WHERE id = ?", (AGENT,)),
-                                        ("stopped", "none"))
+                    self.assertIn(AGENT, expired, "the cache spy the refusal relies on sees this branch's expiry")
+                    self.assertIn("agent_registered", broadcast, "the broadcast the refusal relies on is this branch's")
+                    status, launch_mode = self._one("SELECT status, launch_mode FROM agents WHERE id = ?", (AGENT,))
+                    self.assertNotEqual(status, "stopped")
+                    self.assertNotEqual(launch_mode, "none")
+                    self.assertEqual((status, launch_mode), self.LEGACY_STORED[branch](fields))
 
     # -- the run PATCH ----------------------------------------------------------------------------------
 
