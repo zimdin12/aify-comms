@@ -6,6 +6,23 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## The status switch: a sandbox gate and a hard switch, not a one-day live comparison (Steven, 2026-10-20)
+
+- **The C8 one-day live comparison is no longer the gate** (dashboard question 01M5D4TG, answered "yes"). The
+  switch is qualified by end-to-end tests in a sandbox: aify-env and comms built from given commits, an agent
+  spawned in a container or WSL, then register, message, busy, idle, stop and restart. It is followed by a hard
+  switch, a rollback kept ready for a set period, and a watch on the real fleet. This supersedes the "C8 is mixed"
+  bar below.
+- **Why:** asked to approve a 30-minute bootstrap rule that only the comparison needed, he wrote: "is it some time
+  based logic again (i hate these). we do plan to do hard switch when it is ready and mb tested in container or wsl".
+  The comparison's shadow lives in memory, so every comms restart blinded it. The switched system persists its
+  turn record and has no such gap.
+- **What is lost:** the comparison measured the real fleet: Hermes gateways, resident Claude panes, agents
+  stuck at prompts. A sandbox will not produce those, so they surface after the switch, and the rollback is
+  the net.
+- **Consequence:** the bootstrap rule (plan 2026-10-20-bootstrap-knowledge.md, design-approved at 66c0ef85) is
+  withdrawn unbuilt. Pieces that exist only for the comparison are listed with evidence before any is dropped.
+
 ## The status switch to aify-env: three policy rulings (Steven, 2026-10-18)
 
 Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-14), answered 2026-10-18:
@@ -20,7 +37,7 @@ Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-1
 
 ## The status switch: the C8 evidence bar, and one machine per defined agent (Steven, 2026-10-19)
 
-- **C8 is "mixed".** He allowed "mixed or full"; mixed was the recommendation, so it is the bar. Per-disagreement evidence (the why: agent, both answers, raw inputs, versions) is built
+- **C8 is "mixed"** (superseded 2026-10-20: a sandbox gate replaces the comparison, above). He allowed "mixed or full"; mixed was the recommendation, so it is the bar. Per-disagreement evidence (the why: agent, both answers, raw inputs, versions) is built
   for the decisions that hold or hand over real messages: the word, live counts, promotion, readiness, busy,
   queue and claim. Reminder and stranded switch on counts plus his sign-off on a sample. In his words: "do not
   spend too much time on this. but reasonable amount to get proof and work proof based". All of it is temporary
