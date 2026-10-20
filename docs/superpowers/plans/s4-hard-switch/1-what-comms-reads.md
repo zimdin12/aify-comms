@@ -1,4 +1,4 @@
-# 1. What comms reads after the switch (revision 4)
+# 1. What comms reads after the switch (revision 5)
 
 Revision 3 deleted the handoff machinery: the delivery gap is closed by the runtimes themselves (below), not by
 comms. Revision 4 replaces the D8 availability exception with today's D8 and the real cold-start sequence.
@@ -74,7 +74,9 @@ a different population: they read by their records.
 
 ## A cold start creates backing; delivery stays at the claim gate
 
-The sequence for a defined managed agent with no live backing (console insertion off):
+The guarantees for a defined managed agent with no live backing (console insertion off), as protocol stages, not
+statement order. Today messages.py calls `_launch_recipients_for_dispatch` before `_create_dispatch_runs`; no reorder
+is needed, because what matters is that backing is ensured and delivery waits for the claim gate:
 1. The send creates the dispatch run carrying the message, `queued` (messages.py, `_create_dispatch_runs`).
 2. The send-time path ensures backing. It inserts a D8-guarded cold-start spawn request whose `initial_message` is
    empty (dispatch_start.py), and leaves the run queued for `/dispatch/claim` (dispatch_launch.py). It delivers
@@ -114,7 +116,7 @@ already present.
 
 ## Operator decisions this page needs
 
-Both are requests until adopted: receipt freshness before SW3, R3 before SW5.
+Both are requests until adopted: receipt freshness before SW3b, R3 before SW5L.
 
 - **R3, reminders and stranded runs.** aify-env's turn carries no run id, so comms cannot tell which run a busy agent
   is working on.

@@ -1,4 +1,9 @@
-# 2. The sandbox gate (SW3, revision 4)
+# 2. The sandbox gate (SW3a and SW3b, revision 5)
+
+**Two stages.** SW3a builds the harness: the stand-in, the frozen cases and their REDs. SW3b qualifies: it runs the
+three attempts against one exact pinned pair, the SW5 candidate commit (built and reviewed on a branch, not landed)
+and an aify-env commit. A green SW3b gates landing that candidate commit (SW5L), never building it. A candidate that
+changes after qualification is a new pair and qualifies again.
 
 The gate runs on the env-against-comms runner (branch 098/env-comms-sandbox). That runner's own ownership and cleanup
 contract (a5c658ff) needs its own source review; it is not accepted by reference here, and the gate does not run
@@ -15,6 +20,14 @@ rests on the cited documentation and code, and on the switch watch.
 
 The expected answers are frozen per case before the run. Every RED names a mutation that reaches the predicate, kept
 apart from syntax errors, missing fields and unreached branches.
+
+The cases run against the wired candidate. The legacy tables still receive writes there (page 3 keeps the rollback's
+inputs live), so the first two cases set a legacy answer against the env record to prove the rewired readers ignore
+the legacy one.
+
+The cold-start case's inputs are frozen as: the stand-in is defined (bound), has no live backing, and comms holds no
+record for it from any publisher, fresh or stale. A preceding record of an earlier lifetime is a different input,
+not this case; its answer is the truth table's, and no lifetime correlation is invented to bridge the two.
 
 | case | witness (expected answer) | RED, and the mutation that reaches it |
 |---|---|---|
@@ -45,7 +58,7 @@ Two obligations move out of the sandbox:
 
 ## Pass rule
 
-- Three scheduled attempts per pinned commit pair.
+- Three scheduled attempts per pinned commit pair (the SW5 candidate commit, the aify-env commit).
 - **Green** means every required frozen case, and the admitted runner's cleanup, passes in all three attempts. One
   failed attempt fails the gate for that pair.
 - Every attempt is kept, failures included. "Run until three greens" is not the rule.

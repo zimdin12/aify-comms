@@ -1,4 +1,4 @@
-# 3. The switch, the rollback, the deletions (revision 4)
+# 3. The switch, the rollback, the deletions (revision 5)
 
 ## Before the switch
 
@@ -29,7 +29,9 @@
 
 ## The switch (SW5): one revertible commit
 
-SW5 starts only after decisions 1 and 2 are adopted, SW3 is green under page 2's rule, and the runner is accepted.
+SW5 is built and reviewed on a branch after SW1, SW2 and SW4, and is not landed. That reviewed commit is the
+candidate SW3b qualifies. It lands (SW5L) only after SW3b is green under page 2's rule, on the accepted runner, and
+decisions 1 and 2 are adopted. Deploying it is SW6, a separate step.
 
 - **Every reader is rewired** to the view in a single commit: page 1's readers plus readiness, live counts and
   promotion. The review receipt lists each call site, so the rewrite can be checked as complete.
