@@ -1,0 +1,16 @@
+PASS control: the synthetic child really prints its key
+PASS the key never reaches this file's output on a failing child
+PASS the failure is still reported, redacted
+PASS a resource still present fails cleanup and is named
+PASS a primary pass with failed cleanup exits nonzero
+PASS a listing that times out fails cleanup (unknown, not empty)
+PASS control: a clean readback passes and exits 0
+PASS an existing name is refused and never owned
+PASS control: the real retirement holds
+PASS a retirement with generation=8 does not hold
+PASS a retirement with reason=other does not hold
+PASS a retirement with publication=1 does not hold
+PASS a retirement with rows=1 does not hold
+PASS a retirement with kind=snapshot does not hold
+PASS a changed residents key does not hold
+selfcheck_exit=0
