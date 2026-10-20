@@ -323,6 +323,23 @@ class PublisherRetirementTest(FastApiTestCase):
         self.apply(snapshot('K3', publication=2, agent='gamma', machine=OTHER, build='b3'))
         self.assertIsNone(self.read('gamma', OTHER)[1], "K3's own snapshot ends it")
 
+    def test_a_reset_that_cannot_list_the_known_losses_fails_closed(self):
+        """Review 07997643: when the reset cannot even read which losses are known, it must not treat that as none."""
+        self.three_publishers()
+        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')):
+            self.apply(retired('K', 2))
+        self.assertFalse(shadow._quarantined, 'CONTROL: a known-before failure does not quarantine')
+        shadow.recorder.take()
+        poisoned = shadow.mirror
+        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unpreparable')),                 mock.patch.object(poisoned, 'invalidate', side_effect=RuntimeError('invalidate broken')),                 mock.patch.object(poisoned, 'view', side_effect=RuntimeError('carry read broken')):
+            self.assertTrue(self.apply(snapshot('K2', publication=2, agent='beta', build='b2')).applied)
+        _, lost, _ = shadow.recorder.take()  # before any observer
+        with self.subTest('the unknown population is recorded as the whole view, before any observer'):
+            self.assertIn(shadow.ALL_PUBLISHERS, lost)
+        self.apply(snapshot('K2', publication=3, agent='beta', build='b2'))
+        with self.subTest("K3 stays lost until its own publication"):
+            self.assertEqual(self.read('gamma', OTHER), (None, 'unknown-loss'))
+
     def test_a_forget_that_fails_after_the_removal_takes_the_same_fallback(self):
         self.three_publishers()
         with mock.patch.object(dt.DeliveryTurns, 'forget', side_effect=RuntimeError('fold broken')):

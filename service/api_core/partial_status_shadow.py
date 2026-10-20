@@ -412,7 +412,7 @@ def _new_mirror():
 
 def invalidate_safe(key):
     """Keep committed acceptance even if diagnostic invalidation itself fails."""
-    global mirror
+    global mirror, _quarantined
     try:
         mirror.invalidate(key)
     except Exception:
@@ -421,7 +421,10 @@ def invalidate_safe(key):
         try:
             carried = [k for k, p in mirror.view().items() if p.loss and k != key]
         except Exception:
-            carried = []
+            # The known losses cannot be listed, so the population is unknown: fail closed as a failed retirement does,
+            # never as an empty list (B5 review 07997643).
+            _quarantined, carried = True, []
+            recorder.lost((ALL_PUBLISHERS,))
         mirror = _new_mirror()
         for k in (*carried, key):
             Mirror.invalidate(mirror, k)
