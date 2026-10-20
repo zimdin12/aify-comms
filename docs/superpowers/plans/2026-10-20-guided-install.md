@@ -61,9 +61,15 @@ dashboard in yyy." For review by comms-senior-dev, and by dashboard-manager for 
      (bin/aify-env-credential.mjs:47), as aify-env's installer already does (install-credentials.mjs:83-94).
    - Allowed fields are whatever `parseRegistry` accepts: connect builds the entry, parses it, and refuses on error.
      It keeps no field list of its own.
+   - **The parser is a gate, never the writer.** `parseRegistry` rebuilds each entry from named normalisers
+     (lib/registry.mjs:131-142), so its output drops fields it does not normalise, such as `secretsCredentialRef`
+     and `advertise`, which aify-env reads. Connect writes the raw merged entry: the spec's fields over the existing
+     entry, keeping every field already published that the spec does not name. That is the rule dashboard caab988
+     adopted after its register lost two fields.
    - **comms' spec, from its live entry:**
      - `fixed`: `agentState {path: "/api/v1/agent-state"}`, `endpointEnv` and `keyEnv` (aify-service-endpoint.mjs).
-     - `mcp`: `aify-comms` over `{http: {path: "/mcp/sse"}}`.
+     - `mcp`: `aify-comms` over `{http: {path: "/mcp/sse"}}` from S3. Until S3 the spec also declares today's stdio
+       form, and connect writes that one.
      - `secrets`: `credentialRef` = API_KEY, required.
      - `verify`: `/health`, then `/api/v1/agents` 401 without a key and 200 with it, as doctor's `client-api-key`
        probes (mcp/stdio/doctor.js:512-527).
@@ -107,7 +113,7 @@ dashboard in yyy." For review by comms-senior-dev, and by dashboard-manager for 
 
 | # | slice | witness | RED when |
 |---|---|---|---|
-| S1 | specs served by comms and the dashboard; `aify-wrapper connect` writes the entry, stores secrets, verifies, re-renders | connect to a fixture service yields an entry byte-equal to today's `register-service-cli` output for comms | the fixture answers 200 without a key and connect still succeeds; or an entry the parser refuses is written |
+| S1 | specs served by comms and the dashboard; `aify-wrapper connect` writes the entry, stores secrets, verifies, re-renders | connect to a fixture service yields an entry byte-equal to today's `register-service-cli` output for comms (stdio form); a re-connect keeps a field the spec does not name (`secretsCredentialRef`) | the fixture answers 200 without a key and connect still succeeds; an entry the parser refuses is written; or the parser's output is written and drops a field |
 | S2 | the chain in aify-env's installer; comms' and the dashboard's installers hand off to it | node+git-only container: `install.sh --connect aify-comms=<fixture> --client claude --no-prompt`, then `aify-wrapper-check` current | launchers are rendered before connect (the check reports the fingerprint stale) |
 | S3 | comms over SSE on agent hosts; the 5 tools mirrored | `transport-parity.test.js` declares no unprincipled gap; install-state reports no bridge copy on a client-only host | the client-only install copies `~/.aify-comms` |
 | S4 | the channel plugin, branch A or B | a relaunched resident reaches its first channel wake with no keystroke from the operator | the launcher renders the dev flag while the allowlist is present (A), or the Enter is sent on non-matching text (B) |
@@ -116,8 +122,6 @@ dashboard in yyy." For review by comms-senior-dev, and by dashboard-manager for 
 ## ASSUMED, not verified here
 
 - The `.well-known/aify-service` route exists nowhere yet; it is proposed.
-- Whether `parseRegistry` drops unknown keys (`advertise`, `secretsCredentialRef`): it builds entries from named
-  normalisers (:131-135), so likely yes, but untested here.
 - Branch A on a personal account: unproven until the operator-approved experiment.
 - That `aify-env credential set --ref` accepts the dashboard's `secretsCredentialRef` name.
 - Linux-container behaviour of all three installers.
