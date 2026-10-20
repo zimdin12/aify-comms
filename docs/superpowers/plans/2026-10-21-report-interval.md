@@ -35,17 +35,30 @@ aify-env's setting. This slice carries it. It comes before SW3b, whose paused ca
      `_build` does. An absent field is accepted, so today's aify-env keeps validating.
 2. **One owner in aify-env.** The sender exports the interval. The publisher stamps it, and the daemon's timer takes
    it, so the second `60_000` literal is gone.
-3. **comms records it per publisher** in the mirror (`Publisher.report_every_ms`), taken from the latest accepted
-   body of a non-retired kind.
-   - Not persisted: a restored publisher is unknown until a complete snapshot from its own key (SW1), and that
-     snapshot carries the field.
-4. **The derived limit.** A new pure function, `report_age(publisher, at)`:
-   - `fresh` while `at - data_applied_at < 3 x report_every_ms`, on comms' receipt clock;
+3. **Reporting contact is kept apart from data.** comms keeps a process-local pair per publisher in the mirror:
+   `Publisher.report = (received_at, report_every_ms)`.
+   - **When it is written:** only when the ingest *applies* an advancing, non-retired publication: a snapshot, a
+     change or an unavailable report. `received_at` is that receipt on comms' clock, and `report_every_ms` is that
+     same body's field.
+   - **When it is left alone:** a duplicate, stale, conflicting, refused or retired body changes nothing.
+   - **A newly accepted body without the field** sets the interval to none, which withdraws the announcement with
+     no fallback.
+   - **What stays DATA-only, exactly as today:**
+     - `data_applied_at`, the rows and the build origin;
+     - an unavailable report never freshens data, and never clears the restored, incomplete, loss or unavailable
+       guards on eligibility.
+   - **Not persisted:** a restored publisher has no report pair, so it reads `not-reporting`. It recovers its pair
+     on its next accepted report, and its eligibility only from a complete snapshot from its own key (SW1,
+     unchanged).
+4. **The derived limit.** A new pure function, `report_age(publisher, at)`, reads only that pair:
+   - `fresh` while `at - received_at < 3 x report_every_ms`;
    - `stale` from that point;
-   - `not-reporting` when the publisher announced no interval: no guessed number, and never fresh;
+   - `not-reporting` when the pair is absent or its interval is none: no guessed number, and never fresh;
    - `invalid-clock` and `future` exactly as `age_class` returns them.
-   Three intervals absorb the two-interval quiet gap with one interval of slack. That multiplier is the protocol
-   rule ("three missed reports") and lives once, in this function.
+   `report_age` says whether aify-env is in contact. Whether its rows can be used is still decided by data age and
+   the eligibility guards.
+   Three is the protocol policy ("three missed reports") and lives once, in this function. The rationale that
+   three intervals cover a two-interval quiet gap is nominal, read from the code, not a measured bound.
 
 ## Transition: nothing live degrades before the switch
 
@@ -73,6 +86,10 @@ The running aify-env announces nothing until Steven's env restart onto the new b
 | comms: an absent field is accepted (control); 0, -1, 1.5, "60000", true, null and 3,600,001 are each refused, with the database unchanged | arm: the check removed |
 | comms: interval 60,000 is fresh at 179.9 s and stale at 180 s; interval 20,000 is stale at 60 s | arm: the 180 hardcoded (the second case fails) |
 | comms: no announcement reads `not-reporting` at 1 s, never fresh | arm: a 180 s fallback |
+| comms: valid unavailable reports every 60 s for 10 min read report-fresh, while the publisher stays operationally unknown and `data_applied_at` is unchanged | arm: `report_age` reading `data_applied_at` (goes stale); arm: unavailable writing `data_applied_at` |
+| comms: a duplicate, a stale, a conflicting and a refused (422) body each leave the pair unchanged; a retired body removes the publisher | arm: the pair written before the ordering verdict |
+| comms: an accepted body without the field, after one with it, reads `not-reporting` | arm: the previous interval kept |
+| comms: a restored key reads `not-reporting` and unknown; an unavailable report restores the pair but not eligibility; only a complete snapshot from its own key restores eligibility | arm: unavailable clearing `restored` |
 | comms: `lifecycle_delegation` still delegates to a fresh publisher that announced nothing (the transition control) | arm: `age_class` switched to `report_age` |
 | comms: `operational_view` reads unknown for a holder that announced nothing | today's holders_of (fresh) |
 | cross-repo: the real aify-env publisher's body (via `g6_agent_state_wire.mjs`, run with `AIFY_ENV_REPO` set to the candidate) validates in comms with the field present | the pre-change comms validator (refuses) |
