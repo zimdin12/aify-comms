@@ -7,7 +7,8 @@ DELETING A MESSAGE IS NOT ENOUGH ON ITS OWN, and that is the thread joining thes
 may already have QUEUED DISPATCH RUNS pointing at it, so removing the row without cancelling them
 strands work that will later try to deliver something that no longer exists —
 `_cancel_queued_dispatch_runs_for_message_ids` is why unsend and conversation-clear are not simple
-DELETEs.
+DELETEs. Unsend also withdraws the reply contract of a run already DELIVERED and still owing an answer
+(`_withdraw_delivered_reply_contracts_for_message_ids`); without it the sender was reminded forever.
 
 `cleanup_orphan_unread_messages` exists for the residue: unread rows whose message is already gone,
 which inflate an agent's unread count with mail it can never open. It is the sweep, not the fix; the
@@ -20,7 +21,10 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from service.api_core.dispatch_run_state import _cancel_queued_dispatch_runs_for_message_ids
+from service.api_core.dispatch_run_state import (
+    _cancel_queued_dispatch_runs_for_message_ids,
+    _withdraw_delivered_reply_contracts_for_message_ids,
+)
 from service.api_core.message_store import _delete_messages_by_ids, _delete_messages_where
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
@@ -135,12 +139,13 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
                     f"'{canonical_author or '(unknown)'}'.",
                 )
         cancelled_dispatch_run_ids = await _cancel_queued_dispatch_runs_for_message_ids(db, message_ids)
+        withdrawn_reply_run_ids = await _withdraw_delivered_reply_contracts_for_message_ids(db, message_ids, actor=actor)
         deleted = await _delete_messages_by_ids(db, message_ids)
         await db.commit()
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("message_deleted", {"id": message_id, "deleted": deleted})
-            for run_id in cancelled_dispatch_run_ids:
+            for run_id in (*cancelled_dispatch_run_ids, *withdrawn_reply_run_ids):
                 await ws.broadcast("dispatch_updated", {"runId": run_id, "status": "cancelled"})
         return {
             "ok": True,
@@ -148,6 +153,7 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
             "deleted": deleted,
             "cancelledDispatchRuns": len(cancelled_dispatch_run_ids),
             "cancelledDispatchRunIds": cancelled_dispatch_run_ids,
+            "withdrawnReplyRunIds": withdrawn_reply_run_ids,
         }
     finally:
         await db.close()

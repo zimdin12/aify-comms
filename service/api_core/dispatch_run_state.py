@@ -179,3 +179,51 @@ async def _cancel_queued_dispatch_runs_for_message_ids(db, message_ids: list[str
             await _append_dispatch_event(db, run_id, "cancelled", summary)
         cancelled_ids.extend(run_ids)
     return cancelled_ids
+
+
+#: What `_withdraw_delivered_reply_contracts_for_message_ids` writes as the run's summary.
+WITHDRAWN_REPLY_SUMMARY = "Withdrawn: the source message was unsent, so no reply is owed."
+
+
+async def _withdraw_delivered_reply_contracts_for_message_ids(
+    db, message_ids: list[str], *, actor: str, chunk_size: int = 250,
+) -> list[str]:
+    """End the reply contract of each DELIVERED run still owing an answer to a message being unsent.
+
+    Queued runs are cancelled by the function above; a delivered one used to keep `require_reply=1`
+    after its message was gone, so its sender's reminders never stopped. This touches only a run the
+    target has been handed and not yet answered: `delivered`, `require_reply=1`, no result. Claimed and
+    running runs are left alone, because making a working run terminal would drop it from the
+    active-run readers while its process carries on.
+
+    One UPDATE decides which runs it wins, so a reply or a worker finish landing first keeps its
+    run. Clearing `require_reply` in that write is what ends the contract for every reader, and it
+    also stops the handoff mirror from posting a reply nobody wrote; no settlement runs. The event
+    records the source id and the actor, because the message delete NULLs `message_id` afterwards.
+    """
+    pending = _dedupe_preserve([str(message_id or "").strip() for message_id in message_ids if str(message_id or "").strip()])
+    withdrawn: list[str] = []
+    finished_at = _now()
+    for start in range(0, len(pending), chunk_size):
+        chunk = pending[start:start + chunk_size]
+        placeholders = ",".join("?" for _ in chunk)
+        cursor = await db.execute(
+            f"""
+            UPDATE dispatch_runs
+               SET status = 'cancelled', require_reply = 0, summary = ?, finished_at = ?
+             WHERE message_id IN ({placeholders})
+               AND status = 'delivered'
+               AND require_reply = 1
+               AND COALESCE(result_message_id, '') = ''
+            RETURNING id, message_id, target_agent
+            """,
+            (WITHDRAWN_REPLY_SUMMARY, finished_at, *chunk),
+        )
+        for row in await cursor.fetchall():
+            await _append_dispatch_event(
+                db, row["id"], "reply_withdrawn",
+                f"{actor} unsent source message {row['message_id']}; no reply is owed.",
+            )
+            await _invalidate_agent_live_state(db, row["target_agent"])
+            withdrawn.append(str(row["id"]))
+    return withdrawn
