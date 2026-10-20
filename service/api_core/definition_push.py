@@ -153,8 +153,8 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         # (P0 C11, arm 3). No definition, revision or outcome moves.
         await db.execute("UPDATE definition_stores SET pushed_at = ? WHERE machine_id = ? AND store_id = ?",
                          (now, machine_id, store_id))
-        await _follow_managed(db, machine_id, now)
-        return await _replayed(db, machine_id, store_id, current["outcome"], entries)
+        followed = await _follow_managed(db, machine_id, now)
+        return {**await _replayed(db, machine_id, store_id, current["outcome"], entries), FOLLOWED: followed}
 
     if order is PushOrder.NEW_STORE:
         await db.execute(
@@ -169,19 +169,28 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         (machine_id, store_id, revision, body["snapshotDigest"], str(environment.get("id") or ""), now, now),
     )
     result = await _apply_entries(db, machine_id, store_id, entries, now)
-    await _follow_managed(db, machine_id, now)
+    result[FOLLOWED] = await _follow_managed(db, machine_id, now)
     unresolved = {"refused": [r["id"] for r in result["refused"]], "invalid": result["invalid"], "kept": result["kept"]}
     await db.execute("UPDATE definition_stores SET outcome = ? WHERE machine_id = ?", (json.dumps(unresolved), machine_id))
     return result
 
 
-async def _follow_managed(db, machine_id: str, now: str) -> None:
+#: The result key carrying the agents whose record followed their definition this push. The router takes it out
+#: before answering and expires their cached status once the push has committed.
+FOLLOWED = "_followed"
+
+
+async def _follow_managed(db, machine_id: str, now: str) -> list[str]:
     """B3: each agent this machine defines as managed, whose record still reads resident, follows its definition when no
     resident drives it. Asked at every push, a replay included: an unchanged definition never applies again, and the
-    record, not the definition, is what moves (C3 is about the definition)."""
+    record, not the definition, is what moves (C3 is about the definition). Returns the agents that switched."""
     rows = await (await db.execute("SELECT agent_id FROM agent_definitions WHERE machine_id = ?", (machine_id,))).fetchall()
+    followed = []
     for row in rows:
-        await follow_definition_to_managed(db, row["agent_id"], now=now)
+        switched = await follow_definition_to_managed(db, row["agent_id"], now=now)
+        if switched and switched.get("changed"):
+            followed.append(row["agent_id"])
+    return followed
 
 
 #: A refused id that has since become free. A replay never takes it (C3: a replay changes nothing).

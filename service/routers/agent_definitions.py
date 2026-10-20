@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service.api_core.definition_creation import spawn_created
-from service.api_core.definition_push import apply_definition_push
+from service.api_core.definition_push import FOLLOWED, apply_definition_push
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.serialization import _normalize_machine_id
 from service.api_core.operator_authz import require_operator
@@ -15,6 +15,7 @@ from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.clock import now as _now
 from service.db import get_db
+from service.reconcilers.status_cache import invalidate_agent_live_state
 from service.definition_models import DefinitionPush
 
 router = domain_router()
@@ -41,9 +42,14 @@ async def push_agent_definitions(environment_id: str, push: DefinitionPush, requ
             # the dashboard can say two stores claim the machine.
             await db.commit()
             raise
+        followed = result.pop(FOLLOWED, [])
         # D8: a creation done and now published starts here.
         await spawn_created(db, body["machineId"].strip(), _now())
         await db.commit()
+        # B3: a record that followed its definition is served from its new mode at once, not after its cached status
+        # times out. Expired only after the commit, so a read in between cannot cache the old answer as fresh.
+        for agent_id in followed:
+            await invalidate_agent_live_state(db, agent_id)
     finally:
         await db.close()
     return {"ok": True, **result}

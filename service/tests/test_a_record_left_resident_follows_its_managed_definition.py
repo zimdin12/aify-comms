@@ -83,6 +83,41 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         [owner] = self.sql("SELECT runtime_state FROM agents WHERE id = 'lead'")
         self.assertEqual(json.loads(owner["runtime_state"])["ownership"]["requestedBy"], "definition")
 
+    def prime_a_fresh_resident_cache(self):
+        """The cached status the list path serves, primed through that path itself and genuinely fresh: the agent was
+        seen just now, so its entry is not due for a refresh."""
+        from service.reconcilers import status_cache
+
+        status_cache._LIVE_STATE_CACHE.pop("lead", None)
+        self.addCleanup(status_cache._LIVE_STATE_CACHE.pop, "lead", None)
+        self.sql("UPDATE agents SET last_seen = ? WHERE id = 'lead'", (now(),))
+        served = self.served()
+        entry = status_cache._live_state_fresh("lead")
+        self.assertIsNotNone(entry, "CONTROL: the primed entry is fresh, so only an expiry makes the list re-derive it")
+        return served, entry
+
+    def served(self):
+        agent = self.client.get("/api/v1/agents").json()["agents"]["lead"]
+        return agent["status"], agent.get("statusNote")
+
+    def test_the_followed_record_is_served_at_once_not_after_its_cache_times_out(self):
+        """llama-manager, 2026-10-20 10:36Z: the record followed its definition at the push, but the cached resident
+        answer ("Resident bridge heartbeat is gone") was served until the entry's own refresh time, ~2.5 min later."""
+        before, _ = self.prime_a_fresh_resident_cache()
+        self.assertEqual(before[0], "offline", "CONTROL: a resident record with nothing alive reads offline")
+        self.push()
+        self.assertEqual(self.mode(), "managed", "CONTROL: the push switched the record")
+        self.assertEqual(self.served()[0], "available",
+                         "the cached resident 'offline' was served after the record followed its managed definition")
+
+    def test_a_push_that_switches_nothing_leaves_the_cache_alone(self):
+        self.bridge("sidecar-1", "channel-sidecar")  # a live sidecar keeps the resident
+        _, entry = self.prime_a_fresh_resident_cache()
+        self.push()
+        self.assertEqual(self.mode(), "resident", "CONTROL: nothing switched")
+        from service.reconcilers import status_cache
+        self.assertIs(status_cache._live_state_fresh("lead"), entry, "a push that switched nothing expired the cache")
+
     def test_an_applied_push_switches_it_too(self):
         self.define(mode="managed")
         self.assertEqual(self.mode(), "managed")
