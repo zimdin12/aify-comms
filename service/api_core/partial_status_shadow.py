@@ -392,17 +392,6 @@ mirror = Mirror()
 recorder = Recorder()
 
 
-def invalidate_safe(key):
-    """Keep committed acceptance even if diagnostic invalidation itself fails."""
-    global mirror
-    try:
-        mirror.invalidate(key)
-    except Exception:
-        # Drop all live knowledge. Previously captured immutable views remain valid.
-        mirror = Mirror()
-        Mirror.invalidate(mirror, key)
-
-
 class _UnreadableMirror(Mirror):
     """What a failed retirement leaves when the view it started from could not be read: every bind is a loss until
     comms restarts, because there is no list of keys whose snapshots would end it."""
@@ -411,16 +400,36 @@ class _UnreadableMirror(Mirror):
         raise RuntimeError('the mirror was lost with no view to rebuild it from')
 
 
+#: Set for the life of the process once a failed retirement lost the key list (B5). Every runtime replacement of the
+#: mirror goes through `_new_mirror`, so no later reset can hand back a readable view.
+_quarantined = False
+
+
+def _new_mirror():
+    return _UnreadableMirror() if _quarantined else Mirror()
+
+
+def invalidate_safe(key):
+    """Keep committed acceptance even if diagnostic invalidation itself fails."""
+    global mirror
+    try:
+        mirror.invalidate(key)
+    except Exception:
+        # Drop all live knowledge. Previously captured immutable views remain valid.
+        mirror = _new_mirror()
+        Mirror.invalidate(mirror, key)
+
+
 def retire_safe(key, before):
     """A retirement committed but dropping K failed (B5). K is absent, and every other publisher in `before` becomes the
     existing lost entry (no rows, no build, loss). Returns the keys made lost. An empty Mirror would read as a healthy
-    empty view, and `invalidate_safe(K)` would keep K's rows, so neither is used."""
-    global mirror
+    empty view, and `invalidate_safe(K)` would keep K's rows, so neither is used. With no `before` the process is
+    quarantined: no key list exists whose snapshots could end the loss."""
+    global mirror, _quarantined
     if before is None:
-        mirror = _UnreadableMirror()
-        return ()
-    mirror = Mirror()
-    lost = tuple(k for k in before if k != key)
+        _quarantined = True
+    mirror = _new_mirror()
+    lost = tuple(k for k in (before or ()) if k != key)
     for k in lost:
         Mirror.invalidate(mirror, k)
     return lost

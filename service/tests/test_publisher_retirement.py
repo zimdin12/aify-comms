@@ -83,7 +83,7 @@ class PublisherRetirementTest(FastApiTestCase):
         super().setUp()
         self.mirror, self.fold, self.recorder = shadow.Mirror(), dt.DeliveryTurns(), shadow.Recorder()
         for p in (mock.patch.object(shadow, 'mirror', self.mirror), mock.patch.object(dt, 'FOLD', self.fold),
-                  mock.patch.object(shadow, 'recorder', self.recorder),
+                  mock.patch.object(shadow, 'recorder', self.recorder), mock.patch.object(shadow, '_quarantined', False),
                   mock.patch.object(shadow, 'clock', return_value=SHADOW_NOW)):
             p.start(); self.addCleanup(p.stop)
 
@@ -280,6 +280,34 @@ class PublisherRetirementTest(FastApiTestCase):
                         'a later publication still commits')
         self.assertTrue(shadow.bind().loss, "one publisher's snapshot cannot rebuild a view with no key list")
 
+    def reset_by_a_failed_invalidation(self, publication):
+        """A committed K2 ingest whose projection cannot be prepared, on a mirror whose own invalidate raises: the
+        existing `invalidate_safe` fallback replaces the mirror (review 2f9480fd's path)."""
+        poisoned = shadow.mirror
+        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unpreparable')),                 mock.patch.object(poisoned, 'invalidate', side_effect=RuntimeError('invalidate broken')):
+            self.assertTrue(self.apply(snapshot('K2', publication=publication, agent='beta', build='b2')).applied,
+                            'the ingest still commits')
+        self.assertIsNot(shadow.mirror, poisoned, 'CONTROL: the fallback replaced the mirror')
+
+    def test_quarantine_survives_a_later_invalidation_reset(self):
+        self.three_publishers()
+        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')),                 mock.patch.object(self.mirror, 'view', side_effect=RuntimeError('view lost')):
+            self.apply(retired('K', 2))
+        self.reset_by_a_failed_invalidation(2)
+        self.assertTrue(self.apply(snapshot('K2', publication=3, agent='beta', build='b2')).applied)
+        self.assertTrue(shadow.bind().loss, 'a reset handed back a readable view: the quarantine escaped')
+        self.assertIn(UNKNOWN_BUILD, builds_of(shadow.bind()))
+        self.assertEqual(self.read('beta'), (None, 'unknown-loss'))
+
+    def test_without_quarantine_the_same_reset_recovers_on_a_snapshot(self):
+        """CONTROL for the test above: the same reset with no quarantine, and K2's next snapshot recovers it."""
+        self.three_publishers()
+        self.reset_by_a_failed_invalidation(2)
+        self.assertEqual(self.read('beta'), (None, 'unknown-loss'), 'the reset left K2 lost')
+        self.assertTrue(self.apply(snapshot('K2', publication=3, agent='beta', build='b2')).applied)
+        self.assertFalse(shadow.bind().loss)
+        self.assertIsNone(self.read('beta')[1])
+
     # ---- rev3: the receiver's state, not the sender's outcome, says what happened
 
     def test_precommit_failure_leaves_k_unchanged(self):
@@ -331,3 +359,5 @@ class PublisherRetirementTest(FastApiTestCase):
         self.assertIn((MACHINE, 'K'), two.mirror.view())
         self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM agent_state_shadow_rows WHERE instance='K'",
                                   path=second), [dict(n=1)])
+        self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM agent_state_shadow_rows WHERE instance='K'",
+                                  path=str(self._db_path)), [dict(n=0)])
