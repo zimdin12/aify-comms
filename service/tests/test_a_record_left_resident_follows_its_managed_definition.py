@@ -7,6 +7,7 @@ nothing is started, since a start is the host's. Every case that keeps the recor
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from unittest import mock
@@ -70,6 +71,11 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         self.assertEqual(self.push()["outcome"], "replay")
         self.assertEqual(self.mode(), "resident", why)
 
+    def assert_follows_once_gone(self, why):
+        """The removal control: with only the keeping cause gone, the next push switches the record."""
+        self.push()
+        self.assertEqual(self.mode(), "managed", why)
+
     def test_a_replayed_push_switches_a_record_nothing_drives(self):
         self.assertEqual(self.mode(), "resident", "CONTROL: the setup left the record resident")
         self.assertEqual(self.push()["outcome"], "replay", "CONTROL: this push is the host's unchanged replay")
@@ -107,10 +113,14 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
                  "'claude-code', '/workspace', 'claude', '[]', 'running', 'operator', ?, ?)",
                  (ENV["environment_id"], now(), now()))
         self.assert_kept("a resident with a live console was switched under it")
+        self.sql("UPDATE terminal_sessions SET status = 'stopped' WHERE id = 'term-1'")
+        self.assert_follows_once_gone("CONTROL: a stopped console still held the record")
 
     def test_a_live_channel_sidecar_keeps_the_resident(self):
         self.bridge("sidecar-1", "channel-sidecar")
         self.assert_kept("a resident with a live channel sidecar was switched under it")
+        self.sql("UPDATE bridge_instances SET last_seen = '2026-01-01T00:00:00Z' WHERE id = 'sidecar-1'")
+        self.assert_follows_once_gone("CONTROL: a sidecar gone for months still held the record")
 
     def test_a_live_resident_session_keeps_the_resident(self):
         self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, started_at, last_seen) "
@@ -118,13 +128,14 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
                  (ENV["environment_id"], now(), now()))
         self.assert_kept("a resident with a live session was switched under it")
         self.sql("UPDATE agent_sessions SET status = 'stopped' WHERE id = 'sess-1'")
-        self.push()
-        self.assertEqual(self.mode(), "managed", "CONTROL: a stopped session, as llama-manager's is, does not keep it")
+        self.assert_follows_once_gone("CONTROL: a stopped session, as llama-manager's is, still held the record")
 
     def test_a_fresh_resident_bridge_keeps_the_resident(self):
         self.bridge("resident-1", "")
         self.leave_resident({"bridgeInstanceId": "resident-1"})
         self.assert_kept("a resident with a fresh bridge was switched under it")
+        self.sql("UPDATE bridge_instances SET last_seen = '2026-01-01T00:00:00Z' WHERE id = 'resident-1'")
+        self.assert_follows_once_gone("CONTROL: a bridge gone for months still held the record")
 
     def test_a_stale_resident_bridge_does_not(self):
         self.bridge("resident-1", "", last_seen="2026-01-01T00:00:00Z")
@@ -138,17 +149,37 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         with mock.patch.object(session_mode_switch, "terminal_state", return_value=live_process_probes.PROBE_ERROR):
             self.assert_kept("a console read that failed was taken as no console")
 
-        # The bridge fallback reads the sidecar again and fails open (`_has_live_channel_sidecar`), so both reads fail.
-        with mock.patch.object(session_mode_switch, "channel_sidecar_state", return_value=live_process_probes.PROBE_ERROR),                 mock.patch.object(live_process_probes, "channel_sidecar_state", return_value=live_process_probes.PROBE_ERROR):
+        with mock.patch.object(session_mode_switch, "channel_sidecar_state", return_value=live_process_probes.PROBE_ERROR):
             self.assert_kept("a sidecar read that failed was taken as no sidecar")
 
         async def raises(*args, **kwargs):
             raise RuntimeError("bridge read failed")
 
-        with mock.patch.object(session_mode_switch, "_resident_bridge_is_fresh", raises):
+        with mock.patch.object(session_mode_switch, "_resident_bridge_record_is_fresh", raises):
             self.assert_kept("a bridge read that failed was taken as no bridge")
         self.push()
         self.assertEqual(self.mode(), "managed", "CONTROL: with the reads restored the record follows")
+
+    def test_the_decision_reads_the_sidecar_once(self):
+        """Review ee180b07: the bridge check used to read the sidecar a second time through a boolean helper that turns a
+        failed read into absence, so an error on that second read alone let the record switch. The decision now rests
+        on the one tri-state read; the second one is never made, so no error of its can be taken as absence."""
+        from service.api_core import live_process_probes
+
+        second_reads = []
+
+        async def fallback_read(db, agent_id):
+            second_reads.append(agent_id)
+            return live_process_probes.PROBE_ERROR
+
+        with mock.patch.object(live_process_probes, "channel_sidecar_state", fallback_read):
+            self.push()
+            self.assertEqual(second_reads, [], "the decision read the sidecar a second time, through the boolean fallback")
+            # CONTROL: the patched read is the one the legacy fallback makes, it is reachable, and it turns the error
+            # into absence -- the conversion the decision must never meet.
+            self.assertIs(asyncio.run(live_process_probes._has_live_channel_sidecar(None, "lead")), False)
+            self.assertEqual(second_reads, ["lead"])
+        self.assertEqual(self.mode(), "managed", "CONTROL: every source the decision reads said nothing drives it")
 
     def test_an_active_run_keeps_the_record_and_the_push_still_lands(self):
         from service.api_core import session_mode_gates
