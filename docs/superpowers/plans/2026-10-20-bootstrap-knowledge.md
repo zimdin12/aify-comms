@@ -1,5 +1,7 @@
 # A bounded not-live fact for the delivery turn after a boot (2026-10-20, proposal rev 2)
 
+**WITHDRAWN 2026-10-20, unbuilt.** The operator dropped the one-day live comparison this rule served (DECISIONS.md, "a sandbox gate and a hard switch"). Kept as the record of a reviewed design.
+
 A knowledge-rule change to the shadow fold (`service/api_core/delivery_turns.py`) and the delivery disjunct
 (`comms_view._delivery_disjunct`). It needs the dev's review and then the operator's decision before any code
 (D-UNKNOWN decision `bootstrap-knowledge-contract-question`). Rev 2 answers REVISE f42a601d: rev 1 minted a raw
