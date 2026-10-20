@@ -6,6 +6,28 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## comms never times turns; aify-env alone decides "busy" (Steven, 2026-10-20)
+
+Asked as 01M5D55H, after he answered N2 with "what is the best design that has good separation of concerns. and that
+would fit our plugin or modular based stack". Answered "jeah".
+
+- **aify-env decides whether an agent is busy, and it is the only place a turn's age is judged.** It runs on the
+  agent's machine. Today it holds a turn busy while it can verify the agent's process, with no timer, and falls back
+  to a 30-minute limit only for a process it cannot verify (lib/turn-events.mjs:96-101).
+- **comms keeps only what it owns:** runs, messages and delivery. It reads aify-env's busy flag, with no turn
+  timers, stale-turn estimate or clock maths. N2 and the comms halves of the clock-safety and stale-turn-ceiling
+  work go away.
+- **When aify-env is not reporting, comms queues** messages to that host's agents instead of guessing. The
+  cost: a resident behind a dead aify-env waits, where today comms might deliver to it after 30 minutes.
+- **The remaining 30-minute fallback is aify-env's to remove.** He called it "weird". Removing it means verifying
+  every lifetime rather than timing unverified ones. That design is aify-env's.
+- **His statement of the repos' roles:**
+  - aify-comms is a service: it holds messages, their information and the database.
+  - aify-env is the environment provider, with the controls and the plugins.
+  - aify-wrapper wraps the harnesses to make them aify-stack compatible. Its comms and dashboard modules switch
+    on when the service exists.
+  - aify-wrapper may later split per harness (aify-claude, aify-hermes, aify-codex). For now it stays one repo.
+
 ## The status switch: a sandbox gate and a hard switch, not a one-day live comparison (Steven, 2026-10-20)
 
 - **The C8 one-day live comparison is no longer the gate** (dashboard question 01M5D4TG, answered "yes"). The
