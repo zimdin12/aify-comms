@@ -1,7 +1,7 @@
-# 1. What comms reads after the switch (revision 3)
+# 1. What comms reads after the switch (revision 4)
 
-Revision 3 answers REVISE s4-design-1792519039743 and supersedes 7e481315. It deletes the handoff machinery: the
-delivery gap is closed by the runtimes themselves (below), not by comms.
+Revision 3 deleted the handoff machinery: the delivery gap is closed by the runtimes themselves (below), not by
+comms. Revision 4 replaces the D8 availability exception with today's D8 and the real cold-start sequence.
 
 ## The delivery gap needs no comms record
 
@@ -22,6 +22,10 @@ runtime's own delivery path never runs it inside the first turn.
 **What this drops:**
 - the handoff row, its opening and resolving events, the anchor comparison and the settlement list;
 - all handoff watch and rollback items.
+
+**What the runtime contract does not give.** The channel reference also says a notification written to the channel
+is transport, not consumption, and that events are dropped silently when the channel is not loaded or not allowed.
+So a `delivered` run never certifies processing; native queueing makes a gap delivery safe, not successful.
 
 **What stays separate:** steer, an explicit "inject now" accepted only by a runtime that queues or refuses it. The
 obligation moves from comms to two dependencies: the runtime contract above, and the switch watch.
@@ -44,10 +48,12 @@ Availability (per holder: `fresh`, `stale`, `restored`, `unavailable`, `lost`) a
 
 **Every delivery route checks eligibility first.** Unknown withholds before busy, before steerability and before the
 queue choice:
-- the claim gate, which serves every claimed run;
-- the send-time path, for default sends as well as `queueIfBusy` (today's check sits only under `queueIfBusy`,
-  dispatch_launch.py:66-95);
+- the claim gate, which serves every claimed run, default sends and `queueIfBusy` alike. With console insertion off,
+  it is the only delivery point;
 - console insertion, if it is enabled later.
+
+The send-time path (`_launch_recipients_for_dispatch`) delivers nothing with console insertion off. It only ensures
+backing, so a hold there must never skip that step (next section).
 
 With eligibility known: busy holds non-steer work, and the steer carve-out applies only to a known busy. Not busy
 proceeds.
@@ -59,19 +65,36 @@ reads `offline`.
 **The D8 rows, in precedence order:**
 1. An operator stop on an undefined agent: `stopped`.
 2. A record present: the table above.
-3. No record, an undefined managed agent comms can cold-start: `available`. A send to it is a cold start, where the
-   spawn carries the message as today, never a claim-gate delivery. That avoids a queue-before-first-record cycle.
-4. Otherwise: `unknown`.
+3. No record: `unknown` (Q3's proven-absent wake handle reads `offline`). No row makes a no-record agent available.
 
-SW4 must trace whether aify-env publishes undefined managed lifetimes (ASSUMED no: the managed population is built
-from definitions). If it does not, such an agent reads `unknown` after its start, and that is an operator decision
-before SW5.
+D8 stays as built: no undefined agent is newly started. `start_refusal` and `insert_spawn_request`
+(definition_start.py), the cold start's binding check (dispatch_start.py) and `_ensure_managed_pty_for_dispatch` each
+refuse one, and `test_a_defined_agent_starts_from_its_definition.py` holds it. Undefined sessions already running are
+a different population: they read by their records.
+
+## A cold start creates backing; delivery stays at the claim gate
+
+The sequence for a defined managed agent with no live backing (console insertion off):
+1. The send creates the dispatch run carrying the message, `queued` (messages.py, `_create_dispatch_runs`).
+2. The send-time path ensures backing. It inserts a D8-guarded cold-start spawn request whose `initial_message` is
+   empty (dispatch_start.py), and leaves the run queued for `/dispatch/claim` (dispatch_launch.py). It delivers
+   nothing.
+3. aify-env claims the spawn request, launches the lifetime and publishes its record.
+4. The wrapper's bridge, or the native adapter, boots and polls `/dispatch/claim`.
+5. The claim gate reads the truth table. Until comms accepts a publication carrying the new lifetime, eligibility is
+   unknown and the claim withholds. On the first pass after a fresh idle record is accepted, the run is claimed.
+
+**The ordering rule:** a send-time hold, unknown or busy, never skips step 2 for an agent with no live backing.
+Today's `queueIfBusy` hold `continue`s past backing; after the switch an unknown no-record agent would never be
+started, and its run would wait for a record that only a start produces. The backing step is idempotent (a live
+claimer or a pending spawn request short-circuits it), so running it under a hold starts nothing twice. An undefined
+agent is refused at step 2 and its run is recorded not started, as today.
 
 ## Readers
 
 | reader | after the switch |
 |---|---|
-| send-time path (dispatch_launch.py) | unknown: queue; busy: queue for explicit queue, steer when asked and steer-capable; false: deliver |
+| send-time path (dispatch_launch.py) | the run is queued; backing is ensured whatever eligibility and busy say; it delivers only through console insertion, which is excluded |
 | claim gate (dispatch_claim.py) | unknown: withhold, steer included; busy: hold unless a claimable steerable run exists; false: proceed |
 | reminder skip B21 (dispatch_sweeps.py) | **operator decision R3** below |
 | stranded guard B26 (dispatch_lifecycle.py) | **operator decision R3** below |
@@ -90,6 +113,8 @@ stays `restored`. Unavailable and lost stay unknown, retired stays absent, and t
 already present.
 
 ## Operator decisions this page needs
+
+Both are requests until adopted: receipt freshness before SW3, R3 before SW5.
 
 - **R3, reminders and stranded runs.** aify-env's turn carries no run id, so comms cannot tell which run a busy agent
   is working on.

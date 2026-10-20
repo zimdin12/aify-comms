@@ -1,4 +1,4 @@
-# 3. The switch, the rollback, the deletions (revision 3)
+# 3. The switch, the rollback, the deletions (revision 4)
 
 ## Before the switch
 
@@ -7,15 +7,16 @@
   and every delivery reader (Q4).
   - `Record` gains `busy` from the record's top-level field.
   - Availability and busy stay separate typed outputs, with page 1's truth table.
-  - The word follows C6 rows 1-6 with Q1, Q3 and the D8 precedence.
+  - The word follows C6 rows 1-6 with Q1, Q3 and the D8 rows.
 - **Slice 5's obligations, rebased.** Worker readiness, live counts and running-run promotion read the new typed facts.
   - Unknown stays unknown in each of them. The old diagnostic containment (a recording failure read as "no change")
     is not promoted into a fail-open default.
   - Promotion, row 5, is applied inside the view, so it holds on every path.
-- **D8 rows 1 and 2 (SW4, comms):**
-  - an undefined agent the operator stopped reads `stopped`;
-  - an undefined managed agent comms can cold-start reads `available`;
-  - each gets a unit witness in the view.
+- **D8 (SW4, comms), today's rule kept:**
+  - an undefined agent the operator stopped reads `stopped`, and a no-record agent reads `unknown`, each with a unit
+    witness in the view;
+  - the send-time hold never skips the backing step (page 1's ordering rule), witnessed by the gate's cold-start case;
+  - no undefined start is added, and no D8 guard is bypassed to build a fixture.
 - **B4 (SW4, env).** Trace the producers of `given.screen` and `given.backgroundShells` (agent-state-host.mjs) and
   build only what is missing, under the env-schema rule (every copy; sibling suites with AIFY_ENV_REPO=candidate).
 - **Controls by obligation, with new expected answers:**
@@ -28,6 +29,8 @@
 
 ## The switch (SW5): one revertible commit
 
+SW5 starts only after decisions 1 and 2 are adopted, SW3 is green under page 2's rule, and the runner is accepted.
+
 - **Every reader is rewired** to the view in a single commit: page 1's readers plus readiness, live counts and
   promotion. The review receipt lists each call site, so the rewrite can be checked as complete.
 - **The rollback's inputs stay live until the rollback gate:**
@@ -36,6 +39,18 @@
   - launchers keep posting turn events to comms as well as aify-env;
   - the legacy readers stay in the tree, unreferenced.
 - **Retained code alone is not a rollback.** The rollback test below proves those inputs are still arriving.
+
+## The population the switch covers (SW6, before deploy)
+
+The switch qualifies Claude (channel, resident and managed) and Hermes (gateway and native-managed) with console
+insertion off. A default and a skipped install attest nothing about the live fleet, so before deploy:
+- read `insert_messages_via_console` as the deployed service resolves it (`_insert_messages_via_console(settings)`)
+  and require it off;
+- list the registered agents with their runtimes and modes from comms, and name each one outside the population
+  (Codex, or any other runtime);
+- each named agent is stopped, or the operator accepts it as unqualified by name.
+
+The reads go with the SW6 receipt. Nothing outside the population is called qualified.
 
 ## The rollback (SW6)
 
@@ -57,15 +72,21 @@ Read from comms' routes and the dispatch tables at 15 min, 1 h and 4 h.
 | Hermes gateway agents (comms-senior-dev, pc-manager) | busy while working, idle after; 4009 requeues happen only at a turn boundary and drain on the next pass |
 | resident claude panes (B1 launchers) | the word matches the pane; `unknown` only when that host's aify-env is silent |
 | agents at a Claude dialog (dev-channels, folder trust) | nothing delivered into the dialog |
-| a Claude agent given two messages in one gap | the second is processed in the next turn, never mid-turn (from the pane and the run events) |
+| a Claude agent sent a non-steer message while a turn it did not start is already active | the message is processed in a later turn, never inside the active one. Several messages accepted before that next turn may be processed together in it; that is healthy |
 | queue depth | no non-steer queue held on an agent whose eligibility is known and whose record is idle |
 | reminders and stranded failures | as ruled in R3: none while the agent is busy or unknown |
+
+**Processing evidence** is the session's own record of which turn consumed the message (the transcript), read with
+the run events and aify-env's turn boundaries. A `delivered` run, a channel write or a rendered box in the pane is
+transport, and is not processing evidence.
 
 ## The rollback trigger
 
 Roll back on any one of these:
-- a non-steer message delivered while aify-env reports the agent busy;
-- a message processed inside a turn it did not start (a runtime that does not queue);
+- a non-steer run claimed while aify-env reports the agent busy;
+- **non-steer processing inside a pre-existing active turn**: a non-steer message, sent while a turn was already
+  active, consumed inside that same turn. Excluded: a steer the runtime accepted as one (Hermes `status: "queued"`, a
+  claimed steerable run), and several messages processed together in the first turn after they were accepted;
 - a queued run still held on the first claim pass after comms accepts the agent's fresh idle publication;
 - an agent of a reporting host reading `unknown` past one publication interval;
 - the operator says so.

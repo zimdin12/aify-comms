@@ -1,11 +1,17 @@
-# 0.9.8: the hard switch to aify-env's word (2026-10-20, plan revision 3, not built)
+# 0.9.8: the hard switch to aify-env's word (2026-10-20, plan revision 4, not built)
 
 This replaces S2-S4 and the C8 gate of `2026-10-18-status-switch.md`. It follows two operator rulings
 (DECISIONS.md, 2026-10-20):
 - **The gate is a sandbox, not a one-day live comparison.** Then a hard switch with a rollback kept ready.
 - **comms never times turns.** aify-env alone decides `busy`; comms queues when aify-env is silent.
 
-Revision 3 answers REVISE s4-design-1792519039743 and supersedes 7e481315.
+Revision 4 answers REVISE s4-design-1792521656338 and supersedes f466c492:
+- D8 stays as built: no undefined start, and no availability exception. A cold start creates backing; delivery stays
+  at the claim gate (page 1).
+- The watch and the rollback trigger judge non-steer processing inside a turn already active, with steering and
+  next-turn grouping excluded (page 3).
+- The gate states its decisions, its green rule, a no-timer witness that holds receipt age fixed, and the population
+  it covers.
 
 ## The design in one paragraph
 
@@ -30,11 +36,11 @@ evidence). Availability and busy are separate facts:
 | # | slice | repo | depends on |
 |---|---|---|---|
 | SW1 | Restart restore: `restored` until an accepted complete snapshot, loaded before the routes are served | comms | - |
-| SW2 | The operational view: `Record.busy`, the truth table, eligibility-first readers, the word with a last-known note, D8 precedence, and the no-timer unit witness | comms | - |
-| SW3 | The sandbox gate (page 2) | comms (+ env read-only) | green after SW1, SW2 |
-| SW4 | D8 rows; trace B4's producers and whether aify-env publishes undefined managed lifetimes, building only what is missing | comms, env | - |
-| SW5 | The switch: every reader rewired in one revertible commit (page 1 plus readiness, live counts, promotion); controls rebased; the rollback test | comms | SW1-SW4, SW3 green, R3 ruled |
-| SW6 | Deploy, watch, roll back on the trigger | comms | SW5 |
+| SW2 | The operational view: `Record.busy`, the truth table, eligibility-first readers, the word with a last-known note, the D8 rows, and the no-timer unit witness | comms | - |
+| SW3 | The sandbox gate (page 2) | comms (+ env read-only) | SW1, SW2, decision 2 adopted, the runner accepted |
+| SW4 | The D8 stop row and the cold-start ordering (backing is never skipped by a hold); trace B4's producers, building only what is missing | comms, env | - |
+| SW5 | The switch: every reader rewired in one revertible commit (page 1 plus readiness, live counts, promotion); controls rebased; the rollback test | comms | SW1-SW4, SW3 green, decisions 1 and 2 adopted |
+| SW6 | Bind the population, deploy, watch, roll back on the trigger | comms | SW5 |
 | SW7 | Deletions and launchers to aify-env only, after the rollback gate | comms, wrapper | SW6 clean |
 
 ## Operator decisions (page 1 has the exact before and after)
@@ -42,13 +48,17 @@ evidence). Availability and busy are separate facts:
 1. **R3:** reply-overdue reminders pause while aify-env says the agent is busy with anything, and the stranded guard
    protects any run while the agent is busy.
 2. **Receipt freshness, 180 s,** on comms' own clock. A missed publication reads `unknown`, and messages queue.
-3. **Only if SW4 finds aify-env publishes no undefined managed lifetimes:** such an agent reads `unknown` after its
-   cold start.
+
+Both are requests until Steven adopts them. Each must be adopted before the first stage it governs: decision 2
+before SW3 (the gate's paused case uses it), decision 1 before SW5. Groundwork that depends on neither (SW1, SW4, the
+view's structure) proceeds before them. The D8 rows need no decision: they keep today's rule.
 
 ## ASSUMED, not checked
 
-- Claude's channel queueing, from the documentation, not executed here. The switch watch observes it.
+- Claude's channel queueing, from the documentation, not executed here. The switch watch observes it. A channel write
+  is transport, not acknowledgement, and a channel that is not loaded or not allowed drops events silently.
 - Hermes `steer` landing only with `status: "queued"` means the gateway queues it. The code reads that status; gateway
   internals were not read.
-- B4's producers, and whether aify-env publishes undefined managed lifetimes (SW4 traces both).
+- B4's producers (SW4 traces them).
+- aify-env publishes a record for a defined managed lifetime it launched. The sandbox's cold-start case exercises it.
 - A scripted stand-in can drive `POST /agents/:id/turn-event` for a lifetime aify-env launched.

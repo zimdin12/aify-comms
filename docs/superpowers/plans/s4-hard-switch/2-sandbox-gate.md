@@ -1,7 +1,8 @@
-# 2. The sandbox gate (SW3, revision 3)
+# 2. The sandbox gate (SW3, revision 4)
 
 The gate runs on the env-against-comms runner (branch 098/env-comms-sandbox). That runner's own ownership and cleanup
-contract (a5c658ff) needs its own source review; it is not accepted by reference here.
+contract (a5c658ff) needs its own source review; it is not accepted by reference here, and the gate does not run
+until it is accepted.
 
 **The stand-in agent** is a defined managed agent with a scripted launcher. It registers, claims runs through
 `/dispatch/claim`, reports `turn-start` and `turn-end` to aify-env's real `POST /agents/:id/turn-event` for its current
@@ -23,22 +24,30 @@ apart from syntax errors, missing fields and unreached branches.
 | fresh idle holder plus a stale second holder on the same machine | eligibility unknown: withheld, steer included | stale holders are ignored (known false: delivered) |
 | aify-env paused | after 180 s of receipt silence: `unknown` with a stale last-known note; sends queue; claims withhold, steer included | unknown read as false, or steer checked before eligibility (the steerable run is delivered) |
 | aify-env resumed | queued work drains on the first claim pass after comms accepts a fresh publication | the queue never drains |
-| default send (not `queueIfBusy`) while unknown | queued, not delivered | eligibility checked only under `queueIfBusy` |
+| default send (not `queueIfBusy`) while unknown | queued, not claimed | the claim gate withholds only `queueIfBusy` runs |
 | comms restarts while the agent is idle | before aify-env's next complete snapshot: `restored`, eligibility unknown, a send queues; after it: delivered | restored rows promoted to fresh or complete (the send is delivered before the snapshot) |
 | comms restarts mid-turn | `restored`, eligibility unknown, word `unknown` with a last-known note | the restore removed (no last-known note), or promoted (eligibility known) |
 | restored, then a same-generation changes publication | still `restored` and unknown until a complete snapshot is accepted | changes treated as completing the restore |
+| cold start: a send to the defined stand-in with no live backing | a spawn request with an empty initial message; the run stays queued; the claim withholds until comms accepts the new lifetime's record, then the run is claimed | the send-time hold skips the backing step (no spawn request; the run waits forever) |
 | a run is running on an idle record | the word reads `working` | promotion skipped at the view |
 | stop, then restart, through aify-env | `stopped` (a send is stored, not run), then `online`, with queued work drained | the view's stop row skipped; restart leaves `unknown` |
 
 Two obligations move out of the sandbox:
-- **No comms timer**, as a unit witness on the pure view. One frame is evaluated at two `at` values hours apart and
-  must give identical answers. A reintroduced `strictExpiry` or `turn_is_still_live` changes the later answer, so the
-  witness goes RED at the predicate.
+- **No comms timer**, as a unit witness on the pure view, with two observables kept apart:
+  - *Turn age.* Publisher availability and the receipt-age class are held fixed (`fresh`) as inputs, while the
+    turn's age and the evaluation time vary by hours. The answers must be identical. A reintroduced `strictExpiry` or
+    `turn_is_still_live` changes the later answer and reaches this assertion.
+  - *Receipt age.* The turn is held fixed while receipt age crosses 180 s. The answer must move from known to
+    unknown. A view that ignores the receipt-age class reaches this assertion.
+
+  Legal receipt aging therefore never reddens the turn witness, and each mutant reaches its own assertion.
 - **aify-env's unverified-lifetime fallback** is aify-env's, tested in aify-env.
 
 ## Pass rule
 
-- Three attempts per pinned commit pair.
+- Three scheduled attempts per pinned commit pair.
+- **Green** means every required frozen case, and the admitted runner's cleanup, passes in all three attempts. One
+  failed attempt fails the gate for that pair.
 - Every attempt is kept, failures included. "Run until three greens" is not the rule.
 - Mutation validity, the reached assertion, the restoration and the baseline are recorded separately.
 - The 180 s silence case takes about four minutes, with no clock seam added for it.
