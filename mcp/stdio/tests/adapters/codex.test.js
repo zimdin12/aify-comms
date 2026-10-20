@@ -45,50 +45,6 @@ test("CodexAdapter Plan 2 capabilities", () => {
   assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
 });
 
-test("CodexAdapter overrides discoverSessionId", () => {
-  const a = new CodexAdapter();
-  const own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(a), "discoverSessionId");
-  assert.ok(own && typeof own.value === "function",
-    "CodexAdapter must define its own discoverSessionId override");
-});
-
-test("CodexAdapter.discoverSessionId returns null when no sessions dir", async () => {
-  const a = new CodexAdapter();
-  const result = await a.discoverSessionId();
-  if (result !== null) {
-    assert.ok(typeof result === "string" && result.length > 0,
-      "if non-null, must be non-empty string");
-  }
-});
-
-test("CodexAdapter.discoverSessionId does not scan old rollouts for fresh app-server sessions", async () => {
-  const previousAppServer = process.env.AIFY_CODEX_APP_SERVER_URL;
-  const previousThread = process.env.CODEX_THREAD_ID;
-  process.env.AIFY_CODEX_APP_SERVER_URL = "ws://127.0.0.1:65535";
-  delete process.env.CODEX_THREAD_ID;
-  try {
-    const a = new CodexAdapter();
-    assert.strictEqual(await a.discoverSessionId(), null);
-  } finally {
-    if (previousAppServer === undefined) delete process.env.AIFY_CODEX_APP_SERVER_URL;
-    else process.env.AIFY_CODEX_APP_SERVER_URL = previousAppServer;
-    if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
-    else process.env.CODEX_THREAD_ID = previousThread;
-  }
-});
-
-test("CodexAdapter.discoverSessionId uses explicit thread env for app-server resume sessions", async () => {
-  const previousAppServer = process.env.AIFY_CODEX_APP_SERVER_URL;
-  const previousThread = process.env.CODEX_THREAD_ID;
-  process.env.AIFY_CODEX_APP_SERVER_URL = "ws://127.0.0.1:65535";
-  process.env.CODEX_THREAD_ID = "explicit-thread";
-  try {
-    const a = new CodexAdapter();
-    assert.strictEqual(await a.discoverSessionId(), "explicit-thread");
-  } finally {
-    if (previousAppServer === undefined) delete process.env.AIFY_CODEX_APP_SERVER_URL;
-    else process.env.AIFY_CODEX_APP_SERVER_URL = previousAppServer;
-    if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
-    else process.env.CODEX_THREAD_ID = previousThread;
-  }
-});
+// No discoverSessionId tests here: CodexAdapter no longer overrides it, so a codex handle is only the
+// launcher's export. That is proven end to end, against a sealed sessions directory, in
+// a-codex-agent-binds-only-the-thread-its-launcher-named.test.js.

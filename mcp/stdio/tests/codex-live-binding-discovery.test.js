@@ -10,19 +10,18 @@
 // `markerBaseDir()` derives from it on every call, so the redirection is total: every marker read,
 // write and delete below happens under a directory this file created.
 //
-// WHAT THE FUNCTION IS FOR. A resident codex agent's app server is discovered rather than configured:
+// WHAT THE FUNCTION IS FOR. Given a thread the launcher named, find the live app server holding it:
 // each wrapper writes a marker naming its `ws://` endpoint, and this walks the live ones asking each
 // which threads it holds. Getting it wrong binds an agent to ANOTHER agent's app server — the
-// cross-contamination class — so the interesting behaviour is where it REFUSES: two servers claiming
-// the same session are reported ambiguous with no runtimeConfig at all, rather than one being picked,
-// and a supplied handle that no live server holds resolves to NOTHING rather than to a cwd guess.
+// cross-contamination class — so the interesting behaviour is where it REFUSES: no handle binds
+// nothing (a cwd match is affinity, not ownership), two servers claiming the same session are
+// reported ambiguous with no runtimeConfig at all, and a handle no live server holds resolves to
+// NOTHING rather than to a cwd guess.
 //
 // THE `data`/`threads` SHAPE BUG THIS FILE FOUND. `thread/list` answers under either key depending on
-// the app-server build. `pickNewestCodexThreadId` accepted both; the handle-matching read here took
-// `listResult.threads` only. Against a `data`-shaped server its thread array was always empty, and
-// because every fallback branch is gated on there being NO handle, the whole function returned null
-// for EVERY call that supplied one — a resident codex agent with a stored session handle could not be
-// bound at all. The tolerance now lives in one accessor, `codexThreadListItems`, used by both.
+// the app-server build, and the handle-matching read here took `listResult.threads` only. Against a
+// `data`-shaped server its thread array was always empty, so the function returned null for EVERY
+// call that supplied a handle. The fake below answers under `data`, so the handle tests pin it.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -66,16 +65,14 @@ function pickPort() {
   });
 }
 
-// The fake reports its own process cwd as every thread's cwd, so `serverCwd` is the workspace its
-// threads belong to.
-async function withFakeAppServers(count, thread, fn, { serverCwd = process.cwd() } = {}) {
+async function withFakeAppServers(count, thread, fn) {
   const children = [];
   const urls = [];
   try {
     for (let i = 0; i < count; i += 1) {
       const url = `ws://127.0.0.2:${await pickPort()}`;
       const child = spawn(process.execPath, [FAKE, "--listen", url], {
-        cwd: serverCwd,
+        cwd: process.cwd(),
         env: { ...sealedChildEnv(), FAKE_CODEX_RESIDENT_THREAD: thread, FAKE_CODEX_THREAD_LIST_KEY: "data" },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -110,7 +107,7 @@ test("a marker for a DEAD process is deleted while it is walked", () => {
   clearMarkers();
   writeMarker("dead", { pid: 999_999_998, appServerUrl: "ws://127.0.0.2:1" });
   assert.equal(fs.readdirSync(MARKER_DIR).length, 1);
-  return discoverCodexLiveBinding({}).then(() => {
+  return discoverCodexLiveBinding({ sessionHandle: "any-thread" }).then(() => {
     assert.deepEqual(fs.readdirSync(MARKER_DIR), []);
   });
 });
@@ -119,7 +116,7 @@ test("a marker for a DEAD process is deleted while it is walked", () => {
 
 test("no markers at all is null", async () => {
   clearMarkers();
-  assert.equal(await discoverCodexLiveBinding({}), null);
+  assert.equal(await discoverCodexLiveBinding({ sessionHandle: "any-thread" }), null);
 });
 
 test("a marker with NO app server url is not a live binding", async () => {
@@ -127,7 +124,7 @@ test("a marker with NO app server url is not a live binding", async () => {
   // driven. Treating the rest as candidates would connect to nothing and report a binding.
   clearMarkers();
   writeMarker("no-url", {});
-  assert.equal(await discoverCodexLiveBinding({}), null);
+  assert.equal(await discoverCodexLiveBinding({ sessionHandle: "any-thread" }), null);
 });
 
 test("an app server url that is not a WEBSOCKET is not a live binding", async () => {
@@ -136,7 +133,7 @@ test("an app server url that is not a WEBSOCKET is not a live binding", async ()
   clearMarkers();
   for (const appServerUrl of ["http://127.0.0.2:1", "127.0.0.2:1", ""]) {
     writeMarker("scheme", { appServerUrl });
-    assert.equal(await discoverCodexLiveBinding({}), null, appServerUrl);
+    assert.equal(await discoverCodexLiveBinding({ sessionHandle: "any-thread" }), null, appServerUrl);
   }
 });
 
@@ -145,53 +142,35 @@ test("a marker whose app server is UNREACHABLE is null, not an error", async () 
   // Throwing here would fail the registration that asked, instead of falling back to message-only.
   clearMarkers();
   writeMarker("gone", { appServerUrl: "ws://127.0.0.2:1" });
-  assert.equal(await discoverCodexLiveBinding({}), null);
+  assert.equal(await discoverCodexLiveBinding({ sessionHandle: "any-thread" }), null);
 });
 
-// ── binding to a live server ────────────────────────────────────────────────────────────────────
+// ── no handle binds nothing ─────────────────────────────────────────────────────────────────────
 
-test("one live app server binds by CWD when no session handle is given", async () => {
-  // A fresh registration has no handle yet. The thread whose cwd matches the agent's workspace is the
-  // one it is sitting in; picking any other would attach it to somebody else's conversation.
+test("NO HANDLE binds nothing, even a live server whose only thread is in this workspace", async () => {
+  // A cwd match is affinity, not ownership: two codex sessions in one directory share it, and
+  // `thread/list` lists every rollout on the machine, not only the live ones. Until 2026-10-20 this
+  // returned the server and its newest cwd-matching thread; before 211d2953, the newest thread from
+  // any workspace, which bound a fresh agent to the operator's own Codex Desktop conversation.
   clearMarkers();
-  await withFakeAppServers(1, "thread-cwd", async ([url]) => {
+  await withFakeAppServers(1, "thread-in-this-workspace", async ([url]) => {
     writeMarker("live", { appServerUrl: url });
-    const result = await discoverCodexLiveBinding({ cwd: process.cwd() });
-    assert.ok(result, "no binding was discovered");
-    assert.equal(result.ambiguous, false);
-    assert.equal(result.threadId, "thread-cwd");
-    assert.equal(result.runtimeConfig.appServerUrl, url);
+    assert.equal(await discoverCodexLiveBinding({}), null);
+    assert.equal(await discoverCodexLiveBinding({ sessionHandle: "   " }), null, "blank is no handle");
+    // Control: the same live server IS bound by the id it holds, so the null above is the refusal
+    // and not an unreachable fixture.
+    const control = await discoverCodexLiveBinding({ sessionHandle: "thread-in-this-workspace" });
+    assert.equal(control?.runtimeConfig?.appServerUrl, url, JSON.stringify(control));
   });
 });
 
-test("one live server whose threads are all in ANOTHER workspace binds nothing", async () => {
-  // The 2026-10-19 case. A fresh agent has no handle, and the only live server's threads belong to a
-  // different directory. This used to return that server with its newest thread, which is how an
-  // agent was bound to the operator's own Codex Desktop conversation. Null means message-only, which
-  // is recoverable; the foreign thread is not.
-  clearMarkers();
-  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "aify-foreign-workspace-"));
-  try {
-    await withFakeAppServers(1, "thread-foreign", async ([url]) => {
-      writeMarker("live", { appServerUrl: url });
-      const result = await discoverCodexLiveBinding({ cwd: process.cwd() });
-      assert.equal(result, null, JSON.stringify(result));
-      // Control: the same server IS bound when asked from the workspace its thread is in.
-      const control = await discoverCodexLiveBinding({ cwd: fs.realpathSync(elsewhere) });
-      assert.equal(control?.threadId, "thread-foreign", JSON.stringify(control));
-    }, { serverCwd: elsewhere });
-  } finally {
-    fs.rmSync(elsewhere, { recursive: true, force: true });
-  }
-});
+// ── binding to a live server ────────────────────────────────────────────────────────────────────
 
 test("a SESSION HANDLE that one server holds binds to that server", async () => {
   clearMarkers();
   await withFakeAppServers(1, "thread-known", async ([url]) => {
     writeMarker("live", { appServerUrl: url });
-    const result = await discoverCodexLiveBinding({
-      sessionHandle: "thread-known", cwd: process.cwd(),
-    });
+    const result = await discoverCodexLiveBinding({ sessionHandle: "thread-known" });
     assert.equal(result.threadId, "thread-known");
     assert.equal(result.ambiguous, false);
     assert.equal(result.runtimeConfig.appServerUrl, url);
@@ -204,7 +183,7 @@ test("the marker's AUTH TOKEN ENV NAME travels into the runtime config", async (
   clearMarkers();
   await withFakeAppServers(1, "thread-token", async ([url]) => {
     writeMarker("live", { appServerUrl: url, remoteAuthTokenEnv: "SOME_TOKEN_VAR" });
-    const result = await discoverCodexLiveBinding({ cwd: process.cwd() });
+    const result = await discoverCodexLiveBinding({ sessionHandle: "thread-token" });
     assert.equal(result.runtimeConfig.remoteAuthTokenEnv, "SOME_TOKEN_VAR");
     assert.ok(!JSON.stringify(result).includes("SOME_TOKEN_VALUE"));
   });
@@ -220,9 +199,7 @@ test("TWO servers holding the same session are AMBIGUOUS, with no config", async
   await withFakeAppServers(2, "thread-shared", async ([first, second]) => {
     writeMarker("a", { appServerUrl: first });
     writeMarker("b", { appServerUrl: second });
-    const result = await discoverCodexLiveBinding({
-      sessionHandle: "thread-shared", cwd: process.cwd(),
-    });
+    const result = await discoverCodexLiveBinding({ sessionHandle: "thread-shared" });
     assert.equal(result.ambiguous, true);
     assert.equal(result.threadId, "thread-shared");
     assert.equal(result.runtimeConfig, null);
@@ -230,32 +207,14 @@ test("TWO servers holding the same session are AMBIGUOUS, with no config", async
 });
 
 test("a session handle NO server holds is NOT resolved by cwd", async () => {
-  // I expected a cwd fallback here and the code refuses — correctly, and the refusal is the point.
-  // Every fallback branch is gated on there being NO handle: if one was supplied and no live server
-  // holds it, binding to a server that holds a DIFFERENT thread would resume somebody else's
-  // conversation. Null means message-only, which is recoverable; the wrong thread is not.
+  // If a handle was supplied and no live server holds it, binding to a server that holds a DIFFERENT
+  // thread would resume somebody else's conversation. Null means message-only, which is recoverable;
+  // the wrong thread is not.
   clearMarkers();
   await withFakeAppServers(1, "thread-actual", async ([url]) => {
     writeMarker("live", { appServerUrl: url });
-    const result = await discoverCodexLiveBinding({
-      sessionHandle: "thread-that-aged-out", cwd: process.cwd(),
-    });
+    const result = await discoverCodexLiveBinding({ sessionHandle: "thread-that-aged-out" });
     assert.equal(result, null);
-  });
-});
-
-test("TWO live servers and no handle is not resolved by cwd alone", async () => {
-  // Both match the cwd, so the cwd cannot discriminate. Anything other than a refusal here is a coin
-  // toss between two agents' app servers.
-  clearMarkers();
-  await withFakeAppServers(2, "thread-shared-cwd", async ([first, second]) => {
-    writeMarker("a", { appServerUrl: first });
-    writeMarker("b", { appServerUrl: second });
-    const result = await discoverCodexLiveBinding({ cwd: process.cwd() });
-    if (result) {
-      assert.equal(result.ambiguous, true, JSON.stringify(result));
-      assert.equal(result.runtimeConfig, null);
-    }
   });
 });
 

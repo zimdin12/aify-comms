@@ -77,7 +77,6 @@ export {
   resolveCodexRequestCwd,
   codexSpawnCwd,
   hasCodexLiveAppServer,
-  discoverCodexLiveThreadId,
   discoverCodexLiveBinding,
 } from "./runtimes-codex.js";
 
