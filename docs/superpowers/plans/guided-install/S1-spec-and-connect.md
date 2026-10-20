@@ -185,3 +185,18 @@ Rules:
 - Every probe is checked 200 keyed, 401 unkeyed, 401 wrong key. An absent `probe` means `stored, not probed`.
 - A `pending` artifact carries no `sha256`.
 - `version` is the service's own. It is shown to the operator, and nothing keys on it.
+
+## File-set manifests are served, not written on the host (decided 2026-10-20, reversible)
+
+Found while building connect: a file-set's `sha256` binds a manifest, but nothing on a host holds one.
+- A `file-set` artifact carries `manifest: {path}`, an absolute route. The service serves it unauthenticated, under the
+  spec's redirect and authority rules. A non-200 or HTML answer is refused.
+- `sha256(manifest bytes)` must equal the artifact's `sha256`.
+- Format: `sha256sum` text. One `<64 hex>  <relative/path>` per line, LF, sorted by path. `..`, absolute paths and
+  backslashes are refused.
+- Connect checks that every listed file at the install root matches its line and that every `entries` file is listed.
+  It reports unlisted extra files without failing on them.
+- comms' manifest lists exactly what `copy_bridge_to_native_dir` (install.sh:279-366) materialises, not every
+  tracked file under `mcp/stdio`. S2's acquire step materialises from the same manifest. install.sh is not edited for
+  S1.
+- The dashboard's artifact is a `package`, so this does not apply to it.
