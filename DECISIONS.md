@@ -6,6 +6,18 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## After the status switch, reply reminders wait for idle (Steven, 2026-10-21)
+
+- **Reply-overdue reminders and the stranded-reply check pause while aify-env says the agent is busy with
+  anything, or its state is unknown** (dashboard question 01M5D9WJ, answered "sure"). A reminder is sent, and a
+  run whose reply never came is failed, only once the agent is idle. This is decision 1 of the hard-switch plan
+  (`docs/superpowers/plans/2026-10-20-s4-hard-switch.md`), adopted before SW5L as the plan requires.
+- **Why:** after the switch comms knows only busy or not busy. aify-env's turns carry no run id, so comms cannot
+  tell "working on this message" from "working on another". No reminder interrupts work, and a lost message is
+  failed later, never sooner.
+- **Cost, accepted:** a reminder about message A waits while the agent works on unrelated message B. Keeping
+  today's per-message exactness would need delivery receipts in every harness.
+
 ## comms never times turns; aify-env alone decides "busy" (Steven, 2026-10-20)
 
 Asked as 01M5D55H, after he answered N2 with "what is the best design that has good separation of concerns. and that
