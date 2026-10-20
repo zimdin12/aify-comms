@@ -22,6 +22,9 @@ class ApplyResult:
     reason: str | None = None
 
 
+#: Why a publisher retires its key (B5): only a clean shutdown that proved every lifetime it published ended.
+RETIREMENT_REASONS = {'shutdown'}
+
 # Pinned agent-state.mjs deriveAgentState and AgentStateHost.current vocabulary.
 _STATES = {'unknown', 'stopped', 'misconfigured', 'working', 'blocked', 'shell', 'idle', 'starting', 'available', 'offline'}
 _CAUSES = {'unrecognised', 'operator-stop', 'conflict', 'config', 'identity-unknown', 'screen', 'turn-open', 'at-prompt', 'starting', 'startable', 'absent', 'turn-unknown'}
@@ -127,11 +130,14 @@ def _record(record):
 def _validate(body):
     _require(type(body) is dict, 'expected publication object')
     kind = body.get('kind')
-    _word(kind, {'snapshot', 'changes', 'unavailable'})
+    _word(kind, {'snapshot', 'changes', 'unavailable', 'retired'})
     common = ('kind', 'machineId', 'instance', 'generation', 'incarnationId', 'publication', 'inputs')
     if kind == 'unavailable':
         _object(body, (*common, 'reason'), ('build',))
         _text(body['reason'])
+    elif kind == 'retired':
+        _object(body, (*common, 'reason'), ('build',))
+        _word(body['reason'], RETIREMENT_REASONS)
     elif kind == 'snapshot':
         _object(body, (*common, 'complete', 'agents'), ('removed', 'build'))
         _require(body['complete'] is True, 'snapshot must be complete')
@@ -144,7 +150,7 @@ def _validate(body):
     for key in ('generation', 'publication'):
         _integer(body[key], 1)
     _require(type(body['inputs']) is dict and all(type(v) is str for v in body['inputs'].values()), 'inputs must be string object')
-    if kind == 'unavailable':
+    if kind in ('unavailable', 'retired'):
         return
     _require(type(body['agents']) is list and type(body.get('removed', [])) is list, 'expected row arrays')
     ids = set()
@@ -169,7 +175,27 @@ def _order(previous, body, digest):
         return 'stale'
     if body['publication'] == previous['publication']:
         return 'duplicate' if digest == previous['digest'] else 'conflict'
+    if previous['kind'] == 'retired':  # the publisher said this generation holds nothing: a later body of it is late
+        return 'retired'
     return None
+
+
+def _retire(key):
+    """After a retirement's commit (B5): K leaves the mirror and the fold forgets every lineage baseline on K's machine.
+    No provenance is applied and no delivery turn is written: a retirement observes no turn. If either step fails, K
+    stays absent and every other publisher becomes a known loss, each recovering on its own next snapshot."""
+    try:
+        before = shadow.mirror.view()
+    except Exception:
+        before = None
+    try:
+        shadow.mirror.retire(key)
+        delivery_turns.FOLD.forget(key[0])
+    except Exception:
+        lost = shadow.retire_safe(key, before)
+        delivery_turns.FOLD.lose_everything()
+        shadow.recorder.provenance.applied(None)
+        shadow.recorder.lost(lost)
 
 
 def _json(value):
@@ -206,12 +232,17 @@ class AgentStateShadowStore:
                     await db.rollback()
                     return ApplyResult(False, refusal)
                 await self._write_cursor(db, key, body, digest)
-                if body['kind'] != 'unavailable':
+                if body['kind'] == 'retired':
+                    await self._write_retirement(db, key, body, applied_at)
+                elif body['kind'] != 'unavailable':
                     await self._write_data(db, key, body, previous, applied_at)
                 await db.commit()
             except BaseException:
                 await db.rollback()
                 raise
+            if body['kind'] == 'retired':
+                _retire(key)
+                return ApplyResult(True)
             # Outside transaction rollback handling, before the next await including close.
             try:
                 if projection is None:
@@ -223,8 +254,13 @@ class AgentStateShadowStore:
                 projection = None
             if body['kind'] != 'unavailable' or projection is None:  # what this publication put into effect (B6a)
                 shadow.recorder.provenance.applied(projection)
-            # The delivery-turn fold reads the same committed publication, or loses what it knew (S2c slice 2).
-            delivery_turns.publish_applied(projection, shadow.mirror.view())
+            # The delivery-turn fold reads the same committed publication, or loses what it knew (S2c slice 2). A mirror
+            # left unreadable by a failed retirement (B5) loses the fold too, rather than failing a committed apply.
+            try:
+                view = shadow.mirror.view()
+            except Exception:
+                view, projection = None, None
+            delivery_turns.publish_applied(projection, view)
             return ApplyResult(True)
         finally:
             await db.close()
@@ -238,6 +274,14 @@ class AgentStateShadowStore:
             inputs=excluded.inputs,reason=excluded.reason''',
             (*key, body['generation'], body['incarnationId'], body['publication'], digest,
              body['kind'], _json(body['inputs']), body.get('reason')))
+
+    async def _write_retirement(self, db, key, body, applied_at):
+        """K holds nothing from now on: its rows go, and its data columns name the retirement."""
+        await db.execute('DELETE FROM agent_state_shadow_rows WHERE machine_id=? AND instance=?', key)
+        await db.execute('''UPDATE agent_state_shadow_publishers SET data_generation=?,
+            data_incarnation_id=?,data_publication=?,data_applied_at=?,data_inputs=?
+            WHERE machine_id=? AND instance=?''',
+            (body['generation'], body['incarnationId'], body['publication'], applied_at, _json(body['inputs']), *key))
 
     async def _write_data(self, db, key, body, previous, applied_at):
         # Unavailable can move the cursor ahead without changing the stored data generation.

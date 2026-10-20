@@ -116,6 +116,12 @@ class Mirror:
                               old.build if old else None)
         self._view = MappingProxyType(view)
 
+    def retire(self, key):
+        """Drop a retired publisher entirely (B5): it holds no record and no build from now on."""
+        view = dict(self._view)
+        view.pop(key, None)
+        self._view = MappingProxyType(view)
+
     def feed(self, projection):
         p = projection
         view = dict(self._view)
@@ -335,6 +341,10 @@ class Recorder:
         if 'partialDisagreed' in names and owner in EVIDENCE_OWNERS:
             self.evidence.capture(key, evidence)
 
+    def lost(self, keys):
+        """Publishers whose loss a failed retirement installed (B5): each recovers only on its own comparison."""
+        self._lost.update(keys)
+
     def take(self):
         """Since the last take: the counts keyed (owner, variant, site, name), the scopes a loss was observed for, and
         the publisher keys a comparison completed for. All three reset."""
@@ -391,6 +401,29 @@ def invalidate_safe(key):
         # Drop all live knowledge. Previously captured immutable views remain valid.
         mirror = Mirror()
         Mirror.invalidate(mirror, key)
+
+
+class _UnreadableMirror(Mirror):
+    """What a failed retirement leaves when the view it started from could not be read: every bind is a loss until
+    comms restarts, because there is no list of keys whose snapshots would end it."""
+
+    def view(self):
+        raise RuntimeError('the mirror was lost with no view to rebuild it from')
+
+
+def retire_safe(key, before):
+    """A retirement committed but dropping K failed (B5). K is absent, and every other publisher in `before` becomes the
+    existing lost entry (no rows, no build, loss). Returns the keys made lost. An empty Mirror would read as a healthy
+    empty view, and `invalidate_safe(K)` would keep K's rows, so neither is used."""
+    global mirror
+    if before is None:
+        mirror = _UnreadableMirror()
+        return ()
+    mirror = Mirror()
+    lost = tuple(k for k in before if k != key)
+    for k in lost:
+        Mirror.invalidate(mirror, k)
+    return lost
 
 
 def association(agent_row):
