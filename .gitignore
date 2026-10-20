@@ -9,6 +9,8 @@ docker-compose.override.yml
 # A placeholder is committed via `git add -f` so a fresh checkout still parses;
 # this entry keeps the per-build regenerated values out of the diff.
 service/_build_stamp.json
+# The registration spec stamp.sh writes beside it, bound to the same sha (guided install S1).
+service/_service_spec.json
 
 # Python
 __pycache__/

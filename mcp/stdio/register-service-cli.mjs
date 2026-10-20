@@ -15,8 +15,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
 import { SERVICE_NAME, upsertService } from "./service-registry.mjs";
+// The fixed fields and the two servers come from the spec this service serves, so the entry written
+// here and the one a connect renders from `/.well-known/aify-service` are one definition.
+import { fixedFields, renderStdioMcp } from "./service-spec.mjs";
 
 const EXIT_CONFIG = 78;
 // SERVICE_NAME is imported from service-registry.mjs, which owns the registry concept.
@@ -41,16 +43,10 @@ try {
 
 const result = upsertService(existing, SERVICE_NAME, {
   endpoint,
-  // Declared from the bridge's own list rather than typed here. A name the bridge reads but the
-  // registry does not declare gets INHERITED from whatever launched the runtime, because a runtime's
-  // per-server MCP env block is key-scoped.
-  endpointEnv: ENDPOINT_ENV_NAMES,
-  // Declared for the same reason as the endpoint names, and it was the half left undone. A per-server
-  // MCP env block is key-scoped, so a key name the bridge reads but the registry does not declare is
-  // INHERITED from whatever launched the runtime -- one service's credential reaching another
-  // service's bridge, accepted or refused for reasons visible from neither side.
-  keyEnv: API_KEY_ENV_NAMES,
-  agentState: { path: "/api/v1/agent-state" },
+  // endpointEnv and keyEnv are the names the bridge reads, declared because a runtime's per-server MCP
+  // env block is key-scoped: a name the registry does not declare is INHERITED from whatever launched
+  // the runtime, one service's credential reaching another's bridge. agentState is where aify-env posts.
+  ...fixedFields(),
   // WHERE THE KEY FILE IS, when the installer stored one. `keyEnv` only reaches a process somebody
   // exported a variable into, and nothing on this host does that for aify-env -- which is why
   // enabling API_KEY made every advertisement 401 in silence. This is the other half: one basename
@@ -58,10 +54,7 @@ const result = upsertService(existing, SERVICE_NAME, {
   // including an unavailable carrier on reinstall. Pass undefined to preserve the published ref;
   // intentional clearing remains the writer API's explicit credentialRef: null, not an env blank.
   credentialRef: String(process.env.CREDENTIAL_REF || "").trim() || undefined,
-  mcp: [
-    { name: "aify-comms", command: "node", args: [`${bridgeDir}/server.js`] },
-    { name: "aify-comms-channel", command: "node", args: [`${bridgeDir}/claude-channel.js`] },
-  ],
+  mcp: renderStdioMcp(bridgeDir),
 });
 
 if (!result.ok) {

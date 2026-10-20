@@ -39,7 +39,7 @@ API_KEY = "correct-horse-battery-staple"
 #: below compares this list against the middleware's own, so drift fails rather than passing quietly.
 EXPECTED_SKIPS = [
     "/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json",
-    "/ws", "/favicon", "/api/v1/favicon",
+    "/ws", "/favicon", "/api/v1/favicon", "/.well-known/aify-service",
 ]
 
 
@@ -206,7 +206,10 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
         public_endpoints = {"/health", "/ready", "/version", "/ws",
                             "/docs", "/redoc", "/openapi.json",
                             "/favicon.svg", "/favicon.ico",
-                            "/api/v1/favicon.svg", "/api/v1/favicon.ico"}
+                            "/api/v1/favicon.svg", "/api/v1/favicon.ico",
+                            # The registration spec a new host reads before it holds a key (guided install
+                            # S1). It serves names, paths and hashes, never a value.
+                            "/.well-known/aify-service"}
 
         unexpected = sorted(
             route.path for route in walk_routes(app)
