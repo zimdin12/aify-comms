@@ -13,7 +13,7 @@ would fit our plugin or modular based stack". Answered "jeah".
 
 - **aify-env decides whether an agent is busy, and it is the only place a turn's age is judged.** It runs on the
   agent's machine. Today it holds a turn busy while it can verify the agent's process, with no timer, and falls back
-  to a 30-minute limit only for a process it cannot verify (lib/turn-events.mjs:96-101).
+  to a 30-minute limit only for a process it cannot verify (aify-env `turnIsBusy` in lib/turn-events.mjs).
 - **comms keeps only what it owns:** runs, messages and delivery. It reads aify-env's busy flag, with no turn
   timers, stale-turn estimate or clock maths. N2 and the comms halves of the clock-safety and stale-turn-ceiling
   work go away.
@@ -39,8 +39,8 @@ would fit our plugin or modular based stack". Answered "jeah".
   based logic again (i hate these). we do plan to do hard switch when it is ready and mb tested in container or wsl".
   The comparison's shadow lives in memory, so every comms restart blinded it.
 - **Correction (same day):** the question he answered said the switched system persists its turn record. It does
-  not, and no plan built that. The delivery turn (`delivery_turns.py:300`) and the mirror of aify-env's records
-  (`partial_status_shadow.py:392`) live only in memory. `agent_state_shadow_rows` is written and never read back.
+  not, and no plan built that. The delivery turn (`delivery_turns.FOLD`) and the mirror of aify-env's records
+  (`partial_status_shadow.mirror`) live only in memory. `agent_state_shadow_rows` is written and never read back.
   So the switch itself needs comms to reload aify-env's records at start (and either a persisted delivery turn or
   none). Without that, a comms restart would blind the live product, not just the comparison.
 - **What is lost:** the comparison measured the real fleet: Hermes gateways, resident Claude panes, agents
