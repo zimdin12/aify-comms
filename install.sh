@@ -1477,50 +1477,49 @@ install_codex_turn_hooks() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local hooks_file="$codex_home/hooks.json"
   mkdir -p "$codex_home"
-  if [ ! -f "$hooks_file" ]; then
-    echo '{"hooks":{}}' > "$hooks_file"
-  fi
+  [ -f "$hooks_file" ] || echo '{"hooks":{}}' > "$hooks_file"
   enable_codex_hooks_feature
-  local node_hooks_file
-  node_hooks_file="$(path_for_node "$hooks_file")"
-  MSYS_NO_PATHCONV=1 node -e "
+  local node_hooks_file; node_hooks_file="$(path_for_node "$hooks_file")"
+  local context_cmd='if [ -n "${AIFY_AGENT_ID:-}" ]; then node "'"$AIFY_BRIDGE_DIR/node_modules/aify-wrapper/bin/aify-turn-start.mjs"'"; fi'
+  local curl_cmd='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/ROUTE" >/dev/null 2>&1 || true; fi'
+  local written; written="$(MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd] = process.argv.slice(1);
+    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd, contextCmd, oldStart, oldEnd] = process.argv.slice(1);
     let data = { hooks: {} };
     try {
       data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
     } catch (err) {
       try {
-        if (fs.existsSync(hooksPath)) {
-          const bak = hooksPath + '.aify-bak-' + Date.now();
-          fs.copyFileSync(hooksPath, bak);
-          console.error('[aify-install] WARN: ' + hooksPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.');
-        }
+        if (fs.existsSync(hooksPath)) { const bak = hooksPath + '.aify-bak-' + Date.now(); fs.copyFileSync(hooksPath, bak); console.error('[aify-install] WARN: ' + hooksPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.'); }
       } catch (_) {}
     }
-    if (!data || typeof data !== 'object') data = {};
-    if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
-    const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-start', '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'agent-state-event.mjs'];
-    const ours = (group) => OURS.some(marker => JSON.stringify(group).includes(marker));
-    // IN PLACE: codex keys trust by a group's index, so appending ours would move the user hooks after it.
-    const wire = (eventKey, cmd) => {
+    if (!data || typeof data !== 'object') data = {}; if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
+    // OURS is a one-hook group whose command is exactly one this installer wrote for that event: today's, or the 2026-05 curl form. Anything else, a group that only names a file included, is the operator's and keeps its place.
+    const exact = (cmds) => (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && cmds.includes(g.hooks[0].command);
+    const placed = [];
+    const wire = /* NO INDEX MOVES: codex keys trust by a group's index. One group of ours is replaced where it stands, none is appended, and more than one is left as it is, with no trust recorded: removing a duplicate would shift the operator's groups after it. */(eventKey, cmds, hook = { type: 'command', command: cmds[0], timeout: 3, async: true }) => {
       const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
-      const first = groups.findIndex(ours);
-      const kept = groups.filter(group => !ours(group));
-      kept.splice(first < 0 ? kept.length : first, 0, { hooks: [{ type: 'command', command: cmd, timeout: 3, async: true }] });
-      data.hooks[eventKey] = kept;
+      const owned = groups.map((g, i) => (exact(cmds)(g) ? i : -1)).filter(i => i >= 0);
+      if (owned.length > 1) return console.error('[aify-install] WARN: codex ' + eventKey + ' holds ' + owned.length + ' aify hook groups; left as they are, with no trust recorded. Remove the extra ones and reinstall.');
+      const group = { hooks: [hook] };
+      if (owned.length === 1) groups[owned[0]] = group; else groups.push(group);
+      data.hooks[eventKey] = groups;
+      placed.push([eventKey, group]);
     };
-    wire('UserPromptSubmit', startCmd);
-    wire('Stop', endCmd);
-    wire('Interrupt', endCmd);
-    wire('SessionStart', endCmd);
-    wire('PermissionRequest', blockedCmd);
-    wire('PostToolUse', unblockedCmd);
+    wire('UserPromptSubmit', [startCmd, oldStart]);
+    // The runner's context hook: own group, synchronous, unredirected (codex reads its stdout), gated (Codex Desktop reads this file).
+    wire('UserPromptSubmit', [contextCmd], { type: 'command', command: contextCmd, timeout: 5 });
+    wire('Stop', [endCmd, oldEnd]);
+    wire('Interrupt', [endCmd]);
+    wire('SessionStart', [endCmd]);
+    wire('PermissionRequest', [blockedCmd]);
+    wire('PostToolUse', [unblockedCmd]);
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
-  " "$node_hooks_file" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" \
-    "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)"
-  MSYS_NO_PATHCONV=1 node "$(path_for_node "$AIFY_BRIDGE_DIR/codex-hook-trust.mjs")" "$node_hooks_file" \
-    "$(path_for_node "$codex_home/config.toml")" || true
+    // What was written and where, so trust is recorded for those coordinates and nothing else.
+    process.stdout.write(JSON.stringify(placed.map(([event, group]) => ({ event, group: data.hooks[event].indexOf(group), hook: 0, command: group.hooks[0].command }))));
+  " "$node_hooks_file" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" "$(agent_state_hook_command blocked)" \
+    "$(agent_state_hook_command unblocked)" "$context_cmd" "${curl_cmd/ROUTE/turn-start}" "${curl_cmd/ROUTE/turn-end}")"
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$AIFY_BRIDGE_DIR/codex-hook-trust.mjs")" "$node_hooks_file" "$(path_for_node "$codex_home/config.toml")" "$written" || true
 }
 
 install_hermes_turn_hooks() {

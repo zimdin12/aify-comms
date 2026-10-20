@@ -1,10 +1,13 @@
-// Codex trust for the resident state hooks install.sh writes into ~/.codex/hooks.json.
+// Codex trust for the resident state hooks and the turn-start context hook install.sh writes into ~/.codex/hooks.json.
 //
 // WHY. Codex skips a hooks.json hook whose `[hooks.state.'<file>:<event>:<group>:<hook>']` holds no
 // matching trusted_hash, and a managed worker RESUMING a thread stops at codex's "hooks are new or
 // changed" screen with nobody there to answer it (measured by aify-wrapper, lib/codex-herdr-hooks.mjs).
 // Every reinstall that changes these command strings did that to hooks the operator had already trusted.
-// So the installer records trust for exactly the hooks it wrote, and for nothing else in the file.
+// So the installer records trust for exactly the hooks it wrote, and for nothing else in the file: its writer reports
+// each hook it placed as {event, group, hook, command}, and only a hook found at those coordinates with that command is
+// trusted. A file name, or the same command under another event or index, is no proof of who wrote it; with nothing
+// reported, or a report that does not parse, nothing is trusted.
 //
 // THE HASH is codex's own: sha256 over compact JSON with sorted keys of the hook's identity. For a plain
 // command hook that is {event_name, hooks:[{async, command, timeout, type:"command"}]}. It
@@ -22,9 +25,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-/** What marks a hooks.json command as one install.sh wrote. */
-const AIFY_HOOK_MARKER = "agent-state-event.mjs";
-
 const SQ = "'";
 
 function snakeEvent(name) {
@@ -36,22 +36,19 @@ function codexHookHash(event, command, timeout, async = false) {
   return `sha256:${crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
 }
 
-/** The trust entries for the aify hooks in a parsed hooks.json, keyed as codex keys them. */
-function aifyHookTrust(hooksJson, hooksPath) {
+/** The trust entries for the hooks `written` reports, each checked at its coordinates in the parsed hooks.json. */
+function aifyHookTrust(hooksJson, hooksPath, written) {
   const entries = [];
-  for (const [eventName, groups] of Object.entries(hooksJson?.hooks || {})) {
-    if (!Array.isArray(groups)) continue;
-    groups.forEach((group, groupIndex) => {
-      if (!group || group.matcher !== undefined || !Array.isArray(group.hooks)) return;
-      group.hooks.forEach((hook, hookIndex) => {
-        const plain = hook && hook.type === "command" && typeof hook.command === "string"
-          && Number.isInteger(hook.timeout) && (hook.async === undefined || typeof hook.async === "boolean")
-          && Object.keys(hook).every((k) => ["type", "command", "timeout", "async"].includes(k));
-        if (!plain || !hook.command.includes(AIFY_HOOK_MARKER)) return;
-        const event = snakeEvent(eventName);
-        entries.push({ key: `${hooksPath}:${event}:${groupIndex}:${hookIndex}`, hash: codexHookHash(event, hook.command, hook.timeout, hook.async === true) });
-      });
-    });
+  for (const { event: eventName, group: groupIndex, hook: hookIndex, command } of Array.isArray(written) ? written : []) {
+    const group = (hooksJson?.hooks?.[eventName] || [])[groupIndex];
+    if (!group || group.matcher !== undefined || !Array.isArray(group.hooks)) continue;
+    const hook = group.hooks[hookIndex];
+    const plain = hook && hook.type === "command" && typeof hook.command === "string"
+      && Number.isInteger(hook.timeout) && (hook.async === undefined || typeof hook.async === "boolean")
+      && Object.keys(hook).every((k) => ["type", "command", "timeout", "async"].includes(k));
+    if (!plain || typeof command !== "string" || hook.command !== command) continue;
+    const event = snakeEvent(eventName);
+    entries.push({ key: `${hooksPath}:${event}:${groupIndex}:${hookIndex}`, hash: codexHookHash(event, hook.command, hook.timeout, hook.async === true) });
   }
   return entries;
 }
@@ -86,8 +83,10 @@ function withTrust(tomlText, entries) {
   return { text: lines.join(eol) + eol, untouched };
 }
 
-function main([hooksPath, configPath]) {
-  const entries = aifyHookTrust(JSON.parse(fs.readFileSync(hooksPath, "utf8")), hooksPath);
+function main([hooksPath, configPath, writtenJson]) {
+  let written = [];
+  try { written = JSON.parse(writtenJson || "[]"); } catch { written = []; }
+  const entries = aifyHookTrust(JSON.parse(fs.readFileSync(hooksPath, "utf8")), hooksPath, written);
   let toml = "";
   try { toml = fs.readFileSync(configPath, "utf8"); } catch {}
   const { text, untouched } = withTrust(toml, entries);

@@ -78,34 +78,40 @@ class _PatchFinder(importlib.abc.MetaPathFinder):
         return spec
 
 
-_HERDR_STATE: ModuleType | None = None
+# aify-wrapper's hermes plugins, by the variable hermes-aify names each in, and the module name each loads as:
+# the Herdr state hooks (only when its pane is claimed or aify-env assigned one), and the turn-start context
+# (only for an agent, aify-wrapper's hermes-turn-start.py).
+_WRAPPER_PLUGINS: dict[str, str] = {
+    "AIFY_HERDR_HERMES_PLUGIN": "aify_herdr_state",
+    "AIFY_TURN_START_HERMES_PLUGIN": "aify_turn_start",
+}
+_LOADED: dict[str, ModuleType] = {}
 
 
-def _register_herdr_state(ctx) -> None:  # noqa: ANN001 - hermes PluginContext
-    """Hand the PluginContext to aify-wrapper's Herdr state plugin, which hermes-aify names in
-    AIFY_HERDR_HERMES_PLUGIN only when its pane is claimed or aify-env assigned one. It is not a
-    patch, so it is registered on EVERY context: hermes keeps hooks per plugin manager, runs one
+def _register_wrapper_plugin(ctx, variable: str) -> None:  # noqa: ANN001 - hermes PluginContext
+    """Hand the PluginContext to the aify-wrapper plugin hermes-aify names in `variable`, if it names one.
+    Not a patch, so it is registered on EVERY context: hermes keeps hooks per plugin manager, runs one
     manager per profile home, and a forced re-discovery clears them, while _INSTALLED is per process.
     """
-    global _HERDR_STATE
-    path = os.environ.get("AIFY_HERDR_HERMES_PLUGIN", "").strip()
+    path = os.environ.get(variable, "").strip()
     if ctx is None or not path:
         return
     try:
-        if _HERDR_STATE is None:
-            spec = importlib.util.spec_from_file_location("aify_herdr_state", path)
+        if variable not in _LOADED:
+            spec = importlib.util.spec_from_file_location(_WRAPPER_PLUGINS[variable], path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            _HERDR_STATE = module
-        _HERDR_STATE.register(ctx)
-        _log(f"registered herdr state hooks from {path}")
-    except Exception as exc:  # the dot is cosmetic; hermes startup is not
-        _log(f"herdr state hooks not registered: {exc}")
+            _LOADED[variable] = module
+        _LOADED[variable].register(ctx)
+        _log(f"registered {variable} hooks from {path}")
+    except Exception as exc:  # each is an addition; hermes startup is not
+        _log(f"{variable} hooks not registered: {exc}")
 
 
 def install(ctx=None) -> None:  # noqa: ANN001 - hermes PluginContext
     global _INSTALLED
-    _register_herdr_state(ctx)
+    for variable in _WRAPPER_PLUGINS:
+        _register_wrapper_plugin(ctx, variable)
     if _INSTALLED:
         return
     _INSTALLED = True

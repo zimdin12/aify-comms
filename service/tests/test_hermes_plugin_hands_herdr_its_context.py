@@ -5,6 +5,9 @@ one. That file registers lifecycle hooks, and hermes only runs hooks for plugins
 `plugins.enabled`, so it has to ride on the plugin this repo already installs. These tests run the
 thin loader exactly as install.sh writes it, in a child interpreter, because bootstrap.install()
 changes sys.meta_path for the whole process.
+
+hermes-aify names aify-wrapper's hermes-turn-start.py module in AIFY_TURN_START_HERMES_PLUGIN for an agent, and the
+same loader hands it the context; without the variable that module is never imported.
 """
 
 from __future__ import annotations
@@ -55,8 +58,20 @@ def thin_loader() -> str:
     return match.group(1).replace("__AIFY_PLUGIN_PATH__", str(PLUGIN_ROOT))
 
 
+# Records its own import, so a test can tell a module that was never loaded from one loaded and not registered.
+TURN_START_PLUGIN = """
+import json, os
+with open(os.environ["RECORD"], "a") as f:
+    f.write(json.dumps({"imported": "turn-start"}) + "\\n")
+def register(ctx):
+    ctx.register_hook("pre_llm_call", "turn-start-hook")
+    with open(os.environ["RECORD"], "a") as f:
+        f.write(json.dumps({"turn-start": ctx.name}) + "\\n")
+"""
+
+
 class HermesPluginHandsHerdrItsContext(unittest.TestCase):
-    def run_loader(self, herdr_plugin: str | None, gate: str = "1") -> tuple[dict, list]:
+    def run_loader(self, herdr_plugin: str | None, gate: str = "1", turn_start: str | None = None) -> tuple[dict, list]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "loader.py").write_text(thin_loader(), encoding="utf-8")
@@ -64,6 +79,9 @@ class HermesPluginHandsHerdrItsContext(unittest.TestCase):
             record = root / "record.jsonl"
             env = {k: v for k, v in os.environ.items() if not k.startswith("AIFY_")}
             env.update({"AIFY_HERMES_PLUGIN": gate, "AIFY_HERMES_PLUGIN_PATH": str(PLUGIN_ROOT), "RECORD": str(record)})
+            (root / "turn_start.py").write_text(TURN_START_PLUGIN, encoding="utf-8")
+            if turn_start is not None:
+                env["AIFY_TURN_START_HERMES_PLUGIN"] = turn_start.replace("@", str(root / "turn_start.py"))
             if herdr_plugin is not None:
                 path = root / "herdr_state.py"
                 if herdr_plugin:
@@ -98,9 +116,29 @@ class HermesPluginHandsHerdrItsContext(unittest.TestCase):
         self.assertTrue(result["patched"], "a broken Herdr plugin path must not cost the gateway patches")
 
     def test_outside_hermes_aify_the_loader_does_nothing(self) -> None:
-        result, calls = self.run_loader(HERDR_PLUGIN, gate="")
+        result, calls = self.run_loader(HERDR_PLUGIN, gate="", turn_start="@")
         self.assertEqual(calls, [])
         self.assertFalse(result["patched"])
+
+    def test_the_turn_start_module_hermes_aify_names_is_imported_once_and_given_every_context(self) -> None:
+        result, calls = self.run_loader(HERDR_PLUGIN, turn_start="@")
+        self.assertEqual(calls, [{"ctx": "first"}, {"imported": "turn-start"}, {"turn-start": "first"},
+                                 {"ctx": "second"}, {"turn-start": "second"}])
+        self.assertEqual(result["first"], ["pre_llm_call", "pre_llm_call"])
+        self.assertTrue(result["patched"])
+
+    def test_no_turn_start_variable_never_imports_the_module(self) -> None:
+        # The module is on disk beside the loader in every run; only the variable decides whether it is loaded.
+        for unset in (None, "", "   "):
+            with self.subTest(variable=unset):
+                result, calls = self.run_loader(HERDR_PLUGIN, turn_start=unset)
+                self.assertEqual(calls, [{"ctx": "first"}, {"ctx": "second"}])
+                self.assertEqual(result["first"], ["pre_llm_call"])
+
+    def test_a_missing_turn_start_module_costs_neither_the_patches_nor_the_herdr_hooks(self) -> None:
+        result, calls = self.run_loader(HERDR_PLUGIN, turn_start="@.missing")
+        self.assertEqual(calls, [{"ctx": "first"}, {"ctx": "second"}])
+        self.assertTrue(result["patched"])
 
 
 if __name__ == "__main__":
