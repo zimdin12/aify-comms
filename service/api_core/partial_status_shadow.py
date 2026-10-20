@@ -116,6 +116,12 @@ class Mirror:
                               old.build if old else None)
         self._view = MappingProxyType(view)
 
+    def retire(self, key):
+        """Drop a retired publisher entirely (B5): it holds no record and no build from now on."""
+        view = dict(self._view)
+        view.pop(key, None)
+        self._view = MappingProxyType(view)
+
     def feed(self, projection):
         p = projection
         view = dict(self._view)
@@ -335,6 +341,11 @@ class Recorder:
         if 'partialDisagreed' in names and owner in EVIDENCE_OWNERS:
             self.evidence.capture(key, evidence)
 
+    def lost(self, keys):
+        """Loss scopes a failed retirement installed (B5): publisher keys, each recovering only on its own comparison,
+        or ALL_PUBLISHERS when the key list itself was lost."""
+        self._lost.update(keys)
+
     def take(self):
         """Since the last take: the counts keyed (owner, variant, site, name), the scopes a loss was observed for, and
         the publisher keys a comparison completed for. All three reset."""
@@ -382,15 +393,59 @@ mirror = Mirror()
 recorder = Recorder()
 
 
+class _UnreadableMirror(Mirror):
+    """What a failed retirement leaves when the view it started from could not be read: every bind is a loss until
+    comms restarts, because there is no list of keys whose snapshots would end it."""
+
+    def view(self):
+        raise RuntimeError('the mirror was lost with no view to rebuild it from')
+
+
+#: Set for the life of the process once a failed retirement lost the key list (B5). Every runtime replacement of the
+#: mirror goes through `_new_mirror`, so no later reset can hand back a readable view.
+_quarantined = False
+
+
+def _new_mirror():
+    return _UnreadableMirror() if _quarantined else Mirror()
+
+
 def invalidate_safe(key):
     """Keep committed acceptance even if diagnostic invalidation itself fails."""
-    global mirror
+    global mirror, _quarantined
     try:
         mirror.invalidate(key)
     except Exception:
-        # Drop all live knowledge. Previously captured immutable views remain valid.
-        mirror = Mirror()
-        Mirror.invalidate(mirror, key)
+        # Drop all live knowledge, but keep every loss already known: each ends only on its own publisher's next data
+        # publication (B5 review 9fc557b3). Previously captured immutable views remain valid.
+        try:
+            carried = [k for k, p in mirror.view().items() if p.loss and k != key]
+        except Exception:
+            # The known losses cannot be listed, so the population is unknown: fail closed as a failed retirement does,
+            # never as an empty list (B5 review 07997643).
+            _quarantined, carried = True, []
+            recorder.lost((ALL_PUBLISHERS,))
+        mirror = _new_mirror()
+        for k in (*carried, key):
+            Mirror.invalidate(mirror, k)
+
+
+def retire_safe(key, before):
+    """A retirement committed but dropping K failed (B5). K is absent, and every other publisher in `before` becomes the
+    existing lost entry (no rows, no build, loss). Returns the loss scopes to record: those keys, or ALL_PUBLISHERS
+    when there is no `before`. An empty Mirror would read as a healthy empty view, and `invalidate_safe(K)` would keep
+    K's rows, so neither is used. With no `before` the process is quarantined: no key list exists whose snapshots could
+    end the loss, so the loss is the whole view's."""
+    global mirror, _quarantined
+    if before is None:
+        _quarantined = True
+        mirror = _new_mirror()
+        return (ALL_PUBLISHERS,)
+    mirror = _new_mirror()
+    lost = tuple(k for k in before if k != key)
+    for k in lost:
+        Mirror.invalidate(mirror, k)
+    return lost
 
 
 def association(agent_row):

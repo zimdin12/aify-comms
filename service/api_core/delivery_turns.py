@@ -252,6 +252,15 @@ class DeliveryTurns:
                     self._origin[key] = 'lost'
         self._note(note)
 
+    def forget(self, machine):
+        """A publisher on `machine` retired (B5): every lineage baseline and freshness entry on that machine goes, so the
+        next observation of any lineage there reads as a first sight. Every baseline is written under its publication's
+        machine, so this covers whatever the retired key wrote or left behind. Turns, origins, reporters and estimates
+        stay: a retirement observes no turn and skips no observation."""
+        for table in (self._lineages, self._fresh):
+            for key in [k for k in table if k[0] == machine]:
+                del table[key]
+
     def _withhold(self, machine, record, clock):
         self._write((machine, record.agent_id), NOTHING_KNOWN, 'withheld')
         self._fresh.pop((machine, record.agent_id, record.lifetime), None)  # no baseline survives a withhold
