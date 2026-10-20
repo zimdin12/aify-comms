@@ -1,65 +1,54 @@
-# 0.9.8: the hard switch to aify-env's word (2026-10-20, plan revision 2, not built)
+# 0.9.8: the hard switch to aify-env's word (2026-10-20, plan revision 3, not built)
 
 This replaces S2-S4 and the C8 gate of `2026-10-18-status-switch.md`. It follows two operator rulings
 (DECISIONS.md, 2026-10-20):
-- **The gate is a sandbox, not a one-day live comparison.** Then a hard switch, with a rollback kept ready.
-- **comms never times turns.** aify-env alone decides `busy`, and comms queues when aify-env is silent.
+- **The gate is a sandbox, not a one-day live comparison.** Then a hard switch with a rollback kept ready.
+- **comms never times turns.** aify-env alone decides `busy`; comms queues when aify-env is silent.
 
-Revision 2 answers comms-senior-dev's shape input (reviewqueue-219/c8-n2-authority-1792516661010) and supersedes
-5e6c6654.
+Revision 3 answers REVISE s4-design-1792519039743 and supersedes 7e481315.
 
 ## The design in one paragraph
 
-comms keeps what it owns: messages, runs, delivery, and the handoff of a message to an agent. For "is this agent
-busy", it reads the top-level `busy` that aify-env publishes, and keeps no turn timer of its own. Three facts stay
-separate: whether aify-env's record is available, what it says about busy, and which handed-off messages the agent
-has not yet started a turn on. Unknown availability queues every send and withholds every claim, steer included. A
-handoff closes on a new turn, an outcome settlement or a lifetime change, never on time. At start, comms restores the
-records it last applied as last-known and stale, never as fresh, so delivery waits for each host's next publication.
+comms reads the top-level `busy` that aify-env publishes, and keeps no turn timer and no delivery-turn record. The gap
+between delivering a message and aify-env seeing the turn needs no comms record. Claude's channel queues mid-turn
+messages for the next turn, and Hermes' gateway refuses a busy submit, after which comms requeues the run (page 1
+evidence). Availability and busy are separate facts:
+- Eligibility is known only when every holder of the agent is fresh.
+- Unknown withholds every delivery route before busy and before steer.
+- After a restart, restored records stay unknown until a complete snapshot is accepted.
 
 ## Pages
 
-- [What comms reads](s4-hard-switch/1-what-comms-reads.md): the typed facts, the UNKNOWN predicate, `holdsDelivery`,
-  the message handoff, the readers, run correlation, and the restore.
-- [The sandbox gate](s4-hard-switch/2-sandbox-gate.md): the stand-in agent and the cases, each with what turns it
-  red.
-- [Switch, rollback, deletions](s4-hard-switch/3-switch-rollback-deletions.md): kept obligations, rollback inputs,
-  watch list, trigger, and SW7.
-- [The inventory, reclassified](s4-hard-switch/4-inventory-reclassified.md): all 31 rows of d227a123 under the new
-  authority.
+- [What comms reads](s4-hard-switch/1-what-comms-reads.md): the runtime evidence, the truth table, the readers, the
+  restart, and the operator decisions.
+- [The sandbox gate](s4-hard-switch/2-sandbox-gate.md): frozen cases with RED mutations that reach the predicate.
+- [Switch, rollback, deletions](s4-hard-switch/3-switch-rollback-deletions.md).
+- [The inventory, reclassified](s4-hard-switch/4-inventory-reclassified.md): all 31 rows of d227a123.
 
-## Slices, in order, each shippable alone
+## Slices, in order
 
 | # | slice | repo | depends on |
 |---|---|---|---|
-| SW1 | Restart restore: last-known and stale, unknown until the next publication, ordered before routes | comms | - |
-| SW2 | The operational view: `Record.busy`, typed availability, the UNKNOWN predicate, word and promotion, no timers | comms | - |
-| SW-H | Message handoff rows: opened by transport delivery, resolved by a new turn anchor, a settlement or a lifetime change | comms (+ bridge receipts read-only) | SW2's types |
-| SW3 | The sandbox gate: a stand-in agent plus cases on the env-against-comms runner | comms (+ env read-only) | green after SW1, SW2, SW-H |
-| SW4 | D8 rows 1 and 2; B4 producers traced, and built only if missing | comms, env | - |
-| SW5 | The switch: every reader rewired in one revertible commit; controls rebased; the rollback test | comms | SW1-SW4, SW3 green |
-| SW6 | Deploy, watch, and roll back on the trigger | comms | SW5 |
+| SW1 | Restart restore: `restored` until an accepted complete snapshot, loaded before the routes are served | comms | - |
+| SW2 | The operational view: `Record.busy`, the truth table, eligibility-first readers, the word with a last-known note, D8 precedence, and the no-timer unit witness | comms | - |
+| SW3 | The sandbox gate (page 2) | comms (+ env read-only) | green after SW1, SW2 |
+| SW4 | D8 rows; trace B4's producers and whether aify-env publishes undefined managed lifetimes, building only what is missing | comms, env | - |
+| SW5 | The switch: every reader rewired in one revertible commit (page 1 plus readiness, live counts, promotion); controls rebased; the rollback test | comms | SW1-SW4, SW3 green, R3 ruled |
+| SW6 | Deploy, watch, roll back on the trigger | comms | SW5 |
 | SW7 | Deletions and launchers to aify-env only, after the rollback gate | comms, wrapper | SW6 clean |
 
-SW1, SW2 and SW4 run in parallel. SW-H follows SW2's types.
+## Operator decisions (page 1 has the exact before and after)
 
-## Decisions this plan asks for
-
-1. **Run correlation.** Option A (recommended): comms correlates through its own handoff rows, and aify-env carries no
-   run id. Option B: aify-env's turn carries the reporter's `runId`, a schema change across all three repos. Handoff
-   coverage needs only A's data (`startedAtUs`), and B adds exactness for B21 and B26. Page 1.
-2. **The one clock comms keeps:** a publisher is fresh while its last applied publication is under 180 s old on comms'
-   own receipt clock (`age_class`). It times comms' receipt, never a turn, and it is the explicit freshness contract.
-   Page 1.
+1. **R3:** reply-overdue reminders pause while aify-env says the agent is busy with anything, and the stranded guard
+   protects any run while the agent is busy.
+2. **Receipt freshness, 180 s,** on comms' own clock. A missed publication reads `unknown`, and messages queue.
+3. **Only if SW4 finds aify-env publishes no undefined managed lifetimes:** such an agent reads `unknown` after its
+   cold start.
 
 ## ASSUMED, not checked
 
-- aify-env republishes within 180 s while it runs. `SNAPSHOT_MS` = 60 s sets the snapshot epoch
-  (env agent-state-sender.mjs); the send trigger was not read.
-- B4's implementation status. The host reads `given.screen` and `given.backgroundShells`, and their producers were
-  not traced.
-- A scripted stand-in can drive `POST /agents/:id/turn-event` (env protocol.mjs) for a lifetime aify-env launched.
-- After the switch, Hermes gateway turns reach aify-env through the wrapper's turn hooks.
-- A channel message injected mid-turn starts a new turn rather than being consumed silently. The channels
-  documentation says notifications that arrive while Claude is busy "are delivered together on the next turn"; Hermes
-  steer behaviour was not checked.
+- Claude's channel queueing, from the documentation, not executed here. The switch watch observes it.
+- Hermes `steer` landing only with `status: "queued"` means the gateway queues it. The code reads that status; gateway
+  internals were not read.
+- B4's producers, and whether aify-env publishes undefined managed lifetimes (SW4 traces both).
+- A scripted stand-in can drive `POST /agents/:id/turn-event` for a lifetime aify-env launched.

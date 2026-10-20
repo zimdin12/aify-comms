@@ -1,15 +1,13 @@
-# 3. The switch, the rollback, the deletions (revision 2)
+# 3. The switch, the rollback, the deletions (revision 3)
 
 ## Before the switch
 
-- **SW2, the operational view.** `commsView(records, dispatch, handoffs) -> {status, note, deliverable,
-  eligibility, busy, holdsDelivery, runOccupied}` is pure, and it is called by the status push, the status poll, the
-  sessions list and every delivery reader (Q4).
+- **SW2, the operational view.** `commsView(records, dispatch) -> {status, lastKnown, deliverable, eligibility,
+  busy, holdsDelivery, runOccupied}` is pure, and it is called by the status push, the status poll, the sessions list
+  and every delivery reader (Q4).
   - `Record` gains `busy` from the record's top-level field.
-  - Availability, busy and handoff stay separate typed outputs (page 1).
-  - The word follows C6 rows 1-6 with Q1 (`unknown`) and Q3.
-- **SW-H, message handoff** (page 1). The persisted handoff rows, opened by transport delivery writes and resolved by a
-  new turn anchor, an outcome settlement or a lifetime change.
+  - Availability and busy stay separate typed outputs, with page 1's truth table.
+  - The word follows C6 rows 1-6 with Q1, Q3 and the D8 precedence.
 - **Slice 5's obligations, rebased.** Worker readiness, live counts and running-run promotion read the new typed facts.
   - Unknown stays unknown in each of them. The old diagnostic containment (a recording failure read as "no change")
     is not promoted into a fail-open default.
@@ -30,7 +28,8 @@
 
 ## The switch (SW5): one revertible commit
 
-- **Every reader on page 1 is rewired** to the view in a single commit.
+- **Every reader is rewired** to the view in a single commit: page 1's readers plus readiness, live counts and
+  promotion. The review receipt lists each call site, so the rewrite can be checked as complete.
 - **The rollback's inputs stay live until the rollback gate:**
   - the legacy write routes keep applying, so `agent_turn_state`, `agent_status_state` and `agent_hook_order` stay
     current;
@@ -42,7 +41,7 @@
 
 - **What reverts:** the SW5 commit, followed by a stamp and rebuild. That takes minutes, and nobody relaunches.
 - **The rollback test, in SW5's review:**
-  1. A turn starts after the cutover, plus a no-reply channel handoff.
+  1. A turn starts after the cutover.
   2. The SW5 revert is applied over the same database.
   3. Hold and release, queue and claim, and run ownership must read correctly under the legacy readers, from tables
      the legacy routes kept writing.
@@ -55,23 +54,23 @@ Read from comms' routes and the dispatch tables at 15 min, 1 h and 4 h.
 
 | what | healthy reading |
 |---|---|
-| Hermes gateway agents (comms-senior-dev, pc-manager) | busy while working, idle after; handoffs close on the next turn |
+| Hermes gateway agents (comms-senior-dev, pc-manager) | busy while working, idle after; 4009 requeues happen only at a turn boundary and drain on the next pass |
 | resident claude panes (B1 launchers) | the word matches the pane; `unknown` only when that host's aify-env is silent |
-| agents at a Claude dialog (dev-channels, folder trust) | nothing delivered into the dialog; any open handoff is visible |
-| open handoffs | each closes on a new turn, a settlement or a lifetime change; none stays open on an idle, fresh agent |
-| queue depth | no non-steer queue held on an agent whose record is idle and fresh and which has no open handoff |
-| reminders and stranded failures | none for a run whose handoff is open or whose agent is busy |
+| agents at a Claude dialog (dev-channels, folder trust) | nothing delivered into the dialog |
+| a Claude agent given two messages in one gap | the second is processed in the next turn, never mid-turn (from the pane and the run events) |
+| queue depth | no non-steer queue held on an agent whose eligibility is known and whose record is idle |
+| reminders and stranded failures | as ruled in R3: none while the agent is busy or unknown |
 
 ## The rollback trigger
 
 Roll back on any one of these:
-- a non-steer message delivered while aify-env reports the agent busy, or while another handoff is open;
-- a queued run held with a fresh idle record and no open handoff on the next claim pass;
+- a non-steer message delivered while aify-env reports the agent busy;
+- a message processed inside a turn it did not start (a runtime that does not queue);
+- a queued run still held on the first claim pass after comms accepts the agent's fresh idle publication;
 - an agent of a reporting host reading `unknown` past one publication interval;
-- a handoff open on a fresh idle agent past its next turn;
 - the operator says so.
 
-The run, handoff and record ids that show it are kept as the evidence.
+The run and record ids that show it are kept as the evidence.
 
 ## Deletions (SW7, 0.9.9, after the rollback gate)
 
@@ -86,7 +85,7 @@ In S5's order (status-switch.md step 7):
    - the timed formulas retired with the turn timer: the `DeliveryTurns` fold, `strictExpiry`, the stale and
      delivery-turn disjuncts, `busy_consumers`' old law with its 120-second freshness, and the B6c ceiling module.
 5. The `agent-state-shadow` doctor row retires. An operational check stays: per host, publisher availability (fresh,
-   stale, restored, unavailable), open handoffs, and whether the reload ran at start.
+   stale, restored, unavailable) and whether the reload ran at start.
 6. The two tables are renamed out of `shadow`, with a migration.
 
 aify-env's unverified-lifetime fallback, and any redesign of it, is aify-env's own question and not a step here.
