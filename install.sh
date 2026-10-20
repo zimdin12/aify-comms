@@ -1481,46 +1481,45 @@ install_codex_turn_hooks() {
   enable_codex_hooks_feature
   local node_hooks_file; node_hooks_file="$(path_for_node "$hooks_file")"
   local context_cmd='if [ -n "${AIFY_AGENT_ID:-}" ]; then node "'"$AIFY_BRIDGE_DIR/node_modules/aify-wrapper/bin/aify-turn-start.mjs"'"; fi'
-  MSYS_NO_PATHCONV=1 node -e "
+  local curl_cmd='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/ROUTE" >/dev/null 2>&1 || true; fi'
+  local written; written="$(MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd, contextCmd, ctxHead, ctxTail] = process.argv.slice(1);
+    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd, contextCmd, oldStart, oldEnd] = process.argv.slice(1);
     let data = { hooks: {} };
     try {
       data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
     } catch (err) {
       try {
-        if (fs.existsSync(hooksPath)) {
-          const bak = hooksPath + '.aify-bak-' + Date.now();
-          fs.copyFileSync(hooksPath, bak);
-          console.error('[aify-install] WARN: ' + hooksPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.');
-        }
+        if (fs.existsSync(hooksPath)) { const bak = hooksPath + '.aify-bak-' + Date.now(); fs.copyFileSync(hooksPath, bak); console.error('[aify-install] WARN: ' + hooksPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.'); }
       } catch (_) {}
     }
-    if (!data || typeof data !== 'object') data = {};
-    if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
-    const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-start', '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'agent-state-event.mjs'];
-    const marked = (markers) => (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && typeof g.hooks[0].command === 'string' && g.hooks[0].command.startsWith(ctxHead.slice(0, ctxHead.indexOf(']') + 1)) && markers.some(marker => g.hooks[0].command.includes(marker));
-    const wire = /* IN PLACE: codex keys trust by a group's index, so appending ours would move the user hooks after it. */(eventKey, cmd, ours = marked(OURS), hook = { type: 'command', command: cmd, timeout: 3, async: true }) => {
+    if (!data || typeof data !== 'object') data = {}; if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
+    // OURS is a one-hook group whose command is exactly one this installer wrote for that event: today's, or the 2026-05 curl form. Anything else, a group that only names a file included, is the operator's and keeps its place.
+    const exact = (cmds) => (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && cmds.includes(g.hooks[0].command);
+    const placed = [];
+    const wire = /* IN PLACE: codex keys trust by a group's index, so appending ours would move the user hooks after it. */(eventKey, cmds, hook = { type: 'command', command: cmds[0], timeout: 3, async: true }) => {
       const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
-      const first = groups.findIndex(ours);
-      const kept = groups.filter(group => !ours(group));
-      kept.splice(first < 0 ? kept.length : first, 0, { hooks: [hook] });
+      const first = groups.findIndex(exact(cmds));
+      const kept = groups.filter(group => !exact(cmds)(group));
+      const group = { hooks: [hook] };
+      kept.splice(first < 0 ? kept.length : first, 0, group);
       data.hooks[eventKey] = kept;
+      placed.push([eventKey, group]);
     };
-    wire('UserPromptSubmit', startCmd);
-    // The runner's context hook: own group, synchronous, unredirected (codex reads its stdout), gated (Codex Desktop reads this file). Ours only in its exact one-hook shape; a group merely naming the file is the operator's.
-    const contextGroup = (g) => g && Object.keys(g).join() === 'hooks' && Array.isArray(g.hooks) && g.hooks.length === 1 && typeof g.hooks[0].command === 'string' && g.hooks[0].command.startsWith(ctxHead) && g.hooks[0].command.endsWith(ctxTail);
-    wire('UserPromptSubmit', contextCmd, contextGroup, { type: 'command', command: contextCmd, timeout: 5 });
-    wire('Stop', endCmd);
-    wire('Interrupt', endCmd);
-    wire('SessionStart', endCmd);
-    wire('PermissionRequest', blockedCmd);
-    wire('PostToolUse', unblockedCmd);
+    wire('UserPromptSubmit', [startCmd, oldStart]);
+    // The runner's context hook: own group, synchronous, unredirected (codex reads its stdout), gated (Codex Desktop reads this file).
+    wire('UserPromptSubmit', [contextCmd], { type: 'command', command: contextCmd, timeout: 5 });
+    wire('Stop', [endCmd, oldEnd]);
+    wire('Interrupt', [endCmd]);
+    wire('SessionStart', [endCmd]);
+    wire('PermissionRequest', [blockedCmd]);
+    wire('PostToolUse', [unblockedCmd]);
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
-  " "$node_hooks_file" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" \
-    "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)" "$context_cmd" "${context_cmd%%node *}node \"" '/aify-turn-start.mjs"; fi'
-  MSYS_NO_PATHCONV=1 node "$(path_for_node "$AIFY_BRIDGE_DIR/codex-hook-trust.mjs")" "$node_hooks_file" "$(path_for_node "$codex_home/config.toml")" \
-    "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)" "$context_cmd" || true
+    // What was written and where, so trust is recorded for those coordinates and nothing else.
+    process.stdout.write(JSON.stringify(placed.map(([event, group]) => ({ event, group: data.hooks[event].indexOf(group), hook: 0, command: group.hooks[0].command }))));
+  " "$node_hooks_file" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" "$(agent_state_hook_command blocked)" \
+    "$(agent_state_hook_command unblocked)" "$context_cmd" "${curl_cmd/ROUTE/turn-start}" "${curl_cmd/ROUTE/turn-end}")"
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$AIFY_BRIDGE_DIR/codex-hook-trust.mjs")" "$node_hooks_file" "$(path_for_node "$codex_home/config.toml")" "$written" || true
 }
 
 install_hermes_turn_hooks() {

@@ -472,18 +472,28 @@ def test_a_hook_that_only_names_an_aify_file_is_never_trusted_or_replaced():
         seeded = json.loads(hooks_file.read_text())
         single = {"hooks": [NAMING_ONLY[0]]}
         mixed = {"hooks": [{"type": "command", "command": "echo mine", "timeout": 3}, NAMING_ONLY[0]]}
-        seeded["hooks"]["UserPromptSubmit"] += [single, mixed]
-        seeded["hooks"]["Stop"].append({"hooks": [NAMING_ONLY[1]]})
+        # The review's counterexamples: the gate head with a file name, the runner's shape at another path, and the
+        # installer's exact context command under an event it was never written for.
+        gated = {"hooks": [{"type": "command", "timeout": 3,
+                            "command": 'if [ -n "${AIFY_AGENT_ID:-}" ]; then echo agent-state-event.mjs; fi'}]}
+        elsewhere = {"hooks": [{"type": "command", "timeout": 5,
+                                "command": 'if [ -n "${AIFY_AGENT_ID:-}" ]; then node "C:/operator/aify-turn-start.mjs"; fi'}]}
+        displaced = {"hooks": [{"type": "command", "command": CONTEXT_COMMAND, "timeout": 5}]}
+        seeded["hooks"]["UserPromptSubmit"] += [single, mixed, elsewhere]
+        seeded["hooks"]["Stop"] += [{"hooks": [NAMING_ONLY[1]]}, gated, displaced]
         hooks_file.write_text(json.dumps(seeded), encoding="utf-8")
         _install(home)
         hooks = json.loads(hooks_file.read_text())["hooks"]
-        assert hooks["UserPromptSubmit"][1:3] == [single, mixed], "an operator group naming the runner was replaced"
+        assert hooks["UserPromptSubmit"][1:4] == [single, mixed, elsewhere], "an operator group naming the runner was replaced"
+        assert hooks["Stop"][2:5] == [{"hooks": [NAMING_ONLY[1]]}, gated, displaced], "an operator Stop group was replaced"
         assert _context_hook(hooks)[1]["command"] == CONTEXT_COMMAND, "CONTROL: the runner's own group was written"
         found, _ = _trust((home / ".codex" / "config.toml").read_text())
+        operators = NAMING_ONLY + [g["hooks"][0] for g in (gated, elsewhere)]
         named = {f"{_native(hooks_file)}:{event}:{g}:{h}" for event, groups in (("user_prompt_submit", hooks["UserPromptSubmit"]),
                                                                                  ("stop", hooks["Stop"]))
-                 for g, group in enumerate(groups) for h, hook in enumerate(group["hooks"]) if hook in NAMING_ONLY}
-        assert len(named) == 3, named
+                 for g, group in enumerate(groups) for h, hook in enumerate(group["hooks"])
+                 if hook in operators or (event == "stop" and hook == displaced["hooks"][0])}
+        assert len(named) == 6, named
         assert not named & set(found), f"trust recorded for a hook the installer did not write: {named & set(found)}"
         index, _ = _context_hook(hooks)
         assert f"{_native(hooks_file)}:user_prompt_submit:{index}:0" in found, "CONTROL: the written hook was trusted"
