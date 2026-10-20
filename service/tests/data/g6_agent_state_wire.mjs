@@ -7,6 +7,9 @@ const load = name => import(pathToFileURL(path.join(source, 'lib', name)).href);
 const { AgentStateHost } = await load('agent-state-host.mjs');
 const { AgentStatePublisher } = await load('agent-state-publisher.mjs');
 const { readAgentStates } = await load('agent-state-read.mjs');
+// Decision 2: the sender's one cadence, which every body but a retirement announces. An aify-env from before it
+// exports none, and its bodies announce nothing.
+const { REPORT_EVERY_MS: every = null } = await load('agent-state-sender.mjs');
 const host = new AgentStateHost({ aifyHome: home, instance: 'fixture', probe: () => new Map(), nowUs: () => 1700000000000000 });
 host.boot();
 let ids = ['alpha', 'nullable'];
@@ -21,7 +24,7 @@ host.startManaged(record(old));
 host.applyEvent({ agentId: 'alpha', lifetime: old, kind: 'turn-start', firedAtUs: 1699999999000000 });
 // B6: the build this process loaded, and the clock each body's turn ages are taken on (the host's, in ms).
 const publisher = new AgentStatePublisher({ machineId: 'offline-fixture', instance: 'fixture', generation: 1700000000000, incarnationId: 'synthetic-incarnation',
-  build: 'fixture-b6', nowMs: () => 1700000000000 });
+  build: 'fixture-b6', nowMs: () => 1700000000000, reportEveryMs: every });
 const snapshot = publisher.snapshot(await read());
 host.endManaged(old);
 host.startManaged(record(newer));
@@ -31,4 +34,4 @@ ids = [];
 const removal = publisher.changes(await read(), changes.view);
 definitions.list = async () => { throw new Error('offline incomplete observation'); };
 const unavailable = publisher.snapshot(await read());
-process.stdout.write(JSON.stringify([snapshot, changes, removal, unavailable].map(publication => JSON.stringify(publication.body))));
+process.stdout.write(JSON.stringify({ every, bodies: [snapshot, changes, removal, unavailable].map(publication => JSON.stringify(publication.body)) }));

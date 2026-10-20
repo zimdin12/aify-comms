@@ -18,6 +18,7 @@ The site's probe says which component its branch names and what it read; an unre
 when the answer can change, and a read that raised is unknown, never asked again.
 """
 from service.api_core import comms_view as cv, partial_status_shadow as shadow
+from service.api_core.report_age import legacy_receipt_age
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.live_process_probes import PROBE_ERROR, channel_sidecar_state, wrapper_child_state
 from service.api_core.manual_status import _MANUAL_STATUSES
@@ -55,7 +56,7 @@ def conflict_age(binding, association):
             return NOT_KNOWN, reason
     if any(p.loss or not p.complete or p.unavailable for p in others):
         return NOT_KNOWN, 'record-knowledge'
-    ages = {shadow.age_class(p.data_applied_at, binding.at) for p in holders}
+    ages = {legacy_receipt_age(p.data_applied_at, binding.at) for p in holders}
     for clock in ('invalid-clock', 'future'):
         if clock in ages:
             return NOT_KNOWN, clock

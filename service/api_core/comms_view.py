@@ -21,6 +21,7 @@ import asyncio
 from dataclasses import dataclass
 
 from service.api_core import delivery_turns as dt, partial_status_shadow as shadow
+from service.api_core.report_age import legacy_receipt_age
 from service.api_core.claim_gating import turn_lease_renewal
 from service.api_core.delivery_turns import NOT_KNOWN
 from service.api_core.shadow_owners import variants_of
@@ -77,7 +78,7 @@ def capture(machine, agent_id):
         if mid != machine:
             continue
         publishers += 1
-        age = shadow.age_class(publisher.data_applied_at, binding.at)
+        age = legacy_receipt_age(publisher.data_applied_at, binding.at)
         readable = (publisher.complete and not publisher.unavailable and not publisher.loss
                     and age in ('fresh', 'stale'))
         rows = [r for r in publisher.rows if r.agent_id == agent_id]

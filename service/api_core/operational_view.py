@@ -3,8 +3,9 @@
 Built beside the status shadow and not yet called by any live reader; SW5 rewires the readers to it in one commit.
 
 Two layers, so the only clock comms keeps is visible in one place:
-  - `holders_of` classifies each publisher by RECEIPT age (`age_class`, 180 s on comms' own clock: how long since comms
-    last heard from aify-env). It never reads a turn's age.
+  - `holders_of` classifies each publisher by REPORT age (`report_age`, decision 2: three of the intervals aify-env
+    announced, on comms' own receipt clock; no announcement reads `not-reporting`, so unknown). It never reads a turn's
+    age, and contact never makes data fresh: the loss, unavailable, restored and incomplete guards come first.
   - `comms_view` is pure over those holders and the messaging facts. It takes no clock that it ages anything against:
     aify-env alone decides `busy` (DECISIONS: "comms never times turns").
 
@@ -14,6 +15,7 @@ no publisher on its machine is unreadable; unknown withholds before busy and bef
 from dataclasses import dataclass
 
 from service.api_core import partial_status_shadow as shadow
+from service.api_core.report_age import report_age
 from service.api_core.view_owners import PROMOTABLE
 
 FRESH = 'fresh'  # the only availability a known answer is built from; every other class reads unknown
@@ -67,7 +69,7 @@ def _availability(publisher, at):
         return 'restored'
     if not publisher.complete:
         return 'incomplete'
-    return shadow.age_class(publisher.data_applied_at, at)
+    return report_age(publisher, at)
 
 
 def holders_of(binding, machine, agent_id):

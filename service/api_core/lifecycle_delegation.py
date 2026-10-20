@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from service.api_core import agent_lifecycle_requests as lifecycle
 from service.api_core import partial_status_shadow as shadow
+from service.api_core.report_age import legacy_receipt_age
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import require_lifecycle
 from service.clock import now
@@ -18,7 +19,7 @@ from service.lifecycle_models import LAUNCHING_ACTIONS, OPEN_SQL
 
 def _fresh_publishers(machine_id, view, at):
     return [p for (machine, _instance), p in view.items() if machine == machine_id and not p.unavailable
-            and p.complete and shadow.age_class(p.data_applied_at, at) == 'fresh']
+            and p.complete and legacy_receipt_age(p.data_applied_at, at) == 'fresh']  # SW5 moves this to report_age
 
 
 def published_lifetime(machine_id, agent_id, view, at):

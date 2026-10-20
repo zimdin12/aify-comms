@@ -85,6 +85,17 @@ def _build(value):
     _require(is_build(value), 'expected build string')
 
 
+#: Decision 2: how often an aify-env reports in full, whole milliseconds from 1 s to 1 h.
+REPORT_EVERY_MS_BOUNDS = (1_000, 3_600_000)
+
+
+def _report_every(value):
+    """Optional on every body but `retired`: absent is accepted (an aify-env from before decision 2), and a present
+    value must be a whole number within the bounds. Never null."""
+    low, high = REPORT_EVERY_MS_BOUNDS
+    _require(type(value) is int and low <= value <= high, 'expected reportEveryMs within bounds')
+
+
 def _record(record):
     # name, role and launch arrived with C1: optional, so a publisher from before them is still read.
     _object(record, ('agentId', 'lifetime', 'state', 'stateCause', 'busy', 'process', 'turn'), ('name', 'role', 'launch'))
@@ -133,18 +144,20 @@ def _validate(body):
     _word(kind, {'snapshot', 'changes', 'unavailable', 'retired'})
     common = ('kind', 'machineId', 'instance', 'generation', 'incarnationId', 'publication', 'inputs')
     if kind == 'unavailable':
-        _object(body, (*common, 'reason'), ('build',))
+        _object(body, (*common, 'reason'), ('build', 'reportEveryMs'))
         _text(body['reason'])
     elif kind == 'retired':
         _object(body, (*common, 'reason'), ('build',))
         _word(body['reason'], RETIREMENT_REASONS)
     elif kind == 'snapshot':
-        _object(body, (*common, 'complete', 'agents'), ('removed', 'build'))
+        _object(body, (*common, 'complete', 'agents'), ('removed', 'build', 'reportEveryMs'))
         _require(body['complete'] is True, 'snapshot must be complete')
     else:
-        _object(body, (*common, 'agents', 'removed'), ('build',))
+        _object(body, (*common, 'agents', 'removed'), ('build', 'reportEveryMs'))
     if 'build' in body:
         _build(body['build'])
+    if 'reportEveryMs' in body:
+        _report_every(body['reportEveryMs'])
     for key in ('machineId', 'instance', 'incarnationId'):
         _text(body[key])
     for key in ('generation', 'publication'):
@@ -252,6 +265,12 @@ class AgentStateShadowStore:
             except Exception:
                 shadow.invalidate_safe(key)
                 projection = None
+            # Contact (decision 2): this applied, advancing, non-retired body renews the publisher's report pair, after
+            # its data step so the pair is this body's. Refused, duplicate, stale and conflicting bodies returned above.
+            try:
+                shadow.mirror.renew_report(key, applied_at, body.get('reportEveryMs'))
+            except Exception:
+                pass  # contact unrenewed reads as not-reporting or stale: never fresher than it is
             if body['kind'] != 'unavailable' or projection is None:  # what this publication put into effect (B6a)
                 shadow.recorder.provenance.applied(projection)
             # The delivery-turn fold reads the same committed publication, or loses what it knew (S2c slice 2). A mirror

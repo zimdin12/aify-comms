@@ -38,7 +38,10 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
             self.addCleanup(p.stop)
 
     def apply(self, value, at=AT):
+        """Ingest as today's aify-env publishes: every body but a retirement announces 60 s (decision 2)."""
         from service.api_core.agent_state_shadow import AgentStateShadowStore
+        if value['kind'] != 'retired':
+            value = {'reportEveryMs': 60_000, **value}
         return asyncio.run(AgentStateShadowStore().apply(wire(value), at))
 
     def restart(self):

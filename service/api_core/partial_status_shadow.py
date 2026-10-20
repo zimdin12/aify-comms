@@ -1,7 +1,6 @@
 """Process-only partial status comparison. Never supplies current status inputs."""
 from collections import Counter
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from dataclasses import dataclass, asdict, replace
 from types import MappingProxyType
 import copy
 import json
@@ -12,6 +11,7 @@ from service.api_core.definition_schema import MODES
 from service.api_core.shadow_classes import classify, env_inputs
 from service.api_core.shadow_evidence import EVIDENCE_OWNERS, EvidenceBuffer, word_item
 from service.api_core.shadow_provenance import Provenance
+from service.api_core.report_age import legacy_receipt_age
 from service.api_core.shadow_owners import (COUNT_NAMES, NO_VARIANT, OWNERS as PURPOSES, UNOBSERVED, WORD, OwnerTally,
                                             checked_key, variants_of)
 
@@ -65,6 +65,9 @@ class Publisher:
     publication: int | None = None
     build: str | None = None  # of the last DATA publication: an unavailable one never changes it
     restored: bool = False  # loaded from the saved tables at start (SW1): never fresh until a complete snapshot
+    # (received_at, report_every_ms) of the last report the ingest APPLIED, whatever its kind (decision 2). Contact
+    # only: it never makes data fresh. Process-local, so a restored publisher has none until its next report.
+    report: tuple | None = None
 
 
 RAW_LIMIT = 16384  # bytes of one record's canonical JSON the evidence keeps; a larger record keeps none (S2c-E)
@@ -129,6 +132,13 @@ class Mirror:
         self._view = MappingProxyType({**self._view, key: publisher})
         return True
 
+    def renew_report(self, key, received_at, report_every_ms):
+        """The report pair of a publication the ingest just applied (decision 2): its receipt time and the interval it
+        announced, None when it announced none, which withdraws an earlier one."""
+        old = self._view.get(key)
+        if old is not None:
+            self._view = MappingProxyType({**self._view, key: replace(old, report=(received_at, report_every_ms))})
+
     def retire(self, key):
         """Drop a retired publisher entirely (B5): it holds no record and no build from now on."""
         view = dict(self._view)
@@ -173,20 +183,6 @@ def bind():
         return Binding(mirror.view(), clock())
     except Exception:
         return Binding(None, None, True)
-
-
-def age_class(data_applied_at, at):
-    try:
-        start = datetime.fromisoformat(data_applied_at.replace('Z', '+00:00'))
-        end = datetime.fromisoformat(at.replace('Z', '+00:00'))
-        if start.tzinfo is None or end.tzinfo is None:
-            return 'invalid-clock'
-        seconds = (end - start).total_seconds()
-        if seconds < 0:
-            return 'future'
-        return 'fresh' if seconds < 180 else 'stale'
-    except (AttributeError, TypeError, ValueError, OverflowError):
-        return 'invalid-clock'
 
 
 def candidate_word(state):
@@ -239,7 +235,7 @@ def record_for(binding, association):
         return None, 'unknown-knowledge'
     if publisher.unavailable:
         return None, 'publisher-unavailable'
-    freshness = age_class(publisher.data_applied_at, binding.at)
+    freshness = legacy_receipt_age(publisher.data_applied_at, binding.at)
     if freshness != 'fresh':
         return None, freshness
     return record, None

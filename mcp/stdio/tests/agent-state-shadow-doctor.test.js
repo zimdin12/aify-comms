@@ -238,7 +238,7 @@ with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as private:
                              awaitingInput=False, busyIf=dict(strict=True, verifiedRenewal=True)))
         publication = dict(kind='snapshot', machineId='private-host', instance='private-publisher', generation=10,
                            incarnationId='boot', publication=1, inputs={'operatorStop':'not-tracked'},
-                           agents=[row], removed=[], complete=True)
+                           agents=[row], removed=[], complete=True, reportEveryMs=60000)
         assert asyncio.run(AgentStateShadowStore().apply(json.dumps(publication).encode(), at)).applied
         inputs = StatusInputs(mode='managed', alive=True, in_turn=True, awaiting_input=False, worker_present=True,
                               env_reachable=True, disabled=False, bridge_stale=False, has_live_session=True)

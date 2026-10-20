@@ -24,7 +24,8 @@ def record(busy, state='idle', lifetime='L1', turn_open=False, started_us=0, bus
 
 
 def publisher(*rows, applied=T0, complete=True, unavailable=False, loss=False):
-    return shadow.Publisher(1, iso(applied), complete, unavailable, tuple(rows), loss)
+    """A publisher whose last report, received at `applied`, announced 60 s (decision 2): fresh for 180 s."""
+    return shadow.Publisher(1, iso(applied), complete, unavailable, tuple(rows), loss, report=(iso(applied), 60_000))
 
 
 def binding(*publishers, at=T0, machine=MACHINE):

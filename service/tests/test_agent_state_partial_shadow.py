@@ -197,9 +197,10 @@ class PartialShadowTest(FastApiTestCase):
         self.assertEqual(self.recorder.report()['byPurpose']['status word']['unavailableByReason']['unknown-loss'], 8)
 
     def test_pure_two_age_rows(self):
+        from service.api_core.report_age import legacy_receipt_age
         rows = [('2026-10-07T09:02:59Z', 'fresh'), ('2026-10-07T09:03:00Z', 'stale')]
         for at, expected in rows:
-            with self.subTest(at=at): self.assertEqual(self.shadow.age_class(AT, at), expected)
+            with self.subTest(at=at): self.assertEqual(legacy_receipt_age(AT, at), expected)
 
     def test_actual_accept_feed_is_immutable_and_fresh_comparison_is_not_vacuous(self):
         self.observe()

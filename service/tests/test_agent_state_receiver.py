@@ -280,7 +280,11 @@ class AgentStateReceiverTest(FastApiTestCase):
         fixture = Path(__file__).with_name('data')/'g6_agent_state_wire.mjs'
         result = subprocess.run([node, str(fixture), str(source), self._tmpdir.name],
                                 capture_output=True, check=True, timeout=20)
-        publications = json.loads(result.stdout)
+        produced = json.loads(result.stdout)
+        publications = produced['bodies']
+        # Decision 2: an aify-env that exports a cadence announces it on every one of these bodies, and comms accepts it.
+        every = produced['every']
+        self.assertEqual({json.loads(raw).get('reportEveryMs') for raw in publications}, {every})
         # The third publication: both rows leave. `nullable` has no lifetime, so no removal can name it, and aify-env
         # (B1, 24883f0) answers its departure with a whole snapshot, which withdraws both rows at once.
         self.assertEqual([json.loads(raw)['kind'] for raw in publications], ['snapshot', 'changes', 'snapshot', 'unavailable'])
