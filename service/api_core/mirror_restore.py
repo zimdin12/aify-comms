@@ -55,11 +55,11 @@ def lost_publisher(publisher):
                             publisher['data_incarnation_id'], publisher['data_publication'], None, True)
 
 
-async def restore(connect):
+async def restore_mirror(connect):
     """Load every saved publisher into the mirror, under the ingest lock. `connect` opens a database connection."""
     async with ingest._INGEST_LOCK:
         try:
-            publishers, rows = await _read(connect)
+            publishers, rows = await _saved_tables(connect)
         except Exception:
             shadow.quarantine()
             return RestoreResult(unreadable=True)
@@ -77,7 +77,7 @@ async def restore(connect):
         return RestoreResult(tuple(restored), tuple(lost), tuple(retired), tuple(skipped))
 
 
-async def _read(connect):
+async def _saved_tables(connect):
     db = await connect()
     try:
         publishers = await (await db.execute('SELECT * FROM agent_state_shadow_publishers')).fetchall()

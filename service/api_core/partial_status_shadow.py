@@ -430,6 +430,7 @@ def quarantine():
     global mirror, _quarantined
     _quarantined = True
     mirror = _new_mirror()
+    return mirror
 
 
 def invalidate_safe(key):

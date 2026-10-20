@@ -45,7 +45,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         """A new process: an empty mirror, then the load from the saved tables."""
         from service.db import get_db
         self.shadow.mirror = self.shadow.Mirror()
-        return asyncio.run(self.restore_module.restore(get_db))
+        return asyncio.run(self.restore_module.restore_mirror(get_db))
 
     def view(self, at=AT, agent=AGENT):
         with patch.object(self.shadow, 'clock', return_value=at):
@@ -190,7 +190,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
     def test_unreadable_tables_quarantine_the_mirror_and_never_fail_the_start(self):
         async def broken():
             raise sqlite3.OperationalError('no such table')
-        result = asyncio.run(self.restore_module.restore(broken))
+        result = asyncio.run(self.restore_module.restore_mirror(broken))
         self.assertTrue(result.unreadable)
         self.assertTrue(self.shadow.bind().loss, 'every bind is a loss, so every agent is unknown')
 
@@ -201,7 +201,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         self.shadow.mirror = self.shadow.Mirror()
         self.apply(body(publication=2, agents=[idle()]), at=LATER)
         from service.db import get_db
-        result = asyncio.run(self.restore_module.restore(get_db))
+        result = asyncio.run(self.restore_module.restore_mirror(get_db))
         self.assertEqual((result.skipped, result.restored), ((KEY,), ()))
         self.assertEqual(self.availability(LATER), 'fresh')
 
@@ -211,7 +211,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
 
         async def scenario():
             await agent_state_shadow._INGEST_LOCK.acquire()
-            task = asyncio.create_task(self.restore_module.restore(get_db))
+            task = asyncio.create_task(self.restore_module.restore_mirror(get_db))
             await asyncio.sleep(0.05)
             waited = not task.done()
             agent_state_shadow._INGEST_LOCK.release()
@@ -236,7 +236,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         config = SimpleNamespace(name='aify', version='test', data_dir=str(Path(self._db_path).parent))
         with patch.object(main, 'get_config', return_value=config), patch.object(main, '_setup_logging'), \
                 patch.object(main, 'init_db', AsyncMock()), patch.object(main, 'CONNECTION_POOL', Mock()), \
-                patch.object(self.restore_module, 'restore', restore), \
+                patch.object(self.restore_module, 'restore_mirror', restore), \
                 patch.object(main, '_run_dispatch_reconcile_once', first_task_step), \
                 patch.object(main.asyncio, 'create_task', side_effect=AssertionError('a task started first')):
             async def enter():

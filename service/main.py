@@ -388,7 +388,7 @@ async def lifespan(app: FastAPI):
     from service.api_core import mirror_restore
     from service.db import get_db
     try:
-        logger.info(f"Startup mirror restore: {await mirror_restore.restore(get_db)}")
+        logger.info(f"Startup mirror restore: {await mirror_restore.restore_mirror(get_db)}")
     except Exception as e:
         mirror_restore.shadow.quarantine()
         logger.error(f"Startup mirror restore failed, the mirror is quarantined: {e}")
