@@ -209,7 +209,11 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         from service.api_core import agent_state_shadow
         from service.db import get_db
 
+        # A fresh lock for this loop: the module's lock binds to the first loop it ever waits in, so holding it here
+        # would fail after, and poison for, any other test that made it wait. The restore reads the attribute at
+        # call time, so it takes this lock.
         async def scenario():
+            agent_state_shadow._INGEST_LOCK = asyncio.Lock()
             await agent_state_shadow._INGEST_LOCK.acquire()
             task = asyncio.create_task(self.restore_module.restore_mirror(get_db))
             await asyncio.sleep(0.05)
@@ -219,7 +223,11 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
             return waited, task.result()
         self.apply(body())
         self.shadow.mirror = self.shadow.Mirror()
-        waited, result = asyncio.run(scenario())
+        real = agent_state_shadow._INGEST_LOCK
+        try:
+            waited, result = asyncio.run(scenario())
+        finally:
+            agent_state_shadow._INGEST_LOCK = real
         self.assertTrue(waited, 'the load ran while an ingest held the lock')
         self.assertEqual(result.restored, (KEY,), 'control: the load ran once the lock was free')
 
