@@ -45,8 +45,12 @@ s2c-owners:54-59) and stay `NOT_KNOWN`.
    bound. A write that cannot compute its ceiling makes it `NOT_KNOWN`, which is today's unknown: the rule fails
    closed.
 4. **The disjunct.** When `delivery_known(turn)` is false, `ceiling` is known, `frame.at` is known, and
-   `frame.at > max(known anchors, ceiling) + 1800 + NOW_RESOLUTION_SECONDS`, the disjunct is **false** with provenance
-   `delivery-bounded`. No renewal query is needed. Otherwise it is unknown, exactly as today.
+   `frame.at > K`, where the cutoff `K = max(known anchors, ceiling) + 1800 + NOW_RESOLUTION_SECONDS`, the disjunct is
+   **false** with provenance `delivery-bounded`. No renewal query is needed. Otherwise it is unknown, exactly as today.
+   **Strict `>`, and why:** `turn_is_still_live` is live at an age of exactly 1800 (`0 <= age <= strict_seconds`,
+   turn_liveness_policy.py:74), so at `at = C + 1800` a completion with an anchor at C is still live. The added
+   resolution is margin for the epoch, which is read from a float clock while every other stamp is whole seconds. At
+   `at = K` the disjunct is unknown; the first whole-second `at` after K is false.
 
 The dev's countercase: raw busy since B-100 survives the boot, and a reporter busy comes at B+1802. The turn becomes
 open, with run R, touch B+1802, start `NOT_KNOWN`, and ceiling B+1802. At B+1803 the disjunct is unknown, not held
@@ -66,32 +70,42 @@ any qualifying day.
 
 `delivery-bounded` is its own provenance count beside, not inside, `unavailable:delivery-turn`. A bounded evaluation
 is a known false disjunct, so putting it in the unknown-origin partition would break that partition's sum contract.
-The D-UNKNOWN reader reports it per site and variant. Every bounded evaluation whose today answer is busy is a C8
-disagreement, and it is disqualifying unless the operator approves the class.
+The D-UNKNOWN reader reports it per site and variant.
+
+A bounded false is one component, not an output. A true fresh record ORed with a bounded false disjunct still holds,
+and today's busy agrees. Claim also reads occupancy, steer and the other gate facts. So C8 counts a **final** busy or
+claim output that differs from today's **and** carries `delivery-bounded` provenance. Every such unapproved difference
+is disqualifying.
 
 ## Witnesses, one per obligation
 
-1. A key never written: unknown at epoch+1800, `delivery-bounded` false at epoch+1800+resolution. RED with the rule
-   removed or the resolution dropped.
+1. A key never written: unknown at K = epoch+1800+resolution, `delivery-bounded` false at K+1. RED with the rule
+   removed, the resolution dropped, or `>` relaxed to `>=`.
 2. Raw open across the boot, then a reporter busy after the bound: raw stays open with start `NOT_KNOWN`, and the
    disjunct is unknown at at+1. RED if the fold mints `CLOSED` or a start (rev 1's behaviour).
 3. Verified renewal: a bounded turn whose owner heartbeats still reads false after the bound. A renewed turn whose
    touch the fold saw reads by its anchor. RED if renewal is taken to move an anchor.
 4. An env `advanced` or a withhold at t moves the ceiling to t. A `quiet` republication does not. RED if either is
    swapped.
-5. `lose_everything` at L > B: unknown at B+1800+resolution, false at L+1800+resolution. RED if a loss does not move
-   the epoch.
-6. The partition: `unavailable:delivery-turn` plus `delivery-bounded` equals the evaluations that reached the
-   disjunct. RED if bounded is counted inside the unknown partition.
+5. `lose_everything` at L > B: unknown at B+1800+resolution+1 and at L+1800+resolution, false at L+1800+resolution+1.
+   RED if a loss does not move the epoch.
+6. Counting, two separate checks. The existing unknown-origin partition still sums (the reader's `sumBroken` stays
+   empty) while bounded evaluations occur. `delivery-bounded` equals the number of disjunct calls that returned it.
+   RED if a bounded evaluation lands in the unknown partition.
+7. Masking control: a fresh record with busy true plus a bounded false disjunct gives busy true, and C8 records no
+   difference. A fresh record with busy false plus a bounded false disjunct gives busy false. If today's answer is busy,
+   that is one counted difference carrying `delivery-bounded`. RED if differences are counted per component, or if the
+   masked case is counted.
 
 ## What would prove this wrong (pre-registered)
 
-The window: the first one opened at or after the effective epoch (the later of boot and the last loss) + 1800 +
-resolution. A window that contains an epoch move does not count.
+The window: the first one opened after the effective cutoff K (the later of boot and the last loss, + 1800 +
+resolution), by the same strict `>`. A window that contains an epoch move does not count.
 
 - **Coverage, not correctness:** removing the 8,317 mechanically leaves 17 of 1,521 (1.12%). Never-known's share of
   P-1/claim `unavailable:delivery-turn` therefore shows only that the bound reaches the idle population. Below 5%
-  supports that. 5-20% is inconclusive and is measured for one more window. Above 20% withdraws the rule. A zero
-  denominator is inconclusive.
-- **Correctness:** busy and claim disagreements on `delivery-bounded` evaluations. One unapproved disagreement is a
-  failed rule, not a class.
+  supports that. 5-20% is inconclusive and gets exactly one more window. If that window is also inconclusive, the
+  rule is withdrawn and the result goes to the operator; there is no third window. Above 20% withdraws the rule. A
+  zero denominator counts as inconclusive under the same one-more-window limit.
+- **Correctness:** final busy and claim output differences carrying `delivery-bounded` provenance (witness 7). One
+  unapproved difference is a failed rule, not a class.
