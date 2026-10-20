@@ -121,3 +121,20 @@ repairs them.
 | writer exclusion | a second writer holding the lock blocks publish, which fails naming it. A write landing between prepare and the locked reread aborts | the registry is overwritten |
 | commit boundary | rename succeeds and the readback is made to fail: the staged references are kept and the result is reported unknown | they are deleted |
 | retirement | after a key change the old reference still exists and is reported `cleanup-pending` | connect removes it |
+
+## Format freeze: the format owner's review (dashboard-manager, 2026-10-20)
+
+These amend the clauses above. Where they differ, these win.
+
+1. **Render uses an absolute node.** `command` is the absolute path of the node running connect (`process.execPath`), recorded in the plan the operator approves. A bare `node` would resolve from each session's PATH, contradicting "nothing resolved from PATH". This replaces `{command: "node", ...}` in **Render**.
+2. **Secrets are typed.** `secrets: [{field, required, probe?}]`.
+   - A required secret with a probe is verified as **Verify** defines.
+   - An optional secret that is absent is a working state, not an error.
+   - A secret with no probe is reported `stored, not probed`, never silently passed.
+   - The dashboard: `credentialRef` (API_KEY, required, probed); `secretsCredentialRef` (SECRETS_FETCH_KEY, optional, no probe yet).
+3. **An unavailable artifact has one representation.** `source: {pending: "<reason>"}`. Connect writes no `mcp` entry for it, reports the reason, and refuses `pending` combined with any `sha256`, revision or URL. The dashboard ships its artifact `pending` until operator question 01M5CYJH is answered.
+4. **Session identity stays in the session's environment.** No `AIFY_*` value and no key value ever appears in a rendered entry or in the spec. Witness: render an entry with every `AIFY_*` variable and a planted key set in connect's own environment, then assert that none of their values appears in the written entry.
+5. **`served` artifacts are fetched with the service key.** The spec route itself stays unauthenticated and secret-free (names, paths, hashes).
+6. **The dashboard's register is a non-cooperating writer** (temp file and rename, no lock) until it calls connect or takes the same lock, as step 5 requires naming.
+
+Corrected attribution: dashboard-manager's sandbox PROVED that the installed bin serves a full MCP session when spawned directly. It did not render or read a services.json `mcp` entry, so the entry form (bare bin, or node + file) is ASSUMED on Linux as well as Windows. Their sandbox adds that check once connect renders an entry.
