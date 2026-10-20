@@ -30,7 +30,7 @@ from service.api_core.reply_expectation import (
 from service.api_core.reply_linking import _link_reply_message_to_dispatch_run
 from service.api_core.console_input_queue import _queue_console_inputs_for_dispatch
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_runtime
+from service.api_core.runtime import _normalize_runtime, stop_marker_refusal
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.api_core.serialization import (
     _json_loads_or,
@@ -255,6 +255,10 @@ async def create_dispatch(req: DispatchRequest, request: Request):
 
 @router.patch("/dispatch/runs/{run_id}")
 async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Request):
+    # Before the run update and its settlement, not only before the agent write they precede (B2).
+    refusal = stop_marker_refusal({"agentStatus": req.agentStatus})
+    if refusal:
+        raise HTTPException(422, refusal)
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))

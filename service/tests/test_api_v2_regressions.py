@@ -1025,7 +1025,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = listed.json()["agents"]["managed-coder"]
         self.assertEqual(agent["statusRaw"], "offline")
 
-    def test_lost_resident_bridge_stops_until_manual_switch(self):
+    def test_lost_resident_bridge_rests_offline_until_manual_switch(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",
             bridgeId="env-bridge",
@@ -1072,7 +1072,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(lost.status_code, 200, lost.text)
         payload = lost.json()
-        self.assertEqual(payload["transition"], "resident_to_stopped")
+        self.assertEqual(payload["transition"], "resident_to_offline")
         self.assertEqual(payload["agent"]["sessionMode"], "resident")
         self.assertNotEqual(payload["agent"]["wakeMode"], "managed-worker")
         self.assertEqual(payload["agent"]["sessionHandle"], "thread-managed")
@@ -6278,7 +6278,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(listed.json()["sessions"][0]["lastSeen"], "2026-04-29T00:00:00Z")
         self.assertEqual(listed.json()["sessions"][0]["sessionHandle"], "thread-current")
 
-    def test_session_cli_takeover_pauses_dashboard_delivery(self):
+    def test_session_cli_takeover_of_a_spawned_agent_is_refused(self):
+        """Since D8 only a defined agent is spawned, and since B2 its takeover is refused before any write: its
+        lifecycle is its host's (test_cli_takeover_of_a_defined_agent_is_refused.py holds the whole contract, and an
+        undefined agent's legacy takeover)."""
         self._heartbeat_environment()
         spawn_id = self._spawn("takeover-coder", workspace="/workspace/repo")["id"]
         claim = self.client.post(
@@ -6297,39 +6300,12 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"/api/v1/sessions/{session_id}/control",
             json={"action": "cli_takeover", "from_agent": "dashboard", "subject": "take over"},
         )
-        self.assertEqual(takeover.status_code, 200, takeover.text)
-        self.assertEqual(takeover.json()["session"]["status"], "cli-takeover")
+        self.assertEqual(takeover.status_code, 409, takeover.text)
+        self.assertIn("flip its definition to resident", takeover.json()["detail"])
+        session = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["status"], "running")
         agent = self.client.get("/api/v1/agents").json()["agents"]["takeover-coder"]
-        self.assertEqual(agent["statusRaw"], "stopped")
-        self.assertEqual(agent["launchMode"], "none")
-        self.assertIn("Paused for direct CLI takeover", agent["statusNote"])
-
-        sent = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "dashboard",
-                "to": "takeover-coder",
-                "type": "request",
-                "subject": "should not queue",
-                "body": "hello",
-                "trigger": True,
-            },
-        )
-        self.assertEqual(sent.status_code, 200, sent.text)
-        sent_payload = sent.json()
-        assert_stored_unwoken(self, sent_payload, "takeover-coder")  # 0.9.8, flipped from a refusal
-        self.assertIn("agent status is", sent_payload["notStarted"][0]["reason"])
-
-        self._register(
-            "takeover-coder",
-            runtime="codex",
-            cwd="/workspace/repo",
-            sessionMode="resident",
-            sessionHandle="thread-from-cli",
-            launchMode="codex-live",
-        )
-        session = self._fetchone("SELECT session_handle FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(session["session_handle"], "thread-from-cli")
+        self.assertNotEqual(agent["launchMode"], "none")
 
     def test_resident_register_requires_manual_switch_from_managed_agent(self):
         self._heartbeat_environment()

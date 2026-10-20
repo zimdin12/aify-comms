@@ -7,7 +7,8 @@ run it directly against a real sqlite database.
 WHY IT IS WORTH THIS MUCH TEST. The block decides where an agent RESTS when its runtime bridge died
 and could not be handed back to managed, and the two agents that reach it need opposite answers:
 
-    resident, no managed backing   -> stopped. Nothing is left to wake.
+    resident, no managed backing   -> offline, unless already stopped (B2). Closing its own CLI is not an
+                                      operator stop, and aify-env publishes it offline.
     managed worker, backing died   -> cold-startable. The server can re-spawn it on the next message.
 
 Getting that wrong is not a crash. Operator-reported 2026-07-06/07: the old code stopped BOTH, the
@@ -76,23 +77,22 @@ class ResidentLossSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("detached", returned["launch_mode"])
         self.assertNotEqual("stopped", returned["status"])
 
-    async def test_a_resident_with_no_managed_backing_IS_stopped(self):
-        """The other half. A resident that lost its runtime has nothing left to wake."""
+    async def test_a_resident_with_no_managed_backing_rests_offline(self):
+        """The other half (B2). A resident that lost its runtime was not stopped by anyone: it rests offline, and its
+        launch mode is left as it was."""
         row = await self._agent(session_mode="resident")
         returned, transition = await self._settle(row)
-        self.assertEqual("resident_to_stopped", transition)
-        self.assertEqual("stopped", returned["status"])
-        self.assertEqual("none", returned["launch_mode"])
+        self.assertEqual("resident_to_offline", transition)
+        self.assertEqual("offline", returned["status"])
+        self.assertEqual("detached", returned["launch_mode"])
 
     async def test_an_agent_with_no_session_mode_at_all_is_treated_as_resident(self):
-        """Failing toward `stopped` is the safe direction here.
-
-        Only a literal `managed` earns the cold-startable state. Treating an unknown mode as managed
+        """Only a literal `managed` earns the cold-startable state. Treating an unknown mode as managed
         would leave an agent advertising availability that nothing can actually start.
         """
         row = await self._agent(session_mode=None)
         _, transition = await self._settle(row)
-        self.assertEqual("resident_to_stopped", transition)
+        self.assertEqual("resident_to_offline", transition)
 
     async def test_the_session_mode_comparison_ignores_case_and_padding(self):
         for mode in ("MANAGED", " managed ", "Managed"):
@@ -153,7 +153,7 @@ class ResidentLossSettlementTests(unittest.IsolatedAsyncioTestCase):
         row = await self._agent(session_mode="resident")
         self.assertEqual("active", row["status"])
         returned, _ = await self._settle(row)
-        self.assertEqual("stopped", returned["status"])
+        self.assertEqual("offline", returned["status"])
 
 
 if __name__ == "__main__":

@@ -58,6 +58,23 @@ def _normalize_launch_mode(mode: Any) -> str:
     return str(mode or "detached").strip().lower() or "detached"
 
 
+#: The operator's two stop markers, by each request field that could carry one. Only a stop route writes them.
+_STOP_MARKERS = {"status": "stopped", "agentStatus": "stopped", "launchMode": "none"}
+
+
+def stop_marker_refusal(fields: dict[str, Any]) -> str:
+    """Why a caller's request is refused, or "" when it is not: a field names an operator stop marker (B2).
+
+    Normalised as the stored values are, so `" Stopped "` and `NONE` are the markers too. A field left out is no
+    marker; every other value is untouched here.
+    """
+    for field, value in fields.items():
+        if value is not None and str(value).strip().lower() == _STOP_MARKERS[field]:
+            return (f"{field}: {value!r} is the operator's stop marker, which only a stop writes; stop the agent "
+                    "from the dashboard, or in aify-env when a host defines it")
+    return ""
+
+
 def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
     normalized = _normalize_runtime(runtime)
     for item in environment.get("runtimes") or []:

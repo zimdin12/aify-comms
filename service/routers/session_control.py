@@ -22,6 +22,7 @@ from service.api_core.agent_sessions import _settle_agent_for_session_control
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.events import _append_terminal_control
 from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.definition_guard import defined_on
 from service.api_core.definition_start import undefined_refusal
 from service.api_core.lifecycle_delegation import delegate
 from service.api_core.records import _agent_session_to_dict
@@ -71,6 +72,16 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         if action in {"restart", "recreate"}:
             # D8: a defined agent was handed to its host above, and one no host defines is not started.
             raise HTTPException(409, undefined_refusal(agent_id))
+        if action == "cli_takeover":
+            # THE TAKEOVER'S OWN FENCE (B2). The definition check and an undefined agent's writes below share one
+            # BEGIN IMMEDIATE, the lock a definition push takes, so a definition lands wholly before or wholly after.
+            # A defined agent's lifecycle is its host's: a stop here would leave aify-env running it unaware.
+            await db.execute("BEGIN IMMEDIATE")
+            if await defined_on(db, agent_id):
+                await db.rollback()
+                raise HTTPException(409, f'Agent "{agent_id}" is defined by its host, so its session cannot be taken '
+                                         'over here: flip its definition to resident in aify-env and launch its CLI, '
+                                         'and comms follows the definition.')
 
         active_run = await _get_blocking_active_run(db, agent_id)
         control_id = ""

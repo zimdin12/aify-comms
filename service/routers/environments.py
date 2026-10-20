@@ -37,6 +37,7 @@ from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.definition_freshness import definition_freshness
+from service.api_core.definition_guard import defined_among_sessions_on
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
@@ -154,9 +155,9 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
         raise HTTPException(400, "Environment control action must be stop or forget")
     db = await get_db()
     try:
-        if action == "forget":
-            # The write lock first, as a definition push takes it, so no push commits between the governing
-            # check below and the forget (0.8 whole-range review, R2 atomicity).
+        # The write lock first, as a definition push takes it, so no push commits between a check below and the
+        # writes it guards: forget's governing check (0.8 whole-range review, R2) and stop's defined agents (B2).
+        if action in {"stop", "forget"}:
             await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
         env = await cursor.fetchone()
@@ -198,6 +199,15 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
             if ws: await ws.broadcast("environment_forgotten", {"environmentId": environment_id})
             return {"ok": True, "action": action, "environmentId": environment_id}
 
+        # NOT WHILE IT WOULD DISABLE A DEFINED AGENT (B2). The writes below reach every agent with any session here,
+        # and nothing on the host consumes the control, so a defined agent would read disabled while aify-env runs it.
+        defined = await defined_among_sessions_on(db, environment_id)
+        if defined:
+            await db.rollback()
+            raise HTTPException(409, f"environment {environment_id} has sessions of agents a host defines "
+                                     f"({', '.join(defined)}): stopping it would disable them here while their host "
+                                     "keeps running them. Their lifecycle is their host's: stop them in aify-env on "
+                                     "that machine. This stop stays refused while any of them is defined.")
         control_id = f"envctl-{uuid.uuid4().hex}"
         await db.execute(
             """

@@ -211,9 +211,10 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._register("real-bridge")
         self._register("other-session-bridge", handle="another-session", force=True)
         self.assertEqual(self._superseded_by("real-bridge"), "other-session-bridge", "precondition: the forced takeover ran")
-        self.assertEqual(self._lost("other-session-bridge")["transition"], "resident_to_stopped")
+        # A resident's loss rests it offline (B2); what this control holds is that nothing hands it back.
+        self.assertEqual(self._lost("other-session-bridge")["transition"], "resident_to_offline")
         self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
-        self.assertEqual(self._agent()["status"], "stopped")
+        self.assertEqual(self._agent()["status"], "offline")
 
     def test_CONTROL_a_registration_after_the_offer_keeps_the_session(self):
         self._nested_takes_over()
@@ -278,17 +279,20 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._execute("UPDATE agents SET status = 'stopped', status_note = 'held by the operator' WHERE id = ?", (AGENT,))
         self._assert_stays_stopped()
 
-    def test_CONTROL_a_run_patch_that_stops_the_agent_after_the_loss_stays(self):
-        """A run PATCH writes `status` alone (review of 47e71270)."""
+    def test_CONTROL_a_run_patch_cannot_stop_the_agent_after_the_loss(self):
+        """A run PATCH wrote `status` alone (review of 47e71270). Since B2 it cannot write `stopped` at all: the PATCH
+        is refused and the row is as the loss left it."""
         self._nested_takes_over()
         self._execute(
             "INSERT INTO dispatch_runs(id, from_agent, target_agent, requested_at, status) VALUES (?,?,?,?,?)",
             ("run-before-loss", "operator", AGENT, "2026-09-26T00:00:00Z", "running"),
         )
         self._lost("nested-bridge")
+        before = tuple(self._agent())
         patched = self.client.patch("/api/v1/dispatch/runs/run-before-loss", json={"agentStatus": "stopped"})
-        self.assertEqual(patched.status_code, 200, patched.text)
-        self._assert_stays_stopped()
+        self.assertEqual(patched.status_code, 422, patched.text)
+        self.assertEqual(tuple(self._agent()), before)
+        self.assertNotEqual(self._agent()["status"], "stopped")
 
     # -- overlapping nested runs, and a nested bridge that dies without a word (external review, 2026-09-29) --
 

@@ -35,7 +35,7 @@ from service.api_core.ownership_authority import (
 )
 import json
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from service.api_core.agent_registration_writes import (
     _record_registered_session_handle,
@@ -64,7 +64,12 @@ from service.api_core.resident_takeover_writes import (
     _supersede_stale_resident_terminals,
 )
 from service.api_core.routing import domain_router
-from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import (
+    _normalize_launch_mode,
+    _normalize_runtime,
+    _normalize_session_mode,
+    stop_marker_refusal,
+)
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.same_mode_bridge_gate import _enforce_same_mode_bridge_gate
 from service.api_core.serialization import _json_loads_or
@@ -138,6 +143,11 @@ async def _previous_last_seen(agent_id: str) -> str:
 
 async def _register_agent(req: AgentRegister, request: Request):
     validate_name(req.agentId, "agent ID")
+    launch_mode = _normalize_launch_mode(req.launchMode)
+    # Before every branch and gate: console adoption and the manual takeover return early (B2).
+    refusal = stop_marker_refusal({"status": req.status, "launchMode": launch_mode})
+    if refusal:
+        raise HTTPException(422, refusal)
     # A pi agent registering as resident is marked for the flip below; the flip loop is told once this
     # request's connection is closed, so its look sees the committed row.
     asks_for_pi_flip = (
@@ -293,7 +303,7 @@ async def _register_agent(req: AgentRegister, request: Request):
                 "reason": "registered_cli",
                 "at": now,
             }
-        elif normalized_session_mode == "managed" and _normalize_launch_mode(req.launchMode) == "managed":
+        elif normalized_session_mode == "managed" and launch_mode == "managed":
             fresh_state["ownership"] = {
                 "mode": "managed",
                 "previousMode": _normalize_session_mode(row["session_mode"] or "resident") if row else "",

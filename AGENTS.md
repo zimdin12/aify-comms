@@ -109,7 +109,7 @@ Pi (deprecated) follows the codex column. Shrink the asymmetry column over time.
 | Restart | Re-spawn and RESUME native context (`resume_policy=native_first`; carries `session_handle`). |
 | Reset (fresh context) | Re-spawn discarding native handle/state (`resume_policy=fresh_context`; the route action is `recreate`). |
 | Resume wake | Re-enable wake/dispatch for a stopped RESIDENT agent — `POST /agents/{id}/control` action=`resume` (no spawn). |
-| Pause for CLI | Hand session ownership to the terminal (`cli_takeover`); return via Restart. |
+| CLI takeover (API only, no dashboard button) | `cli_takeover` hands an UNDEFINED agent's session to the terminal; return via Restart. A defined agent's is refused (409): flip its definition to resident in aify-env. |
 | Switch managed/resident | Ownership flip (see below). |
 | Edit… → Native session handle | Operator repair of the native resume target. |
 | Interrupt / Steer | Run-level control. |
