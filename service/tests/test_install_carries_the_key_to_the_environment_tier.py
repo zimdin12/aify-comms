@@ -41,6 +41,7 @@ argv proves it.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -235,6 +236,59 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         if not (REPO / ".env").is_file():
             self.skipTest(".env is absent")
         self.assertIn("credential status --service aify-comms", self.calls())
+
+    def test_the_install_records_its_launcher_so_a_connect_can_re_render_it(self):
+        """THE SAME INSTALLER RUN, a second question about it: does it leave the record `aify-wrapper connect` re-renders
+        from? It wrote none until 2026-10-21, so a connect reported every launcher it rendered stale and left it on the old
+        registry. The record must name the launcher natively (Node reads it), and replaying it must re-render that launcher
+        for a changed registry while a launcher with no record is reported stale and left byte for byte."""
+        if self.result is None:
+            self.skipTest(".env is absent, so the installer did not run")
+        self.assertEqual(self.result.returncode, 0, f"installer failed: {self.result.stdout[-2000:]}")
+        root = type(self).root
+        records = root / ".aify" / "launchers"
+        launcher = root / ".local" / "bin" / "claude-aify"
+        self.assertTrue(launcher.is_file(), "CONTROL: the install rendered its launcher where this test looks")
+        self.assertTrue(records.is_dir(), "the install left no render record beside its registry")
+        targets = [path.read_bytes().split(b"\0")[2].decode() for path in records.glob("*.args")]
+        self.assertIn("TARGET=" + launcher.as_posix(), targets, "the record does not name the launcher by its native path")
+
+        # A launcher no installer recorded, and a registry the launcher was not built against.
+        unrecorded = launcher.with_name("codex-aify")
+        shutil.copyfile(launcher, unrecorded)
+        before = {path.name: path.read_bytes() for path in (launcher, unrecorded)}
+        registry = root / ".aify" / "services.json"
+        changed = json.loads(registry.read_text(encoding="utf-8"))
+        self.assertIn("aify-comms", changed["services"], "CONTROL: the install registered itself in this registry")
+        changed["services"]["other"] = {"endpoint": "http://127.0.0.2:2"}
+        registry.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8", newline="\n")
+        wrapper = root / ".aify-comms" / "mcp" / "stdio" / "node_modules" / "aify-wrapper"
+        script = ("import { pathToFileURL } from 'node:url';"
+                  "const [lib, dest, registryPath, wrapperRoot] = process.argv.slice(1);"
+                  "const { rerenderLaunchers } = await import(pathToFileURL(lib).href);"
+                  "console.log(JSON.stringify(rerenderLaunchers({ dest, registryPath, wrapperRoot })));")
+        replay = subprocess.run(
+            ["node", "--input-type=module", "-e", script, str(wrapper / "lib" / "launcher-rerender.mjs"),
+             str(launcher.parent), str(registry), str(wrapper)],
+            capture_output=True, text=True, timeout=300, env={**os.environ, "HOME": str(root), "USERPROFILE": str(root)})
+        self.assertEqual(replay.returncode, 0, replay.stderr)
+        rows = {row["name"]: row["state"] for row in json.loads(replay.stdout)}
+        self.assertEqual(rows, {"claude-aify": "re-rendered", "codex-aify": "stale"})
+        self.assertNotEqual(launcher.read_bytes(), before["claude-aify"], "the recorded launcher was not rebuilt for the new registry")
+        self.assertEqual(unrecorded.read_bytes(), before["codex-aify"], "the launcher with no record was touched")
+
+    def test_emit_wrappers_renders_and_records_nothing(self):
+        """The render-only hook every launcher test uses keeps the caller's HOME, so a record it wrote would land in the
+        operator's real ~/.aify/launchers. It renders into the directory it was given and leaves nothing beside a registry."""
+        with tempfile.TemporaryDirectory() as home:
+            out = Path(home) / "out"
+            result = subprocess.run(
+                [bash(), str(INSTALL_SH), "--client", "claude", "http://127.0.0.2:1", "--emit-wrappers", out.as_posix()],
+                cwd=str(REPO), capture_output=True, text=True, timeout=600,
+                env={**os.environ, "HOME": home, "USERPROFILE": home, "AIFY_HOME": str(Path(home) / ".aify-comms")})
+            self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+            self.assertTrue((out / "claude-aify").is_file(), "CONTROL: the hook rendered its launcher")
+            self.assertFalse((Path(home) / ".aify" / "launchers").exists(), "--emit-wrappers wrote a render record")
 
 
 if __name__ == "__main__":

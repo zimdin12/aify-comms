@@ -507,16 +507,16 @@ render_wrapper_template() {
   pairs+=("STRICT_EXTRA_MCP_B64=$_aify_strict" "SESSION_MCP_B64=$_aify_session" "SESSION_MCP_CODEX_B64=$_aify_codex")
   # WRAPPER_DIR: where launchers find aify-wrapper's own bin/ and lib/. The pinned copy beside the bridge, the path they always used.
   pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "WRAPPER_DIR=$AIFY_BRIDGE_DIR/node_modules/aify-wrapper" "NATIVE_BASE=$AIFY_NATIVE_BASE" "SCRIPT_DIR=$SCRIPT_DIR")
-  # Caller-supplied extras, as KEY=VALUE. The hermes generator computes three values that cannot be derived from the
-  # checkout alone — a Windows-converted plugin path, a node-openable bridge dir, and a prebuilt TUI bundle baked only
-  # when it exists — so they arrive from the caller rather than being read here. Applied AFTER the fixed set so an extra
-  # can never shadow one of them. render.sh stages and renames into place, refuses a leftover placeholder, and its exit status is the install's.
-  # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked its
-  # `shopt -u patsub_replacement`, so on bash 5.2+ an `&` in a value became the placeholder (2026-10-14,
-  # X6). Staged last, beside a copy of it (it reads `wrappers/` next to itself): a refusal above strands nothing.
+  # Caller-supplied KEY=VALUE extras (hermes: a Windows-converted plugin path, a node-openable bridge dir, a prebuilt TUI
+  # bundle), applied AFTER the fixed set so none can shadow one. render.sh stages, renames into place, refuses a leftover placeholder.
+  # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked `shopt -u patsub_replacement`, so on
+  # bash 5.2+ an `&` in a value became the placeholder (X6). Staged last, beside a copy (it reads `wrappers/` next to it): a refusal
+  # above strands nothing. It RECORDS each launcher beside the registry so `aify-wrapper connect` can re-render it, as aify-wrapper's
+  # installer does (none until 2026-10-21, so a connect left every launcher stale); the --emit-wrappers test hook records nothing.
   local stage; stage="$(mktemp -d)" && mkdir "$stage/wrappers" && cp "$template" "$stage/wrappers/$1" \
     && cp "$SCRIPT_DIR/mcp/stdio/node_modules/aify-wrapper/render.sh" "$stage/render.sh" || { rm -rf "${stage:-}"; exit 1; }
-  local status=0; bash "$stage/render.sh" "$1" "$target" "${pairs[@]}" "${@:3}" || status=$?
+  local status=0 records=""; [ -n "$EMIT_WRAPPERS_DIR" ] || records="$(dirname "$AIFY_SERVICE_REGISTRY")/launchers"
+  RENDER_RECORD_DIR="$records" bash "$stage/render.sh" "$1" "$target" "${pairs[@]}" "${@:3}" || status=$?
   rm -rf "$stage"; [ "$status" -eq 0 ] || exit "$status"
 }
 
