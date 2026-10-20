@@ -1,6 +1,6 @@
 # S2: the phased chain, entry-point handoff, assets-only application
 
-Part of [the guided-install plan](../2026-10-20-guided-install.md). Answers R3's ordering half.
+Part of [the guided-install plan](../2026-10-20-guided-install.md). Answers R3's ordering half (adopted). Rev 3 adds the served-artifact step and the key-input witnesses.
 
 ## Where the chain lives
 
@@ -13,8 +13,10 @@ install.sh --connect <service>=<url> ... --client <runtime> ... [--no-prompt]
 It runs the index's five phases in order:
 1. **Acquire** is idempotent:
    - aify-env and aify-wrapper with `npm install -g`, git form;
-   - each selected service's approved artifacts, through that service's installer in `--acquire-only` mode (comms:
-     today's bridge copy).
+   - each selected service's approved artifacts whose source needs no service key (`git`), through that service's
+     installer in `--acquire-only` mode. For comms that is today's bridge copy.
+   - A `served` artifact needs the service key, so it is fetched inside connect's probe step (S1, step 3), into
+     staging, hash-checked, and still before publish and render.
 2. **Connect** each service (S1).
 3. **Render** once.
 4. **Apply assets** through each service's installer in `--assets-only --client <runtime>` mode, which writes no
@@ -43,6 +45,7 @@ It runs the index's five phases in order:
 
 | obligation | witness | RED when |
 |---|---|---|
-| render after connect | in a node+git container with nothing preseeded (no bridge files, no credentials, no runtime CLI), `install.sh --connect aify-comms=<fixture> --client claude --no-prompt` acquires, connects and renders, then exits non-zero naming `claude: pending (CLI absent)` | launchers render before connect (`aify-wrapper-check` reports the fingerprint stale), or the run exits 0 |
+| render after connect | in a node+git container with nothing preseeded (no bridge files, no stored credential, no runtime CLI), `install.sh --connect aify-comms=<fixture> --client claude --no-prompt --secret aify-comms.credentialRef=<file holding the fixture key>`, or the key on stdin: it acquires, connects and renders, then exits non-zero naming `claude: pending (CLI absent)` | launchers render before connect (`aify-wrapper-check` reports the fingerprint stale), or the run exits 0 |
+| a missing key stops before connect | the same run with no stored key and none supplied: it exits non-zero naming the missing `aify-comms.credentialRef`, the registry is unchanged and no launcher is rendered | it connects, renders, or generates a key |
 | no recursion | running comms' installer as the entry point enters the chain once (counted) and assets-only writes no registry bytes | the chain is entered twice, or the registry hash changes in phase 4 |
 | PATH is not selection | `codex` on PATH but not selected: no codex assets are applied | they are |

@@ -1,8 +1,9 @@
-# Guided install: any piece installs and connects the rest (2026-10-20, plan rev 2, not built)
+# Guided install: any piece installs and connects the rest (2026-10-20, plan rev 3, not built)
 
 The operator, 2026-10-20: "i go to new pc, i tell agent to install aify-comms or aify-env and aify asks stuff if
 needed and installs env and wrapper etc also. or if i ask to install aify-env and connect it with comms in xxx and
-dashboard in yyy." Rev 2 answers REVISE a60461f1 (R1-R4). This page is the index; each slice has its own page under
+dashboard in yyy." Rev 2 answered REVISE a60461f1 (R1-R4). Rev 3 answers REVISE 03375b9b: typed artifacts, the
+redirect stage, publish authority, and S3's reader list. R4 and the adopted clauses are unchanged. This page is the index; each slice has its own page under
 `guided-install/`.
 
 ## Today (aify-comms 7c1f76da, aify-env 2ae603de, aify-wrapper 5a080a1)
@@ -51,16 +52,22 @@ Clients are what the operator selects. PATH is inventory, not selection. herdr s
 
 | # | page | ships |
 |---|---|---|
-| S1 | guided-install/S1-spec-and-connect.md | versioned spec, its trust boundary, `aify-wrapper connect` with staged publish; comms stays stdio with the copy |
+| S1 | guided-install/S1-spec-and-connect.md | versioned spec, typed artifacts (`package` or `file-set`, `git` or `served` source), `aify-wrapper connect` with a locked publish and commit boundary; comms stays stdio with the copy |
 | S2 | guided-install/S2-chain.md | the phased chain in aify-env's installer; handoff and assets-only modes |
-| S3 | guided-install/S3-copy-consumers.md | the channel server and notify-check stop needing the bridge copy, or the copy stays declared |
+| S3 | guided-install/S3-copy-consumers.md | a disposition for every known reader of the bridge copy (13 rows so far); an UNKNOWN row keeps the copy declared |
 | S4 | guided-install/S4-sse-no-copy.md | comms over SSE, the 5 tools mirrored, then the no-copy cutover (needs S3) |
 | S5 | guided-install/S5-native-gates-and-live-test.md | the channel prompt (branch A UNKNOWN, branch B on the operator's authorization), the readiness report, task #17 |
 
 ## ASSUMED, not verified here
 
-- The spec route, `aify-wrapper connect` and `aify-env registry check` exist nowhere yet. All three are proposed.
+- The spec route, `aify-wrapper connect`, `aify-env registry check` and the registry lock exist nowhere yet. All
+  four are proposed.
 - That `aify-env credential set --ref` accepts a staged reference name for the dashboard's `secretsCredentialRef`.
-- The dashboard's client package, bin and host-fact descriptor are PENDING from dashboard-manager.
+- PENDING the operator (dashboard question 01M5CYJH): where the dashboard's client package comes from. The repo is
+  private, so `git` fails on a fresh host; `served` with a bound sha256 is recommended.
+- The dashboard's bin `aify-dashboard-bridge` is reported PROVEN on Linux by dashboard-manager. Its Windows form
+  `node <npm root -g>/aify-dashboard/bin/aify-dashboard-bridge.mjs` is ASSUMED, not run, and so is its host-fact
+  descriptor.
+- S3's reader list is a positive list from direct spellings, not a census.
 - How all three installers behave on Linux. A container run cannot certify native Windows behaviour.
 - Branch A on a personal account: UNKNOWN until a scoped native result exists.
