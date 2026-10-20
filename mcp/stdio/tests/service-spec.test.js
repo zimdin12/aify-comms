@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 // The registration spec comms serves (guided install S1), as the stamp builds it.
 //
-// Three properties, each asked of the real code: the spec describes the entry the installer writes
-// today, its file-set hash binds the COMMIT's bytes under mcp/stdio and nothing else, and it carries no
-// value from the environment. A build that cannot bind a commit says so with a pending source.
+// Each property is asked of the real code:
+// - the spec describes the entry the installer writes today;
+// - its file-set manifest lists the COMMIT's bytes under mcp/stdio and nothing else, and the artifact's
+//   sha256 is the hash of exactly that manifest;
+// - it carries no value from the environment;
+// - building it reads no credential file, although its env-var names come from a module that resolves a
+//   credential when imported.
+// A build that cannot bind a commit says so with a pending source.
 //
-// Every git repo here is a temp repo; the CLI never reads the operator's checkout or registry.
+// Every git repo, home and registry here is a temp one; children run on `sealedChildEnv`.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -14,13 +19,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { commsServiceSpec } from "../service-spec.mjs";
+import { commsServiceSpec, fixedFields, manifestText, renderStdioMcp, sha256 } from "../service-spec.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SPEC_CLI = path.join(HERE, "..", "service-spec-cli.mjs");
 const REGISTER_CLI = path.join(HERE, "..", "register-service-cli.mjs");
+const ENDPOINT_MODULE = path.join(HERE, "..", "aify-service-endpoint.mjs");
 
 function withTempDir(body) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-spec-"));
@@ -51,10 +58,10 @@ function seedRepo(repo, files, { origin = "https://github.com/owner/repo.git" } 
   return git(repo, "rev-parse", "HEAD");
 }
 
-function runSpec(repo, revision, { version = "1.2.3", env = {} } = {}) {
+function runSpec(repo, revision, { version = "1.2.3", env = {}, nodeArgs = [] } = {}) {
   const out = path.join(repo, "spec.json");
-  const done = spawnSync(process.execPath, [SPEC_CLI, repo, revision, version, out],
-    { encoding: "utf8", timeout: 60_000, env: { ...process.env, ...env } });
+  const done = spawnSync(process.execPath, [...nodeArgs, SPEC_CLI, repo, revision, version, out],
+    { encoding: "utf8", timeout: 60_000, env: sealedChildEnv(env) });
   assert.equal(done.status, 0, `${done.stdout}\n${done.stderr}`);
   return { stamped: JSON.parse(fs.readFileSync(out, "utf8")), text: fs.readFileSync(out, "utf8") };
 }
@@ -62,19 +69,19 @@ function runSpec(repo, revision, { version = "1.2.3", env = {} } = {}) {
 const FILES = {
   "mcp/stdio/server.js": "server\n",
   "mcp/stdio/claude-channel.js": "channel\r\nwith a CR\n",
-  "mcp/stdio/lib/a.mjs": "a\n",
+  "mcp/stdio/package-lock.json": "{}\n",
+  "mcp/stdio/tests/a.test.js": "a test is tracked, so it is listed\n",
   "service/app.py": "outside\n",
 };
 
-/** The manifest the plan defines, computed here from the bytes this test wrote. */
-function expectedManifestSha(files) {
-  const lines = Object.entries(files)
+/** The manifest the plan defines (`sha256sum` lines, sorted), computed here from the bytes written. */
+function expectedManifest(files) {
+  return Object.entries(files)
     .filter(([rel]) => rel.startsWith("mcp/stdio/"))
     .map(([rel, text]) => [rel.slice("mcp/stdio/".length), createHash("sha256").update(Buffer.from(text)).digest("hex")])
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([rel, hash]) => `${hash}  ${rel}\n`)
     .join("");
-  return createHash("sha256").update(lines).digest("hex");
 }
 
 test("the spec describes exactly the entry the installer writes today", () => {
@@ -82,37 +89,51 @@ test("the spec describes exactly the entry the installer writes today", () => {
     const registry = path.join(dir, "services.json");
     const bridgeDir = "/opt/aify/mcp/stdio";
     const done = spawnSync(process.execPath, [REGISTER_CLI, registry, "http://127.0.0.2:1", bridgeDir],
-      { encoding: "utf8", timeout: 60_000, env: { ...process.env, CREDENTIAL_REF: "" } });
+      { encoding: "utf8", timeout: 60_000, env: sealedChildEnv({ CREDENTIAL_REF: undefined }) });
     assert.equal(done.status, 0, done.stderr);
     const entry = JSON.parse(fs.readFileSync(registry, "utf8")).services["aify-comms"];
     const spec = commsServiceSpec({ version: "x", source: { pending: "test" } });
+    assert.deepEqual(spec.fixed, fixedFields());
     for (const [field, value] of Object.entries(spec.fixed)) {
       assert.deepEqual(entry[field], value, `fixed.${field} differs from the installed entry`);
     }
     // The S1 render of the spec's mcp, written out here from the document rather than imported.
     const rendered = spec.mcp.map(({ name, entry: file }) => ({ name, command: "node", args: [`${bridgeDir}/${file}`] }));
     assert.deepEqual(entry.mcp, rendered);
+    assert.deepEqual(renderStdioMcp(bridgeDir), rendered);
     assert.equal(rendered.length, 2, "control: both servers are in the comparison");
   });
 });
 
-test("the file-set hash binds the commit's bytes under mcp/stdio, and only those", () => {
+test("manifestText is sha256sum lines sorted by path, and refuses a path that could escape", () => {
+  const text = manifestText([{ path: "b.js", bytes: Buffer.from("b") }, { path: "a.js", bytes: Buffer.from("a") }]);
+  assert.equal(text, `${sha256(Buffer.from("a"))}  a.js\n${sha256(Buffer.from("b"))}  b.js\n`);
+  for (const bad of ["../x.js", "/abs.js", "a\\b.js", "a\nb.js", ""]) {
+    assert.throws(() => manifestText([{ path: bad, bytes: Buffer.from("") }]), /unusable path/, JSON.stringify(bad));
+  }
+});
+
+test("the manifest lists the commit's bytes under mcp/stdio, and the artifact's sha256 hashes exactly it", () => {
   withTempDir((repo) => {
     const head = seedRepo(repo, FILES);
-    // An uncommitted edit, inside and outside mcp/stdio, must not reach a hash bound to the commit.
+    // An uncommitted edit, and an untracked file, must not reach a manifest bound to the commit.
     fs.writeFileSync(path.join(repo, "mcp/stdio/server.js"), "edited after the commit\n");
     fs.writeFileSync(path.join(repo, "mcp/stdio/untracked.js"), "never committed\n");
     const { stamped } = runSpec(repo, head);
     const [artifact] = stamped.spec.artifacts;
+    const manifest = stamped.manifests["comms-bridge"];
     assert.equal(stamped.buildSha, head);
     assert.deepEqual(artifact.source, { git: { repo: "owner/repo", revision: head } });
-    assert.equal(artifact.sha256, expectedManifestSha(FILES));
-    assert.notEqual(artifact.sha256, expectedManifestSha({ ...FILES, "mcp/stdio/server.js": "edited after the commit\n" }),
-      "control: the working-tree edit would change the hash");
+    assert.equal(manifest, expectedManifest(FILES));
+    assert.equal(artifact.sha256, createHash("sha256").update(Buffer.from(manifest, "utf8")).digest("hex"));
+    assert.equal(artifact.manifest.path, "/.well-known/aify-service/artifacts/comms-bridge.manifest");
+    for (const entry of artifact.entries) assert.match(manifest, new RegExp(`  ${entry}\\n`), `${entry} is not listed`);
+    assert.notEqual(manifest, expectedManifest({ ...FILES, "mcp/stdio/server.js": "edited after the commit\n" }),
+      "control: the working-tree edit would change the manifest");
   });
 });
 
-test("a build that cannot bind a commit serves a pending artifact with no hash", () => {
+test("a build that cannot bind a commit serves a pending artifact with no hash and no manifest", () => {
   const cases = {
     "no origin remote": { origin: null, revision: "head" },
     "an origin that is not GitHub": { origin: "https://gitlab.com/o/r.git", revision: "head" },
@@ -125,25 +146,88 @@ test("a build that cannot bind a commit serves a pending artifact with no hash",
       const [artifact] = stamped.spec.artifacts;
       assert.equal(typeof artifact.source.pending, "string", name);
       assert.deepEqual(Object.keys(artifact.source), ["pending"], name);
-      assert.equal("sha256" in artifact, false, name);
+      assert.equal("sha256" in artifact || "manifest" in artifact, false, name);
+      assert.deepEqual(stamped.manifests, {}, name);
     });
   }
 });
 
-test("no key, AIFY_* value or stored credential reaches the spec", () => {
-  withTempDir((repo) => {
+/** A fake home holding a registry that binds a credential to `endpoint`, as aify-env writes them. */
+function plantCredential(dir, endpoint) {
+  const home = path.join(dir, "home");
+  const registry = path.join(home, ".aify", "services.json");
+  const credential = path.join(home, ".aify", "credentials", "aify-comms.key");
+  fs.mkdirSync(path.dirname(credential), { recursive: true });
+  fs.writeFileSync(registry, JSON.stringify({ version: 1, services: { "aify-comms": {
+    endpoint, credentialRef: "aify-comms.key", mcp: [] } } }));
+  fs.writeFileSync(credential, "planted-stored-key-4411\n", { mode: 0o600 });
+  return { home, registry, credential };
+}
+
+/** A preload that records every path read or stat'ed through node:fs, for the process it runs in. */
+function spyPreload(dir) {
+  const file = path.join(dir, "spy.mjs");
+  fs.writeFileSync(file, `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const log = process.env.SPY_LOG;
+const record = (p) => fs.appendFileSync(log, String(p) + "\\n");
+for (const name of ["readFileSync", "lstatSync", "statSync", "openSync"]) {
+  const original = fs[name];
+  fs[name] = function (p, ...rest) { record(p); return original.call(this, p, ...rest); };
+}
+syncBuiltinESMExports();
+`);
+  return pathToFileURL(file).href;
+}
+
+test("building the spec reads no registry or credential file, though the names' owner would", () => {
+  withTempDir((dir) => {
+    const repo = path.join(dir, "repo");
+    fs.mkdirSync(repo);
     const head = seedRepo(repo, FILES);
-    const home = path.join(repo, "home");
-    fs.mkdirSync(path.join(home, ".aify", "credentials"), { recursive: true });
-    fs.writeFileSync(path.join(home, ".aify", "credentials", "aify-comms.key"), "planted-stored-key-4411\n");
+    const endpoint = "http://127.0.0.2:1";
+    const { home, registry, credential } = plantCredential(dir, endpoint);
+    const preload = spyPreload(dir);
+    const env = { HOME: home, USERPROFILE: home, AIFY_SERVER_URL: endpoint, AIFY_SERVICE_REGISTRY: registry };
+    const touched = (log) => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "");
+
+    // CONTROL: importing the names' owner in this same environment reads the planted registry, so the
+    // spy can see a module-scope read and an empty log below is not a blind instrument.
+    const controlLog = path.join(dir, "control.log");
+    const control = spawnSync(process.execPath, ["--import", preload, "--input-type=module", "-e",
+      `await import(${JSON.stringify(pathToFileURL(ENDPOINT_MODULE).href)});`],
+    { encoding: "utf8", timeout: 60_000, env: sealedChildEnv({ ...env, SPY_LOG: controlLog }) });
+    assert.equal(control.status, 0, control.stderr);
+    assert.equal(touched(controlLog).includes(registry), true,
+      `control: the spy saw no registry read when the owner was imported directly:\n${touched(controlLog)}`);
+
+    const cliLog = path.join(dir, "cli.log");
+    runSpec(repo, head, { env: { ...env, SPY_LOG: cliLog }, nodeArgs: ["--import", preload] });
+    const seen = touched(cliLog);
+    // The spy ran in this process too: the owner's module-scope read reached the sealed path instead.
+    assert.match(seen, /aify-service-spec-sealed-\d+/, `the spy recorded nothing in the spec build:\n${seen}`);
+    assert.equal(seen.includes(registry), false, `the spec build read the registry:\n${seen}`);
+    assert.equal(seen.includes(path.join(".aify", "credentials")), false, `the spec build touched a credential:\n${seen}`);
+    assert.equal(seen.includes(credential), false);
+  });
+});
+
+test("no key, AIFY_* value or stored credential reaches the spec", () => {
+  withTempDir((dir) => {
+    const repo = path.join(dir, "repo");
+    fs.mkdirSync(repo);
+    const head = seedRepo(repo, FILES);
+    const endpoint = "http://127.0.0.2:1";
+    const { home, registry } = plantCredential(dir, endpoint);
     const planted = {
       AIFY_API_KEY: "planted-aify-key-91c2", CLAUDE_MCP_API_KEY: "planted-claude-key-0b7a",
-      AIFY_AGENT_ID: "planted-agent-55d1", AIFY_SERVER_URL: "http://planted-endpoint-7c:1",
-      HOME: home, USERPROFILE: home,
+      AIFY_AGENT_ID: "planted-agent-55d1", AIFY_SERVER_URL: endpoint,
+      AIFY_SERVICE_REGISTRY: registry, HOME: home, USERPROFILE: home,
     };
     const { text } = runSpec(repo, head, { env: planted });
     for (const value of ["planted-stored-key-4411", "planted-aify-key-91c2", "planted-claude-key-0b7a",
-      "planted-agent-55d1", "planted-endpoint-7c"]) {
+      "planted-agent-55d1", "127.0.0.2"]) {
       assert.equal(text.includes(value), false, `${value} reached the spec`);
     }
     // Control: the same check finds a value that is there.

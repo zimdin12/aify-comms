@@ -3,18 +3,30 @@
 //
 //   service-spec-cli.mjs <repo-root> <revision> <version> <out-file>
 //
-// Run by `scripts/stamp.sh` beside the build stamp. The service serves the spec only while `buildSha`
-// equals the build it is running, so a spec left over from another build is never served.
+// Run by `scripts/stamp.sh` beside the build stamp. It writes `{buildSha, spec, manifests}`; the service
+// serves the spec and each manifest only while `buildSha` equals the build it is running, so a spec left
+// over from another build is never served.
 //
 // THE MANIFEST IS THE COMMIT'S, not the working tree's: each file's bytes come from git's object store
 // at <revision>, so an uncommitted edit, or a checkout's line-ending conversion, never reaches it.
 // When the commit cannot be bound (no GitHub origin, the revision is absent), the artifact is
-// `{pending: <reason>}` and carries no hash.
+// `{pending: <reason>}` and carries no hash and no manifest.
+//
+// NO CREDENTIAL IS READ. The spec takes its env-var names from `aify-service-endpoint.mjs`, which resolves
+// the service key when it is imported: from the environment, or from the credential the registry names
+// for the endpoint in AIFY_SERVER_URL. So the registry carrier is pointed at a path that exists nowhere
+// BEFORE that module loads (a dynamic import, after this line), and the import finds no registry and so
+// no credential file. A key already in this process's environment stays in memory and is never written.
 
 import { spawnSync } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { commsServiceSpec, manifestText, sha256 } from "./service-spec.mjs";
+import { REGISTRY_ENV_NAME } from "./registry-credential.mjs";
+
+process.env[REGISTRY_ENV_NAME] = join(tmpdir(), `aify-service-spec-sealed-${process.pid}`, "services.json");
+const { commsServiceSpec, manifestText } = await import("./service-spec.mjs");
 
 const STDIO_DIR = "mcp/stdio";
 const EXIT_USAGE = 2;
@@ -57,7 +69,7 @@ function committedFiles(repoRoot, revision) {
   });
 }
 
-/** {source, manifestSha256} for `revision`, or a pending source naming why it could not be bound. */
+/** {source, manifest} for `revision`, or a pending source naming why it could not be bound. */
 function artifactSource(repoRoot, revision) {
   let origin = "";
   try {
@@ -68,8 +80,7 @@ function artifactSource(repoRoot, revision) {
   const repo = githubRepo(origin);
   if (!repo) return { source: { pending: "the build checkout's origin is not a GitHub repository" } };
   try {
-    const manifestSha256 = sha256(Buffer.from(manifestText(committedFiles(repoRoot, revision)), "utf8"));
-    return { source: { git: { repo, revision } }, manifestSha256 };
+    return { source: { git: { repo, revision } }, manifest: manifestText(committedFiles(repoRoot, revision)) };
   } catch (error) {
     return { source: { pending: `the bridge files at ${revision} could not be read: ${error.message}` } };
   }
@@ -80,9 +91,10 @@ if (!repoRoot || !/^[0-9a-f]{40}$/.test(revision || "") || !version || !outFile)
   process.stderr.write("usage: service-spec-cli.mjs <repo-root> <40-hex revision> <version> <out-file>\n");
   process.exit(EXIT_USAGE);
 }
-const spec = commsServiceSpec({ version, ...artifactSource(repoRoot, revision) });
+const { source, manifest } = artifactSource(repoRoot, revision);
+const spec = commsServiceSpec({ version, source, manifest });
+const manifests = source.pending ? {} : { [spec.artifacts[0].id]: manifest };
 const temp = `${outFile}.${process.pid}.tmp`;
-writeFileSync(temp, `${JSON.stringify({ buildSha: revision, spec }, null, 2)}\n`);
+writeFileSync(temp, `${JSON.stringify({ buildSha: revision, spec, manifests }, null, 2)}\n`);
 renameSync(temp, outFile);
-const { source } = spec.artifacts[0];
 process.stdout.write(`service spec: ${source.pending ? `artifact pending (${source.pending})` : `bound to ${revision}`}\n`);

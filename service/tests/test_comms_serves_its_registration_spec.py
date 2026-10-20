@@ -1,12 +1,14 @@
 """aify-comms serves its registration spec at `/.well-known/aify-service` (guided install S1).
 
-A new host learns a service by asking it, before it holds any key. So the route answers without one,
-serves only a spec stamped for the build that is running, holds the format owner's rules, and carries
-no secret. Its `verify` block is checked against this service's own key middleware, so the spec cannot
-promise a probe the service does not keep.
+A new host learns a service by asking it, before it holds any key. So the spec and its manifest answer
+without one, serve only what was stamped for the build that is running, hold the format owner's rules,
+and carry no secret. The manifest's bytes hash to the artifact's `sha256`. The spec's `verify` block is
+checked against this service's own key middleware, so the spec cannot promise a probe the service does
+not keep, and no other `/.well-known/` path answers as if it were a document.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -19,7 +21,8 @@ from unittest import mock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from service.api_core.service_spec import served_spec, spec_problems
+from service import main as main_module
+from service.api_core.service_spec import manifest_problems, served_spec, spec_problems
 from service.config import ServiceConfig
 from service.main import APIKeyMiddleware, create_app
 from service.routers import health
@@ -28,19 +31,24 @@ from service.tests.served_routes import walk_routes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_ROUTE = "/.well-known/aify-service"
+MANIFEST_ROUTE = "/.well-known/aify-service/artifacts/comms-bridge.manifest"
 BUILD = "a" * 40
 KEY = "planted-service-key-7f3e"
+MANIFEST = f"{'1' * 64}  claude-channel.js\n{'2' * 64}  package-lock.json\n{'3' * 64}  server.js\n"
+TRUSTED = "http://127.0.0.1:8800"
 
 
-def _comms_spec() -> dict:
+def _comms_spec(manifest: str = MANIFEST) -> dict:
     """The document comms' builder produces, asked of the real module, never retyped here."""
     script = (
         "import { commsServiceSpec } from './mcp/stdio/service-spec.mjs';"
         "process.stdout.write(JSON.stringify(commsServiceSpec({version: '9.9.9',"
-        f" source: {{git: {{repo: 'o/r', revision: '{BUILD}'}}}}, manifestSha256: 'f'.repeat(64)}})));"
+        f" source: {{git: {{repo: 'o/r', revision: '{BUILD}'}}}}, manifest: {json.dumps(manifest)}}})));"
     )
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_", "CLAUDE_MCP_"))}
+    env["AIFY_SERVICE_REGISTRY"] = "/aify-sealed-in-tests/does-not-exist.json"
     done = subprocess.run(["node", "--input-type=module", "-e", script], cwd=REPO_ROOT,
-                          capture_output=True, text=True, check=True)
+                          capture_output=True, text=True, check=True, env=env)
     return json.loads(done.stdout)
 
 
@@ -57,8 +65,10 @@ class _Served(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def stamp(self, spec, build=BUILD):
-        self.spec_path.write_text(json.dumps({"buildSha": build, "spec": spec}), encoding="utf-8")
+    def stamp(self, spec, build=BUILD, manifests=None):
+        manifests = {"comms-bridge": MANIFEST} if manifests is None else manifests
+        self.spec_path.write_text(json.dumps({"buildSha": build, "spec": spec, "manifests": manifests}),
+                                  encoding="utf-8")
 
     def client(self):
         app = FastAPI()
@@ -72,6 +82,12 @@ class _Served(unittest.TestCase):
 
         return TestClient(app)
 
+    def real_client(self):
+        """The real `create_app()` with a key configured, asked from a host it trusts."""
+        with mock.patch.object(main_module, "get_config", lambda: self.config):
+            app = create_app()
+        return TestClient(app, base_url=TRUSTED)
+
 
 class TheSpecIsServedWithoutAKeyTests(_Served):
     def test_a_spec_stamped_for_this_build_is_served_unauthenticated(self):
@@ -81,21 +97,49 @@ class TheSpecIsServedWithoutAKeyTests(_Served):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), spec)
 
-    def test_the_real_app_serves_the_route_and_skips_the_key_only_for_it(self):
+    def test_the_real_app_answers_the_spec_with_no_key_as_json(self):
+        self.stamp(_comms_spec())
+        response = self.real_client().get(SPEC_ROUTE)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.headers["content-type"].startswith("application/json"))
+
+    def test_the_real_app_answers_the_manifest_with_no_key_as_text_hashing_to_the_spec(self):
+        spec = _comms_spec()
+        self.stamp(spec)
+        response = self.real_client().get(spec["artifacts"][0]["manifest"]["path"])
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.headers["content-type"].startswith("text/plain"))
+        self.assertEqual(hashlib.sha256(response.content).hexdigest(), spec["artifacts"][0]["sha256"])
+        listed = {line.split("  ", 1)[1] for line in response.text.splitlines()}
+        self.assertLessEqual(set(spec["artifacts"][0]["entries"]), listed, "an entry the manifest does not list")
+
+    def test_an_unknown_well_known_path_is_never_answered_as_a_document(self):
+        self.stamp(_comms_spec())
+        client = self.real_client()
+        for path in ("/.well-known/x", "/.well-known/security.txt", "/.well-known/aify-servicex"):
+            for headers in ({}, {"x-api-key": KEY}):
+                with self.subTest(path=path, keyed=bool(headers)):
+                    self.assertNotEqual(client.get(path, headers=headers).status_code, 200)
+        for name in ("other.manifest", "comms-bridge", "comms-bridge.manifest.txt"):
+            with self.subTest(name=name):
+                self.assertEqual(client.get(f"{SPEC_ROUTE}/artifacts/{name}").status_code, 404)
+
+    def test_the_real_app_serves_both_routes(self):
         paths = {getattr(route, "path", "") for route in walk_routes(create_app())}
-        self.assertIn(SPEC_ROUTE, paths)
+        self.assertLessEqual({SPEC_ROUTE, f"{SPEC_ROUTE}/artifacts/{{name}}"}, paths)
 
 
 class OnlyAValidSpecForThisBuildIsServedTests(_Served):
     def test_a_spec_stamped_for_another_build_is_refused(self):
         self.stamp(_comms_spec(), build="b" * 40)
-        response = self.client().get(SPEC_ROUTE)
-        self.assertEqual(response.status_code, 503)
-        self.assertIn("another build", response.json()["error"])
+        for route in (SPEC_ROUTE, MANIFEST_ROUTE):
+            with self.subTest(route):
+                response = self.client().get(route)
+                self.assertEqual(response.status_code, 503)
+                self.assertIn("another build", response.json()["error"])
 
     def test_no_stamped_spec_is_refused(self):
-        response = self.client().get(SPEC_ROUTE)
-        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
 
     def test_an_unknown_build_serves_nothing(self):
         self.config.build_sha = "unknown"
@@ -103,9 +147,17 @@ class OnlyAValidSpecForThisBuildIsServedTests(_Served):
         self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
 
     def test_an_unknown_spec_version_is_refused(self):
-        spec = {**_comms_spec(), "specVersion": 2}
-        self.stamp(spec)
+        self.stamp({**_comms_spec(), "specVersion": 2})
         self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
+
+    def test_a_manifest_that_does_not_hash_to_the_artifact_is_refused(self):
+        spec = _comms_spec()
+        for name, manifests in {"edited": {"comms-bridge": MANIFEST + "x"}, "missing": {}}.items():
+            with self.subTest(name):
+                self.assertNotEqual(manifest_problems(spec, manifests), [])
+                self.stamp(spec, manifests=manifests)
+                self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
+                self.assertEqual(self.client().get(MANIFEST_ROUTE).status_code, 503)
 
 
 class TheServedDocumentHoldsTheFormatRulesTests(_Served):
@@ -137,24 +189,26 @@ class TheServedDocumentHoldsTheFormatRulesTests(_Served):
                 self.stamp(spec)
                 self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
 
-    def test_a_pending_artifact_without_a_hash_is_served(self):
+    def test_a_pending_artifact_without_a_hash_or_manifest_is_served(self):
         base = _comms_spec()
-        artifact = {k: v for k, v in base["artifacts"][0].items() if k != "sha256"}
+        artifact = {k: v for k, v in base["artifacts"][0].items() if k not in ("sha256", "manifest")}
         spec = {**base, "artifacts": [{**artifact, "source": {"pending": "no origin"}}]}
-        self.stamp(spec)
+        self.stamp(spec, manifests={})
         self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 200)
 
 
 class TheSpecCarriesNoSecretTests(_Served):
-    def test_no_key_and_no_aify_value_reaches_the_document(self):
+    def test_no_key_and_no_aify_value_reaches_the_documents(self):
         planted = {"AIFY_API_KEY": "planted-aify-key-91c2", "AIFY_AGENT_ID": "planted-agent-55d1",
                    "CLAUDE_MCP_API_KEY": "planted-claude-key-0b7a"}
         self.stamp(_comms_spec())
+        client = self.client()
         with mock.patch.dict(os.environ, planted):
-            body = self.client().get(SPEC_ROUTE).text
-        for value in (KEY, *planted.values()):
-            with self.subTest(value):
-                self.assertNotIn(value, body)
+            bodies = {route: client.get(route).text for route in (SPEC_ROUTE, MANIFEST_ROUTE)}
+        for route, body in bodies.items():
+            for value in (KEY, *planted.values()):
+                with self.subTest(route=route, value=value):
+                    self.assertNotIn(value, body)
 
     def test_control_the_same_probe_finds_a_value_that_is_there(self):
         self.stamp({**_comms_spec(), "version": KEY})
@@ -182,8 +236,6 @@ class StampWritesTheSpecForItsOwnShaTests(unittest.TestCase):
     """`scripts/stamp.sh` binds the spec to the sha it stamps, and a failed write leaves no spec rather
     than the previous build's."""
 
-    SPEC_MODULES = ("service-spec-cli.mjs", "service-spec.mjs", "service-env-names.mjs", "service-name.mjs")
-
     def _repo(self, tmp: Path, *, with_cli: bool) -> Path:
         repo = tmp / "repo"
         (repo / "scripts").mkdir(parents=True)
@@ -193,8 +245,10 @@ class StampWritesTheSpecForItsOwnShaTests(unittest.TestCase):
         (repo / "VERSION").write_text("9.9.9\n", encoding="utf-8")
         (repo / "mcp" / "stdio" / "server.js").write_text("s\n", encoding="utf-8")
         if with_cli:
-            for name in self.SPEC_MODULES:
-                shutil.copy(REPO_ROOT / "mcp" / "stdio" / name, repo / "mcp" / "stdio" / name)
+            # The CLI and every bridge module beside it, so its relative imports resolve as they do in a
+            # checkout. Derived from the directory, not listed.
+            for module in (REPO_ROOT / "mcp" / "stdio").glob("*.*js"):
+                shutil.copy(module, repo / "mcp" / "stdio" / module.name)
         git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
         subprocess.run([*git, "init", "-q"], check=True)
         subprocess.run([*git, "remote", "add", "origin", "https://github.com/o/r.git"], check=True)
@@ -207,7 +261,7 @@ class StampWritesTheSpecForItsOwnShaTests(unittest.TestCase):
         env = {k: v for k, v in os.environ.items()
                if k not in ("MSYS_NO_PATHCONV", "MSYS2_ARG_CONV_EXCL", "GIT_SHA", "GIT_BRANCH", "AIFY_VERSION")}
         done = subprocess.run([bash(), (repo / "scripts" / "stamp.sh").as_posix()], capture_output=True,
-                              text=True, env=env, timeout=120)
+                              text=True, env=env, timeout=180)
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_the_spec_is_bound_to_the_stamped_sha(self):
@@ -215,10 +269,11 @@ class StampWritesTheSpecForItsOwnShaTests(unittest.TestCase):
             repo = self._repo(Path(d), with_cli=True)
             self._stamp(repo)
             stamp = json.loads((repo / "service" / "_build_stamp.json").read_text(encoding="utf-8"))
-            stamped = json.loads((repo / "service" / "_service_spec.json").read_text(encoding="utf-8"))
+            text = (repo / "service" / "_service_spec.json").read_text(encoding="utf-8")
+            stamped = json.loads(text)
             self.assertEqual(stamped["buildSha"], stamp["sha"])
             self.assertEqual(stamped["spec"]["version"], "9.9.9")
-            self.assertEqual(served_spec(json.dumps(stamped), stamp["sha"])[1], "")
+            self.assertEqual(served_spec(text, stamp["sha"])[1], "")
 
     def test_a_failed_write_leaves_no_spec_rather_than_the_last_builds(self):
         with tempfile.TemporaryDirectory() as d:

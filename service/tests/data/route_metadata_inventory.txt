@@ -1,5 +1,7 @@
 APIRoute DELETE /route/{name}/{path:path} name=route_request status=- response_model=- tags=containers deps=0 in_schema=True
 APIRoute GET / name=root_redirect status=- response_model=- tags=- deps=0 in_schema=False
+APIRoute GET /.well-known/aify-service name=service_spec status=- response_model=- tags=- deps=0 in_schema=True
+APIRoute GET /.well-known/aify-service/artifacts/{name} name=artifact_manifest status=- response_model=- tags=- deps=0 in_schema=True
 APIRoute GET /api/v1/containers name=list_containers status=- response_model=- tags=containers deps=0 in_schema=True
 APIRoute GET /api/v1/containers/{name} name=get_container status=- response_model=- tags=containers deps=0 in_schema=True
 APIRoute GET /api/v1/containers/{name}/logs name=get_logs status=- response_model=- tags=containers deps=0 in_schema=True

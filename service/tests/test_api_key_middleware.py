@@ -209,7 +209,7 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
                             "/api/v1/favicon.svg", "/api/v1/favicon.ico",
                             # The registration spec a new host reads before it holds a key (guided install
                             # S1). It serves names, paths and hashes, never a value.
-                            "/.well-known/aify-service"}
+                            "/.well-known/aify-service", "/.well-known/aify-service/artifacts/{name}"}
 
         unexpected = sorted(
             route.path for route in walk_routes(app)
