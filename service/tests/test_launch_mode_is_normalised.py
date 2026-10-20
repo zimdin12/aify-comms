@@ -83,7 +83,7 @@ class WritePathTests(unittest.TestCase):
     WRITE_SITES = {
         "service/api_core/agent_registration_writes.py": "_normalize_launch_mode(req.launchMode)",
         "service/api_core/resident_takeover_writes.py": '"launchMode": _normalize_launch_mode(req.launchMode)',
-        "service/routers/agents/registration.py": '_normalize_launch_mode(req.launchMode) == "managed"',
+        "service/routers/agents/registration.py": "launch_mode = _normalize_launch_mode(req.launchMode)",
     }
 
     def test_every_write_site_normalises(self):

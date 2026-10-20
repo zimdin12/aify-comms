@@ -52,15 +52,18 @@ class TheTwoAnalyticsEndpointsAgree(FastApiTestCase):
         })
         self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
 
-    def _register(self, agent_id, status=None):
+    def _register(self, agent_id):
         body = {
             "agentId": agent_id, "role": "coder", "runtime": "claude-code",
             "sessionMode": "managed", "machineId": "linux:an-host", "bridgeId": "bridge-an",
             "capabilities": ["managed-run"],
         }
-        if status:
-            body["status"] = status
         response = self.client.post("/api/v1/agents", json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def _stop(self, agent_id):
+        """The operator's stop, through its route: the only writer of the stop markers since B2."""
+        response = self.client.post(f"/api/v1/agents/{agent_id}/control", json={"action": "stop", "from_agent": "dashboard"})
         self.assertEqual(response.status_code, 200, response.text)
 
     @staticmethod
@@ -90,7 +93,9 @@ class TheTwoAnalyticsEndpointsAgree(FastApiTestCase):
         for i in range(3):
             self._register(f"an-live-{i}")
         before = self._online("/api/v1/analytics")
-        self._register("an-stopped", status="stopped")
+        # Stopped the way the operator's stop leaves it: a caller cannot register itself stopped (B2).
+        self._register("an-stopped")
+        self._stop("an-stopped")
         after = self._online("/api/v1/analytics")
         self.assertEqual(after, before, "a stopped agent was counted among the live fleet")
         self.assertEqual(after, self._online("/api/v1/analytics/pulse?range=1h"))

@@ -6,8 +6,9 @@ fixture. The body is at its original 8-space column so the SQL literals are pres
 
 TWO AGENTS REACH THIS BLOCK AND THEY MUST NOT REST IN THE SAME STATE.
 
-A resident that lost its runtime with no managed backing is correctly STOPPED -- there is nothing
-left to wake.
+A resident that lost its runtime with no managed backing rests OFFLINE (B2). Closing its own CLI is not an
+operator stop, and aify-env publishes such a resident offline; `stopped` with `launch_mode='none'` are the
+operator's markers. A stop already on the row predates the loss and is someone else's, so it stays.
 
 A `session_mode='managed'` agent reaching here is NOT that. It is a managed worker whose backing
 died (the hermes managed-host reuses this signal via `reportGatewayDead` when its gateway port goes
@@ -22,6 +23,8 @@ cold-starts a fresh session. The bound environment still gates it through the se
 offline environment yields a clean "env unavailable" wait rather than a permanent stop.
 """
 from __future__ import annotations
+
+from service.api_core.nested_session_handback import was_stopped
 
 
 async def _settle_lost_resident_when_no_transition(db, agent_id, row, req, now, returned, transition):
@@ -55,8 +58,8 @@ async def _settle_lost_resident_when_no_transition(db, agent_id, row, req, now, 
             # no live worker; launch_mode='detached') so the next send cold-starts a
             # fresh session (new gateway). The bound env still gates via the send
             # preflight, so an offline env yields a clean "env unavailable" wait rather
-            # than a permanent stop. Resident agents keep the stop fallback (a resident
-            # that lost its runtime with no managed backing is correctly stopped).
+            # than a permanent stop. A resident rests offline, or keeps a stop that was
+            # already on its row (see the module docstring, B2).
             agent_is_managed = str(row["session_mode"] or "").strip().lower() == "managed"
             if agent_is_managed:
                 await db.execute(
@@ -80,7 +83,7 @@ async def _settle_lost_resident_when_no_transition(db, agent_id, row, req, now, 
                 )
                 returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
                 transition = "managed_worker_lost_available"
-            else:
+            elif was_stopped(row):
                 await db.execute(
                     """
                     UPDATE agents
@@ -98,4 +101,12 @@ async def _settle_lost_resident_when_no_transition(db, agent_id, row, req, now, 
                 )
                 returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
                 transition = "resident_to_stopped"
+            else:
+                await db.execute(
+                    "UPDATE agents SET status = 'offline', status_note = ?, last_seen = ? WHERE id = ?",
+                    (str(req.reason or "Resident runtime bridge was lost and no managed backing was available.")[:500],
+                     now, agent_id),
+                )
+                returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                transition = "resident_to_offline"
         return returned, transition

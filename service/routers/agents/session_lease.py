@@ -249,7 +249,7 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
         # If this bridge had taken the session over from a same-handle bridge (a nested `claude` run from
         # the agent's own shell does), the agent goes offline rather than stopped, and that bridge
         # reclaims the session by beating (api_core/nested_session_handback.py).
-        if bridge_id and transition == "resident_to_stopped" and await offer_handback(
+        if bridge_id and transition in ("resident_to_stopped", "resident_to_offline") and await offer_handback(
             db, agent_id=agent_id, lost_bridge_id=bridge_id, before_loss=row, now=now,
         ):
             transition = "resident_lost_reclaimable"

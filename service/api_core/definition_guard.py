@@ -32,3 +32,12 @@ async def defined_mode(db, agent_id: str) -> str:
     """The mode this agent's definition asks for, or "" for an agent no host defines."""
     row = await (await db.execute("SELECT body FROM agent_definitions WHERE agent_id = ?", (agent_id,))).fetchone()
     return str(json.loads(row["body"] or "{}").get("mode") or "") if row else ""
+
+
+async def defined_among_sessions_on(db, environment_id: str) -> list[str]:
+    """The defined agents an environment stop would write: every agent with ANY session there, current or ended,
+    whichever machine defines it (B2). Not forget's question, which asks only what this environment's store governs."""
+    rows = await (await db.execute(
+        "SELECT DISTINCT s.agent_id FROM agent_sessions s JOIN agent_definitions d ON d.agent_id = s.agent_id "
+        "WHERE s.environment_id = ? ORDER BY s.agent_id", (environment_id,))).fetchall()
+    return [row["agent_id"] for row in rows]

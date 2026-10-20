@@ -22,6 +22,7 @@ from service.api_core.agent_sessions import _settle_agent_for_session_control
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.events import _append_terminal_control
 from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.definition_guard import defined_on
 from service.api_core.definition_start import undefined_refusal
 from service.api_core.lifecycle_delegation import delegate
 from service.api_core.records import _agent_session_to_dict
@@ -39,6 +40,11 @@ from service.models import SessionControlRequest
 router = domain_router()
 
 
+async def _session_row(db, session_id: str):
+    """The session and, in its `agent_id`, whose it is now: read once per request, the takeover's under its fence."""
+    return await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+
+
 
 @router.post("/sessions/{session_id}/control")
 async def control_session(session_id: str, req: SessionControlRequest, request: Request):
@@ -54,9 +60,15 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
 
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))
-        session = await cursor.fetchone()
+        if action == "cli_takeover":
+            # THE TAKEOVER'S OWN FENCE (B2), taken BEFORE it reads whose session this is. A rename can move the session
+            # to another agent and a push can define that agent; read outside the fence, the check below would judge
+            # the old owner while the writes land on the new one's session. Stop, restart and recreate stay unfenced
+            # here: `delegate` owns their transaction.
+            await db.execute("BEGIN IMMEDIATE")
+        session = await _session_row(db, session_id)
         if not session:
+            await db.rollback()
             raise HTTPException(404, f'Session "{session_id}" not found')
 
         now = _now()
@@ -71,6 +83,15 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         if action in {"restart", "recreate"}:
             # D8: a defined agent was handed to its host above, and one no host defines is not started.
             raise HTTPException(409, undefined_refusal(agent_id))
+        if action == "cli_takeover":
+            # Under the fence taken above, with every write below, so a definition push (the same lock) lands wholly
+            # before the check or wholly after the writes. A defined agent's lifecycle is its host's: a stop here
+            # would leave aify-env running it unaware.
+            if await defined_on(db, agent_id):
+                await db.rollback()
+                raise HTTPException(409, f'Agent "{agent_id}" is defined by its host, so its session cannot be taken '
+                                         'over here: flip its definition to resident in aify-env and launch its CLI, '
+                                         'and comms follows the definition.')
 
         active_run = await _get_blocking_active_run(db, agent_id)
         control_id = ""
