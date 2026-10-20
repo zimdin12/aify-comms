@@ -334,7 +334,9 @@ async def _settle_agent_for_session_control(db, session_id: str, agent_id: str, 
                     WHERE id = ?
                     """,
                     (
-                        "Paused for direct CLI takeover. Close the CLI session and use Sessions -> Restart to return control to the dashboard.",
+                        "Paused for direct CLI takeover. Launch the agent's CLI under its *-aify launcher to drive "
+                        "this session; an agent no host defines is not restarted from the dashboard (define it in "
+                        "aify-env to have it managed again).",
                         now,
                         agent_id,
                     ),

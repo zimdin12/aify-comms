@@ -115,8 +115,10 @@ class CallersCannotWriteTheStopMarkers(FastApiTestCase):
     # -- the run PATCH ----------------------------------------------------------------------------------
 
     def _running_run(self) -> None:
-        seeded = self._register(sessionMode="managed", launchMode="managed")
-        self.assertEqual(seeded.status_code, 200, seeded.text)
+        """Seeded directly, not registered, so an arm on the shared refusal reaches the PATCH's own assertion."""
+        self._execute("INSERT INTO agents (id, role, name, runtime, machine_id, session_mode, launch_mode, status,"
+                      " registered_at, last_seen) VALUES (?, 'coder', ?, 'claude-code', ?, 'managed', 'managed',"
+                      " 'active', ?, ?)", (AGENT, AGENT, MACHINE, NOW, NOW))
         self._execute("INSERT INTO dispatch_runs (id, from_agent, target_agent, status, requested_at) VALUES (?,?,?,?,?)",
                       ("run-1", "dashboard", AGENT, "running", NOW))
 
@@ -149,7 +151,8 @@ class CallersCannotWriteTheStopMarkers(FastApiTestCase):
                 self.assertEqual(len(self.ws.broadcasts), broadcasts, "a refused PATCH broadcast")
 
     def test_CONTROL_a_run_patch_with_an_ordinary_or_omitted_agent_status_still_settles(self):
-        for fields, agent_status in (({"agentStatus": "idle"}, "idle"), ({}, None)):
+        # `working` is in the vocabulary the PATCH writes; the seeded row says `active`, so the write is visible.
+        for fields, agent_status in (({"agentStatus": "working"}, "working"), ({}, None)):
             with self.subTest(fields=repr(fields)):
                 self._execute("DELETE FROM dispatch_runs")
                 self._execute("DELETE FROM agents")

@@ -40,6 +40,11 @@ from service.models import SessionControlRequest
 router = domain_router()
 
 
+async def _session_row(db, session_id: str):
+    """The session and, in its `agent_id`, whose it is now: read once per request, the takeover's under its fence."""
+    return await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+
+
 
 @router.post("/sessions/{session_id}/control")
 async def control_session(session_id: str, req: SessionControlRequest, request: Request):
@@ -55,9 +60,15 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
 
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))
-        session = await cursor.fetchone()
+        if action == "cli_takeover":
+            # THE TAKEOVER'S OWN FENCE (B2), taken BEFORE it reads whose session this is. A rename can move the session
+            # to another agent and a push can define that agent; read outside the fence, the check below would judge
+            # the old owner while the writes land on the new one's session. Stop, restart and recreate stay unfenced
+            # here: `delegate` owns their transaction.
+            await db.execute("BEGIN IMMEDIATE")
+        session = await _session_row(db, session_id)
         if not session:
+            await db.rollback()
             raise HTTPException(404, f'Session "{session_id}" not found')
 
         now = _now()
@@ -73,10 +84,9 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             # D8: a defined agent was handed to its host above, and one no host defines is not started.
             raise HTTPException(409, undefined_refusal(agent_id))
         if action == "cli_takeover":
-            # THE TAKEOVER'S OWN FENCE (B2). The definition check and an undefined agent's writes below share one
-            # BEGIN IMMEDIATE, the lock a definition push takes, so a definition lands wholly before or wholly after.
-            # A defined agent's lifecycle is its host's: a stop here would leave aify-env running it unaware.
-            await db.execute("BEGIN IMMEDIATE")
+            # Under the fence taken above, with every write below, so a definition push (the same lock) lands wholly
+            # before the check or wholly after the writes. A defined agent's lifecycle is its host's: a stop here
+            # would leave aify-env running it unaware.
             if await defined_on(db, agent_id):
                 await db.rollback()
                 raise HTTPException(409, f'Agent "{agent_id}" is defined by its host, so its session cannot be taken '
