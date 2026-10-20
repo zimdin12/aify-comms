@@ -1,4 +1,4 @@
-# B5: retiring a superseded agent-state publisher, with aify-env as the authority (DRAFT, revision 2)
+# B5: retiring a superseded agent-state publisher, with aify-env as the authority (DRAFT, revision 3: section 4 separates the sender's outcome from each receiver's state)
 
 **Where B5 lives in the code.** A managed key is `default` or `herdr-<invocation>` (aify-env `lib/daemon-agent-state.mjs:17-19`). The residents key is `residents-<hash12>` (`lib/residents-home.mjs:72-75`). Successors reuse `default` and `residents` at a higher generation (`daemon-agent-state.mjs:62`, `lib/residents-role.mjs:14`). comms admits that (`service/api_core/agent_state_shadow.py:162-163`) and replaces the rows (`partial_status_shadow.py:130`), so those keys do not strand. A dedicated scope is single-use (`lib/instance-context.mjs:48,69`): nobody publishes under it again, so its entry stays in the mirror until comms restarts. Every defined agent goes ambiguous because the managed population lists every definition that no resident record claims (`lib/agent-state-host.mjs:224-230`). So K and K' both hold a row per defined agent, and `record_for` counts any row with that agentId on the machine (`partial_status_shadow.py:207-212`) before it checks freshness (`:222`).
 
@@ -37,7 +37,7 @@
     1. Compute the proof. If it fails, write `agent state retirement: not-proven (n lifetimes)`. No body is numbered.
     2. Number the retirement with `publisher.retire()`: n+1. From then on the publisher refuses every `#body`.
     3. POST it to the authorized destinations (see transport).
-    4. Write the outcome.
+    4. Write the outcome: the aggregate word below, followed by each destination's own result ([rev3]; section 4 says what neither of them proves).
   - `shutdown` awaits `Promise.race([afterStops(), deadline, second signal])`. A second signal reuses the `skipWait` branch (`:93-97`). Then `exit(0)` runs unconditionally.
   - Exit waits for the send for at most 1 s and never longer. Worst case, the whole shutdown takes 2 s + 5 s + 1 s. A request still pending at the deadline is abandoned at exit.
   - **An attempt is not a committed retirement.** `confirmed` means:
@@ -102,8 +102,13 @@
 - **B5b (reload):** a retired cursor reloads as no entry. Warning: a reload that lands before section 4 has an answer brings back a crashed K's rows from the database. The interim comms restart would then stop clearing the ambiguity.
 - **B5c (a publication per turn event):** the per-event path must be gated by the same stop (`bin:527-532`). No event body may be numbered after the retirement; the publisher refuses it.
 
-**4. Crash: no clean shutdown, no successor proof, or an unconfirmed retirement**
-This covers a hard kill, TerminateProcess, a stop that cannot be proven, and a retirement that is `not-proven` or `unconfirmed`. K's cursor and rows stay in the database, and its entry stays in the mirror. Every defined agent reads `ambiguous-association` until comms restarts, because ambiguity is checked before freshness (`partial_status_shadow.py:210-212` vs `:222`). That answer is honest: P's dedicated workers may be orphaned and still running, since recovery is `none` and nothing reaps them. The interim stays as it is: restart comms together with aify-env. It does not close B5, and B5 stays open for crashes.
+**4. Crash, no proof, or an unconfirmed retirement**
+Section 1's law holds here too: only each receiver's cursor decides whether K is retired there. The sender's outcome describes what the sender knows, never what a receiver did. Three cases, kept apart:
+- **No attempt** (hard kill, TerminateProcess, a stop that cannot be proven, `not-proven`): no retirement body was sent to any receiver. K's cursor and rows stay in each database and its entry stays in each mirror. Every defined agent reads `ambiguous-association` until comms restarts, because ambiguity is checked before freshness (`partial_status_shadow.py:210-212` vs `:222`). That answer is honest: P's dedicated workers may be orphaned and still running, since recovery is `none` and nothing reaps them. The interim stays: restart comms together with aify-env.
+- **Attempted, unconfirmed** (no ACK, the 1000 ms deadline, a 5xx, a transport failure, 200 `applied:false`, 422): per receiver, application is UNKNOWN to the sender. A receiver may have committed the retirement and then lost the ACK or missed the deadline; another may have refused or rolled back before commit. Destinations can be mixed. Each receiver's state is whatever its cursor says: committed means cursor `retired`, K's rows gone and K absent from its mirror; not committed means all three unchanged. Unconfirmed is neither rollback nor guaranteed remaining ambiguity.
+- **Confirmed** (204 per destination): that receiver retired K.
+
+Nothing resurrects K because an ACK was absent: aify-env never publishes under K after `retire()` (the publisher refuses, `no_turn_event_body_after_retirement`), never sends an un-retire, and a receiver that committed refuses any later K body (`delayed_old_body_refused_after_retirement`). The interim comms restart is needed only where a receiver did not commit. B5 stays open for the no-attempt case.
 
 **What changes in the receiver at d6f135fe (branch `098/b5-retired`)**
 - [B5-1] `DeliveryTurns.forget(machine, records)` becomes `forget(machine)`. It drops `_lineages`/`_fresh` for every key whose first part is that machine and stops marking `_estimates` non-authoritative (branch `delivery_turns.py:255-264`). `_retire` calls `forget(key[0])` (branch `agent_state_shadow.py:188-189`).
@@ -153,6 +158,9 @@ comms `service/tests/test_publisher_retirement.py` (and `test_status_shadow_wind
   - [record the scope as `ALL_PUBLISHERS`]
 - [B5-3] `failed_retire_with_unreadable_view_is_sticky`: every bind is a loss, and a later K2 snapshot does not clear it. [fall back to an empty `Mirror()`]
 - `refusal_renews_nothing`
+- [rev3] `precommit_failure_leaves_k_unchanged`: the retirement write fails before commit (a failing `_write_retirement`). K's cursor is not `retired`, its rows remain, K is still in the mirror, and the agent still reads `ambiguous-association`. [commit the cursor before the failing step]
+- [rev3] `committed_retirement_stands_without_its_ack`: the receiver commits, then the response is lost (the test drops it after commit). K's cursor is `retired`, K's rows are gone, K is absent from the mirror, and a later K body is refused `retired`. [roll back when the response cannot be written / re-admit K on its next body]
+- [rev3] `two_receivers_can_disagree`: two receivers, the same retirement; one commits, the other rolls back before commit. Each is asserted by its own cursor, rows and mirror; neither is inferred from the other or from the sender. [share one cursor table / assert through the sender's outcome]
 
 aify-env `tests/shutdown.test.js`, `agent-state-sender.test.js`, `agent-state-publisher.test.js`, `agent-state-host.test.js`:
 - [B5-2] `proof_covers_every_numbered_body`: a body numbered and aborted in flight has a lifetime with no end, so there is no retirement. [collect lifetimes on 204 only]
@@ -165,6 +173,8 @@ aify-env `tests/shutdown.test.js`, `agent-state-sender.test.js`, `agent-state-pu
 - [B5-2] `retirement_one_deadline_then_unconditional_exit`: a POST that never answers gives exit at 1000 ms with `unconfirmed`; a second signal ends the wait. [no timer / exit before the await]
 - [B5-2] `attempt_is_not_confirmation`: 200 with `applied:false`, 422, an abort or a transport failure each give `unconfirmed`.
 - `no_turn_event_body_after_retirement`
+- [rev3] `unconfirmed_never_resurrects_k`: a fake receiver commits and then never answers. The outcome is `unconfirmed` at 1000 ms, and no later body is numbered or sent under K, including a turn event and a reconcile tick. [republish K's last snapshot after an unconfirmed retire]
+- [rev3] `outcome_lists_each_destination`: D1 answers 204 and D2 times out. The aggregate is `unconfirmed`, and the line also records D1 `confirmed` and D2 `unconfirmed`. [write only the aggregate / report the first destination's result for all]
 
 ### Critical Files for Implementation
 - `C:\Users\Administrator\projects\aify-comms-b5\service\api_core\agent_state_shadow.py`

@@ -1,4 +1,4 @@
-# Fold-provenance slice and clock-safe turn age: design draft (rev2, 2026-10-20; answers REVISE AGE-1 and FOLD-1)
+# Fold-provenance slice and clock-safe turn age: design draft (rev3, 2026-10-20; answers REVISE AGE-1 and FOLD-1, and the rev2 review's window boundary and C1 parent)
 
 **Today.** The fold holds four kinds of knowledge with no build attached: the per-agent turn, each lineage's last clock, each start estimate, and each lineage's freshness (`delivery_turns.py:163-167`). Every fold owner passes `fold=True` (`comms_view.py:249`, `busy_consumers.py:142,164,185,195`). `Provenance.observe` adds the owner to `_fold` (`shadow_provenance.py:112-113`). `add_provenance` adds it to `fold_unverified` (`shadow_evidence_store.py:83`), and `coverage` then always gives that owner `'fold-context'` (`:141`). The start estimate takes a sample from any `ageMs` (`delivery_turns.py:283`). aify-env computes that age as `Date.now() - startedAtUs/1000` when the body is built (`agent-state-publisher.mjs:75-78,107-112`). `startedAtUs` is the hook's own `firedAtUs` (`agent-turn-events.mjs:50`, `turn-events.mjs:21`). The receiver refuses any unknown field (`agent_state_shadow.py:40`), and `ageMs` is its only optional turn field (`:115-117`).
 
@@ -85,7 +85,7 @@
   - Sample = 1000 + 1 − 999 = 2, so expiry = 1802. rev1's limit was 1800 + 0 + 0 + 1 = 1801.
   - Sample selection cannot repair this. Every later sample is read later, so its u is ≥ 1 s and its p is > 0; the kept minimum stays above 1, and expiry stays above 1801.
   - With 600 s of suspend omitted before that read: monotonic elapsed is 400,000 ms, `appliedAgeMs` = 399,600, u = 600.4 s, sample = 601.4, expiry = 2401.4. The excess has no bound as suspend grows.
-- **[AGE-1] N2 amendment for P0 (replaces `2026-10-02-aify-env-owns-agent-state-P0.md:341-353`).** This is a contract change. It goes to P0's owner (the operator approved P0's end state, `P0.md:3-5`) and must be accepted before C1 starts. The C8 row at `P0.md:388` is unchanged.
+- **[AGE-1] N2 amendment for P0 (replaces `2026-10-02-aify-env-owns-agent-state-P0.md:341-353`).** This is a contract change. It goes to P0's owner (the operator approved P0's end state, `P0.md:3-5`) and must be accepted before C1 starts. The C8 row at `P0.md:388` is unchanged. **[rev3]** The review accepted the mathematics, not the contract change; the change is routed to the operator as dashboard question `01M5CA55NBE62M25ZYCCQZJR2C` (2026-10-20), and C1 waits on that answer.
 
   > **The stale anchor (N2)** (amended 2026-10-20). A record's open turn carries `turn.appliedAgeMs` only when the publishing aify-env host applied that turn's start itself. The value is the monotonic time since that application, reduced by 1e-3 and floored. Each consumed publication gives a sample of the start on aify-comms' clock: `(appliedAt stamp + 1 s) - appliedAgeMs`. aify-comms keeps the **earliest** sample per turn (`startedAt` identifies the turn). The sample is authoritative only for a turn the fold saw begin after a closed observation, with every consumed publication of it aged, none withheld, and no loss since. `strictExpiry` is that sample plus 1800 s. `turn.ageMs` is accepted and is never authoritative.
   >
@@ -105,6 +105,7 @@
    - `ageMs` stays accepted, stays in the raw evidence, and is never read for authority.
    - Fold sets, `Frame.fold_builds`, the Provenance map and the `add_provenance` rule.
    - No DB migration.
+   - **[rev3] C1's parent is main with B6c merged** (`349d61b3` or later). The fold owners are the five H1 owners plus B6c's stale-turn ceiling (`stale_turn_ceiling.py`, wired at `dispatch_launch.py` and `dispatch_claim.py` after `observe_busy`), so the ceiling takes the same `fold=True` path and is in every history below.
    - Update the docstrings at `shadow_provenance.py:13-16` and `delivery_turns.py:19-23`. **[AGE-1]** P0 N2 changes only through the amendment above, and C1 does not start until it is accepted.
 2. **Deploy C1, then E1 (aify-env):** the host anchors and the publisher change. If E1 shipped first, comms would refuse every body that has an anchored open turn. A sibling run with `AIFY_ENV_REPO` set to E1 must pass against C1 before E1 deploys. aify-wrapper holds no copy of the schema (plan `:149-150`).
 
@@ -114,7 +115,7 @@ Between the two deploys, every estimate is non-authoritative, so `strict-expiry`
 
 **[FOLD-1] Rule for refusal assertions.** Every refusal is asserted as the owner's exact `gaps` list (`shadow_evidence_store.py:141`), never as generic incompleteness. H2's reads go through the stranded-reply guard. It reads only `FOLD.turn` (`busy_consumers.py:188-195`) and passes no binding, so it adds no build (`shadow_provenance.py:87-88`). The turn's set alone then decides `fold-context`.
 
-- **H1 one-build:** B opens, advances and ends a turn. busy, queue, claim, reminder and stranded are each evaluated. The window is {B} and closes `rotation`. No `fold-context` gap. The control at HEAD shows the gap.
+- **H1 one-build:** B opens, advances and ends a turn. busy, queue, claim, reminder, stranded and the stale-turn ceiling are each evaluated. The window is {B} and closes `rotation`. No `fold-context` gap. The control at HEAD shows the gap.
 - **H2a cross-build end [FOLD-1]:**
   - Start from a fresh fold. B_old publishes T open (`first`, lineage {B_old}).
   - B_new's first publication carries T closed, with no B_new quiet before it. That is `ended` (`delivery_turns.py:127-128`), so CLOSED carries {B_old, B_new}.
@@ -123,14 +124,19 @@ Between the two deploys, every estimate is non-authoritative, so `strict-expiry`
   - Arm M1: `ended` drops the previous lineage set. CLOSED carries {B_new} and gaps == [].
   - Arm M1f: the previous lineage set is read after the overwrite. Same result as M1.
   - Arm M4s: drop rule 3 (subset). gaps == [].
-- **H2b lift control [FOLD-1]:**
-  - Continue from H2a. B_new opens and then ends T2.
-  - A read between the two is still refused, because `started` leaves the turn as it was (`delivery_turns.py:149-157`) and so keeps its set.
-  - After T2's end, CLOSED carries {B_new} and the read gives gaps == [].
-  - Arm M1b: `ended` also keeps the old turn's set. H2b never lifts. This is the false-refusal arm.
+- **H2b lift control [FOLD-1, rev3 window boundary]:** the fold recovers inside a window; the window does not.
+  - Continue from H2a, in the {B_new} window W1. B_new opens and then ends T2.
+  - A read between the two, in W1, is refused with gaps == ['fold-context'], because `started` leaves the turn as it was (`delivery_turns.py:149-157`) and so keeps its {B_old, B_new} set.
+  - After T2's end, CLOSED carries {B_new}: the FOLD has recovered. W1 has not: its per-owner union and persisted `fold_unverified` already hold the earlier refused read, so a read in W1 after the end still gives gaps == ['fold-context']. Nothing resets the fold or erases that read to manufacture a lift.
+  - W1 closes `rotation` with its history as written, and the fold is kept across the rotation. In the fresh window W2, seeded {B_new} from the mirror, a stranded read gives gaps == []. That is the lift.
+  - Arm M1b: `ended` also keeps the old turn's set. The W2 read still refuses (['fold-context']). This is the false-refusal arm.
+  - Arm M1e: T2's end erases W1's earlier refused read (clears the owner's union or `fold_unverified`). W1's post-end read gives gaps == [] where ['fold-context'] is expected.
+- **H2d rotation keeps the fold [rev3]:** continue from H2a, but rotate W1 while T2 is still open. In the fresh window W2 a stranded read is still refused (['fold-context']), because the open turn still carries {B_old, B_new}; rotation moves the window, not the fold. After T2 ends, the lift is asserted in the next fresh window W3, as in H2b.
+  - Arm M1r: rotation clears the fold sets. The W2 read lifts.
 - **H2c quiet before end (rev1's H2, kept for its healthy behavior):**
   - A reporter opens the turn (`delivery_turns.py:107-110`). B_old publishes T open, B_new republishes T quiet, and T ends under B_new.
-  - A stranded read in the {B_new} window while T is open gives ['fold-context']. After the end it gives [].
+  - A stranded read in the {B_new} window W1 while T is open gives ['fold-context'].
+  - **[rev3 window boundary]** After T ends under B_new, CLOSED carries {B_new}, but a read in W1 still gives ['fold-context']: the window keeps the refused read. W1 closes `rotation` without rewriting it, the fold is kept, and in the fresh {B_new} window W2 the read gives []. The lift is asserted only in W2.
   - Arm M2: a `quiet` write records the empty set. The read while T is open lifts.
 - **H3 withheld:** two holders give empty reads, which lift. The withheld estimate is not authoritative. Arm M3: reads add the set of NOT_KNOWN values. This is the false-refusal arm.
 - **H4 loss:** `publish_applied(None)` gives an `env-version` gap in that window and a lift in the next. **[FOLD-1]** An owner that read {B} before the loss gets gaps == ['env-version'] exactly: {B} ⊆ window and carries no UNKNOWN, so no fold rule fires.
