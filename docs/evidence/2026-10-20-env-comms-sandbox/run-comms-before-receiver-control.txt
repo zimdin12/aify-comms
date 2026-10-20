@@ -1,20 +1,25 @@
-+0.1s comms 12491a42 = 12491a422a9809e601b9ef8e0caad67c3d7dcdb5; env 2ae603de = 2ae603de9ad6bc6b15cacf731c41900cef1d7eaf; agent sandbox-probe; expect kept
-+0.1s resources: {"network":"aify-sandbox-1792506718068","comms":"aify-sandbox-1792506718068-comms","env":"aify-sandbox-1792506718068-env","commsImage":"aify-sandbox-1792506718068-comms","envImage":"aify-sandbox-1792506718068-env"}, label aify.sandbox=aify-sandbox-1792506718068, no published ports, /data on tmpfs (no volume)
-+7.2s comms image built
-+9.7s env image built
-+12.5s comms healthy; before the env: {"publishers":[]}
-+14.1s env published: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792506731043,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506731043,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792506731064,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506731064,"applied":true,"rows":0}]}
-+14.7s env stopped by SIGTERM, exit 0
-+14.8s after: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792506731043,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506731043,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792506731064,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506731064,"applied":true,"rows":0}]}
-+14.9s env log, last lines:
++0.0s driver sha256 4d9e27a606559c12b9220b7bbc83a7649431cd1111a70d6f66295d63941c9fc7; env.Dockerfile sha256 190a4941d207e774c73ae3fcda2882ebb4bed1fe162836c3a254fb7f0a572bd4; sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.3s comms 12491a42 = 12491a422a9809e601b9ef8e0caad67c3d7dcdb5; env 2ae603de = 2ae603de9ad6bc6b15cacf731c41900cef1d7eaf; agent sandbox-probe; expect kept
++0.3s run aify-sandbox-9a243efa-bee4-4640-bf04-c6a58375d6cf: no published ports, /data on tmpfs (no volume)
++6.9s owned image aify-sandbox-9a243efa-bee4-4640-bf04-c6a58375d6cf-comms
++10.5s owned image aify-sandbox-9a243efa-bee4-4640-bf04-c6a58375d6cf-env
++11.0s owned network 1a65f4acb015a34afe54ef71554d49b997262c7fb355f20973dc79310be83fed
++11.7s owned container bf4a40381e062ee474f23fe8af7a965e73b87b2ddb212fc766da1ab83f9ddb1e
++13.4s comms healthy; before the env: {"publishers":[]}
++14.1s owned container 255e00adc27469dc1852884148477d7b8ce8d106164e9c7cae071ba06dde40c4
++14.5s env published: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792509341477,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509341477,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792509341509,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509341509,"applied":true,"rows":0}]}
++15.1s env stopped by SIGTERM, exit 0
++15.3s after: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792509341477,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509341477,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792509341509,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509341509,"applied":true,"rows":0}]}
++15.6s env log, last lines:
 sandbox-probe: incarnation 1 revision 1
 aify-env 0.9.4 listening on http://127.0.0.1:8802
 terminals: UNAVAILABLE (node-pty did not load: MODULE_NOT_FOUND) — processes will run with piped stdio
-[aify-env] residents role held, generation 1792506731064, publishing as residents-fda01c99a296
+[aify-env] residents role held, generation 1792509341509, publishing as residents-fda01c99a296
 [aify-env] hosting work for: aify-comms
 [aify-env] SIGTERM: stopping 0 managed process(es)
 [aify-env] agent state retirement: unconfirmed, not-applied ["aify-comms"=unconfirmed (not-applied)]
 
-+14.9s managed keys before: ["wsl:sandbox-env/default"]; retired after: []; residents unchanged true; AS EXPECTED (kept)
-+17.1s cleaned up: containers left [], networks left [], images left [], work dir exists false
-verdict: AS EXPECTED (kept)
++18.5s primary: AS EXPECTED (kept)
++18.5s cleanup: complete, every owned resource read back absent
++18.5s terminal: exit 0
+shell: exit status 0

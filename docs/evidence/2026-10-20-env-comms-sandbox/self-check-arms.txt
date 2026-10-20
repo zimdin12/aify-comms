@@ -1,0 +1,7 @@
+BASELINE exit=0
+RED   redact is identity | restored=True | ["FAIL the key never reaches this file's output on a failing child", 'FAIL the failure is still reported, redacted']
+RED   outcome ignores cleanup | restored=True | ['FAIL a primary pass with failed cleanup exits nonzero']
+RED   unknown read as absent | restored=True | ['FAIL a listing that times out fails cleanup (unknown, not empty)']
+RED   existing name adopted | restored=True | ['FAIL an existing name is refused and never owned']
+RED   generation not checked | restored=True | ['FAIL a retirement with generation=8 does not hold']
+RED   reason not checked | restored=True | ['FAIL a retirement with reason=other does not hold']
