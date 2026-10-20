@@ -56,10 +56,9 @@ import {
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import {
   defaultCapabilitiesForRuntime,
-  defaultSessionHandleForRuntime,
+  launcherSessionHandle,
   detectRuntime,
   discoverCodexLiveBinding,
-  discoverCodexLiveThreadId,
   hasCodexLiveAppServer,
 } from "./runtimes.js";
 import { defaultMachineId } from "./machine-id.mjs";
@@ -150,33 +149,25 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
         !(hermesGatewayRegistration && !String(sessionHandle || "").trim());
       const initialSessionHandle =
         sessionHandle ||
-        defaultSessionHandleForRuntime(resolvedRuntime) ||
+        launcherSessionHandle(resolvedRuntime) ||
         (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
         "";
       const explicitAppServerUrl = String(appServerUrl || "").trim();
       if (resolvedRuntime === "codex" && explicitAppServerUrl) {
         runtimeConfig = { ...runtimeConfig, appServerUrl: explicitAppServerUrl };
       }
+      // A codex handle is one somebody named: this call's argument, the launcher's export, or this
+      // agent's own earlier registration. Nothing asks an app server which thread is newest in this
+      // workspace; a cwd match is affinity, not ownership (runtimes-codex.js records the 2026-10-19
+      // case). The live binding below only finds the server holding a handle already named.
       let codexLiveBinding = null;
       if (resolvedRuntime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
-        codexLiveBinding = await discoverCodexLiveBinding({
-          sessionHandle: initialSessionHandle,
-          cwd: resolvedCwd,
-        });
+        codexLiveBinding = await discoverCodexLiveBinding({ sessionHandle: initialSessionHandle });
         if (codexLiveBinding?.runtimeConfig) {
           runtimeConfig = { ...runtimeConfig, ...codexLiveBinding.runtimeConfig };
         }
       }
-      const discoveredCodexThreadId =
-        resolvedRuntime === "codex" && hasCodexLiveAppServer(runtimeConfig)
-          ? (codexLiveBinding?.threadId || await discoverCodexLiveThreadId(runtimeConfig, resolvedCwd))
-          : "";
-      const resolvedSessionHandle =
-        sessionHandle ||
-        discoveredCodexThreadId ||
-        initialSessionHandle ||
-        (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
-        "";
+      const resolvedSessionHandle = initialSessionHandle;
       // Native-session-id model (2026-06-03): comms_register binds this agent's
       // identity to its REAL hermes session id by persisting the per-agent marker,
       // so a relaunch resumes the SAME session and the delivery loop targets it.

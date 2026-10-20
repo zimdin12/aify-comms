@@ -49,71 +49,11 @@ export class CodexAdapter extends RuntimeAdapter {
     return env;
   }
 
-  // Plan 4 (2026-05-25): codex storage at ~/.codex/sessions/. Recon found the
-  // actual layout is date-sharded — YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl
-  // — with a sibling `quarantine-oversized/` flat-file dir. We walk up to 4
-  // levels deep, find newest .jsonl by mtime, extract uuid from filename, and
-  // fall back to first-line JSON metadata for forward compatibility.
-  // NOTE: in the normal codex-aify wrapper path this filesystem-walk branch is
-  // SHADOWED — the app-server early-return below (AIFY_CODEX_APP_SERVER_URL set)
-  // takes over, and the live thread id is resolved by discoverCodexLiveThreadId
-  // in server.js. The walk only runs when no app-server URL is configured.
-  async discoverSessionId() {
-    const appServerUrl = String(process.env.AIFY_CODEX_APP_SERVER_URL || "").trim();
-    if (appServerUrl) {
-      return this.getCurrentSessionId() || null;
-    }
-
-    let newest = null;
-
-    async function walk(p, depth) {
-      if (depth > MAX_WALK_DEPTH) return;
-      let entries;
-      try {
-        entries = await fs.readdir(p, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const ent of entries) {
-        const full = path.join(p, ent.name);
-        try {
-          if (ent.isDirectory()) {
-            await walk(full, depth + 1);
-          } else if (ent.isFile() && (ent.name.endsWith(".jsonl") || ent.name.endsWith(".json"))) {
-            const stat = await fs.stat(full);
-            if (!newest || stat.mtimeMs > newest.mtime) {
-              newest = { name: ent.name, full, mtime: stat.mtimeMs };
-            }
-          }
-        } catch {
-          // skip unreadable
-        }
-      }
-    }
-
-    try {
-      await walk(CODEX_SESSIONS_DIR, 0);
-    } catch {
-      return null;
-    }
-    if (!newest) return null;
-
-    // Extract uuid from filename (handles flat <uuid>.jsonl + rollout-...-<uuid>.jsonl)
-    const uuidMatch = newest.name.match(UUID_RE);
-    if (uuidMatch) return uuidMatch[0];
-
-    // First-line JSON fallback — codex rollouts carry a metadata header line
-    try {
-      const content = await fs.readFile(newest.full, "utf8");
-      const firstLine = content.split(/\r?\n/)[0];
-      const parsed = JSON.parse(firstLine);
-      const id = parsed.id || parsed.session_id || parsed.sessionId || parsed.thread_id || parsed.threadId;
-      if (id && typeof id === "string") return id;
-    } catch {
-      // not JSON or no id field
-    }
-    return null;
-  }
+  // NO `discoverSessionId` OVERRIDE, deliberately: the base answers null. A codex agent's thread is the
+  // one its launcher named (CODEX_THREAD_ID / AIFY_SESSION_HANDLE, exported only on an explicit
+  // --resume), or none. This used to return the newest rollout under ~/.codex/sessions when no
+  // app-server URL was set: any workspace's, the operator's own Codex Desktop conversation included.
+  // Neither recency nor a matching cwd says whose a thread is.
 
   // WS-4b (2026-06-17): resident-codex turn detector support. Resident codex has
   // only the UserPromptSubmit/Stop hooks for turn state (inert on old CLIs / lost on

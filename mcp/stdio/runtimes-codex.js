@@ -1,12 +1,9 @@
 // runtimes-codex.js — managed-Codex helpers: home/config preparation,
-// thread rollout import, sandbox policy, launcher/cwd resolution, and live
-// app-server thread discovery. Extracted verbatim from runtimes.js
-// (task #123). runtimes.js re-exports the public surface.
+// thread rollout import, sandbox policy, launcher/cwd resolution, and finding
+// the live app server that holds a known thread. Extracted verbatim from
+// runtimes.js (task #123). runtimes.js re-exports the public surface.
 import fs from "fs";
 import path from "path";
-// Thread selection left for `codex-thread-selection.js` in v0.5.4 — which conversation to resume is
-// a decision worth being able to test without a codex install.
-import { codexThreadListItems, pickNewestCodexThreadId } from "./codex-thread-selection.js";
 import { fileURLToPath } from "url";
 import { listRuntimeMarkers } from "./runtime-markers.js";
 import { resolveCodexRequestCwdFor } from "./codex-errors.js";
@@ -436,7 +433,17 @@ function codexMarkerToRuntimeConfig(marker = {}) {
   return runtimeConfig;
 }
 
-async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
+// `thread/list` answers under EITHER key depending on the app-server build: `threads` on some, `data`
+// on others, which is why the fixture carries `FAKE_CODEX_THREAD_LIST_KEY` and defaults to `data`.
+// Reading `threads` only (until 2026-08-17) left the array empty against a `data` server, so a
+// session handle never matched the server holding it and the ambiguity refusal never fired.
+function codexThreadListItems(listResult) {
+  if (Array.isArray(listResult?.threads)) return listResult.threads;
+  if (Array.isArray(listResult?.data)) return listResult.data;
+  return [];
+}
+
+async function inspectCodexLiveMarker(marker) {
   const runtimeConfig = codexMarkerToRuntimeConfig(marker);
   if (!hasCodexLiveAppServer(runtimeConfig)) return null;
 
@@ -457,18 +464,8 @@ async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
     });
     rpc.notify("initialized", {});
 
-    const listResult = await fetchCodexThreadList(rpc);
-    // Through the shared accessor since 2026-08-17: this read `listResult.threads` only, so against
-    // an app server answering under `data` the array was always empty — the session-handle match
-    // never fired and the ambiguity refusal never fired with it.
-    const threads = codexThreadListItems(listResult);
-    return {
-      marker,
-      runtimeConfig,
-      threads,
-      preferredThreadId: pickNewestCodexThreadId(listResult, cwd),
-      fallbackThreadId: pickNewestCodexThreadId(listResult, ""),
-    };
+    const threads = codexThreadListItems(await fetchCodexThreadList(rpc));
+    return { marker, runtimeConfig, threads };
   } catch {
     return null;
   } finally {
@@ -480,104 +477,32 @@ async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
   }
 }
 
-export async function discoverCodexLiveThreadId(runtimeConfig = {}, cwd = process.cwd()) {
-  if (!hasCodexLiveAppServer(runtimeConfig)) return "";
-  const appServerUrl = String(runtimeConfig?.appServerUrl || "").trim();
-  if (!appServerUrl) return "";
-  const remoteAuthTokenEnv = String(runtimeConfig?.remoteAuthTokenEnv || "").trim();
-  const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
-
-  let rpc = null;
-  try {
-    rpc = await createWebSocketRpcClient(appServerUrl, {
-      token: remoteAuthToken || undefined,
-    });
-    await rpc.request("initialize", {
-      clientInfo: {
-        name: "aify-comms",
-        title: "aify-comms register bridge",
-        version: AIFY_VERSION,
-      },
-    });
-    rpc.notify("initialized", {});
-    const result = await fetchCodexThreadList(rpc);
-    return pickNewestCodexThreadId(result, cwd);
-  } catch {
-    return "";
-  } finally {
-    try {
-      rpc?.close?.();
-    } catch {
-      // best effort
-    }
-  }
-}
-
-export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = process.cwd() } = {}) {
-  const normalizedSessionHandle = String(sessionHandle || "").trim();
-  const normalizedCwd = String(cwd || "").trim() || process.cwd();
+// Which live app server holds the thread this agent was launched with. Ownership is by ID: the handle
+// is one the launcher exported, and a server is bound only if it lists that exact thread.
+//
+// NO HANDLE BINDS NOTHING. Until 2026-10-20 a fresh agent was bound by guessing: the newest thread
+// whose cwd matched its workspace, and before 211d2953 the newest thread anywhere. `thread/list` lists
+// every rollout on the machine, not only the live ones, and on 2026-10-19 that bound a fresh agent to
+// the operator's own Codex Desktop conversation. A matching cwd is affinity, not ownership: two
+// sessions in one directory share it. Null means message-only, which is recoverable; somebody else's
+// conversation is not.
+export async function discoverCodexLiveBinding({ sessionHandle = "" } = {}) {
+  const handle = String(sessionHandle || "").trim();
+  if (!handle) return null;
   const markers = listRuntimeMarkers("codex").filter((marker) =>
     hasCodexLiveAppServer(codexMarkerToRuntimeConfig(marker)),
   );
-  if (!markers.length) return null;
 
-  const inspected = [];
-  const sessionMatches = [];
+  const holders = [];
   for (const marker of markers) {
-    const info = await inspectCodexLiveMarker(marker, normalizedCwd);
-    if (!info) continue;
-    inspected.push(info);
-
-    if (
-      normalizedSessionHandle &&
-      info.threads.some((thread) => String(thread?.id || "").trim() === normalizedSessionHandle)
-    ) {
-      sessionMatches.push(info);
-    }
+    const info = await inspectCodexLiveMarker(marker);
+    if (info?.threads.some((thread) => String(thread?.id || "").trim() === handle)) holders.push(info);
   }
 
-  if (!inspected.length) return null;
-
-  if (normalizedSessionHandle && sessionMatches.length === 1) {
-    return {
-      runtimeConfig: sessionMatches[0].runtimeConfig,
-      threadId: normalizedSessionHandle,
-      ambiguous: false,
-    };
+  if (holders.length === 1) {
+    return { runtimeConfig: holders[0].runtimeConfig, threadId: handle, ambiguous: false };
   }
-
-  if (normalizedSessionHandle && sessionMatches.length > 1) {
-    return {
-      runtimeConfig: null,
-      threadId: normalizedSessionHandle,
-      ambiguous: true,
-    };
-  }
-
-  const byCwd = inspected.filter((info) => String(info.preferredThreadId || "").trim());
-  if (!normalizedSessionHandle && byCwd.length === 1) {
-    return {
-      runtimeConfig: byCwd[0].runtimeConfig,
-      threadId: String(byCwd[0].preferredThreadId || "").trim(),
-      ambiguous: false,
-    };
-  }
-
-  if (!normalizedSessionHandle && !byCwd.length && inspected.length === 1) {
-    return {
-      runtimeConfig: inspected[0].runtimeConfig,
-      threadId: String(inspected[0].fallbackThreadId || "").trim(),
-      ambiguous: false,
-    };
-  }
-
-  if (!normalizedSessionHandle && byCwd.length > 1) {
-    return {
-      runtimeConfig: null,
-      threadId: "",
-      ambiguous: true,
-    };
-  }
-
+  // Two servers listing one thread: binding either could drive another agent's process.
+  if (holders.length > 1) return { runtimeConfig: null, threadId: handle, ambiguous: true };
   return null;
 }

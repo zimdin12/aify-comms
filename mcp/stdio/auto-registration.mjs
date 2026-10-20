@@ -49,10 +49,9 @@ import {
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import {
   defaultCapabilitiesForRuntime,
-  defaultSessionHandleForRuntime,
+  launcherSessionHandle,
   detectRuntime,
   discoverCodexLiveBinding,
-  discoverCodexLiveThreadId,
   hasCodexLiveAppServer,
 } from "./runtimes.js";
 import { defaultMachineId } from "./machine-id.mjs";
@@ -112,25 +111,15 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
     const agentCwd = /\$\{.*\}/.test(rawAgentCwd) ? "" : rawAgentCwd;
     const cwd = normalizeRegistrationCwd(runtime, agentCwd || DEFAULT_CWD);
     let runtimeConfig = resolvedRuntimeConfigForRegistration(runtime, null, cwd);
-    // Same ${...}-placeholder guard as AIFY_AGENT_CWD above (FIX 2): an unexpanded
-    // `AIFY_SESSION_HANDLE="${HERMES_SESSION_ID}"` (wrapper/config var unset) must NOT
-    // become the registered handle — it poisons the agent→session binding. Strip it so
-    // the runtime default / discover path applies instead (2026-06-04).
-    const rawSessionHandle = String(process.env.AIFY_SESSION_HANDLE || "");
-    const cleanSessionHandle = /\$\{.*\}/.test(rawSessionHandle) ? "" : rawSessionHandle;
-    const envHandle = String(cleanSessionHandle || defaultSessionHandleForRuntime(runtime) || "").trim();
+    const envHandle = launcherSessionHandle(runtime);
     // Plan 6 A2: discover authoritative, env fallback. See computeInitialSessionHandle above.
-    const initialHandle = await computeInitialSessionHandle({ adapter: __runtimeAdapter, envHandle });
-    let codexLiveBinding = null;
+    // For codex this is the whole answer: the thread the launcher named, or none. Nothing here asks an
+    // app server which thread is newest, in this workspace or any other (runtimes-codex.js says why).
+    const sessionHandle = await computeInitialSessionHandle({ adapter: __runtimeAdapter, envHandle });
     if (runtime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
-      codexLiveBinding = await discoverCodexLiveBinding({ sessionHandle: initialHandle, cwd });
+      const codexLiveBinding = await discoverCodexLiveBinding({ sessionHandle });
       if (codexLiveBinding?.runtimeConfig) runtimeConfig = { ...runtimeConfig, ...codexLiveBinding.runtimeConfig };
     }
-    const discoveredCodexThreadId =
-      runtime === "codex" && hasCodexLiveAppServer(runtimeConfig)
-        ? (codexLiveBinding?.threadId || await discoverCodexLiveThreadId(runtimeConfig, cwd))
-        : "";
-    const sessionHandle = initialHandle || discoveredCodexThreadId || "";
     // Native-session-id model (2026-06-03): bind agentId -> the REAL hermes
     // session id in the per-agent marker so the wrapper resumes the SAME session
     // next launch and the delivery loop targets it. Best-effort; never throws.
