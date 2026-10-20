@@ -15,8 +15,12 @@ instruction.
   bar below.
 - **Why:** asked to approve a 30-minute bootstrap rule that only the comparison needed, he wrote: "is it some time
   based logic again (i hate these). we do plan to do hard switch when it is ready and mb tested in container or wsl".
-  The comparison's shadow lives in memory, so every comms restart blinded it. The switched system persists its
-  turn record and has no such gap.
+  The comparison's shadow lives in memory, so every comms restart blinded it.
+- **Correction (same day):** the question he answered said the switched system persists its turn record. It does
+  not, and no plan built that. The delivery turn (`delivery_turns.py:300`) and the mirror of aify-env's records
+  (`partial_status_shadow.py:392`) live only in memory. `agent_state_shadow_rows` is written and never read back.
+  So the switch itself needs comms to reload aify-env's records at start (and either a persisted delivery turn or
+  none). Without that, a comms restart would blind the live product, not just the comparison.
 - **What is lost:** the comparison measured the real fleet: Hermes gateways, resident Claude panes, agents
   stuck at prompts. A sandbox will not produce those, so they surface after the switch, and the rollback is
   the net.
