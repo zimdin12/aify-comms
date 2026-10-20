@@ -202,3 +202,18 @@ Found while building connect: a file-set's `sha256` binds a manifest, but nothin
   `package-lock.json`, which is listed. S2's acquire step materialises from the same manifest. install.sh is not
   edited for S1.
 - The dashboard's artifact is a `package`, so this does not apply to it.
+
+## Package artifacts from git (decided 2026-10-20, reversible)
+
+The dashboard serves `{kind: "package", source: {git: {repo, revision}}, entries}` with no `sha256` (v1.3.13).
+- The binding is `revision`, a full 40-hex commit. Short shas, branch names and tags are refused. A `sha256` on a
+  package+git artifact is refused.
+- Connect installs with scripts on: `npm install -g github:<repo>#<revision>`. A git dependency's build runs in
+  `prepare`, so `--ignore-scripts` leaves a broken install (dashboard-manager PROVED it on 1.3.12 versus 1.3.13).
+- After the install, connect reads the resolved commit (`npm ls -g <name> --json`) and refuses unless it equals
+  `revision`. Every `entries` name must be a bin in the installed package.json, and the render resolves its file from
+  that bin map.
+- Approval binds `{repo, kind, entries}`. The revision comes from the spec, so a new release of an approved repo
+  needs no new approval, but a different repo or bin does.
+- A private repo needs the host's GitHub access. Connect checks it with `git ls-remote` first and asks for
+  `gh auth login` when it is missing (operator, 01M5CYJH: the dashboard repo stays private).
