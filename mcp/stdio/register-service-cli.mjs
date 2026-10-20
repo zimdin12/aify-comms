@@ -17,6 +17,9 @@ import { dirname } from "node:path";
 
 import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
 import { SERVICE_NAME, upsertService } from "./service-registry.mjs";
+// The two servers come from the spec this service serves (`/.well-known/aify-service`), so the entry
+// written here and the one a connect renders from that spec name the same servers.
+import { renderStdioMcp } from "./service-spec.mjs";
 
 const EXIT_CONFIG = 78;
 // SERVICE_NAME is imported from service-registry.mjs, which owns the registry concept.
@@ -58,10 +61,7 @@ const result = upsertService(existing, SERVICE_NAME, {
   // including an unavailable carrier on reinstall. Pass undefined to preserve the published ref;
   // intentional clearing remains the writer API's explicit credentialRef: null, not an env blank.
   credentialRef: String(process.env.CREDENTIAL_REF || "").trim() || undefined,
-  mcp: [
-    { name: "aify-comms", command: "node", args: [`${bridgeDir}/server.js`] },
-    { name: "aify-comms-channel", command: "node", args: [`${bridgeDir}/claude-channel.js`] },
-  ],
+  mcp: renderStdioMcp(bridgeDir),
 });
 
 if (!result.ok) {

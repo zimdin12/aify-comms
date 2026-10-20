@@ -84,3 +84,15 @@ cat > "$OUT" <<EOF
 EOF
 
 echo "stamp.sh: wrote $OUT (version=$version sha=$short branch=$branch dirty=$dirty)"
+
+# THE REGISTRATION SPEC served at /.well-known/aify-service (guided install S1), bound to this sha.
+# The previous build's spec is removed FIRST, so a failed write leaves no spec rather than a stale one:
+# the service answers 503 for a missing spec, and never serves one stamped for another build.
+SPEC_OUT="$REPO_ROOT/service/_service_spec.json"
+rm -f "$SPEC_OUT"
+if printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' && command -v node >/dev/null 2>&1; then
+  node "$REPO_ROOT/mcp/stdio/service-spec-cli.mjs" "$REPO_ROOT" "$sha" "$version" "$SPEC_OUT" \
+    || echo "stamp.sh: no service spec written; /.well-known/aify-service will answer 503" >&2
+else
+  echo "stamp.sh: no service spec (no 40-hex sha or no node); /.well-known/aify-service will answer 503" >&2
+fi

@@ -31,7 +31,7 @@ from service.api_core.browser_origin import (
     browser_request_is_allowed, effective_trusted_hosts, is_browser_navigation,
     url_without_api_key,
 )
-from service.routers import health, containers as containers_router
+from service.routers import health, containers as containers_router, service_spec as service_spec_router
 from service.routers.api_v2 import router as api_router
 from service.change_feed import CHANGE_FEED
 from service.db import CONNECTION_POOL, init_db
@@ -183,7 +183,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         skip_paths = ["/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
-        if any(request.url.path.startswith(p) for p in skip_paths):
+        # The registration spec and its declared manifests, matched EXACTLY rather than by prefix
+        # (guided install S1): a new host reads them before it holds a key.
+        if any(request.url.path.startswith(p) for p in skip_paths) or service_spec_router.is_public_path(request.url.path):
             return await call_next(request)
         # A CORS PREFLIGHT CARRIES NO CREDENTIALS -- the browser strips them by specification, so
         # there is no key for this middleware to find and it answered 401. That refusal is invisible
@@ -576,6 +578,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestTimingMiddleware)
 
     app.include_router(health.router)
+    app.include_router(service_spec_router.router)
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(containers_router.router)
 
