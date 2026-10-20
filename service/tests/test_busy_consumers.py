@@ -396,7 +396,8 @@ class SendTimeQueueSiteTest(_Sites, p7.SendTimeQueueWitness):
             "from_agent": "dashboard", "to": agent, "trigger": True, "queueIfBusy": True,
             "type": "info", "subject": "behind", "body": "wait"})
         self.assertEqual(answer.status_code, 200, answer.text)
-        self.assertNotIn(agent, self.cold_starts, 'an occupied target\'s send waits')
+        self.assertTrue(self.queue_holds[-1], 'an occupied target\'s send waits')
+        self.assertIn(agent, self.cold_starts, 'and still ensures its backing (SW4)')
 
     def test_held_and_released_sends_are_observed_beside_todays_queue(self):
         self._assert_waits('q-held', self._queue_send('q-held', FRESH))

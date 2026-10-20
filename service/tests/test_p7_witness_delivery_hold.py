@@ -78,18 +78,18 @@ class TheLawTableMeansWhatItSays(unittest.TestCase):
 
 
 class SendTimeQueueWitness(_World):
-    """B9: a `queueIfBusy` send to a held target is stored and waits; it never cold-starts a worker.
+    """B9: a `queueIfBusy` send to a held target is stored and waits, and still ensures its backing.
 
     The world: a defined managed claude whose sessions are all dead, on an online environment, so the eligible
     action is a cold-start spawn request (test_dispatch_claude_coldstart.py proves that path on its own). The
     other two terms of the queue decision, an active run and an earlier queued run, are false for every
     specimen and asserted false before the send, so only the turn decides.
 
-    Only a recipient with no live worker makes this decision observable at send time: with a worker, a held
-    and a released send both leave the run queued and the claim (B17) decides. The dead sessions and the
-    spawn requests are comms' own delivery facts (P0 C2), so a mirror adapter publishes the turn and leaves
-    them as they are. If cold-start itself moves to the C9 lifecycle queue, the twin's observable moves with
-    it; the decision under test does not.
+    SW4 (the hard-switch plan's ordering rule): a hold withholds delivery and never skips backing, because a
+    recipient with no worker never publishes the record that would release its hold. So held and released
+    sends here both cold-start and both leave the run queued; the claim (B17) delivers. The hold's decision is
+    read from the queue observation the launch loop reports, and its one send-time consequence, no console
+    delivery, is witnessed in test_a_held_send_still_ensures_backing.py, where a console exists.
     """
 
     def setUp(self):
@@ -102,6 +102,16 @@ class SendTimeQueueWitness(_World):
         self.assertEqual(answer.status_code, 200, answer.text)
         self.cold_starts: list[str] = []
         self.pty_ensures: list[str] = []
+        self.queue_holds: list[bool] = []
+        real_observe = dispatch_launch.busy_consumers.observe_queue
+
+        def observe(occupied, today, *rest, **kw):
+            self.queue_holds.append(bool(today))
+            return real_observe(occupied, today, *rest, **kw)
+
+        observer = mock.patch.object(dispatch_launch.busy_consumers, "observe_queue", new=observe)
+        observer.start()
+        self.addCleanup(observer.stop)
         real_cold, real_pty = (dispatch_launch._coldstart_spawn_request_for_dispatch,
                                dispatch_launch._ensure_managed_pty_for_dispatch)
 
@@ -135,6 +145,7 @@ class SendTimeQueueWitness(_World):
         INPUT_ADAPTER.apply(self._db_path, agent_id, spec)
         self.assertEqual(self._rows("SELECT id FROM dispatch_runs WHERE target_agent = ?", (agent_id,)), [],
                          "precondition: no active and no earlier queued run, so only the turn can hold")
+        observed = len(self.queue_holds)
         answer = self.client.post("/api/v1/messages/send", json={
             "from_agent": "dashboard", "to": agent_id, "trigger": True, "queueIfBusy": True,
             "type": "info", "subject": f"queued for {agent_id}", "body": "after this turn"})
@@ -143,13 +154,15 @@ class SendTimeQueueWitness(_World):
         runs = self._rows("SELECT id, status, queue_if_busy FROM dispatch_runs WHERE target_agent = ?", (agent_id,))
         self.assertEqual(len(runs), 1, "the send is stored as exactly one run for this recipient")
         self.assertEqual((runs[0]["status"], runs[0]["queue_if_busy"]), ("queued", 1))
-        return {"spawns": self._rows("SELECT id, runtime, environment_id FROM spawn_requests WHERE agent_id = ?",
+        self.assertEqual(len(self.queue_holds), observed + 1, "the launch loop decides the queue once per send")
+        return {"held": self.queue_holds[-1],
+                "spawns": self._rows("SELECT id, runtime, environment_id FROM spawn_requests WHERE agent_id = ?",
                                      (agent_id,))}
 
     def _assert_waits(self, agent_id: str, outcome: dict) -> None:
-        self.assertNotIn(agent_id, self.cold_starts, "a held send must not ask for a cold start")
-        self.assertNotIn(agent_id, self.pty_ensures, "a held send must not start a console")
-        self.assertEqual(outcome["spawns"], [], "a held send must not queue a spawn")
+        """Held: the queue observation says so, the run waits queued (`_queue_send`), and backing is ensured."""
+        self.assertTrue(outcome["held"], "the send is held")
+        self._assert_woken(agent_id, outcome)
 
     def _assert_woken(self, agent_id: str, outcome: dict) -> None:
         self.assertIn(agent_id, self.cold_starts)
@@ -162,14 +175,19 @@ class SendTimeQueueWitness(_World):
                 held_agent, twin_agent = self._agent_names(case.spec)
                 outcome = self._queue_send(held_agent, case.spec)
                 twin = self._queue_send(twin_agent, case.spec.closed())
+                self.assertFalse(twin["held"], "the control: the closed twin is not held")
                 self._assert_woken(twin_agent, twin)
                 if case.expected(INPUT_ADAPTER.LAW):
                     self._assert_waits(held_agent, outcome)
                 else:
+                    self.assertFalse(outcome["held"])
                     self._assert_woken(held_agent, outcome)
 
     def test_an_active_run_or_an_earlier_queued_run_also_holds_the_queue(self):
-        """The two other terms of B9, which P7 reads as `runOccupied` and queued runs (C6), with the turn closed."""
+        """The two other terms of B9, which P7 reads as `runOccupied` and queued runs (C6), with the turn closed.
+
+        A worker that is already being started (a queued or running prior run) is reached through the same
+        idempotent backing; the hold itself is read from the queue observation."""
         closed = TurnSpecimen("closed", open=False)
         for status in ("running", "queued"):
             with self.subTest(status):
@@ -186,9 +204,11 @@ class SendTimeQueueWitness(_World):
                     "from_agent": "dashboard", "to": agent, "trigger": True, "queueIfBusy": True,
                     "type": "info", "subject": "behind the prior run", "body": "wait"})
                 self.assertEqual(answer.status_code, 200, answer.text)
-                self.assertNotIn(agent, self.cold_starts)
-                self.assertEqual(self._rows("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent,)), [])
-                self._assert_woken(twin, self._queue_send(twin, closed))
+                self.assertTrue(self.queue_holds[-1], "an occupied target holds the queue")
+                self.assertIn(agent, self.cold_starts, "the hold still ensures backing")
+                twin_outcome = self._queue_send(twin, closed)
+                self.assertFalse(twin_outcome["held"])
+                self._assert_woken(twin, twin_outcome)
 
 
 class ClaimHoldWitness(_World):
