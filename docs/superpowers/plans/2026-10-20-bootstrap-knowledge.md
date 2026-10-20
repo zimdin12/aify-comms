@@ -1,73 +1,97 @@
-# The delivery turn after a boot: closed by C6's own bound (2026-10-20, proposal)
+# A bounded not-live fact for the delivery turn after a boot (2026-10-20, proposal rev 2)
 
-A knowledge-rule change to the shadow fold (`service/api_core/delivery_turns.py`). It needs the dev's review and then
-the operator's decision before any code (D-UNKNOWN decision `bootstrap-knowledge-contract-question`).
+A knowledge-rule change to the shadow fold (`service/api_core/delivery_turns.py`) and the delivery disjunct
+(`comms_view._delivery_disjunct`). It needs the dev's review and then the operator's decision before any code
+(D-UNKNOWN decision `bootstrap-knowledge-contract-question`). Rev 2 answers REVISE f42a601d: rev 1 minted a raw
+`CLOSED`, which C6's bound does not prove and which mis-starts a turn still open across the boot.
 
-## What the measurement found
+## What the measurement found, and what it does not say
 
-Cohort w20-w21 (comms 972cb300, env 9b68e0a1, 12.58 h, `complete`, read 2026-10-20T10:25:34Z, sha ec9372f9):
+Cohort w20-w21 (comms 972cb300, env 9b68e0a1, 12.58 h, `complete`, read 2026-10-20T10:25:34Z, sha ec9372f9). These
+are **claim evaluation counts** in each stratum, not agents, and the strata say nothing about an agent's whole history
+(an unknown-to-unknown ambiguous close keeps origin never-known):
 
 | field `totals.<variant>/claim` | P-1 | strict |
 |---|---|---|
 | `unavailable:delivery-turn` | 9,838 | 14,805 |
-| origin never-known, no reporter since boot (`never-known:null:no` + `never-known:closed:no`) | 8,317 | 8,317 |
-| origin never-known, a reporter since boot (`:yes`, incl. strict's `never-known:open:yes` 4,967) | 17 | 4,984 |
-| origin ambiguous-closed | 1,504 | 1,504 |
+| never-known, lineage null or closed, no reporter since boot (`:null:no` + `:closed:no`) | 8,317 | 8,317 |
+| never-known with a reporter since boot (incl. strict's `never-known:open:yes` 4,967) | 17 | 4,984 |
+| ambiguous-closed | 1,504 | 1,504 |
 
-84.5% of P-1's unknown busy answers are agents the fold has heard nothing from since the service booted: no reporter
-statement, and an env lineage that is null (7,143) or closed and quiet (1,174).
+## The fact C6's bound proves
 
-## Why they stay unknown
+C6 holds an open delivery turn only while `turn_is_still_live` (turn_liveness_policy.py:55-74, 1800 s,
+liveness.py:171). `seen` is `startedAt`, or the later of start and touch when renewable, and renewal selects an anchor
+but never moves one. So if every anchor of a turn is at most C, then at any `at > C + 1800 + NOW_RESOLUTION_SECONDS`
+the turn is not live **in every completion**, open or closed, renewed or not. That proves the delivery disjunct
+false. It proves nothing about raw `open`, `runId` or `startedAt`, which stay separate outputs (P0 C6:302-310,
+s2c-owners:54-59) and stay `NOT_KNOWN`.
 
-The fold starts empty at boot (`DeliveryTurns.__init__`) and C6 closes a delivery turn only on evidence of an end:
-an env `ended` (`env_effect`, delivery_turns.py:151) or a matching reporter clear (`reporter_clear`, :113). A first
-sight or a quiet republication leaves it `NOTHING_KNOWN` (:149-157), and a null clock writes nothing (`_consume`, :277).
-An idle agent produces neither end, so its turn is unknown for the life of the process. The unknown is not about the
-agent; it is the turn that may have been open before the boot, which the in-memory fold cannot see.
+## The rule
 
-## The rule, derived from C6 rather than added to it
+1. **A semantic ceiling, not a diagnostic.** `DeliveryTurn` gains `ceiling`: an upper bound on every anchor the turn
+   holds as `NOT_KNOWN`, or `NOT_KNOWN` itself. It lives in `_turns` and is computed in the same write as the turn.
+   `_origin` and `_reported` stay diagnostic and decide nothing.
+2. **The epoch.** The fold keeps `epoch`: the service clock at construction (B), and the time of each
+   `lose_everything` (L). A key the fold has never written reads `NOTHING_KNOWN` with `ceiling = epoch`. A loss moves
+   the epoch, and it applies to every key, since the publication it could not read may have touched any of them.
+3. **Every write keeps the bound, or widens it to its own time.** The new ceiling is the maximum of the old
+   ceiling, the anchors the turn knew before the write, and the write's `at` when the write could set an anchor:
+   - reporter busy (touch now; start now or kept, as `turn_busy_signal.py:65-82` keeps it while raw busy is 1);
+   - env `advanced` on a turn whose `open` is not known false;
+   - a withheld record (a missed observation may have been an advance).
 
-C6 judges an open delivery turn with `turn_is_still_live` (comms_view.py:104) under `TURN_BUSY_BACKSTOP_SECONDS` =
-1800 (liveness.py:171): live only while `now - seen <= 1800`, where `seen` is the start or, renewable, the later of
-start and last touch (turn_liveness_policy.py:55-74). Only two writes move those anchors: a reporter busy (touch,
-:107-110) and an env `advanced` on an open turn (touch, :154).
+   `first`, `quiet`, `started`, `ended`, `ambiguous-closed` and a reporter clear set no anchor, so they keep the
+   bound. A write that cannot compute its ceiling makes it `NOT_KNOWN`, which is today's unknown: the rule fails
+   closed.
+4. **The disjunct.** When `delivery_known(turn)` is false, `ceiling` is known, `frame.at` is known, and
+   `frame.at > max(known anchors, ceiling) + 1800 + NOW_RESOLUTION_SECONDS`, the disjunct is **false** with provenance
+   `delivery-bounded`. No renewal query is needed. Otherwise it is unknown, exactly as today.
 
-So for a turn that could only have been opened before boot B, and whose anchors no write since B could have moved,
-both anchors are at most B. At any `at >= B + 1800 + NOW_RESOLUTION_SECONDS`, C6's own law says that turn is not live,
-whatever it was. The fold may then read it as closed.
+The dev's countercase: raw busy since B-100 survives the boot, and a reporter busy comes at B+1802. The turn becomes
+open, with run R, touch B+1802, start `NOT_KNOWN`, and ceiling B+1802. At B+1803 the disjunct is unknown, not held
+and not released. Today's writer would give strict age 1902 and not held, and a fresh start would give held. Both
+completions stay possible, so unknown is the only truthful answer.
 
-**Rule.** An agent's delivery turn whose origin is never-known, and whose every write since B was an env `first` or
-`quiet` consumption (a null clock writes nothing, so it qualifies), reads `CLOSED` at the first read or write at or after
-`B + 1800 + NOW_RESOLUTION_SECONDS`. B is the service clock at fold construction. A reporter statement, an env
-`advanced`, `started`, `ended`, `ambiguous-closed` or a withhold for that agent makes it ineligible for good. Those
-keep today's paths. `lose_everything` at L moves B to L for every never-known key, since the publication it could not
-read may have touched any of them.
+## Stage assumed
 
-A reporter busy that arrives after the bound then finds the turn closed and records `startedAt` = now (:109), which
-also resolves strict's `never-known:open:yes` when the first busy comes after the bound.
+The S2c candidate before S4. The fold hears C6's writers: heartbeat reporters and applied env records. Today's hook
+turn-start, turn-end and ready writers write `agent_turn_state` and never the fold. C7 deletes them. The bound is a
+fact about the fold's turn, which is the C6 candidate, and C8 measures where it differs from today's row. The end
+state persists the delivery turn, so this gap belongs to the shadow. Wall clock, as `turn_is_still_live` uses: a
+backward step can under-state a ceiling, and the clock-safe-age slice (C1, gated on N2) must cover the ceiling before
+any qualifying day.
 
-## Not in scope
+## Counting it
 
-- `ambiguous-closed` (1,504, 15%): a closed lineage whose clock moved, unblock or late end. A separate question.
-- Withheld and lost origins. The same proof covers `lost` with B = L; I propose it only if the dev wants the symmetry.
-- The end state persists the delivery turn (it replaces `agent_turn_state`'s run half, P0 C6/C7), so it has no
-  bootstrap gap. This rule makes the shadow agree with it once the first 1800 s are over. Those 1800 s stay a warm-up
-  interval, which the gate never stitches into the qualifying day (status-switch plan step 4).
-- Wall clock, as `turn_is_still_live` uses. Clock steps are the fold-provenance slice's (C1).
+`delivery-bounded` is its own provenance count beside, not inside, `unavailable:delivery-turn`. A bounded evaluation
+is a known false disjunct, so putting it in the unknown-origin partition would break that partition's sum contract.
+The D-UNKNOWN reader reports it per site and variant. Every bounded evaluation whose today answer is busy is a C8
+disagreement, and it is disqualifying unless the operator approves the class.
 
 ## Witnesses, one per obligation
 
-1. No write since B: `NOTHING_KNOWN` at B+1800, `CLOSED` at B+1800+resolution. RED if the rule is removed or the
-   bound is off by the resolution.
-2. An env `advanced` since B: never closed by the bound. RED if eligibility ignores advances.
-3. A reporter busy before the bound: start unknown; after it: start = at. RED if expiry is applied to a reporter key.
-4. `lose_everything` at L > B: not closed at B+1800, closed at L+1800+resolution. RED if a loss does not move B.
-5. The D-UNKNOWN report counts bootstrap closures as their own origin (`bootstrap-expired`), so they stay visible in
-   the comparison instead of disappearing into `not-eligible`.
+1. A key never written: unknown at epoch+1800, `delivery-bounded` false at epoch+1800+resolution. RED with the rule
+   removed or the resolution dropped.
+2. Raw open across the boot, then a reporter busy after the bound: raw stays open with start `NOT_KNOWN`, and the
+   disjunct is unknown at at+1. RED if the fold mints `CLOSED` or a start (rev 1's behaviour).
+3. Verified renewal: a bounded turn whose owner heartbeats still reads false after the bound. A renewed turn whose
+   touch the fold saw reads by its anchor. RED if renewal is taken to move an anchor.
+4. An env `advanced` or a withhold at t moves the ceiling to t. A `quiet` republication does not. RED if either is
+   swapped.
+5. `lose_everything` at L > B: unknown at B+1800+resolution, false at L+1800+resolution. RED if a loss does not move
+   the epoch.
+6. The partition: `unavailable:delivery-turn` plus `delivery-bounded` equals the evaluations that reached the
+   disjunct. RED if bounded is counted inside the unknown partition.
 
 ## What would prove this wrong (pre-registered)
 
-In the first full window opened 1800 s or more after a comms boot, never-known's share of P-1/claim
-`unavailable:delivery-turn` falls below 5% (from 84.71%). If it stays above 20%, the population is not what the code
-says it is: the rule is withdrawn and the unknowns are re-measured. Any busy or claim disagreement on a bootstrap-closed
-agent is a classified difference in C8, never folded into an approved class.
+The window: the first one opened at or after the effective epoch (the later of boot and the last loss) + 1800 +
+resolution. A window that contains an epoch move does not count.
+
+- **Coverage, not correctness:** removing the 8,317 mechanically leaves 17 of 1,521 (1.12%). Never-known's share of
+  P-1/claim `unavailable:delivery-turn` therefore shows only that the bound reaches the idle population. Below 5%
+  supports that. 5-20% is inconclusive and is measured for one more window. Above 20% withdraws the rule. A zero
+  denominator is inconclusive.
+- **Correctness:** busy and claim disagreements on `delivery-bounded` evaluations. One unapproved disagreement is a
+  failed rule, not a class.
