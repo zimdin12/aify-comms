@@ -39,9 +39,13 @@ bound them, so path 5 refuses the values at the boundary.
    only a successful start clears it (`lib/agent-lifecycle.mjs:207`; it is set at `:224`). The operator's CLI would
    then run under a `stopped` row, which is the disagreement B2 removes, and the stop also blocks automatic starts
    (`:110-111`). The supported takeover of a defined agent already exists: flip its definition to resident in
-   aify-env, and comms follows (`session_mode_switch.py:190-227`). The 409 names that path. Under the fence (below),
-   an undefined agent keeps every legacy effect: session state, interrupt, spawn cancellation, terminal stop controls,
-   the response and the broadcast (`session_control.py:75-138`). No shipped client sends `cli_takeover`: the dashboard
+   aify-env, and comms follows (`session_mode_switch.py:190-227`). The 409 names that path. **The fence is the
+   takeover handler's own transaction:** for `cli_takeover` only, `control_session` takes `BEGIN IMMEDIATE` before its
+   definition check and holds it through the undefined agent's legacy writes, so a definition push (same lock) lands
+   wholly before or wholly after. An undefined agent keeps every legacy effect: session state, interrupt, spawn
+   cancellation, terminal stop controls, the response and the broadcast (`session_control.py:75-138`). The stop,
+   restart and recreate branches are unchanged: they call `delegate` with no transaction open, and `delegate` keeps
+   its own `BEGIN IMMEDIATE` (`lifecycle_delegation.py:71`). No shipped client sends `cli_takeover`: the dashboard
    sends stop/restart/recreate (`new_dashboard/agent-session-actions.mjs:314-326`), and the bridge sends
    restart/recreate (`mcp/stdio/lifecycle-tools.mjs:164`). AGENTS.md:112 documents a "Pause for CLI" button that the
    dashboard does not have; that doc line is corrected in the same change. A queued-stop takeover protocol (note
@@ -71,17 +75,38 @@ bound them, so path 5 refuses the values at the boundary.
 
 ## Witnesses (each arm restored by byte copy)
 
-- **W1:** a resident with no auto-return, not previously stopped: resident-lost serves `offline`, keeps `launch_mode`,
-  and a real `POST /messages` to it returns the same disposition as today (stored, no run, wake failed), asserted
-  apart from status. Controls: a previously stopped resident stays `stopped`; a non-current bridge is ignored; a
-  managed agent rests `active`/`detached`; a nested handback still answers `resident_lost_reclaimable`. Arms: restore
-  the unconditional stop; drop the `was_stopped` keep; skip `offer_handback` on the new transition.
+- **W1:** a resident with no auto-return, not previously stopped: resident-lost stores `status='offline'` with
+  `launch_mode` byte-equal to before, serves `offline`, and a real `POST /messages` to it returns the same disposition
+  as today (stored, no run, wake failed), asserted apart from status. Every case asserts the stored `status`,
+  `launch_mode` and `status_note` as well as the served status. Prior-stop controls, one per marker: a status-only
+  stop (`stopped`, `launch_mode='detached'`) must store `stopped`; this is the case where a removed guard would show,
+  because nothing else makes it read stopped. A launch-mode-only stop (`idle`, `none`) must store what today's write
+  stores. Other controls: a non-current bridge is ignored; a managed agent rests `active`/`detached`; a nested
+  handback still answers `resident_lost_reclaimable`. Arms: restore the unconditional stop; drop the `was_stopped`
+  keep (the status-only control goes red); skip `offer_handback` on the new transition.
 - **W2:** `cli_takeover` of a defined agent answers 409, and nothing persists: the session, runs, spawns, terminal
   controls and the agent row are byte-equal, and there is no broadcast. Control: an undefined agent gets every
   legacy effect. Arm: remove the refusal.
-- **W3:** a stop is refused with byte-equal tables and no broadcast for each of: a local defined agent, an agent
-  defined on another machine with an old session here, and a mixed population. A definition committed before the
-  stop is seen. Control: undefined-only still disables. Arms: use forget's query; check outside the fence.
+- **W3, population:** a stop is refused with byte-equal tables and no broadcast for each of: a local defined agent,
+  an agent defined on another machine with an old session here, a mixed population, and a definition committed
+  before the handler starts. Control: undefined-only still disables. Arm: use forget's query.
+- **W3, the race:** this is what tells the fenced check from a check outside the fence. Two connections and events;
+  no sleeps, and no wait used for ordering (each wait has a long deadline only so a broken run fails instead of
+  hanging). Agent X is undefined and has an old session on E.
+  1. The stop handler runs with its guard read wrapped: after the read returns, it sets `guard_read` and waits for
+     `rival_settled`.
+  2. A rival thread on its own `sqlite3` connection waits for `guard_read`, then tries `BEGIN IMMEDIATE` with
+     timeout 0. If the database is locked, it sets `rival_blocked` (which sets `rival_settled`) and retries with a
+     long busy timeout. Once in, it inserts X's definition, commits, records `rival_commit`, and sets `rival_settled`.
+  3. The stop takes its fence, if it does not already hold it, and its first protected write (the
+     `environment_controls` insert) records `stop_first_write`; its commit records `stop_commit`.
+
+  Fenced code: the rival is blocked, the stop disables X legally because X is undefined under the lock, and the
+  recorded order is `stop_first_write < stop_commit < rival_commit`. Check-outside-fence arm: the rival is not
+  blocked and commits first, and the stop then writes to a defined X. The assertion is: if `rival_commit` precedes
+  `stop_first_write`, the stop must have answered 409 with byte-equal tables. That arm goes red.
+- **W2b:** the W3 race, run against the takeover handler's guard read. Arm: check the definition before `BEGIN
+  IMMEDIATE`.
 - **W5:** `status`/`launchMode`/`agentStatus` as `stopped`, `" Stopped "`, `NONE` are refused on each registration
   branch and on PATCH, with the run, result, settlement and agent rows unchanged. Controls: omitted fields, `idle`,
   `detached`. Arms: move the dispatch guard to just before `UPDATE agents`; guard only the ordinary upsert.
