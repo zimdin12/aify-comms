@@ -23,6 +23,7 @@ from service.api_core.definition_snapshot import (
     PushOrder, canonical, fence_refusal, is_counter, push_order, snapshot_problems,
 )
 from service.api_core.operator_authz import is_operator_actor
+from service.api_core.session_mode_switch import follow_definition_to_managed
 
 from service.api_core.vocabulary import HARNESS_RUNTIME
 
@@ -152,6 +153,7 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         # (P0 C11, arm 3). No definition, revision or outcome moves.
         await db.execute("UPDATE definition_stores SET pushed_at = ? WHERE machine_id = ? AND store_id = ?",
                          (now, machine_id, store_id))
+        await _follow_managed(db, machine_id, now)
         return await _replayed(db, machine_id, store_id, current["outcome"], entries)
 
     if order is PushOrder.NEW_STORE:
@@ -167,9 +169,19 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         (machine_id, store_id, revision, body["snapshotDigest"], str(environment.get("id") or ""), now, now),
     )
     result = await _apply_entries(db, machine_id, store_id, entries, now)
+    await _follow_managed(db, machine_id, now)
     unresolved = {"refused": [r["id"] for r in result["refused"]], "invalid": result["invalid"], "kept": result["kept"]}
     await db.execute("UPDATE definition_stores SET outcome = ? WHERE machine_id = ?", (json.dumps(unresolved), machine_id))
     return result
+
+
+async def _follow_managed(db, machine_id: str, now: str) -> None:
+    """B3: each agent this machine defines as managed, whose record still reads resident, follows its definition when no
+    resident drives it. Asked at every push, a replay included: an unchanged definition never applies again, and the
+    record, not the definition, is what moves (C3 is about the definition)."""
+    rows = await (await db.execute("SELECT agent_id FROM agent_definitions WHERE machine_id = ?", (machine_id,))).fetchall()
+    for row in rows:
+        await follow_definition_to_managed(db, row["agent_id"], now=now)
 
 
 #: A refused id that has since become free. A replay never takes it (C3: a replay changes nothing).

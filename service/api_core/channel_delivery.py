@@ -402,3 +402,13 @@ async def _has_live_worker_for(db, agent_row, *, settings=None, shadow_site=None
     if shadow_site:  # the status shadow's readiness comparison at that caller (S2c slice 5); never raises
         await view_owners.observe_readiness(db, agent_row, result, shadow_site)
     return result.has_live_worker
+
+
+async def live_resident_session(db, agent_id: str) -> bool:
+    """True when the agent's current session is a resident one in a live status: the evidence the resident branch of
+    `_has_live_worker_for` reads, asked whatever the record's mode says. Raises when the read does."""
+    session = await _current_agent_session_row(db, agent_id)
+    # agent_sessions.mode is 'managed-warm' | 'resident': compared as stored, never through the agents-column
+    # normaliser, which reads 'managed-warm' as resident (test_session_mode_vocabularies_stay_apart.py).
+    return (session is not None and session["mode"] == "resident"
+            and str(session["status"] or "").strip().lower() in _LIVE_SESSION_STATUSES)

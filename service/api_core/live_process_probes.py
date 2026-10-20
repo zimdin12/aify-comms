@@ -210,6 +210,12 @@ async def _agent_has_live_terminal(db, agent_id: str) -> bool:
     row). Mirrors the live-truth join the dashboard agent-dot already trusts; the
     session deriver uses it so the badge stops reading the stale denorm.
     """
+    return await terminal_state(db, agent_id) is True
+
+
+async def terminal_state(db, agent_id: str):
+    """`_agent_has_live_terminal`'s read: True, False, or PROBE_ERROR when the read raised, so a guard that must fail
+    closed can tell an error from a terminal that is not there."""
     if db is None:
         return False
     live_ph = ",".join("?" for _ in LIVE_SESSION_STATUSES)
@@ -226,7 +232,7 @@ async def _agent_has_live_terminal(db, agent_id: str) -> bool:
         )
         return (await cur.fetchone()) is not None
     except Exception:
-        return False
+        return PROBE_ERROR
 
 
 async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
@@ -242,19 +248,29 @@ async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
     return bool((row["superseded_by"] or "").strip())
 
 
-async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
+async def _resident_bridge_record_is_fresh(db, row, *, lease_seconds: int) -> bool:
+    """The resident's own MCP bridge, named by `runtime_state.bridgeInstanceId`, seen within the lease and not
+    superseded. The channel-sidecar fallback is not here: `_resident_bridge_is_fresh` adds it, and B3's
+    `resident_drives` has already read the sidecar once, tri-state, so it asks only this."""
     lease = max(15, int(lease_seconds or 150))
     bridge_id = str(_json_loads_or(row["runtime_state"], {}).get("bridgeInstanceId") or "").strip()
-    if bridge_id:
-        cursor = await db.execute(
-            "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
-            (bridge_id, row["id"]),
-        )
-        bridge = await cursor.fetchone()
-        if bridge and not str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
-            seen_s = _iso_to_epoch((bridge["last_seen"] or ""))
-            if seen_s and time.time() - seen_s <= lease:
-                return True
+    if not bridge_id:
+        return False
+    cursor = await db.execute(
+        "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        (bridge_id, row["id"]),
+    )
+    bridge = await cursor.fetchone()
+    if bridge and not str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
+        seen_s = _iso_to_epoch((bridge["last_seen"] or ""))
+        if seen_s and time.time() - seen_s <= lease:
+            return True
+    return False
+
+
+async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
+    if await _resident_bridge_record_is_fresh(db, row, lease_seconds=lease_seconds):
+        return True
     # Fallback (operator-reported 2026-05-31, sc-manager): an IDLE resident
     # claude's MCP bridge is NOT heartbeated — the turn-busy heartbeat only fires
     # during an active turn, and the session-handle heartbeat only POSTs when the

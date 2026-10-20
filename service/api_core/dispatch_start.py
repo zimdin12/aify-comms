@@ -45,7 +45,7 @@ from typing import Any, Optional
 from fastapi import HTTPException
 
 from service.api_core.agent_sessions import _session_handle_live_owner
-from service.api_core.channel_delivery import _has_live_worker_for
+from service.api_core.channel_delivery import _has_live_worker_for, live_resident_session
 from service.api_core.definition_start import (
     CHANGED_WHILE_STARTING,
     StartRefused,
@@ -364,10 +364,14 @@ def _carried_from(prior_spec, runtime: str) -> dict[str, Any]:
 async def twin_refusal(db, agent_row) -> str:
     """Why a managed worker may not start beside this agent's live resident session, or "".
 
-    A DEFINED agent's mode is its definition's, which `start_binding` has read as managed. Its row says
-    resident until a managed worker registers, so the twin question is asked of the process instead."""
-    resident = agent_row is not None and str(agent_row["session_mode"] or "").strip().lower() == "resident"
-    if resident and await _has_live_worker_for(db, agent_row, shadow_site='twin'):
+    A DEFINED agent's mode is its definition's, which `start_binding` has read as managed. Its row may say resident
+    until a managed worker registers, or managed once it followed its definition (B3) while a resident session it
+    did not see was live, so the twin question is asked of the process either way."""
+    if agent_row is None:
+        return ""
+    resident = str(agent_row["session_mode"] or "").strip().lower() == "resident"
+    if (await _has_live_worker_for(db, agent_row, shadow_site='twin') if resident
+            else await live_resident_session(db, agent_row["id"])):
         return ("a resident session of this agent is live, and a managed worker beside it would be a twin; "
                 "stop the resident first")
     return ""
