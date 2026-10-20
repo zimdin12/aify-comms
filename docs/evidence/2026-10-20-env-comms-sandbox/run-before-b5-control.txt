@@ -1,0 +1,19 @@
++0.0s comms 7c1f76da = 7c1f76da4e2fc0f743513d27c8e331d85f5e73bf; env 3f87aad = 3f87aad94466d89686067a7aaf9067b7602f7ee0; agent sandbox-probe; expect kept
++0.0s resources: {"network":"aify-sandbox-1792506691058","comms":"aify-sandbox-1792506691058-comms","env":"aify-sandbox-1792506691058-env","commsImage":"aify-sandbox-1792506691058-comms","envImage":"aify-sandbox-1792506691058-env"}, label aify.sandbox=aify-sandbox-1792506691058, no published ports, /data on tmpfs (no volume)
++6.2s comms image built
++13.8s env image built
++16.0s comms healthy; before the env: {"publishers":[]}
++17.7s env published: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792506707580,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506707580,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792506707608,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506707608,"applied":true,"rows":0}]}
++18.0s env stopped by SIGTERM, exit 0
++18.1s after: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792506707580,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506707580,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792506707608,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792506707608,"applied":true,"rows":0}]}
++18.2s env log, last lines:
+sandbox-probe: incarnation 1 revision 1
+aify-env 0.9.4 listening on http://127.0.0.1:8802
+terminals: UNAVAILABLE (node-pty did not load: MODULE_NOT_FOUND) — processes will run with piped stdio
+[aify-env] residents role held, generation 1792506707608, publishing as residents-fda01c99a296
+[aify-env] hosting work for: aify-comms
+[aify-env] SIGTERM: stopping 0 managed process(es)
+
++18.2s managed keys before: ["wsl:sandbox-env/default"]; retired after: []; residents unchanged true; AS EXPECTED (kept)
++21.0s cleaned up: containers left [], networks left [], images left [], work dir exists false
+verdict: AS EXPECTED (kept)
