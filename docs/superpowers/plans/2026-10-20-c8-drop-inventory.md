@@ -1,5 +1,7 @@
 # If C8 (the one-day live comparison) is dropped: what is switch-needed and what is comparison-only
 
+**SUPERSEDED 2026-10-20** by the reclassified table in `s4-hard-switch/4-inventory-reclassified.md` (branch 098/s4-plan, 7e481315), written after the operator ruled that comms never times turns. Kept as the first pass.
+
 Read-only inventory, 2026-10-20, comms main 9d49da71. A = switch-needed, B = comparison-only, C = mixed.
 Evidence labels: PROVEN (read in code or plan), ASSUMED, UNCLEAR.
 
