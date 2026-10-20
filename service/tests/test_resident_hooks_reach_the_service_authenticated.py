@@ -511,8 +511,9 @@ def _current_state_start(home: Path) -> str:
 
 def test_two_aify_groups_in_one_event_are_left_in_place_and_untrusted():
     """Review of 94e28914: removing a duplicate shifts every operator group after it off the index its trust names. With
-    the 2026-05 curl form and today's command both present, the event is left exactly as it is and nothing in it is
-    trusted anew; the operator's trust for its own group stays where it was."""
+    the 2026-05 curl form and today's command both present, that hook family's groups are left exactly where they are and
+    none of them is trusted anew; the operator's trust for its own group stays where it was. The refusal is per family:
+    the separate context hook in the same event is still appended after them and trusted."""
     with tempfile.TemporaryDirectory(prefix="aify-statehooks-dup-") as tmp:
         start = _current_state_start(Path(tmp) / "probe")
         home = Path(tmp) / "home"
