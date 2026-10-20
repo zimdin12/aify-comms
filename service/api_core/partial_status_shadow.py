@@ -37,6 +37,7 @@ class Record:
     raw: bytes | None = None
     origin: tuple | None = None
     age_ms: int | None = None  # turn.ageMs as published (B6), for the fold's start estimate
+    busy: bool | None = None  # the record's validated top-level busy: the operational view's only busy (SW2)
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ def prepare(body, applied_at):
     return Projection((body['machineId'], body['instance']), body['kind'], body['generation'],
                       applied_at, tuple(Record(r['agentId'], r['lifetime'], r['state'], env_inputs(r), turn_clock(r),
                                                turn_busy_if(r), (r['process']['state'], r['process']['verified']),
-                                               raw_bytes(r), origin, (r['turn'] or {}).get('ageMs'))
+                                               raw_bytes(r), origin, (r['turn'] or {}).get('ageMs'), r['busy'])
                                         for r in body.get('agents', ())),
                       tuple((r['agentId'], r['lifetime']) for r in body.get('removed', ())),
                       body['incarnationId'], body['publication'], build)
