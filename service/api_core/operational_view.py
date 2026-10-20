@@ -14,6 +14,7 @@ no publisher on its machine is unreadable; unknown withholds before busy and bef
 from dataclasses import dataclass
 
 from service.api_core import partial_status_shadow as shadow
+from service.api_core.view_owners import PROMOTABLE
 
 FRESH = 'fresh'  # the only availability a known answer is built from; every other class reads unknown
 # 'incomplete' is a publisher with no accepted complete snapshot. SW1's restored publishers read 'restored'.
@@ -99,7 +100,7 @@ def _busy(holders):
     return 'known', False
 
 
-def _word(state):
+def _status_word(state):
     word = shadow.candidate_word(state)
     return word or 'unknown'
 
@@ -109,7 +110,7 @@ def _last_known(holders):
     if not applied:
         return None
     latest = max(applied, key=lambda h: h.applied_at)
-    return (_word(latest.state), latest.applied_at)
+    return (_status_word(latest.state), latest.applied_at)
 
 
 def comms_view(holders, messaging):
@@ -127,8 +128,8 @@ def comms_view(holders, messaging):
     elif len(fresh) > 1:
         status = 'unknown'  # C6 row 4: a conflict names both lifetimes, never one of them
     else:
-        status = _word(fresh[0].state)
-        if messaging.run_running and fresh[0].state in ('idle', 'shell', 'starting', 'available'):
+        status = _status_word(fresh[0].state)
+        if messaging.run_running and fresh[0].state in PROMOTABLE:
             status = 'working'  # C6 row 5: a run comms delivered is running
     return View(status, last_known, not messaging.delivery_path_missing, eligibility, busy, holds,
                 messaging.run_occupied)
