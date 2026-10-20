@@ -6,6 +6,19 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## aify-env announces its reporting interval; comms derives "not reporting" from it (Steven, 2026-10-21)
+
+- **The silence limit is aify-env's setting, not a comms constant** (dashboard question 01M5D9WR, answered "mb make
+  it an env setting? ... in sense of separation of concerns"). Every aify-env report carries the interval at which
+  it reports in full. comms reads an aify-env as not reporting once three of those intervals pass without a
+  receipt, and its agents read unknown and messages queue. Decision 2 of the hard-switch plan, replacing the
+  proposed fixed 180 s.
+- **Why:** aify-env already reports in full every 60 s (`SNAPSHOT_MS` in its agent-state sender), and comms' 180 s
+  (`age_class` in `partial_status_shadow`) was a second, independent copy of "three reports missed". aify-env owns
+  its cadence, so it states it once and comms derives the limit.
+- **An aify-env that announces no interval** is not reporting in that sense: comms gives it no guessed number.
+  Every copy of the report schema changes together (comms, aify-env, the aify-wrapper copies).
+
 ## After the status switch, reply reminders wait for idle (Steven, 2026-10-21)
 
 - **Reply-overdue reminders and the stranded-reply check pause while aify-env says the agent is busy with
