@@ -210,6 +210,7 @@ const MODELS = {
     const pass = { marks, contact: silenced.contact, timeline: queued("D", steerable), standin: polling(T0, T0 + 20_000) };
     return [pass,
       ["not a default send", { ...pass, timeline: queued("D", { queue_if_busy: 1 }) }],
+      ["joined the queueIfBusy run", { ...pass, marks: { ...marks, queueRunId: "D" } }],
       ["the send created no run", { ...pass, marks: { ...marks, defaultRunId: null }, timeline: [] }],
       ["claimed", { ...pass, timeline: [snap(T0 + 3000, { runs: [run("D", "completed", T0 + 2000, steerable)] })] }],
       ["aify-env announced nothing", { ...pass, marks: { ...marks, announcedMs: null } }],

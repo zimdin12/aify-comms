@@ -248,6 +248,7 @@ export const JUDGES = {
     silenceDerived(m, failed);
     silenceHeld(ev.contact, m.lastContactAt, m.window.to, failed);
     const run = runOf(ev.timeline.find((s) => runOf(s, m.defaultRunId)), m.defaultRunId);
+    if (m.defaultRunId && m.defaultRunId === m.queueRunId) failed.push("fixture: the default send joined the queueIfBusy run");
     if (run && run.queue_if_busy !== 0) failed.push("fixture: the send was not a default send");
     withheld(ev, m.defaultRunId, m.window, failed, unknown, "the default send");
     return verdict(failed, unknown);

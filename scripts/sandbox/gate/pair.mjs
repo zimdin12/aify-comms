@@ -12,6 +12,9 @@ import { create, docker, must, sleep, log } from "../env-against-comms.mjs";
 
 export const AGENT = "gate-agent";
 const SENDER = "gate-sender";
+// comms folds a send into its sender's queued run (_find_mergeable_queued_run), so a case that needs two runs sends
+// the second from here.
+export const SECOND_SENDER = "gate-sender-2";
 const ENV_DAEMON = "node /opt/aify-env/bin/aify-env.mjs";
 const MS = (iso) => Date.parse(iso.endsWith("Z") ? iso : `${iso}Z`);
 
@@ -57,9 +60,11 @@ export class Pair {
       "--network", network, "-e", "SANDBOX_COMMS_KEY", "-e", "SANDBOX_DEFINE", this.#images.env], { env: withKey }, this.#dock);
     this.#ownVolumes(env);
     await this.waitFor(() => /listening on/.test(this.#dock(["logs", env]).out), 120_000, "aify-env to listen");
-    const sender = this.api("POST", "/agents", { agentId: SENDER, role: "coder", runtime: "generic",
-      machineId: "linux:gate-harness", sessionMode: "resident" });
-    if (!sender.ok) throw new Error(`registering the sender answered ${sender.status} ${sender.text}`);
+    for (const agentId of [SENDER, SECOND_SENDER]) {
+      const sender = this.api("POST", "/agents", { agentId, role: "coder", runtime: "generic",
+        machineId: "linux:gate-harness", sessionMode: "resident" });
+      if (!sender.ok) throw new Error(`registering ${agentId} answered ${sender.status} ${sender.text}`);
+    }
     this.watch();
   }
 

@@ -5,7 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 import { sleep } from "../env-against-comms.mjs";
-import { AGENT, Pair } from "./pair.mjs";
+import { AGENT, Pair, SECOND_SENDER } from "./pair.mjs";
 import { FIRST_PASS_MS, MISSED_REPORTS, announcedAt, applied, candidateWord, ms } from "./judges.mjs";
 
 const WINDOW_MS = 20_000; // how long a withheld run is watched, against a claimer polling every ~2 s
@@ -37,10 +37,12 @@ async function window(pair) {
   return { from, to: pair.snapshot().t };
 }
 
-const claimed = (pair, runId, timeoutMs) => pair.waitFor(() => {
-  const r = run(pair.snapshot(), runId);
+// Waits on the watcher's timeline, the record the judges read: a direct snapshot can see the claim before the watcher
+// writes it, and the evidence read straight after then holds no claim (SW3b q3, legacy-busy).
+const claimed = (pair, runId, timeoutMs) => pair.waitFor(() => pair.timeline().some((f) => {
+  const r = run(f, runId);
   return r && r.status !== "queued";
-}, timeoutMs, `${runId} claimed`).catch(() => null);
+}), timeoutMs, `${runId} claimed`).catch(() => null);
 
 async function busy(pair) {
   pair.control({ turn: "busy" });
@@ -140,7 +142,7 @@ export const SCENARIOS = {
     const prior = priorOf(seen);
     const word = seen.word;
     const q = sent(pair, "C5 queueIfBusy while not reporting", { queueIfBusy: true, steer: false });
-    const d = sent(pair, "C7 default while not reporting");
+    const d = sent(pair, "C7 default while not reporting", { from_agent: SECOND_SENDER });
     const held = await window(pair);
     const resumedAt = pair.snapshot().t;
     pair.silence(false);
@@ -276,7 +278,7 @@ export const SCENARIOS = {
     await pair.waitFor(() => pair.snapshot().t - lastContactAt >= due, due + 120_000, "the silence");
     const word = pair.snapshot().word;
     const q = sent(pair, "daemon lost: queueIfBusy", { queueIfBusy: true, steer: false });
-    const d = sent(pair, "daemon lost: default");
+    const d = sent(pair, "daemon lost: default", { from_agent: SECOND_SENDER });
     const environment = pair.api("GET", "/environments").json?.environments?.[0] ?? null;
     pair.resumeEnv();
     return { announcedMs, waitedMs: due, word, queueRunId: q.runId, defaultRunId: d.runId,
