@@ -49,7 +49,11 @@ def snapshot(agent):
                             'state': record.get('state'), 'stateCause': record.get('stateCause'),
                             'appliedAt': row['row_applied_at']})
         runs = rows(db, 'select id, subject, status, queue_if_busy, steer_if_busy, requested_at, claimed_at, '
-                        'claim_bridge_id from dispatch_runs where target_agent = ? order by requested_at, id', agent)
+                        'claim_bridge_id, finished_at, summary, error_text from dispatch_runs where target_agent = ? '
+                        'order by requested_at, id', agent)
+        # Which writer ended a run: its events name it (agent_stopped, terminal_closed, ...), which status alone cannot.
+        events = rows(db, 'select e.run_id, e.event_type, e.body, e.created_at from dispatch_events e join dispatch_runs r '
+                          'on r.id = e.run_id where r.target_agent = ? order by e.id', agent)
         controls = rows(db, 'select c.id, c.action, c.status, c.run_id, c.requested_at, c.claimed_at from '
                             'dispatch_controls c join dispatch_runs r on r.id = c.run_id where r.target_agent = ? '
                             'order by c.requested_at, c.id', agent)
@@ -64,7 +68,7 @@ def snapshot(agent):
         payload = json.loads(text).get('agent') or {}
         word = {'status': payload.get('status'), 'statusNote': payload.get('statusNote', ''),
                 'lastKnown': payload.get('lastKnown')}
-    return {'publishers': publishers, 'records': records, 'runs': runs, 'controls': controls, 'spawns': spawns,
+    return {'publishers': publishers, 'records': records, 'runs': runs, 'events': events, 'controls': controls, 'spawns': spawns,
             'legacy': legacy, 'word': word, 'wordStatus': status}
 
 
