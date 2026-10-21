@@ -1,7 +1,8 @@
-"""Mutation arms for the gate's judging (SW3a successor). Each arm replaces exactly one source span, runs the gate's
---self-check and the review replay (../review-replay/replay.mjs), keeps their full stdout/stderr and exits and the
-witnesses that went FAIL, then restores the file by byte copy and checks its sha256. An arm is KILLED only if the
-self-check exits nonzero AND a FAIL line names the arm's expected witness. The replay's exit is recorded beside it.
+"""Mutation arms for the gate's judging (SW3a successor). Each arm replaces exactly one source span, runs its checker
+(the gate's --self-check, or for the collector probe.py its own test) and the review replay
+(../review-replay/replay.mjs), keeps their full stdout/stderr and exits and the witnesses that went FAIL, then restores
+the file by byte copy and checks its sha256. An arm is KILLED only if the checker exits nonzero AND a FAIL line names
+the arm's expected witness. The replay's exit is recorded beside it.
 
   python docs/evidence/2026-10-21-sw3a-gate/arms/run_arms.py <worktree> <out dir>"""
 import hashlib, json, pathlib, shutil, subprocess, sys
@@ -76,7 +77,7 @@ ARMS = [
   ('f03', 'judges.mjs', '  if (seenBy <= to) return "inside";\n', '',
    "claimed in the hold's last second, seen claimed before it ends", 'F1 seen by the end'),
   ('f04', 'judges.mjs', '  if (absentAfter !== null && absentAfter > to) return "outside";\n', '',
-   "review F1: released in the hold's last second, seen queued after it ends", 'F1 absent after the end'),
+   "review F1: released in the hold's last second, read queued after it ends", 'F1 absent after the end'),
   ('f05', 'judges.mjs', '  return "unknown";\n}', '  return "inside";\n}',
    "a claim straddling the hold's end with no millisecond evidence", 'F1 unknown, not a breach'),
   ('f06', 'judges.mjs', '  if (claimed === "unknown") unknown.push(', '  if (false) unknown.push(',
@@ -85,22 +86,46 @@ ARMS = [
    "a claim straddling the hold's end with no millisecond evidence", 'F1 unknown, not a pass'),
   ('f08', 'judges.mjs', 'seenBy: earliest(claim.seenAt, delivered)', 'seenBy: earliest(delivered)',
    "claimed in the hold's last second, seen claimed before it ends", 'F1 watcher sight'),
-  ('f09', 'judges.mjs', 'absentAfter: claim.queuedAt })', 'absentAfter: null })',
-   "review F1: released in the hold's last second, seen queued after it ends", 'F1 watcher order'),
+  ('f09', 'judges.mjs', 'absentAfter: claim.queuedThrough })', 'absentAfter: null })',
+   "review F1: released in the hold's last second, read queued after it ends", 'F1 watcher order'),
   ('f10', 'judges.mjs', '{ seenBy: earliest(ev.timeline[index]?.t, received),', '{ seenBy: earliest(received),',
    "steered in the window's last second, seen before it ends", 'F1 controls'),
-  ('f11', 'judges.mjs', '      absentAfter: index > 0 ? ev.timeline[index - 1].t : null });', '      absentAfter: null });',
-   "steered in the window's last second, seen absent after it ends", 'F1 controls'),
+  ('f11', 'judges.mjs', '      absentAfter: absentThrough(ev.timeline, index, "controls", (s) => !(s.controls ?? []).some(same)) });',
+   '      absentAfter: null });', "steered in the window's last second, read absent after it ends", 'F1 controls'),
   ('f12', 'judges.mjs', '  else if (steered.includes("unknown")) unknown.push(', '  else if (false) unknown.push(',
    "a steer straddling the window's end with no millisecond evidence", 'F1 controls'),
+  # Review F1.a/F1.b: absence only from a successful read acquired after the end.
+  ('g01', 'judges.mjs', '    const bound = timeline[j + 1]?.previousSeenFrom ?? frame.acquiredFrom;', '    const bound = frame.t;',
+   'review F1.a: a queued frame emitted after the end but read before it', 'F1.a emission is not acquisition'),
+  ('g02', 'judges.mjs', '    if (frame.error || !Array.isArray(frame[inventory]) || !absent(frame)) continue;', '    if (!absent(frame)) continue;',
+   'review F1.b: an error read after the end is not an empty inventory', 'F1.b a failed read is not absence'),
+  ('g03', 'judges.mjs', '    const bound = timeline[j + 1]?.previousSeenFrom ?? frame.acquiredFrom;', '    const bound = frame.acquiredFrom;',
+   'a read still queued after the end, recorded on the next frame', 'F1.a the last read of a state'),
+  ('g04', 'judges.mjs', '    const bound = timeline[j + 1]?.previousSeenFrom ?? frame.acquiredFrom;', '    const bound = timeline[j + 1]?.previousSeenFrom;',
+   "steered in the window's last second, read absent after it ends", 'F1.a a frame\'s own acquisition'),
+  # The collector: its stamps are what the judges' lower bounds stand on. Judged by its own test, not the self-check.
+  ('p01', 'probe.py', '        acquired = now_ms()\n        try:\n', '        acquired = now_ms() + 250\n        try:\n',
+   'test_a_frame_is_acquired_before_its_read_and_emitted_after_it', 'F1.a stamped before the read'),
+  ('p02', 'probe.py', "'previousSeenFrom': last_from,", "'previousSeenFrom': acquired,",
+   'test_previous_seen_from_is_the_last_read_of_the_previous_content', 'F1.a the previous read'),
+  ('p03', 'probe.py', '        last_from = acquired\n', '',
+   'test_previous_seen_from_is_the_last_read_of_the_previous_content', 'F1.a the previous read'),
+  ('p04', 'probe.py', "            seen = {'error': f'{type(error).__name__}: {error}'}",
+   "            seen = {'error': f'{type(error).__name__}: {error}', 'runs': [], 'controls': []}",
+   'test_an_error_read_is_its_own_frame_with_no_inventory', 'F1.b an error has no inventory'),
 ]
 
-def node(args):
-    done = subprocess.run(['node', *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+def run_checked(command):
+    done = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120)
     return done.returncode, done.stdout, done.stderr
 
-selfcheck = lambda: node([str(GATE / 'gate.mjs'), '--self-check'])
+node = lambda args: run_checked(['node', *args])
+gate_selfcheck = lambda: node([str(GATE / 'gate.mjs'), '--self-check'])
+probe_test = lambda: run_checked([sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
+                                  str(ROOT / 'scripts' / 'tests' / 'test_gate_probe_acquisition.py')])
 replay = lambda: node([str(REPLAY)])
+# A judge or case arm is judged by the gate's self-check (FAIL lines); a collector arm by its own test (FAILED lines).
+selfcheck = lambda name='judges.mjs': probe_test() if name == 'probe.py' else gate_selfcheck()
 
 OUT.mkdir(parents=True, exist_ok=True)
 base, base_replay = selfcheck(), replay()
@@ -117,7 +142,7 @@ for arm_id, name, old, new, expect, guards in ARMS:
         summary['arms'].append({'arm': arm_id, 'error': f'anchor found {text.count(old)} times'}); continue
     path.write_bytes(text.replace(old, new).encode('utf-8'))
     mutated = sha(path)
-    code, out, err = selfcheck()
+    code, out, err = selfcheck(name)
     rcode, rout, rerr = replay()
     shutil.copyfile(keep, path)
     restored = sha(path)

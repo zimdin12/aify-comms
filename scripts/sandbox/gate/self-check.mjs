@@ -19,8 +19,8 @@ const run = (id, status, claimedT = null, extra = {}) => ({ id, status, claimed_
 const steerable = { queue_if_busy: 0, steer_if_busy: 1 };
 /** One watcher snapshot. `record: null` is comms holding no record of the agent yet. */
 const snap = (t, { runs = [], record = { busy: false, state: "idle", lifetime: "L1" }, applied = t, kind = "changes",
-  spawns = [], controls = [] } = {}) => ({
-  t, runs, spawns, controls, legacy: [], word: null,
+  spawns = [], controls = [], stamps = {} } = {}) => ({
+  t, ...stamps, runs, spawns, controls, legacy: [], word: null,
   publishers: [{ instance: "default", kind, data_applied_at: iso(applied) }],
   records: record ? [{ instance: "default", appliedAt: iso(applied), ...record }] : [],
 });
@@ -51,13 +51,18 @@ function secondHolder(busy) {
     ["received inside the window", { ...pass, standin: [...pass.standin, delivered("R", T0 + 5000)] }],
     ["steered inside the window", { ...pass, timeline: [{ ...pass.timeline[0], controls: [steer("R", T0 + 5000)] }] }],
     ["no claimer polling", { ...pass, standin: [] }],
-    // Review F1 for controls: the window ends at 20.900 and comms stamps a steer at 20.500 with the second 20.000.
-    ...[["steered in the window's last second, seen before it ends", [T0 + 20_800], undefined],
-      ["steered in the window's last second, seen absent after it ends", [T0 + 20_950, T0 + 21_500], true],
-      ["a steer straddling the window's end with no millisecond evidence", [T0 + 21_500], "UNKNOWN"]]
+    // Review F1 for controls: the window ends at 20.900 and comms stamps a steer at 20.500 with the second 20.000. Each
+    // sight is [emitted t, acquiredFrom, previousSeenFrom] or { error } (probe.py `watch`); the last one shows the steer.
+    ...[["steered in the window's last second, seen before it ends", [[T0 + 20_800]], undefined],
+      ["steered in the window's last second, read absent after it ends", [[T0 + 20_950, T0 + 20_920], [T0 + 21_500, T0 + 21_420]], true],
+      ["review F1.b: an error read after the end is not an empty inventory", [[T0 + 20_400, T0 + 20_350],
+        { t: T0 + 20_950, acquiredFrom: T0 + 20_920, previousSeenFrom: T0 + 20_350, error: "OperationalError: database is locked" },
+        [T0 + 21_500, T0 + 21_420, T0 + 20_920]], "UNKNOWN"],
+      ["a steer straddling the window's end with no millisecond evidence", [[T0 + 21_500]], "UNKNOWN"]]
       .map(([name, sights, expect]) => [name, { ...pass, marks: { ...marks, window: { from: T0, to: T0 + 20_900 } },
-        timeline: [pass.timeline[0], ...sights.map((t, i) => snap(t, { runs: [run("R", "queued", null, steerable)],
-          controls: i === sights.length - 1 || sights.length === 1 ? [steer("R", T0 + 20_500)] : [] })),
+        timeline: [pass.timeline[0], ...sights.map((sight, i) => (Array.isArray(sight)
+          ? snap(sight[0], { runs: [run("R", "queued", null, steerable)], stamps: { acquiredFrom: sight[1], previousSeenFrom: sight[2] },
+            controls: i === sights.length - 1 ? [steer("R", T0 + 20_500)] : [] }) : sight)),
         snap(T0 + 26_200, { runs: [run("R", "completed", T0 + 26_000, steerable)], controls: [steer("R", T0 + 20_500)] })] }, expect])];
 }
 
@@ -88,20 +93,27 @@ const MODELS = {
     const lawful = { marks: { ...marks, idleAccepted: { at: T0 + 21_000, seenAt: T0 + 21_000 } }, timeline: claimedAt(T0 + 22_000, T0 + 22_000),
       standin: [...polling(T0, T0 + 20_000), delivered("R", T0 + 22_000)] };
     // Review F1: the hold ends at 20.900, so a claim comms stamps with the second 20.000 straddles its end. `sights` are
-    // the watcher times it is seen queued, the last one claimed; `idle` is the idle acceptance [at, seenAt].
+    // the watcher frames that see it queued, the last one claimed, each [emitted t, acquiredFrom, previousSeenFrom]
+    // (probe.py `watch`); `idle` is the idle acceptance [at, seenAt].
     const edge = (sights, { claim = T0 + 20_970, idle = [T0 + 20_000, T0 + 20_950], receipt = null } = {}) => ({
       marks: { ...marks, holdWindow: { from: T0, to: T0 + 20_900 }, idleAccepted: { at: idle[0], seenAt: idle[1] } },
-      timeline: [snap(T0 + 100, { runs: [run("R", "queued")] }), ...sights.map((t, i) =>
-        snap(t, { runs: [i === sights.length - 1 ? run("R", "completed", claim) : run("R", "queued")] }))],
+      timeline: [snap(T0 + 100, { runs: [run("R", "queued")] }), ...sights.map(([t, acquiredFrom, previousSeenFrom], i) =>
+        snap(t, { runs: [i === sights.length - 1 ? run("R", "completed", claim) : run("R", "queued")], stamps: { acquiredFrom, previousSeenFrom } }))],
       standin: [...polling(T0, T0 + 20_000), ...(receipt ? [delivered("R", receipt)] : [])] });
     return [pass,
       ["review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes", { lawful }],
-      ["review F1: released in the hold's last second, seen queued after it ends", edge([T0 + 20_950, T0 + 21_500], { receipt: T0 + 20_975 }), true],
-      ["review F1: released in the next second", edge([T0 + 21_100, T0 + 21_650], { claim: T0 + 21_150,
+      ["review F1: released in the hold's last second, read queued after it ends",
+        edge([[T0 + 20_950, T0 + 20_920], [T0 + 21_500, T0 + 21_420, T0 + 20_920]], { receipt: T0 + 20_975 }), true],
+      ["review F1.a: a queued frame emitted after the end but read before it",
+        edge([[T0 + 20_950, T0 + 20_880], [T0 + 21_500, T0 + 21_420, T0 + 20_880]], { receipt: T0 + 20_975 }), "UNKNOWN"],
+      ["a read still queued after the end, recorded on the next frame",
+        edge([[T0 + 20_950, T0 + 20_880], [T0 + 21_500, T0 + 21_420, T0 + 20_930]], { receipt: T0 + 20_975 }), true],
+      ["review F1: released in the next second", edge([[T0 + 21_100], [T0 + 21_650]], { claim: T0 + 21_150,
         idle: [T0 + 21_000, T0 + 21_100], receipt: T0 + 21_160 }), true],
-      ["claimed in the hold's last second, seen claimed before it ends", edge([T0 + 20_800], { idle: [T0 + 20_000, T0 + 20_500] })],
-      ["claimed in an earlier second, seen late, with no receipt", edge([T0 + 21_500], { claim: T0 + 19_500, idle: [T0 + 19_000, T0 + 21_400] })],
-      ["a claim straddling the hold's end with no millisecond evidence", edge([T0 + 21_500]), "UNKNOWN"],
+      ["claimed in the hold's last second, seen claimed before it ends", edge([[T0 + 20_800]], { idle: [T0 + 20_000, T0 + 20_500] })],
+      ["received in the hold's last second, before it ends", edge([[T0 + 20_950, T0 + 20_920], [T0 + 21_500, T0 + 21_420]], { receipt: T0 + 20_890 })],
+      ["claimed in an earlier second, seen late, with no receipt", edge([[T0 + 21_500]], { claim: T0 + 19_500, idle: [T0 + 19_000, T0 + 21_400] })],
+      ["a claim straddling the hold's end with no millisecond evidence", edge([[T0 + 21_500]]), "UNKNOWN"],
       ["legacy busy", { ...pass, marks: { ...marks, preLegacyBusy: 1 } }],
       ["env not busy", { ...pass, marks: { ...marks, preEnvBusy: false } }],
       ["claimed inside the hold", { ...pass, timeline: claimedAt(T0 + 5000) }],

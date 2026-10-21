@@ -5,8 +5,9 @@ environment and is never printed.
   probe.py watch AGENT FILE           appends a snapshot to FILE whenever what it sees changes, every 0.5 s, for ever
   probe.py snapshot AGENT             prints one snapshot
 
-A snapshot is stamped with this container's clock (`t`, ms), the clock comms' own timestamps come from, so the gate
-orders comms' rows and its own observations on one clock. A comms restart stops `watch`; the gate starts it again.
+A snapshot is stamped with this container's clock, the clock comms' own timestamps come from, so the gate orders comms'
+rows and its own observations on one clock: `t` (ms) after the read, `acquiredFrom` before it (see `watch`). A comms
+restart stops `watch`; the gate starts it again.
 """
 import json
 import os
@@ -67,9 +68,19 @@ def snapshot(agent):
             'legacy': legacy, 'word': word, 'wordStatus': status}
 
 
+def now_ms():
+    return int(time.time() * 1000)
+
+
 def watch(agent, path):
-    last = None
+    """Each frame carries three times (review F1). `t` is stamped after the read and its API call, so it bounds when
+    the state was seen from above. `acquiredFrom` is stamped before the first SQL read, so every row in the frame was
+    read at or after it. `previousSeenFrom` is the `acquiredFrom` of the read just before this frame, which returned
+    the previous frame's content, so that content still held at or after it. Only a lower bound can say "still absent
+    after the end"; an error frame says nothing about runs or controls."""
+    last, last_from = None, None
     while True:
+        acquired = now_ms()
         try:
             seen = snapshot(agent)
         except Exception as error:  # a restarting or locked database is an observation, not a crash
@@ -77,8 +88,9 @@ def watch(agent, path):
         encoded = json.dumps(seen, sort_keys=True)
         if encoded != last:
             with open(path, 'a') as out:
-                out.write(json.dumps({'t': int(time.time() * 1000), **seen}) + '\n')
+                out.write(json.dumps({'t': now_ms(), 'acquiredFrom': acquired, 'previousSeenFrom': last_from, **seen}) + '\n')
             last = encoded
+        last_from = acquired
         time.sleep(0.5)
 
 
@@ -91,6 +103,8 @@ if __name__ == '__main__':
     elif command == 'watch':
         watch(sys.argv[2], sys.argv[3])
     elif command == 'snapshot':
-        print(json.dumps({'t': int(time.time() * 1000), **snapshot(sys.argv[2])}))
+        acquired = now_ms()
+        seen = snapshot(sys.argv[2])
+        print(json.dumps({'t': now_ms(), 'acquiredFrom': acquired, **seen}))
     else:
         sys.exit(f'unknown command {command}')

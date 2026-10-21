@@ -1,0 +1,966 @@
+{
+  "scope": "Pure exact judges over explicit collector-order uncertainty and matched controls; not Docker or product execution",
+  "helper_checks": [
+    {
+      "name": "no-proof",
+      "actual": "unknown",
+      "want": "unknown"
+    },
+    {
+      "name": "real-absence-after",
+      "actual": "outside",
+      "want": "outside"
+    },
+    {
+      "name": "wholly-before",
+      "actual": "inside",
+      "want": "inside"
+    }
+  ],
+  "observations": [
+    {
+      "name": "claim-emission-time-is-not-absence-lower-bound",
+      "judge": "legacy-idle-env-busy",
+      "want": "UNKNOWN",
+      "actual": {
+        "pass": true,
+        "verdict": "PASS",
+        "failed": [],
+        "unknown": []
+      },
+      "agrees": false,
+      "why": "Actual selected collector read queued before20.900 and emitted it20.950 after a concurrent20.895 claim. Neither receipt nor first positive sight resolves the straddling bucket. Late emission cannot prove absence after end.",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540800900,
+            "to": 1792540820900
+          },
+          "idleAccepted": {
+            "at": 1792540820000,
+            "seenAt": 1792540821500
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540820950,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 1,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "stateCause": "turn-open",
+                "appliedAt": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "queued",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": null,
+                "claim_bridge_id": null
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "working",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          },
+          {
+            "t": 1792540821500,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "completed",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": "2026-10-21T00:00:20Z",
+                "claim_bridge_id": "synthetic-bridge"
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "online",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540820975
+          }
+        ]
+      }
+    },
+    {
+      "name": "claim-without-stale-negative-row-control",
+      "judge": "legacy-idle-env-busy",
+      "want": "UNKNOWN",
+      "actual": {
+        "pass": false,
+        "verdict": "UNKNOWN",
+        "failed": [],
+        "unknown": [
+          "held: R's claim second straddles the window's end, and nothing finer orders them"
+        ]
+      },
+      "agrees": true,
+      "why": "Removing the stale negative must not change an unresolvable event from PASS to UNKNOWN",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540800900,
+            "to": 1792540820900
+          },
+          "idleAccepted": {
+            "at": 1792540820000,
+            "seenAt": 1792540821500
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540821500,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "completed",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": "2026-10-21T00:00:20Z",
+                "claim_bridge_id": "synthetic-bridge"
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "online",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540820975
+          }
+        ]
+      }
+    },
+    {
+      "name": "claim-positive-before-end-control",
+      "judge": "legacy-idle-env-busy",
+      "want": "FAIL",
+      "actual": {
+        "pass": false,
+        "verdict": "FAIL",
+        "failed": [
+          "held: R was claimed inside the window",
+          "held: the stand-in received R inside the window"
+        ],
+        "unknown": []
+      },
+      "agrees": true,
+      "why": "A positive receipt by the end proves a breach despite the stale negative",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540800900,
+            "to": 1792540820900
+          },
+          "idleAccepted": {
+            "at": 1792540820000,
+            "seenAt": 1792540821500
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540820950,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 1,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "stateCause": "turn-open",
+                "appliedAt": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "queued",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": null,
+                "claim_bridge_id": null
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "working",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          },
+          {
+            "t": 1792540821500,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "completed",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": "2026-10-21T00:00:20Z",
+                "claim_bridge_id": "synthetic-bridge"
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "online",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540820899
+          }
+        ]
+      }
+    },
+    {
+      "name": "claim-wholly-after-end-control",
+      "judge": "legacy-idle-env-busy",
+      "want": "PASS",
+      "actual": {
+        "pass": true,
+        "verdict": "PASS",
+        "failed": [],
+        "unknown": []
+      },
+      "agrees": true,
+      "why": "The actual event bucket wholly follows end and the idle-order bound is met",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540800900,
+            "to": 1792540820900
+          },
+          "idleAccepted": {
+            "at": 1792540820000,
+            "seenAt": 1792540821500
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540820950,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 1,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "stateCause": "turn-open",
+                "appliedAt": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "queued",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": null,
+                "claim_bridge_id": null
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "working",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          },
+          {
+            "t": 1792540821500,
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-21T00:00:20Z"
+              }
+            ],
+            "runs": [
+              {
+                "id": "R",
+                "subject": "owned synthetic queued work",
+                "status": "completed",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0,
+                "requested_at": "2026-10-21T00:00:00Z",
+                "claimed_at": "2026-10-21T00:00:21.000Z",
+                "claim_bridge_id": "synthetic-bridge"
+              }
+            ],
+            "controls": [],
+            "spawns": [],
+            "legacy": [
+              {
+                "turn_busy": 0,
+                "turn_updated_at": "2026-10-21T00:00:00Z"
+              }
+            ],
+            "word": {
+              "status": "online",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540821150
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-error-frame-is-not-absence",
+      "judge": "stale-second-holder",
+      "want": "UNKNOWN",
+      "actual": {
+        "pass": true,
+        "verdict": "PASS",
+        "failed": [],
+        "unknown": []
+      },
+      "agrees": false,
+      "why": "probe.watch explicitly emits error-only rows on acquisition failure. The row before a positive sight must actually contain a successful control inventory before serving as absence.",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540821500
+          }
+        ],
+        "timeline": [
+          {
+            "t": 1792540820400,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "t": 1792540820950,
+            "error": "URLError: synthetic unavailable observation"
+          },
+          {
+            "t": 1792540821500,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-removed-error-frame-control",
+      "judge": "stale-second-holder",
+      "want": "UNKNOWN",
+      "actual": {
+        "pass": false,
+        "verdict": "UNKNOWN",
+        "failed": [],
+        "unknown": [
+          "withheld: a control's second on R straddles the window's end, and nothing finer orders them"
+        ]
+      },
+      "agrees": true,
+      "why": "Without the failed read, last real absence is20.400 before end",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540821500
+          }
+        ],
+        "timeline": [
+          {
+            "t": 1792540820400,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "t": 1792540821500,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-positive-empty-after-end-control",
+      "judge": "stale-second-holder",
+      "want": "PASS",
+      "actual": {
+        "pass": true,
+        "verdict": "PASS",
+        "failed": [],
+        "unknown": []
+      },
+      "agrees": true,
+      "why": "A successful full empty inventory actually acquired after end can resolve the bucket, unlike an error",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540821500
+          }
+        ],
+        "timeline": [
+          {
+            "t": 1792540820400,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "t": 1792540820950,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "t": 1792540821500,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-positive-before-end-control",
+      "judge": "stale-second-holder",
+      "want": "FAIL",
+      "actual": {
+        "pass": false,
+        "verdict": "FAIL",
+        "failed": [
+          "withheld: the stand-in received R inside the window",
+          "withheld: R was steered inside the window"
+        ],
+        "unknown": []
+      },
+      "agrees": true,
+      "why": "A control receipt before end establishes breach",
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540820899
+          }
+        ],
+        "timeline": [
+          {
+            "t": 1792540820400,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "t": 1792540821500,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

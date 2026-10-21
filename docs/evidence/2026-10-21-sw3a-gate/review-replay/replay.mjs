@@ -1,6 +1,7 @@
 // The reviews' own synthetic histories, replayed through the judges each review read and through this commit's:
 //   round 1, sw3a-source-1792542290852: JUDGE-COHERENT-OBSERVATIONS.json (observations.json), judged by 88efbf12;
-//   round 2, sw3a-successor-1792548943247: PARENT-JUDGE-OBSERVATIONS.json (observations-2.json), judged by 5f4effad.
+//   round 2, sw3a-successor-1792548943247: PARENT-JUDGE-OBSERVATIONS.json (observations-2.json), judged by 5f4effad;
+//   round 3, sw3a-f1-1792551632225: PARENT-JUDGE-OBSERVATIONS.json (observations-3.json), judged by ef2264d9.
 //
 //   node docs/evidence/2026-10-21-sw3a-gate/review-replay/replay.mjs > replay.txt
 //
@@ -27,6 +28,8 @@ const PINNED = {
   "judges-88efbf12.mjs": { sha: "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea", eol: "\n", ending: "\n\n" },
   "observations-2.json": { sha: "298530f6884078846c992c3376dfa07d868819188fd40311cd2c463f9262cf71", eol: "\r\n", ending: "" },
   "judges-5f4effad.mjs": { sha: "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5", eol: "\n", ending: "\n" },
+  "observations-3.json": { sha: "c34cac4457f02e6205e268a8ce2b815ef430b75cf539c5468eb84e6bf2c90e35", eol: "\r\n", ending: "" },
+  "judges-ef2264d9.mjs": { sha: "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b", eol: "\n", ending: "\n" },
 };
 for (const [file, { sha, eol, ending }] of Object.entries(PINNED)) {
   const text = fs.readFileSync(path.join(HERE, file), "utf8").replace(/\r\n/g, "\n").replace(/\n+$/, "");
@@ -87,9 +90,24 @@ const round2 = read("observations-2.json").observations.filter((r) => !r.name.st
 // The review's straddling history without the watcher's sight of the run still queued after the hold: no millisecond
 // observation orders the claim against the hold's end, so the answer must be UNKNOWN, not a breach and not a pass.
 const straddle = round2.find((r) => r.name === "lawful-release-same-second-as-window-end").evidence;
+// Round 3 (F1.a) showed an emitted `t` is no proof of when a frame was read, so the same-second row's PASS needs its
+// 20.950 s queued frame to have been READ after the 20.900 s end. Verbatim, without acquisition stamps, it reads UNKNOWN.
+Object.assign(round2.find((r) => r.name === "lawful-release-same-second-as-window-end"), {
+  why: "F1.a: the review's 20.950 s queued frame as a read acquired at 20.920 s, after the end",
+  evidence: { ...straddle, timeline: straddle.timeline.map((s) => (s.t === T + 20_950 ? { ...s, acquiredFrom: T + 20_920 } : s)) } });
 round2.push({ name: "same-second-without-millisecond-evidence", judge: "legacy-idle-env-busy", oracle: "UNKNOWN", recorded: null,
   why: "a matched control, built here: the review's same-second row less its 20.950 s queued snapshot",
   evidence: { ...straddle, timeline: straddle.timeline.filter((s) => s.t !== T + 20_950) } });
+
+/** Round 3. Its rows carry their own typed oracle (`want`) and the verdict ef2264d9 gave (`actual.verdict`). The
+ *  review's frames carry no acquisition stamps, so its post-end empty inventory is ADAPTED: the 20.950 s frame gets the
+ *  `acquiredFrom` its "successful post-end" description says it has (20.920 s, after the 20.900 s end). */
+const round3 = read("observations-3.json").observations.map((r) => {
+  const row = { name: r.name, judge: r.judge, oracle: r.want, recorded: r.actual.verdict, evidence: r.evidence, why: null };
+  if (r.name !== "control-positive-empty-after-end-control") return row;
+  return { ...row, why: "the review's successful post-end empty inventory (emitted 20.950 s) read from 20.920 s",
+    evidence: { ...r.evidence, timeline: r.evidence.timeline.map((s) => (s.t === T + 20_950 ? { ...s, acquiredFrom: T + 20_920 } : s)) } };
+});
 
 let failures = 0;
 const verdictOf = (v) => v.verdict ?? word(v.pass);
@@ -97,7 +115,8 @@ const show = (v) => `${verdictOf(v)}${v.failed.length || v.unknown?.length ? ` [
 const check = (ok, text) => { if (!ok) failures += 1; console.log(`  ${ok ? "ok  " : "BAD "} ${text}`); };
 for (const [title, judgesFile, rows, originals] of [
   ["round 1, sw3a-source-1792542290852", "judges-88efbf12.mjs", round1, read("observations.json").rows],
-  ["round 2, sw3a-successor-1792548943247", "judges-5f4effad.mjs", round2, read("observations-2.json").observations]]) {
+  ["round 2, sw3a-successor-1792548943247", "judges-5f4effad.mjs", round2, read("observations-2.json").observations],
+  ["round 3, sw3a-f1-1792551632225", "judges-ef2264d9.mjs", round3, read("observations-3.json").observations]]) {
   const OLD = await judgesAt(judgesFile);
   const old = judgesFile.slice(7, 15);
   console.log(`== ${title}: ${old} against this commit`);
@@ -109,6 +128,7 @@ for (const [title, judgesFile, rows, originals] of [
       check(verdictOf(before) === row.recorded, `${old}, verbatim: ${show(before)}; the review recorded ${row.recorded}`);
       const adapted = OLD[row.judge](row.evidence);
       check(verdictOf(adapted) === verdictOf(before), `${old}, adapted: ${show(adapted)}`);
+      if (row.why) console.log(`  info this commit, verbatim: ${show(NEW[row.judge](verbatim))}`);
     } else console.log(`  info ${old}: ${show(OLD[row.judge](row.evidence))}`);
     const got = NEW[row.judge](row.evidence);
     check(verdictOf(got) === row.oracle, `this commit: ${show(got)}; the oracle is ${row.oracle}`);

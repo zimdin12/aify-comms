@@ -16,9 +16,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "ae57585b0bc9736d823a53ad624755281258b0fc81c75a5fa4d369e3ae719eeb",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "d1d1338677af5812cab56f35e2c8afcfe661af0cb0a8b564add4bc60dcb05c41",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -36,9 +36,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "a7d5348728c77b8c520e69b61b51bc98a270f9b3d0aa11acc8c7fe13123109d6",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "47925fa86ae6a49fea054e72e408f71e09bcf8a04f4d58564b2c5ad2d1ebab84",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -58,9 +58,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "ef0494c7ac69f8e2f95781e703e88c5def756d8ca39d086b4323cc2441a5741a",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "2e50589ed31372e20d3dc862eb25ed766c0251d8cdde100ebc844e2ee51be67a",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -85,9 +85,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "06c1a792d28b09f149d226b07dd12403adb508c25d0c5fb7d378f4d51edab472",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "585673b4619c1ad87b09f2d54cd4b4efd8a8f5475aae324860ff85ce75ab2d18",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -99,15 +99,19 @@
    "fails": [
     "FAIL legacy-idle-env-busy: control, the model passes [FAIL: held: the stand-in received R inside the window]",
     "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: the stand-in received R inside the window]",
-    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [FAIL: held: the stand-in received R inside the window]",
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [FAIL: held: the stand-in received R inside the window]",
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [FAIL: held: the stand-in received R inside the window; held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [FAIL: held: the stand-in received R inside the window]",
     "FAIL legacy-idle-env-busy: review F1: released in the next second passes [FAIL: held: the stand-in received R inside the window]",
     "FAIL stale-second-holder: control, the model passes [FAIL: withheld: the stand-in received R inside the window]",
-    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [FAIL: withheld: the stand-in received R inside the window]",
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [FAIL: withheld: the stand-in received R inside the window]",
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld: the stand-in received R inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: the stand-in received R inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL env-paused: a release after the window is lawful passes [FAIL: the queueIfBusy send: the stand-in received Q inside the window; the steerable send: the stand-in received D inside the window]",
     "FAIL cold-start: control, the model passes [FAIL: withheld before the record: the stand-in received R inside the window]",
     "FAIL fresh-busy-beside-unknown: control, the model passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld, steer included: the stand-in received R inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: the stand-in received R inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
@@ -115,9 +119,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "9ae7323b2faa6ae3e4f668a231a3a00922232ebd5b36e8587d89f0a4a2b23148",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "a6d46d5e9ea653dc24303402c3af445a97c5f2c378c970b3fb78390dc5666ebd",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -129,16 +133,20 @@
    "fails": [
     "FAIL legacy-idle-env-busy: control, the model passes [FAIL: held: R was claimed inside the window]",
     "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: R was claimed inside the window]",
-    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [FAIL: held: R was claimed inside the window]",
     "FAIL legacy-idle-env-busy: review F1: released in the next second passes [FAIL: held: R was claimed inside the window]",
     "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]",
     "FAIL stale-second-holder: control, the model passes [FAIL: withheld: R was claimed inside the window]",
-    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [FAIL: withheld: R was claimed inside the window]",
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [FAIL: withheld: R was claimed inside the window]",
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld: R was claimed inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: R was claimed inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL env-paused: a release after the window is lawful passes [FAIL: the queueIfBusy send: Q was claimed inside the window; the steerable send: D was claimed inside the window]",
     "FAIL cold-start: control, the model passes [FAIL: withheld before the record: R was claimed inside the window]",
     "FAIL fresh-busy-beside-unknown: control, the model passes [FAIL: withheld, steer included: R was claimed inside the window]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [FAIL: withheld, steer included: R was claimed inside the window]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [FAIL: withheld, steer included: R was claimed inside the window]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld, steer included: R was claimed inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: R was claimed inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
@@ -146,9 +154,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "bc51563416db0216ad0b670bfd0b10811e9339f7e13205246f396b7110c3d4d0",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "daa1dd9c0e8d3721679141513ae1a77d96d766a2ac15622b4cfc228edb39c2bf",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -168,9 +176,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "fef821098e678cc276ff31ae40e3dac828d4fc83915a6df47b3daa4ee4db6f79",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "4cffa800ff32f86edb4fdb83f68277742170f860e77139c3ab65569e3880b1e1",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -192,9 +200,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "9894222801eab7ec99b0c839cbd6d77eafb8cb2a1fa294a3ba69e8c709183ae4",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "1de9883a19a63cbc640f8604e6275771ef298cb7f237c5e710dd05c9c54618a5",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -212,9 +220,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "dbd1d24712e3e8d02424bb3f2f502085dda362434d6c8beb9a7dce8735ae6dec",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "466445b48f7f0b0bfa465d8d53eb90416e2b46cfe77875a4c5109ef57bf5bdb3",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -231,9 +239,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "d37bf020a35ccae4809255532b94ae3f778df80f37e09449a26fb88f479558d0",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "20917355b5d1c48a283e26d05009feb5d5cbf058c70a3c836892b234b0237062",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -250,9 +258,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "806d452087ff3683e02508d8e7a20c785324dd7941b0b801bcb16315cf9c97c7",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "e155401f887365a9ba948fd2ca3aba6c27f9163bbfa9c38afefaa38117eb46d8",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -269,9 +277,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "b8cfd453d4a36bb8a87dd1173c11985986523b9334dd3d2e10434a9d32200ac3",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "8ce5329b7574cb70964a957d4dd92a814d73f16f1f120d15939bd01f2b359df5",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -288,9 +296,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "43bdac5670cfe7253649ba688a4851e1c9a7425edc1d2becac4358ffc8644f21",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "d4336d9eb9415924019f89effc71cff11049e6777634a6a18c3da1403a91b9f1",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -309,9 +317,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "b8c27296d51125dcf00cad5baf8ae8e9904c266f2b210ad6fce6fd967b894722",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "dc9f80cd8c3c7c63ad7f1ee782a72b8262c5c92cc2993b2ea566fb3136f17f1a",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -330,9 +338,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "ff73d3877bfe015fbc60855296273be50b3e2df36d1ceba0cb91646b88065757",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "e7cc783374d6c60fd91441fde35ab6ba81ceb892d583261bc4b19b24ac52da4b",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -349,9 +357,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "2876cede4775dcc7ad6ff0416e0206ae186b7eef0164ed54d9a3b76a8b8b9061",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "e62529a1cd704b3bb6b0eb17d6bcf3179df638c942368553f9353baa0a042adf",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -370,9 +378,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "638cb095b276d39910a89d6b0f65a50ecb40cb8d7636372b8873ee75f1fc20c8",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "1eae793bcca7be9f23efb4c4821e3550eefc8e5de1c0c54f7132dfd3f648da2e",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -390,9 +398,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "e5cab4bb753dfbc618a34a91a22da577e5768fcda076aeedb99df1c7b91c07c6",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "d3c296ee7a7d1bcae6c026eb949a1719c022f57e9f9db7b53da94a83c1762605",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -409,9 +417,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "a3bc704db5b34b79bd921b8068a2b53a097063d43675ed5500c3c7700c904931",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "083b28ffbe2d160d8c867b7a450b94e051334914dfc6ed1058b2fdc28138564a",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -428,9 +436,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "ca4b8b464f9e1a314dcee121110c4ad246f6b69d61cf0a4ab5f2eb89dd5be6e6",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "703c66641c48ccb11a9b8ffa9e6d06012ca678139f4abb30ef0a90fc690bff19",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -448,9 +456,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "7c4ad61f9054c160d23364a30eaa76b6fd7d40c7821364a0c3491987ba95f9ba",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "9a7e623c3632bdeafbea3bfd66ca4711b36a42f4728e1a986b895d4ef4b6cb12",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -467,9 +475,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "20af17ecf2aab679ed70aaaba6cf394fdd2f577f242a2fbea65565cd59c6b3a4",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "b4048e27611d985189030dd09b6d012cd2d075b6255262ccae74b626f9d06d0a",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -488,9 +496,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "9927b83b8c0aacc0ab863a304a9fecdc95210c7884259c7def6cfad5a40fb01c",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "cfe8175f0d3a7acaa22cc9571e9e8d19f54750c29f01416d7ec93a3042a055e2",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -509,9 +517,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "d5ff37764ad2d4c4a950e1474948cf8ea8f44b3bc5680967853bfd71142eb950",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "32ea39e387139a27f420b90e37fb2dd9b31661c748dbad5ec297f1641c0e1a9e",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -528,9 +536,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "78c34b0fd3e47818642311ca9d1a88a6d93b61495cbb1ed31bdb03954171bc89",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "1babb96e6571b1fe3701c534e443faf1a84f8afa982bb944934fd0e2ca44017d",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -578,11 +586,14 @@
    "expect": "claimed in the hold's last second, seen claimed before it ends",
    "exit": 1,
    "fails": [
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [PASS: ]",
     "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [PASS: ]",
     "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]",
     "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
     "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
    ],
    "named": [
@@ -590,9 +601,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "fc87fd229cb694ab8d7311ca3880d633a851bac7c1b949b2eb88bf8423e5bc53",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "2ea076f2df99597a21bc08978d04715c1560e29ad5a1eecb2dde2ed8e6908b43",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -609,9 +620,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "6846868562c7d0053283bdb5e0df06a630f5950dc731f1829ca6730ed194ef5f",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "3b5604ac67b02fd84ca8cbeb247380b526c7ec21591ae75c5af69a1449af910f",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -630,30 +641,31 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "0d4c3b37b3498464629b773d11fd18d4fa375f3045f483cf326c335ea95f55f0",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "1758850551ef5e841a0d1ff307b2f09e53d8193a97072da18af682933981a2cd",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
    "arm": "f04",
    "file": "judges.mjs",
    "guards": "F1 absent after the end",
-   "expect": "review F1: released in the hold's last second, seen queued after it ends",
+   "expect": "review F1: released in the hold's last second, read queued after it ends",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
-    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "7ab71d17fee5d98554535c4f41a494e7360f38330c1fdce670c762a691e2cbda",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "9eb2860e5779db4ccbff8d33b5246cb958b1cea2aab3523967b4672da3e70599",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -663,8 +675,11 @@
    "expect": "a claim straddling the hold's end with no millisecond evidence",
    "exit": 1,
    "fails": [
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [FAIL: held: R was claimed inside the window]",
     "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]",
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld: R was steered inside the window]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: R was steered inside the window]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld, steer included: R was steered inside the window]",
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: R was steered inside the window]"
    ],
    "named": [
@@ -672,9 +687,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "8bcc53db61a6b0477989585b012d90f3fd2d7fd1734f3c8cf900e22830887d5a",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "12faa44b8a3aa511287bb91e4184d1d4eec481167c23affa34bc3357489f5ac9",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -684,6 +699,7 @@
    "expect": "a claim straddling the hold's end with no millisecond evidence",
    "exit": 1,
    "fails": [
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [PASS: ]",
     "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]"
    ],
    "named": [
@@ -691,9 +707,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "37124e9f71a189f68ddcbda3e3e8b877bb35a1fe2424532bfd6b6468238d6d39",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "623fc8e84bab52058a536a881a54d716976ecb536a5265456e582281461193e9",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -703,8 +719,11 @@
    "expect": "a claim straddling the hold's end with no millisecond evidence",
    "exit": 1,
    "fails": [
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
     "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
@@ -712,9 +731,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "7d611b2c7cb906e07541dccf4ce0be75ef394508cc70b7f2220d2a08d23a4e58",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "1bab7742b771966104989510d5323cfed9137dcd2291b4c88248d2933e37ebc3",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -731,28 +750,29 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "6d67def7ed5a57237138fd91275458c114f4fad792192a5f83e14008239bf38d",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "b3250ee1196d7215ffebb5ed29a341f7ab5c55b2c594fc173711b733f7edd384",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
    "arm": "f09",
    "file": "judges.mjs",
    "guards": "F1 watcher order",
-   "expect": "review F1: released in the hold's last second, seen queued after it ends",
+   "expect": "review F1: released in the hold's last second, read queued after it ends",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "8d8c7d669ebf46070405bd9d6f4e9aa00743a0ffe589ca1cabafbeae1fa7e5a4",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "99e75652a2c84bfb2351764fc00218190c4105c7215bcaf86b660218b86d25b3",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -771,30 +791,30 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "ee0156a31d8bffc9c90d0cce4e05d6920386a4080316dfab54ee027997c7c3a3",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "c63f1656c9a5b9a248ca63d2994c1ecaa1f55c35d8a4ea417d378d31598acef1",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
    "arm": "f11",
    "file": "judges.mjs",
    "guards": "F1 controls",
-   "expect": "steered in the window's last second, seen absent after it ends",
+   "expect": "steered in the window's last second, read absent after it ends",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
-    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "killed": true,
-   "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "87ee7823a364b35b757010de15ff1578b071ff6d5f26069af8941a1db7d0b5a0",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "replay_exit": 1,
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "65fa5beae0eb6369557913538f06c6f73f029668884c610206745aa349d32684",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
    "restored_ok": true
   },
   {
@@ -804,7 +824,9 @@
    "expect": "a steer straddling the window's end with no millisecond evidence",
    "exit": 1,
    "fails": [
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
    ],
    "named": [
@@ -812,10 +834,169 @@
     "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
    ],
    "killed": true,
+   "replay_exit": 1,
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "0b4a81d12524d68b10791c3d90fc67c25eebc68862710632c1ef29ebdc494474",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "restored_ok": true
+  },
+  {
+   "arm": "g01",
+   "file": "judges.mjs",
+   "guards": "F1.a emission is not acquisition",
+   "expect": "review F1.a: a queued frame emitted after the end but read before it",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [PASS: ]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [PASS: ]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "fc8d4d8da7436aa652d37508f5f76cd58be55f8561c92eea20e1b4191743b3fa",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "restored_ok": true
+  },
+  {
+   "arm": "g02",
+   "file": "judges.mjs",
+   "guards": "F1.b a failed read is not absence",
+   "expect": "review F1.b: an error read after the end is not an empty inventory",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]"
+   ],
+   "named": [
+    "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]"
+   ],
+   "killed": true,
    "replay_exit": 0,
-   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
-   "sha_mutated": "f8254653817bb1b6dbd00f35e8ab60f88c357c8ae772731a010e34a01edefeec",
-   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "596a3cf4a2d9274c0b48cb7ae36d2475aa3bd855a225de275b416b9bbf744ddb",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "restored_ok": true
+  },
+  {
+   "arm": "g03",
+   "file": "judges.mjs",
+   "guards": "F1.a the last read of a state",
+   "expect": "a read still queued after the end, recorded on the next frame",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "e844a113674580de29a3f6b8876a9f050a2f740d54045af1632d346af157dc80",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "restored_ok": true
+  },
+  {
+   "arm": "g04",
+   "file": "judges.mjs",
+   "guards": "F1.a a frame's own acquisition",
+   "expect": "steered in the window's last second, read absent after it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_mutated": "11498d2ef9834e0177f7baf1d08026269e00e3917fa26069345341f5db209fbd",
+   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "restored_ok": true
+  },
+  {
+   "arm": "p01",
+   "file": "probe.py",
+   "guards": "F1.a stamped before the read",
+   "expect": "test_a_frame_is_acquired_before_its_read_and_emitted_after_it",
+   "exit": 1,
+   "fails": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_a_frame_is_acquired_before_its_read_and_emitted_after_it",
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_previous_seen_from_is_the_last_read_of_the_previous_content"
+   ],
+   "named": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_a_frame_is_acquired_before_its_read_and_emitted_after_it"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "sha_mutated": "9759d61fad08000c502478c078853ae82a730f77d18abdc34d2856c1d3e0da24",
+   "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "restored_ok": true
+  },
+  {
+   "arm": "p02",
+   "file": "probe.py",
+   "guards": "F1.a the previous read",
+   "expect": "test_previous_seen_from_is_the_last_read_of_the_previous_content",
+   "exit": 1,
+   "fails": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_an_error_read_is_its_own_frame_with_no_inventory - As...",
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_previous_seen_from_is_the_last_read_of_the_previous_content"
+   ],
+   "named": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_previous_seen_from_is_the_last_read_of_the_previous_content"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "sha_mutated": "91419130e4d64a26a0189fa08c11e3b50e645e83c5093ecf5eea2d0ca898d639",
+   "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "restored_ok": true
+  },
+  {
+   "arm": "p03",
+   "file": "probe.py",
+   "guards": "F1.a the previous read",
+   "expect": "test_previous_seen_from_is_the_last_read_of_the_previous_content",
+   "exit": 1,
+   "fails": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_an_error_read_is_its_own_frame_with_no_inventory - As...",
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_previous_seen_from_is_the_last_read_of_the_previous_content"
+   ],
+   "named": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_previous_seen_from_is_the_last_read_of_the_previous_content"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "sha_mutated": "59dfa048451c81e048ff386df186fd2421427db1952f17d57bf04bb0a1b90498",
+   "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "restored_ok": true
+  },
+  {
+   "arm": "p04",
+   "file": "probe.py",
+   "guards": "F1.b an error has no inventory",
+   "expect": "test_an_error_read_is_its_own_frame_with_no_inventory",
+   "exit": 1,
+   "fails": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_an_error_read_is_its_own_frame_with_no_inventory - As..."
+   ],
+   "named": [
+    "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_an_error_read_is_its_own_frame_with_no_inventory - As..."
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+   "sha_mutated": "c6fac54c65fb490296f91b7f5f0c3f5666154169ff7dfda71c04db4476ddf2cf",
+   "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
    "restored_ok": true
   }
  ],

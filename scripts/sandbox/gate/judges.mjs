@@ -21,14 +21,28 @@ const runOf = (snapshot, runId) => snapshot?.runs?.find((r) => r.id === runId) ?
 const last = (timeline) => timeline.at(-1) ?? {};
 const envRecord = (s) => s?.records?.find((r) => r.instance === "default") ?? null;
 
-/** The run's claim on comms' clock, the watcher time it was first seen claimed, and the last watcher time it was still
- *  seen queued before that; nulls where there is no such sight. */
+/** The latest time a SQL read is known to have found `absent(frame)` before frame `index`, or null. Only lower bounds
+ *  count (review F1.a): a frame's content was read at or after its `acquiredFrom`, and still held at or after the next
+ *  frame's `previousSeenFrom` (probe.py `watch`). The emitted `t` never counts. A frame with an error, or without the
+ *  `inventory` it is asked about, says nothing (F1.b); a frame without acquisition stamps gives no bound. */
+export function absentThrough(timeline, index, inventory, absent) {
+  let through = null;
+  for (let j = 0; j < index; j += 1) {
+    const frame = timeline[j];
+    if (frame.error || !Array.isArray(frame[inventory]) || !absent(frame)) continue;
+    const bound = timeline[j + 1]?.previousSeenFrom ?? frame.acquiredFrom;
+    if (Number.isFinite(bound) && (through === null || bound > through)) through = bound;
+  }
+  return through;
+}
+
+/** The run's claim on comms' clock, the watcher time it was first seen claimed, and the latest acquisition known to
+ *  have read it still queued before that; nulls where there is no such sight. */
 export function claimOf(timeline, runId) {
   const index = timeline.findIndex((s) => { const r = runOf(s, runId); return r && r.status !== "queued"; });
   const seen = timeline[index] ?? null;
-  const before = index < 0 ? timeline : timeline.slice(0, index);
   return { claimedAt: ms(runOf(seen, runId)?.claimed_at), seenAt: seen?.t ?? null,
-    queuedAt: before.filter((s) => runOf(s, runId)?.status === "queued").at(-1)?.t ?? null,
+    queuedThrough: absentThrough(timeline, index < 0 ? timeline.length : index, "runs", (s) => runOf(s, runId)?.status === "queued"),
     status: runOf(last(timeline), runId)?.status ?? null };
 }
 
@@ -55,14 +69,14 @@ export function byEnd(stampMs, to, { seenBy = Infinity, absentAfter = null } = {
 }
 
 /** Each control on the run, placed against `to` from its requested_at second, the watcher's first sight of it or the
- *  stand-in's receipt of it, and the snapshot just before that sight. */
+ *  stand-in's receipt of it, and the latest successful controls inventory known to have been read without it. */
 function controlsByEnd(ev, runId, to) {
   const received = ev.standin.find((e) => e.event === "control" && e.runId === runId)?.t;
   return controlsOn(ev.timeline, runId).map((c) => {
-    const index = ev.timeline.findIndex((s) => (s.controls ?? []).some((x) => x.run_id === runId
-      && x.action === c.action && x.requested_at === c.requested_at));
+    const same = (x) => x.run_id === runId && x.action === c.action && x.requested_at === c.requested_at;
+    const index = ev.timeline.findIndex((s) => (s.controls ?? []).some(same));
     return byEnd(ms(c.requested_at), to, { seenBy: earliest(ev.timeline[index]?.t, received),
-      absentAfter: index > 0 ? ev.timeline[index - 1].t : null });
+      absentAfter: absentThrough(ev.timeline, index, "controls", (s) => !(s.controls ?? []).some(same)) });
   });
 }
 
@@ -116,7 +130,7 @@ function withheld(ev, runId, window, failed, unknown, label) {
   if (!runId) return failed.push(`${label}: the send created no run`);
   const claim = claimOf(ev.timeline, runId);
   const delivered = ev.standin.find((e) => e.event === "delivered" && e.runId === runId)?.t;
-  const claimed = byEnd(claim.claimedAt, window.to, { seenBy: earliest(claim.seenAt, delivered), absentAfter: claim.queuedAt });
+  const claimed = byEnd(claim.claimedAt, window.to, { seenBy: earliest(claim.seenAt, delivered), absentAfter: claim.queuedThrough });
   if (claimed === "inside") failed.push(`${label}: ${runId} was claimed inside the window`);
   if (claimed === "unknown") unknown.push(`${label}: ${runId}'s claim second straddles the window's end, and nothing finer orders them`);
   if (receivedBy(ev.standin, runId, window.to)) failed.push(`${label}: the stand-in received ${runId} inside the window`);

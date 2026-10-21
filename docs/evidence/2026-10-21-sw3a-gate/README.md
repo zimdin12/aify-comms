@@ -1,12 +1,14 @@
-# SW3a: the sandbox gate's harness (2026-10-21, second successor, after review sw3a-successor-1792548943247)
+# SW3a: the sandbox gate's harness (2026-10-21, third successor, after review sw3a-f1-1792551632225)
 
 Plan `docs/superpowers/plans/2026-10-20-s4-hard-switch.md`, page 2 (approved at 31a790ac). SW3a builds the harness:
 the stand-in, the frozen cases and their REDs. Qualifying a candidate (three attempts against one pinned pair) is
 SW3b, and the gate qualifies nothing until the runner (`scripts/sandbox/env-against-comms.mjs`, a5c658ff) is accepted.
 
 The first pass was 88efbf12; its review raised R1-R8. The first successor, 5f4effad, closed R2-R8, and the reviewer
-accepted amendments A1-A8 ([AMENDMENTS.md](AMENDMENTS.md)) on that carrier. This commit repairs the one item left
-open, F1 (R1's window precision), and leaves R2-R8 and A1-A8 as they were.
+accepted amendments A1-A8 ([AMENDMENTS.md](AMENDMENTS.md)) on that carrier. The second successor, ef2264d9, repaired
+F1 (R1's window precision) with the bucket model and the typed PASS/FAIL/UNKNOWN verdict, which its review kept. This
+commit repairs that review's two findings, F1.a and F1.b: an absence witness now has to be a successful read that
+began after the end. R2-R8, A1-A8 and A6 are as they were.
 
 ## What is here
 
@@ -18,7 +20,8 @@ open, F1 (R1's window precision), and leaves R2-R8 and A1-A8 as they were.
 | `scripts/sandbox/gate/pair.mjs` | one scenario's comms, relay and aify-env containers, and everything a case may do to them or read |
 | `scripts/sandbox/gate/relay.mjs` | the relay aify-env reaches comms through: it can refuse aify-env's publications alone, and logs every report |
 | `scripts/sandbox/gate/stand-in.mjs`, `claude-aify.sh` | the stand-in agent and the launcher aify-env starts it by |
-| `scripts/sandbox/gate/probe.py` | runs inside comms: API calls with the container's own key, and a change-only timeline on comms' clock |
+| `scripts/sandbox/gate/probe.py` | runs inside comms: API calls with the container's own key, and a change-only timeline on comms' clock, each frame stamped before and after its read |
+| `scripts/tests/test_gate_probe_acquisition.py` | the collector's stamps, from its real `watch` loop on a scripted clock |
 | `scripts/sandbox/gate/env.Dockerfile` | the gate's aify-env image: the runner's, plus build tools for node-pty, the stand-in and the relay |
 | `scripts/sandbox/gate/self-check.mjs` | every judge against its healthy models and one countermodel per condition, the review's histories among them |
 | [review-replay/](review-replay/) | both reviews' synthetic histories, replayed through the judges each review read (88efbf12, 5f4effad) and this commit's |
@@ -59,9 +62,14 @@ the lawful release, judged by the case's own release rule, never as a breach of 
 bucket [s, s + 1 s) against the end:
 - wholly after the end: outside the window (a release);
 - wholly before it: inside (a breach);
-- straddling it: a millisecond observation decides. The watcher seeing it claimed (or the control present), or the
-  stand-in receiving it, by the end puts it inside; the watcher still seeing it queued (or the control absent) after
-  the end puts it outside.
+- straddling it: a millisecond observation decides.
+  - *Inside:* the watcher seeing it claimed (or the control present), or the stand-in receiving it, by the end. An
+    emitted `t` is an upper bound on when a state was seen, so it can place an event before the end.
+  - *Outside:* a successful read that began after the end and still found it queued (or the control absent). The
+    collector (`probe.py watch`) stamps `acquiredFrom` before each read's first SQL query, and gives each frame the
+    `previousSeenFrom` of the read just before it, which returned the previous frame's content. Only those lower
+    bounds count. An emitted `t` never proves absence (F1.a), and a frame with an error, or without the inventory in
+    question, is never an empty one (F1.b). `judges.mjs` `absentThrough` holds this rule.
 - With neither, the condition reads UNKNOWN. A judge then returns the verdict UNKNOWN, which is never a pass and never
   an asserted breach. There is no grace interval: an early claim or receipt with millisecond evidence still fails.
 
@@ -82,11 +90,17 @@ bucket [s, s + 1 s) against the end:
 
 From the receipt attempt `decision2-red` ([attempt.json](attempt.json), [decision2-red.txt](decision2-red.txt)): both
 images built from those commits (`imagesReused: false`), 34 minutes, cleanup read every owned resource back absent.
-The attempt ran 5f4effad's sources. Since then the F1 repair changed `judges.mjs`, `self-check.mjs` and `gate.mjs`
-(its log line); the other nine hashed files are unchanged. [rejudge.mjs](rejudge.mjs) runs this commit's judges over
-the retained evidence ([decision2-red/](decision2-red/), each file identical as JSON to what the attempt saved), and
-all 14 verdicts and reasons are identical to the recorded ones, with nothing UNKNOWN ([rejudge.txt](rejudge.txt)).
-Changing one recorded verdict makes it exit 1. Both readers are unwired there, so every case whose RED is the reader
+The attempt ran 5f4effad's sources. Since then the F1 repairs changed `judges.mjs`, `self-check.mjs`, `gate.mjs` (its
+log line) and the collector `probe.py`; the other eight hashed files are unchanged. The retained frames therefore
+carry no acquisition stamps.
+- [rejudge.mjs](rejudge.mjs) runs this commit's judges over the retained evidence ([decision2-red/](decision2-red/),
+  each file identical as JSON to what the attempt saved).
+- All 14 verdicts and reasons are identical to the recorded ones, with nothing UNKNOWN ([rejudge.txt](rejudge.txt)):
+  the re-judge delta is 0 of 14.
+- Why nothing moved: the receipt's ten claimed withheld runs were all claimed in seconds wholly before their window's
+  end (20.8 to 22.2 s before it), and it holds no controls. No straddling bucket arose, so no absence witness was
+  ever decisive.
+- Changing one recorded verdict makes it exit 1. Both readers are unwired there, so every case whose RED is the reader
 still taking the legacy path must fail.
 
 No case failed a fixture: every input page 2 and the amendments freeze was constructed and read back. Each RED below
@@ -114,16 +128,25 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
 
 ## The judging, proven
 
-- **Self-check** ([self-check.txt](self-check.txt)): 196/196 witnesses pass. Every judge passes its healthy models and
+- **Self-check** ([self-check.txt](self-check.txt)): 201/201 witnesses pass. Every judge passes its healthy models and
   gives each countermodel its expected verdict (FAIL, or UNKNOWN where the model withholds the millisecond evidence),
   with `pass` agreeing with the verdict. Every page 2 case's words are found in page 2, and every amended case's words
   in its own amendment entry. The F1 witnesses are:
-  - the release in the hold's last second, seen queued after it ends: passes;
+  - the release in the hold's last second, read queued by a read that began after the end: passes;
+  - F1.a, a queued frame emitted after the end but read before it: UNKNOWN;
+  - a read still queued after the end, recorded on the next frame as `previousSeenFrom`: passes;
   - the release in the next second: passes;
   - a claim in the hold's last second, seen claimed before it ends: fails;
+  - a receipt in the hold's last second, before it ends: fails;
   - a claim in an earlier second, seen late, with no receipt: fails;
   - a claim straddling the end with no millisecond evidence: UNKNOWN;
-  - the same three for a steer: fails, passes, UNKNOWN.
+  - for a steer: seen before the end fails; read absent after the end passes; F1.b, an error read after the end
+    between an empty inventory and the steer, UNKNOWN; no millisecond evidence, UNKNOWN.
+- **The collector** ([scripts/tests/test_gate_probe_acquisition.py](../../../scripts/tests/test_gate_probe_acquisition.py)):
+  the real `watch` loop, run against a scripted clock and a stand-in `snapshot`, shows three things:
+  - every frame's `acquiredFrom` is at or before its read, and its `t` after it;
+  - `previousSeenFrom` is the last read of the previous content;
+  - an error read is its own frame with no `runs` or `controls`, and the frame after it names the error read.
 - **The reviews' histories** ([review-replay/replay.txt](review-replay/replay.txt)). Each review's rows and the judges it
   read are pinned by sha256: the copies are committed with LF line ends and one final newline, and the replay restores
   each original's own line ends and ending before hashing. A one-byte edit stops it with exit 2.
@@ -138,15 +161,28 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
     - The next-second release, the original lawful release and the genuine early claim keep their verdicts, as do the
       three last-known controls.
     - A matched control (that row less its 20.950 s queued snapshot) reads UNKNOWN here; 5f4effad called it a breach.
-  - With 5f4effad's judges in place of this commit's, the replay exits 1 on exactly the two F1 rows.
-- **Mutation arms** ([arms/run_arms.py](arms/run_arms.py), [arms/summary.json](arms/summary.json)): 39/39 killed, all
+    - Since round 3 the same-second row's PASS needs its 20.950 s queued frame to have been read after the end. It is
+      adapted with `acquiredFrom` 20.920 s, and its verbatim verdict (UNKNOWN) is printed beside it.
+  - *Round 3* (sw3a-f1-1792551632225, judged by ef2264d9): ef2264d9 gives the recorded verdict on all eight rows.
+    - The two erroneous PASSes (a queued frame emitted after the end; an error frame taken as an empty inventory) read
+      UNKNOWN here.
+    - The six matched controls keep their verdicts. The successful post-end empty inventory is adapted with the
+      `acquiredFrom` its description gives it (20.920 s), and verbatim it reads UNKNOWN.
+  - With 5f4effad's judges in place of this commit's, the replay exits 1 on exactly round 2's two F1 rows. With
+    ef2264d9's, it exits 1 on exactly round 3's two erroneous PASSes.
+- **Mutation arms** ([arms/run_arms.py](arms/run_arms.py), [arms/summary.json](arms/summary.json)): 47/47 killed, all
   restored by byte copy and checked by sha256, baseline and after both exit 0.
-  - They cover each review item's guard; f01-f12 are F1's: no blanket grace, the wholly-before bucket, each
+  - They cover each review item's guard. f01-f12 are F1's: no blanket grace, the wholly-before bucket, each
     millisecond observation for claims and controls, and UNKNOWN as neither a breach nor a pass.
-  - An arm counts as killed only when the self-check exits nonzero AND a FAIL line names that arm's witness.
-  - The replay also exits 1 under 13 arms: a05 a06 a09 a20 a21 a23 a24 a25 f01 f04 f05 f06 f09.
+  - g01-g04 are F1.a/F1.b's in the judges: the emitted `t` used as absence, an error frame counted as an empty
+    inventory, `previousSeenFrom` ignored, and a frame's own `acquiredFrom` ignored.
+  - p01-p04 are the collector's, judged by its own test: the stamp taken after the read, `previousSeenFrom` wrong or
+    never advanced, and an error frame given an empty inventory.
+  - An arm counts as killed only when its checker exits nonzero AND a FAIL line names that arm's witness.
+  - The replay also exits 1 under 17 arms: a05 a06 a09 a20 a21 a23 a24 a25 f01 f04 f05 f06 f09 f11 f12 g01 g04.
   - Per-arm captures are kept beside the driver's run, not committed. One arm (f07) missed its anchor on the first
-    campaign; the driver skipped it before writing, the anchor was corrected, and the whole campaign was re-run.
+    campaign, and p01 matched twice on this one. Each time the driver skipped the arm before writing anything, the
+    anchor was corrected, and the whole campaign was re-run.
 
 ## What remains not buildable as written
 

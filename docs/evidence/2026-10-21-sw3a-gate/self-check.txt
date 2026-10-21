@@ -24,9 +24,12 @@ PASS legacy-idle-env-busy: its RED is page 2's or its amendment's words
 PASS legacy-idle-env-busy: has a scenario and a judge
 PASS legacy-idle-env-busy: control, the model passes
 PASS legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes
-PASS legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes
+PASS legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes
+PASS legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN
+PASS legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes
 PASS legacy-idle-env-busy: review F1: released in the next second passes
 PASS legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails
+PASS legacy-idle-env-busy: received in the hold's last second, before it ends fails
 PASS legacy-idle-env-busy: claimed in an earlier second, seen late, with no receipt fails
 PASS legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN
 PASS legacy-idle-env-busy: legacy busy fails
@@ -63,7 +66,8 @@ PASS stale-second-holder: received inside the window fails
 PASS stale-second-holder: steered inside the window fails
 PASS stale-second-holder: no claimer polling fails
 PASS stale-second-holder: steered in the window's last second, seen before it ends fails
-PASS stale-second-holder: steered in the window's last second, seen absent after it ends passes
+PASS stale-second-holder: steered in the window's last second, read absent after it ends passes
+PASS stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN
 PASS stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN
 PASS env-paused: its expected answer is page 2's or its amendment's words
 PASS env-paused: its RED is page 2's or its amendment's words
@@ -188,10 +192,11 @@ PASS fresh-busy-beside-unknown: received inside the window fails
 PASS fresh-busy-beside-unknown: steered inside the window fails
 PASS fresh-busy-beside-unknown: no claimer polling fails
 PASS fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails
-PASS fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes
+PASS fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes
+PASS fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN
 PASS fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN
 PASS fresh-busy-beside-unknown: the send not steerable fails
 PASS every judge is used by a case
 PASS every observation has a scenario
 PASS every start option names a scenario
-196/196 self-check witnesses passed
+201/201 self-check witnesses passed

@@ -16,38 +16,45 @@ resume-after-idle-healthy (env-resumed)
   adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
+  info this commit, verbatim: FAIL [no fresh publication was accepted after the resume]
   ok   this commit: PASS; the oracle is PASS
 resume-Q-before-idle-false-green (env-resumed)
   adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
+  info this commit, verbatim: FAIL [no fresh publication was accepted after the resume; the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first]
   ok   this commit: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first]; the oracle is FAIL
   -> a review defect: RED on 88efbf12, GREEN after
 resume-pre-fresh-negative-control (env-resumed)
   adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
   ok   88efbf12, verbatim: FAIL [Q drained before a fresh publication was accepted]; the review recorded FAIL
   ok   88efbf12, adapted: FAIL [Q drained before a fresh publication was accepted]
+  info this commit, verbatim: FAIL [no fresh publication was accepted after the resume; the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the watcher saw the steerable claim first]
   ok   this commit: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the watcher saw the steerable claim first]; the oracle is FAIL
 stop-empty-drain-false-green (stop-restart)
   adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
+  info this commit, verbatim: FAIL [fixture: no queued work was seeded before the stop; fixture: the new lifetime's record was never accepted; at the restart the word read undefined; after the first turn the word read undefined]
   ok   this commit: FAIL [fixture: no queued work was seeded before the stop]; the oracle is FAIL
   -> a review defect: RED on 88efbf12, GREEN after
 stop-named-undrained-negative (stop-restart)
   adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
   ok   88efbf12, verbatim: FAIL [PREEXISTING queued at the restart never drained]; the review recorded FAIL
   ok   88efbf12, adapted: FAIL [PREEXISTING queued at the restart never drained]
+  info this commit, verbatim: FAIL [fixture: no queued work was seeded before the stop; fixture: the new lifetime's record was never accepted; at the restart the word read undefined; after the first turn the word read undefined]
   ok   this commit: FAIL [the seeded run: PREEXISTING was never claimed]; the oracle is FAIL
 stop-named-drained-healthy (stop-restart)
   adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
+  info this commit, verbatim: FAIL [fixture: no queued work was seeded before the stop; fixture: the new lifetime's record was never accepted; at the restart the word read undefined; after the first turn the word read undefined]
   ok   this commit: PASS; the oracle is PASS
 last-known-negation-false-green (restart-mid-turn)
   adapted: A7: the prior record the scenario reads before the restart, which the note is compared against
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
+  info this commit, verbatim: FAIL [fixture: no prior applied record to compare against]
   ok   this commit: FAIL [no lastKnown beside unknown]; the oracle is FAIL
   -> a review defect: RED on 88efbf12, GREEN after
 last-known-values-matched-control (restart-mid-turn)
@@ -60,8 +67,10 @@ original-lawful-release (legacy-idle-env-busy)
   ok   5f4effad, adapted: PASS
   ok   this commit: PASS; the oracle is PASS
 lawful-release-same-second-as-window-end (legacy-idle-env-busy)
+  adapted: F1.a: the review's 20.950 s queued frame as a read acquired at 20.920 s, after the end
   ok   5f4effad, verbatim: FAIL [held: R was claimed inside the window]; the review recorded FAIL
   ok   5f4effad, adapted: FAIL [held: R was claimed inside the window]
+  info this commit, verbatim: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]
   ok   this commit: PASS; the oracle is PASS
   -> a review defect: RED on 5f4effad, GREEN after
 same-model-release-next-second-control (legacy-idle-env-busy)
@@ -88,4 +97,41 @@ same-second-without-millisecond-evidence (legacy-idle-env-busy)
   adapted: a matched control, built here: the review's same-second row less its 20.950 s queued snapshot
   info 5f4effad: FAIL [held: R was claimed inside the window]
   ok   this commit: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]; the oracle is UNKNOWN
+== round 3, sw3a-f1-1792551632225: ef2264d9 against this commit
+claim-emission-time-is-not-absence-lower-bound (legacy-idle-env-busy)
+  ok   ef2264d9, verbatim: PASS; the review recorded PASS
+  ok   ef2264d9, adapted: PASS
+  ok   this commit: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]; the oracle is UNKNOWN
+  -> a review defect: RED on ef2264d9, GREEN after
+claim-without-stale-negative-row-control (legacy-idle-env-busy)
+  ok   ef2264d9, verbatim: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]; the review recorded UNKNOWN
+  ok   ef2264d9, adapted: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]
+  ok   this commit: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]; the oracle is UNKNOWN
+claim-positive-before-end-control (legacy-idle-env-busy)
+  ok   ef2264d9, verbatim: FAIL [held: R was claimed inside the window; held: the stand-in received R inside the window]; the review recorded FAIL
+  ok   ef2264d9, adapted: FAIL [held: R was claimed inside the window; held: the stand-in received R inside the window]
+  ok   this commit: FAIL [held: R was claimed inside the window; held: the stand-in received R inside the window]; the oracle is FAIL
+claim-wholly-after-end-control (legacy-idle-env-busy)
+  ok   ef2264d9, verbatim: PASS; the review recorded PASS
+  ok   ef2264d9, adapted: PASS
+  ok   this commit: PASS; the oracle is PASS
+control-error-frame-is-not-absence (stale-second-holder)
+  ok   ef2264d9, verbatim: PASS; the review recorded PASS
+  ok   ef2264d9, adapted: PASS
+  ok   this commit: UNKNOWN [withheld: a control's second on R straddles the window's end, and nothing finer orders them]; the oracle is UNKNOWN
+  -> a review defect: RED on ef2264d9, GREEN after
+control-removed-error-frame-control (stale-second-holder)
+  ok   ef2264d9, verbatim: UNKNOWN [withheld: a control's second on R straddles the window's end, and nothing finer orders them]; the review recorded UNKNOWN
+  ok   ef2264d9, adapted: UNKNOWN [withheld: a control's second on R straddles the window's end, and nothing finer orders them]
+  ok   this commit: UNKNOWN [withheld: a control's second on R straddles the window's end, and nothing finer orders them]; the oracle is UNKNOWN
+control-positive-empty-after-end-control (stale-second-holder)
+  adapted: the review's successful post-end empty inventory (emitted 20.950 s) read from 20.920 s
+  ok   ef2264d9, verbatim: PASS; the review recorded PASS
+  ok   ef2264d9, adapted: PASS
+  info this commit, verbatim: UNKNOWN [withheld: a control's second on R straddles the window's end, and nothing finer orders them]
+  ok   this commit: PASS; the oracle is PASS
+control-positive-before-end-control (stale-second-holder)
+  ok   ef2264d9, verbatim: FAIL [withheld: the stand-in received R inside the window; withheld: R was steered inside the window]; the review recorded FAIL
+  ok   ef2264d9, adapted: FAIL [withheld: the stand-in received R inside the window; withheld: R was steered inside the window]
+  ok   this commit: FAIL [withheld: the stand-in received R inside the window; withheld: R was steered inside the window]; the oracle is FAIL
 every check held
