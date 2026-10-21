@@ -41,6 +41,8 @@ export const log = (line) => console.log(redact(`+${((Date.now() - started) / 10
 export const deadline = () => { if (Date.now() - started > RUN_DEADLINE_MS) throw new Error("the run deadline passed"); };
 //: While the primary steps run, the moment they must all be done by; null outside them, so cleanup is never cut short.
 let primaryUntil = null;
+/** Open the primary window until `until` (epoch ms), or close it with null. The gate opens one per attempt. */
+export const setPrimaryUntil = (until) => { primaryUntil = until; };
 
 /**
  * One child command, bounded. Never throws; its output is redacted before anything can carry it. `stdout` is the
@@ -117,8 +119,17 @@ export function create(owned, kind, name, args, opts, dock = docker) {
   log(`owned ${kind} ${owned.at(-1).ref}`);
 }
 
-/** Remove each owned resource, then read each one back. ok only when every readback answered absent. */
+/**
+ * Remove each owned resource, then read each one back. ok only when every readback answered absent. Cleanup runs
+ * outside the primary window, even when a caller cleans up inside one (the gate, per scenario), so it is never cut.
+ */
 export function cleanup(owned, workDir, dock = docker) {
+  const held = primaryUntil;
+  primaryUntil = null;
+  try { return removeAndReadBack(owned, workDir, dock); } finally { primaryUntil = held; }
+}
+
+function removeAndReadBack(owned, workDir, dock) {
   // A volume is removed after the container that mounted it, and an image last.
   const order = { container: 0, network: 1, volume: 2, image: 3 };
   for (const { kind, ref } of [...owned].sort((a, b) => order[a.kind] - order[b.kind])) {

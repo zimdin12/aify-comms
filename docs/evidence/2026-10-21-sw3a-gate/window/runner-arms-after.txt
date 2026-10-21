@@ -1,0 +1,15 @@
+# python -I docs/evidence/2026-10-21-runner-r1r2/arms.py . <scratch>   on the window fix (driver sha256 9456fe83...)
+a01-id-from-combined-output: KILLED restored=True self=['a stderr diagnostic never becomes the owned id'] hist=['stderr-id-loss']
+a02-no-id-shape-or-binding: KILLED restored=True self=['an answer naming no id fails as ownership unknown and is owned by name', 'an id the name does not resolve to is not owned as that id'] hist=[]
+a03-no-binding: KILLED restored=True self=['an id the name does not resolve to is not owned as that id'] hist=[]
+a04-loose-absence: KILLED restored=True self=['a missing daemon socket is not absence (unknown)', 'a not-found answer for another ref is not absence'] hist=['daemon-enoent']
+a05-absence-not-bound-to-ref: KILLED restored=True self=['a not-found answer for another ref is not absence'] hist=[]
+a06-no-admission-check: KILLED restored=True self=['no command starts after the run deadline'] hist=[]
+a07-no-timeout-cap: KILLED restored=True self=['a command still running at the run deadline is cut there, not at its own 20 s'] hist=['deadline-overrun']
+a08-no-late-result-check: KILLED restored=True self=[] hist=['deadline-late-return']
+a09-cleanup-keeps-the-deadline: SURVIVED restored=True self=[] hist=[]
+a10-self-check-child-unbounded: KILLED restored=True self=['every spawnSync call in this file names a timeout'] hist=[]
+a11-failed-create-owned-only-if-present: KILLED restored=True self=['a failed create whose name cannot be read back is still owned by name'] hist=[]
+control-before: GREEN {'selfExit': 0, 'histExit': 0, 'failedSelf': [], 'failedHist': []}
+control-after: GREEN {'selfExit': 0, 'histExit': 0, 'failedSelf': [], 'failedHist': []}
+10/11 killed; driver restored to 9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c: True

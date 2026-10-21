@@ -1,0 +1,10 @@
+arm r01: runner cleanup() no longer lifts the primary window (removed: '  primaryUntil = null;' before removeAndReadBack)
+mutated sha256 da36be7a5b53b8ea1c92df2a9f682ac507e50df03579e02e24be94d919b57d77
+ok 1 - the window cuts a command running when the attempt budget passes
+not ok 2 - cleanup after the budget passed runs in full
+ok 3 - a verdict reached after the attempt budget is refused
+ok 4 - control: inside the budget nothing is cut or refused, and the verdict is the cases'
+# pass 3
+# fail 1
+checker exit 1
+restored sha256 9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c = the unmutated driver, as arms.py read it

@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { KEY, bytesSha, cleanup, create, log, must, outcome, redact, run, sha } from "../env-against-comms.mjs";
+import { KEY, bytesSha, cleanup, create, docker, log, must, outcome, redact, run, setPrimaryUntil, sha } from "../env-against-comms.mjs";
 import { AttemptDirTaken, acquireAttemptDir } from "./attempt-dir.mjs";
 import { judgeCase } from "./case-judging.mjs";
 import { CASES, OBSERVATIONS, SCENARIOS, START } from "./cases.mjs";
@@ -30,8 +30,6 @@ const ENV_REPO = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects"
 const BUILD_MS = 20 * 60_000;
 // The runner's 30-minute deadline covers one short run; an attempt is about 35 minutes of scenarios plus two builds.
 const ATTEMPT_MS = 120 * 60_000;
-const started = Date.now();
-const deadline = () => { if (Date.now() - started > ATTEMPT_MS) throw new Error("the attempt deadline passed"); };
 const SOURCES = ["gate.mjs", "pair.mjs", "cases.mjs", "case-judging.mjs", "attempt-dir.mjs", "judges.mjs",
   "self-check.mjs", "stand-in.mjs", "claude-aify.sh", "probe.py", "relay.mjs", "env.Dockerfile"].map((name) => path.join(HERE, name))
   .concat([path.join(SANDBOX, "env-against-comms.mjs"), path.join(SANDBOX, "sandbox-entry.sh")]);
@@ -50,7 +48,15 @@ function envContext(workDir, envSha) {
   return path.join(workDir, "env");
 }
 
-async function attempt({ commsRef, envRef, label, only, outDir }) {
+/**
+ * One attempt, its exit and its lines. The attempt budget is the runner's primary window: no command starts after it,
+ * one running at it is cut there, and a late answer reads as timed out. Cleanup is outside it, and the verdict is
+ * refused when the budget passed before it was reached. `dock` and `budgetMs` are for the gate's own tests.
+ */
+export async function attempt({ commsRef, envRef, label, only, outDir, dock = docker, budgetMs = ATTEMPT_MS }) {
+  const until = Date.now() + budgetMs;
+  const deadline = () => { if (Date.now() > until) throw new Error("the attempt deadline passed"); };
+  setPrimaryUntil(until);
   const owned = [];
   const results = [];
   const observations = {};
@@ -74,16 +80,16 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
     } else {
       const tar = path.join(workDir, "comms.tar");
       must(run("git", ["-C", REPO, "archive", "--format=tar", "-o", tar, commsSha]), "git archive comms");
-      create(owned, "image", images.comms, ["build", "-q", "-t", images.comms, "-"], { input: fs.readFileSync(tar), timeout: BUILD_MS });
+      create(owned, "image", images.comms, ["build", "-q", "-t", images.comms, "-"], { input: fs.readFileSync(tar), timeout: BUILD_MS }, dock);
       deadline();
-      create(owned, "image", images.env, ["build", "-q", "-t", images.env, envContext(workDir, envSha)], { timeout: BUILD_MS });
+      create(owned, "image", images.env, ["build", "-q", "-t", images.env, envContext(workDir, envSha)], { timeout: BUILD_MS }, dock);
     }
     const probePath = path.join(HERE, "probe.py");
     const scenarios = [...new Set([...CASES, ...OBSERVATIONS].map((c) => c.scenario))].filter((s) => !only || only.includes(s));
     for (const [index, name] of scenarios.entries()) {
       deadline();
       const caseOwned = [];
-      const pair = new Pair({ owned: caseOwned, runId, caseId: `s${index}`, images, probePath, key: KEY });
+      const pair = new Pair({ owned: caseOwned, runId, caseId: `s${index}`, images, probePath, key: KEY, dock });
       const dir = path.join(outDir, name);
       let marks = null, error = null;
       try {
@@ -93,7 +99,7 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
       } catch (failure) { error = redact(failure?.message || failure); }
       let evidence = null;
       try { evidence = pair.saveEvidence(dir, { marks, error }); } catch (failure) { error ??= redact(failure?.message); }
-      const clean = cleanup(caseOwned, null);
+      const clean = cleanup(caseOwned, null, dock);
       owned.push(...caseOwned);
       for (const o of OBSERVATIONS.filter((x) => x.scenario === name)) observations[o.id] = { marks, error };
       for (const c of CASES.filter((x) => x.scenario === name)) {
@@ -103,37 +109,43 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
       }
       if (!clean.ok) log(`scenario ${name}: cleanup left [${clean.remaining.join(", ")}] unknown [${clean.unknown.join(", ")}]`);
     }
+    deadline(); // a verdict reached after the budget is not one
     primary.ok = results.length > 0 && results.every((r) => r.pass);
     primary.verdict = `${results.filter((r) => r.pass).length}/${results.length} cases passed`;
     fs.writeFileSync(path.join(outDir, "attempt.json"), `${JSON.stringify({ label, commsRef, commsSha, envRef, envSha, imagesReused: Boolean(reused), results, observations }, null, 1)}\n`);
   } catch (error) {
     primary.verdict = `ERROR: ${redact(error?.message || error)}`;
+  } finally {
+    setPrimaryUntil(null);
   }
-  const clean = cleanup(owned, workDir);
+  const clean = cleanup(owned, workDir, dock);
   const result = outcome(primary, clean);
   for (const line of result.lines) log(line);
   log(`terminal: exit ${result.exit}`);
-  return result.exit;
+  return result;
 }
 
-const arg = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) ?? "").slice(name.length + 3);
-let exit;
-if (process.argv.includes("--self-check")) exit = selfCheck();
-else {
-  const commsRef = arg("comms"), envRef = arg("env"), label = arg("attempt");
-  if (!commsRef || !envRef || !label) {
-    console.error("usage: gate.mjs --comms=<ref> --env=<ref> --attempt=<label> [--scenarios=a,b] [--out=<dir>] | --self-check");
-    process.exit(2);
+// The CLI, only when this file is the entry point: the gate's tests import attempt().
+if (path.resolve(process.argv[1] ?? "") === SELF) {
+  const arg = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) ?? "").slice(name.length + 3);
+  let exit;
+  if (process.argv.includes("--self-check")) exit = selfCheck();
+  else {
+    const commsRef = arg("comms"), envRef = arg("env"), label = arg("attempt");
+    if (!commsRef || !envRef || !label) {
+      console.error("usage: gate.mjs --comms=<ref> --env=<ref> --attempt=<label> [--scenarios=a,b] [--out=<dir>] | --self-check");
+      process.exit(2);
+    }
+    const outDir = path.resolve(arg("out") || path.join(os.tmpdir(), `aify-gate-${label}`));
+    // An attempt owns its output, acquired exclusively: an existing folder is another attempt's and is never reused.
+    try {
+      acquireAttemptDir(outDir);
+    } catch (error) {
+      if (!(error instanceof AttemptDirTaken)) throw error;
+      console.error(`refusing: ${error.message}; name a new --attempt or --out`);
+      process.exit(2);
+    }
+    exit = (await attempt({ commsRef, envRef, label, only: arg("scenarios") ? arg("scenarios").split(",") : null, outDir })).exit;
   }
-  const outDir = path.resolve(arg("out") || path.join(os.tmpdir(), `aify-gate-${label}`));
-  // An attempt owns its output, acquired exclusively: an existing folder is another attempt's and is never reused.
-  try {
-    acquireAttemptDir(outDir);
-  } catch (error) {
-    if (!(error instanceof AttemptDirTaken)) throw error;
-    console.error(`refusing: ${error.message}; name a new --attempt or --out`);
-    process.exit(2);
-  }
-  exit = await attempt({ commsRef, envRef, label, only: arg("scenarios") ? arg("scenarios").split(",") : null, outDir });
+  process.exit(exit);
 }
-process.exit(exit);
