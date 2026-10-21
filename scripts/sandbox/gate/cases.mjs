@@ -85,6 +85,24 @@ const nextSnapshot = (pair) => pair.waitPublication("snapshot", Pair.appliedAt(p
 const legacyTurn = (pair) => pair.api("POST", `/agents/${AGENT}/turn-start`, {
   firedAtUs: Date.now() * 1000, machineId: pair.api("GET", `/agents/${AGENT}`).json?.agent?.machineId ?? "" });
 
+async function shutdown(pair, { worker }) {
+  if (worker) await pair.warm();
+  else await pair.waitFor(() => pair.snapshot().records.length > 0, 120_000, "the defined agent's row");
+  const before = pair.snapshot();
+  const standinBefore = pair.standin();
+  const stoppedAt = Date.now();
+  const exitCode = pair.stopEnv();
+  const after = await pair.waitFor(() => {
+    const seen = pair.snapshot();
+    return publisher(seen)?.kind === "retired" ? seen : null;
+  }, 30_000, "a retirement").catch(() => pair.snapshot());
+  pair.startEnv(); // only so the evidence read finds the stand-in's log
+  const strip = ({ machine_id, ...p } = {}) => p;
+  return { worker, exitCode, stoppedAt, publisherBefore: strip(publisher(before)), rowsBefore: before.records.length,
+    publisherAfter: strip(publisher(after)), rowsAfter: after.records.length,
+    standinBefore: { deliveries: standinBefore.filter((e) => e.event === "delivered").length, last: standinBefore.at(-1) ?? null } };
+}
+
 export const SCENARIOS = {
   async "legacy-busy"(pair) {
     await pair.warm();
@@ -265,6 +283,11 @@ export const SCENARIOS = {
       restartAccepted: accepted(evidence().timeline, (x) => record(x)?.lifetime === after, startT),
       wordAfterFirstTurn: pair.snapshot().word };
   },
+  /** On demand (aify-dashboard task #39): aify-env stopped by SIGTERM while its managed worker is live. A retirement
+   *  says aify-env stopped the worker and proved it holds nothing (aify-env a1d8c74). */
+  "shutdown-with-worker": (pair) => shutdown(pair, { worker: true }),
+  /** Its control: the same stop with the agent defined and no worker started. */
+  "shutdown-no-worker": (pair) => shutdown(pair, { worker: false }),
   /** NOT a page 2 case (amendment A3): the whole aify-env daemon stops, claimer and publisher together. Recorded as
    *  what happens, and never judged: comms reads the environment offline at its own 90 s claimer window. */
   async "daemon-lost"(pair) {
@@ -328,5 +351,8 @@ export const CASES = [
 /** How a scenario's pair starts: the cold start's relay refuses publications before aify-env exists. */
 export const START = { cold: { silenced: true } };
 
-/** Recorded every attempt, never judged: fault histories outside page 2's cases. */
-export const OBSERVATIONS = [{ id: "daemon-lost", scenario: "daemon-lost", amendment: "A3" }];
+/** Recorded, never judged: fault histories outside page 2's cases. An `onDemand` one runs only when --scenarios names
+ *  it, so an attempt does not carry it. */
+export const OBSERVATIONS = [{ id: "daemon-lost", scenario: "daemon-lost", amendment: "A3" },
+  { id: "shutdown-with-worker", scenario: "shutdown-with-worker", onDemand: true },
+  { id: "shutdown-no-worker", scenario: "shutdown-no-worker", onDemand: true }];

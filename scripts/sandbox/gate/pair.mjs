@@ -198,6 +198,16 @@ export class Pair {
   pauseEnv() { must(this.#dock(["exec", this.#names.env, "sh", "-c", `kill -STOP ${this.#daemonPid()}`]), "pause aify-env"); }
   resumeEnv() { must(this.#dock(["exec", this.#names.env, "sh", "-c", `kill -CONT ${this.#daemonPid()}`]), "resume aify-env"); }
 
+  /** aify-env's container gets SIGTERM, as the runner sends it; `--init` forwards it to the daemon. Resolves to the
+   *  container's exit code. */
+  stopEnv() {
+    must(this.#dock(["kill", "-s", "TERM", this.#names.env]), "SIGTERM aify-env");
+    return Number(must(this.#dock(["wait", this.#names.env], { timeout: 60_000 }), "wait for aify-env").stdout.trim());
+  }
+
+  /** The stopped container starts again, its files kept, so the stand-in's log can still be read. */
+  startEnv() { must(this.#dock(["start", this.#names.env]), "start aify-env again"); }
+
   /** comms restarts in the same container, its data kept; resolves to comms' clock at the new start, in ms. */
   async restartComms() {
     must(this.#dock(["restart", "-t", "10", this.#names.comms], { timeout: 120_000 }), "restart comms");

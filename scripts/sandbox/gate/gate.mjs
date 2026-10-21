@@ -85,7 +85,8 @@ export async function attempt({ commsRef, envRef, label, only, outDir, dock = do
       create(owned, "image", images.env, ["build", "-q", "-t", images.env, envContext(workDir, envSha)], { timeout: BUILD_MS }, dock);
     }
     const probePath = path.join(HERE, "probe.py");
-    const scenarios = [...new Set([...CASES, ...OBSERVATIONS].map((c) => c.scenario))].filter((s) => !only || only.includes(s));
+    const scenarios = [...new Set([...CASES, ...OBSERVATIONS].map((c) => c.scenario))]
+      .filter((s) => (only ? only.includes(s) : !OBSERVATIONS.some((o) => o.onDemand && o.scenario === s)));
     for (const [index, name] of scenarios.entries()) {
       deadline();
       const caseOwned = [];
