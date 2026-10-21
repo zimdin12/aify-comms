@@ -1,0 +1,97 @@
++0.0s scripts\sandbox\gate\gate.mjs sha256 2df09e90a7f247e110d9d92b2ddb72b3d2ed72f3f0f27d9e7f9b4271b4b23e6d
++0.0s scripts\sandbox\gate\pair.mjs sha256 bb4f806b514e2e59392495f3c0c35581aca5e54acaae7d8d432f2793be8c4ca4
++0.0s scripts\sandbox\gate\cases.mjs sha256 be7de2c930b8d719f7b81fad126297d3dbd5f0abfb608883a4fadc818da2e61b
++0.0s scripts\sandbox\gate\judges.mjs sha256 86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea
++0.0s scripts\sandbox\gate\self-check.mjs sha256 49e600e28fb13166c58751a0d780cd34d03e9e1c66fabc19652a059398261d47
++0.0s scripts\sandbox\gate\stand-in.mjs sha256 f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba
++0.0s scripts\sandbox\gate\claude-aify.sh sha256 ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0
++0.0s scripts\sandbox\gate\probe.py sha256 c115d3e6f8935247a526a8235802053613b30d3d69f39f39f0aa66114f642133
++0.0s scripts\sandbox\gate\env.Dockerfile sha256 396c4d74b1c5457215e2f267a37535f76de495ca37053a0a979bdb83f3601b94
++0.0s scripts\sandbox\env-against-comms.mjs sha256 93efd2df63fcc06b3dd2c02502d5e5d583a33c794fd0e87a4782681d7475d7fb
++0.0s scripts\sandbox\sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.1s attempt main-red: comms bbb34c13 = bbb34c13f93908d227092d6b878a4c97b819c6a1; env ccf9a7e = ccf9a7e636a2c2f69da55e6c196c5b5a8d568e60
++3.0s owned image aify-gate-07dc12d9-c3cd-comms
++4.0s owned image aify-gate-07dc12d9-c3cd-env
++4.0s scenario legacy-busy: starting
++4.1s owned network be3b8ff9fc0ee71bcf2e7bc6731d57d373d0ab1f9df9b11c970957f57b20b1c8
++4.7s owned container d1e9806430e8d73e7c472287a014ffe494dca0cddbc9eec85d55a82d28132a9c
++5.0s owned volume 6884a7bbdfd14d7e481798d0f1bdbebe6e7b79929acffbdccfd5c1fc5276ce5c
++5.0s owned volume a008b2ccbd5241af77e12cc58cf1ed18eaae48fff1f0a15df27e27a1a2d45480
++6.7s owned container 2b0b03f2d3722e61bf68647cecedafc865724fa02574d96e6f02c88ed52b3c2f
++90.3s case legacy-busy-env-idle: FAIL [held: never claimed; the stand-in never received it as a run]
++90.3s scenario legacy-idle: starting
++90.8s owned network 71615634fcfa8f3f6a41c9626a684446028c18bf96cba057aa6575ade9254b8f
++91.1s owned container 2f371eb095bc115c291ee8446ced175950fc731fb1256f367b524e8fbf7c43ad
++91.2s owned volume 8fdd5dac7bd261a86ee2ce4d49629c4cb19723b88910b6b868c71e1a423ba353
++91.2s owned volume 61283556006db14089540d921fdeb8a64b8cfe64aa9dbfecc11d116e68bb0b8c
++92.8s owned container 8d33a50673a5d8270d73df7fed68c1a5cf5ccb19d4934915cff59897b0595f4f
++213.1s case legacy-idle-env-busy: FAIL [held: run_1792539715270_d69ba18c was claimed inside the window; held: the stand-in received run_1792539715270_d69ba18c; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]
++213.1s scenario steer: starting
++213.2s owned network 33a4ab9d4069c184bdc6d90a62c26aca58bf8a0da7c434ee3e2c9fefc8297945
++213.5s owned container 87c24fe30c6096fa550e6b37c79826e75f12482034a0cf3cc07e63e69fa4d360
++213.6s owned volume b9c662462b0f17875875a46c6e625162fb3d8bc2132488b050fae90d3a7bb29a
++213.6s owned volume 58f0f3bb29a6915083f7859d410e65a9332654341c5c4cb6617b36c17549cdf4
++215.5s owned container 80c79a8a0a579a7dd8ed90987067078442f96df8f86a15b389e8eb56d7653b41
++307.5s case busy-steerable: PASS
++307.5s scenario stale-second: starting
++307.6s owned network 861089550a1953e0cda37a80f36d8185846ed87264e9311fcb7cbb4cd70a0e61
++308.0s owned container 466e13a66a02d23ea86b330e8e4f806a2fc1103a94a36480e5736f4eac188389
++308.3s owned volume 10d318e5d9daebbdc9536f96b6c572e474e38b749142f729e1733de0cbcc02f9
++308.3s owned volume 24060b65b55507c1b54a3484924854d4c836838ce1255fb2a98f0aac7a6349c7
++310.5s owned container e9628629154551d27f8c7da75210b02a2b7b19a3d0c152d0da88afe311f63f62
++584.8s case stale-second-holder: FAIL [withheld: run_1792540090851_8fb5d888 was claimed inside the window; withheld: the stand-in received run_1792540090851_8fb5d888]
++584.8s scenario paused: starting
++585.4s owned network b3e516a16b44aca9da5c6f0db4a7d4e02a1b84309c8b13f436c90b45ae6fedf8
++586.4s owned container c7e5b0e709c59e412570341c93cf6b96852412493b419fb72766ee4420970885
++586.7s owned volume 46e041050972d177888b6a3105d42a9ea8ed1d2625563cce86b7201545175163
++586.7s owned volume 344d7d403d5df99a992a5225616429bf5f0c43c030f35f52a75b4b2dd36c0d94
++588.7s owned container 6ec3a952d605f4a32346a12d1735aace7960844ade88308c211b54d6c90eafbb
++979.2s case env-paused: FAIL [the word read offline, not unknown; no stale last-known note beside unknown; the queueIfBusy send: the send created no run]
++979.2s case env-resumed: FAIL [no queued work to drain: a send created no run; no queued work to drain: a send created no run]
++979.2s case default-send-unknown: FAIL [the default send: the send created no run]
++979.2s scenario restart-idle: starting
++979.7s owned network 97542d8a4137090961cb0e72f529ce37d0d80782cccb6d3db6aec49a1fb5642c
++980.3s owned container 866b88c4e04bc517b42e43f16531ecef4ada2bdb597bb2c9e134c9f3a813c3ed
++980.5s owned volume 9b2c13a8bda8733fc5fb16414167cbc32088964c8678daab44018f749ac79d41
++980.5s owned volume 39509ce8f9fa75ba481486e7fb66dead01bcd894579964d201f6a14f8914475e
++982.8s owned container d352f2aa28d19b701d48f17e4b9dddc4718780dc25f50f29d6f4c04263bb0443
++1140.7s case restart-idle: FAIL [before the snapshot the word read online; after the snapshot: claimed before comms accepted the publication; after the snapshot: the watcher saw the claim first]
++1140.7s scenario restart-busy: starting
++1141.9s owned network e4c11633cbd0f293b5a45d8a86980b1930b49817645f552f33245256e4f61944
++1143.0s owned container 27ffd7c81296d957937bed4d5a58277761469e93bbdb7e9d2e1f7c12264d8008
++1143.1s owned volume 48f3f5abd04ed13d0ba67e3bc593c7358fa672abe6fbc3633d6752b63942a491
++1143.1s owned volume ef5decc2306f0ffd645215f89433d1f4020774c15e50e040530ce8bbf63d8a25
++1145.1s owned container d89be89c141130cd3edb73207686211d53284714218c71a93db81dc7e6628448
++1353.2s case restart-mid-turn: FAIL [the word read online, not unknown; no last-known note beside unknown]
++1353.2s scenario restart-changes: starting
++1353.3s owned network d769de80c2cd9a8589ca94fc13314afe1d7f5f0cf689a4cf6fc374337da8c7bf
++1353.7s owned container 2d778efb0947b51ec79c9153a6f929a3e5c2994135bd598667b98539cad2d1b9
++1353.8s owned volume b97726b051d5ddbdcc3d2d085ed65e98fc2804d8d43f611590e014242c5ef375
++1353.8s owned volume d3b39642c96a06975487b78a64617dad3cf24edd978db10ecb93e409e7c605ce
++1355.5s owned container 281e180ac40a4473ffcbff1581c5415fe18a6e449f104661ac1a96763c194a3a
++1515.1s case restored-then-changes: FAIL [after the changes the word read online]
++1515.1s scenario cold: starting
++1516.6s owned network 4817d2888fa9b4bdc61cb665f8dcea109688c78d6c271ef2f3f6ff7ba957a7f8
++1518.3s owned container bcdc49d40e5e83c413967be7b50fc16f2f9f9f8359d26d41c461064a683fade1
++1518.4s owned volume a8c0a767c360065b8a60fc1cc60c60dd681341feac8e02fbe5620d41a858d27b
++1518.4s owned volume 9d334f736785543acca15ce0c9bbf4aa25c9bb51ce29b354eb94a3070f33d4af
++1522.0s owned container 22f6a403dac1e7a52267196721d3b1370bb3b1ae9d742725b26d245d85b675d9
++1558.9s case cold-start: FAIL [claimed after the new lifetime's record: claimed before comms accepted the publication; claimed after the new lifetime's record: the watcher saw the claim first]
++1558.9s scenario running: starting
++1560.1s owned network c28bf494cade9ed516adc5d1b8c793de1feffbd49081bc0b8ad1e82f8f5495ec
++1561.0s owned container db180165b11638ad05bb347b7310b8e9fac26f202f6246655a6828eb182f5b0d
++1561.2s owned volume c0fe6442df4e32edbf50f762a5452fba61c5a15e099d88d6e6ce42b021a62313
++1561.2s owned volume 12ea536f83e8b644a6d75e0779f5cdd09b3af0dc4f8a01520faf5f48d02f9b5b
++1565.1s owned container 0c83b701f1227ed15939b23bfa952af790167304dcb8fc6b9e48038bafaa93c3
++1637.2s case run-running-idle: PASS
++1637.2s scenario stop: starting
++1638.8s owned network fc099b179264782813561e71d9394677264dcf04ee89c92b3a00035e90f4576f
++1640.0s owned container ea2f2e9fa6cacaec7858f772edeaeab917020f531eea824ae8dd161a3ab49c52
++1640.4s owned volume efe303b39a79bb80e449dba9601153bde73f7e2af3a21ab52f83ccbcda96504f
++1640.4s owned volume 6c2cadf4e3ef3b2d7fe7e3b65864287ed2a07e7e22547dd140cc0b0c601b8c36
++1642.5s owned container 27fc280cc18cf958fa11a94cfaf17ac6f2614d295e3a8ebad114666f859c9b9f
++1828.2s case stop-restart: FAIL [after the stop the word read available]
++1874.0s primary: 2/13 cases passed
++1874.0s cleanup: complete, every owned resource read back absent
++1874.0s terminal: exit 1
+gate exit=1

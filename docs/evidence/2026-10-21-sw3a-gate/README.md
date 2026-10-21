@@ -54,7 +54,7 @@ Fixtures, where page 2 leaves the means open:
 
 ## Against today's main (comms bbb34c13, aify-env ccf9a7e): the REDs
 
-From the receipt attempt `main-red` ([attempt.json](attempt.json), [main-red.log](main-red.log)). Main's readers are
+From the receipt attempt `main-red` ([attempt.json](attempt.json), [main-red.txt](main-red.txt)). Main's readers are
 unwired, so every case whose page 2 RED is "the reader still takes the legacy path" must fail on main.
 
 Comms and aify-env images were built from those two commits, with no reused image (`imagesReused: false`). The attempt
