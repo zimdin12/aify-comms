@@ -1,0 +1,24 @@
++0.0s driver sha256 4d9e27a606559c12b9220b7bbc83a7649431cd1111a70d6f66295d63941c9fc7; env.Dockerfile sha256 190a4941d207e774c73ae3fcda2882ebb4bed1fe162836c3a254fb7f0a572bd4; sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.5s comms 7c1f76da = 7c1f76da4e2fc0f743513d27c8e331d85f5e73bf; env 3f87aad = 3f87aad94466d89686067a7aaf9067b7602f7ee0; agent sandbox-probe; expect kept
++0.5s run aify-sandbox-8bad9261-70c3-498e-aed4-e5e4f2cd22ee: no published ports, /data on tmpfs (no volume)
++6.8s owned image aify-sandbox-8bad9261-70c3-498e-aed4-e5e4f2cd22ee-comms
++10.9s owned image aify-sandbox-8bad9261-70c3-498e-aed4-e5e4f2cd22ee-env
++11.2s owned network 1e142fd079b9a86fb1140573af4d221a4eccb9dbfc6f822fb3291fe1a1070de6
++12.2s owned container 93358d8b7d59d090843fa38a902083695101325e9519279dde46d5f387486d40
++14.0s comms healthy; before the env: {"publishers":[]}
++14.5s owned container 3ac03c787d276db40d48ab2d3173a2b3817e68dbca13399e12f27e8ed0e93bae
++15.9s env published: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792509322556,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509322556,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792509322582,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509322582,"applied":true,"rows":0}]}
++16.3s env stopped by SIGTERM, exit 0
++16.5s after: {"publishers":[{"machine":"wsl:sandbox-env","instance":"default","generation":1792509322556,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509322556,"applied":true,"rows":1},{"machine":"wsl:sandbox-env","instance":"residents-fda01c99a296","generation":1792509322582,"publication":1,"kind":"snapshot","reason":null,"dataGeneration":1792509322582,"applied":true,"rows":0}]}
++16.6s env log, last lines:
+sandbox-probe: incarnation 1 revision 1
+aify-env 0.9.4 listening on http://127.0.0.1:8802
+terminals: UNAVAILABLE (node-pty did not load: MODULE_NOT_FOUND) — processes will run with piped stdio
+[aify-env] residents role held, generation 1792509322582, publishing as residents-fda01c99a296
+[aify-env] hosting work for: aify-comms
+[aify-env] SIGTERM: stopping 0 managed process(es)
+
++19.1s primary: AS EXPECTED (kept)
++19.1s cleanup: complete, every owned resource read back absent
++19.1s terminal: exit 0
+shell: exit status 0
