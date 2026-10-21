@@ -5,8 +5,7 @@
 import { FIRST_PASS_MS } from "./judges.mjs";
 
 /** env-resumed's phase discriminator (review section 6.1): after the resume, comms must have accepted a fresh BUSY
- *  record, the agent must have stayed busy for a whole claim pass, and only then may idle have been requested and
- *  accepted. A run whose fresh and idle acceptances coincide cannot tell "waited for fresh" from "waited for idle". */
+ *  record, and idle must have been accepted a whole claim pass after it, on comms' clock and the watcher's. A run whose fresh and idle acceptances coincide cannot tell "waited for fresh" from "waited for idle". */
 function resumeSeparatesFreshBusyFromIdle(m) {
   const fresh = m?.freshBusyAccepted, idle = m?.idleAccepted;
   if (!fresh) return "fixture: no fresh busy record was accepted after the resume";
@@ -14,7 +13,9 @@ function resumeSeparatesFreshBusyFromIdle(m) {
   if (!(idle.at > fresh.at && idle.seenAt > fresh.seenAt)) {
     return "fixture: the resume did not separate fresh-busy from idle";
   }
-  if (!(m.idleRequestedAt - fresh.seenAt >= FIRST_PASS_MS)) {
+  // The observed busy-to-idle interval, on both clocks: idle can arrive without the request (the stand-in's
+  // unreadable-control fallback), so the request mark proves nothing about how long busy held.
+  if (!(idle.at - fresh.at >= FIRST_PASS_MS && idle.seenAt - fresh.seenAt >= FIRST_PASS_MS)) {
     return "fixture: the fresh-busy phase was shorter than one claim pass";
   }
   return null;

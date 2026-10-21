@@ -72,6 +72,20 @@ class ResumePhaseFixtureTests(unittest.TestCase):
         result = self.judge({'freshBusyAccepted': fresh, 'idleRequestedAt': fresh['seenAt'] + 4000})
         self.assertIn('fixture: the fresh-busy phase was shorter than one claim pass', result['failed'])
 
+    def test_a_late_idle_request_mark_does_not_stand_for_an_observed_claim_pass(self):
+        # Review of 11d8f3ae: fresh busy seen 7000 ms before idle, the request mark 11800 ms after fresh.
+        m = self.retained()
+        fresh = {'at': m['idleAccepted']['at'] - 7000, 'seenAt': m['idleAccepted']['seenAt'] - 7000}
+        result = self.judge({'freshBusyAccepted': fresh, 'idleRequestedAt': fresh['seenAt'] + 11800})
+        self.assertIn('fixture: the fresh-busy phase was shorter than one claim pass', result['failed'])
+
+    def test_a_claim_pass_on_only_one_clock_is_refused(self):
+        m = self.retained()
+        for at_gap, seen_gap in ((15000, 7000), (7000, 15000)):
+            fresh = {'at': m['idleAccepted']['at'] - at_gap, 'seenAt': m['idleAccepted']['seenAt'] - seen_gap}
+            result = self.judge({'freshBusyAccepted': fresh, 'idleRequestedAt': fresh['seenAt'] + 11000})
+            self.assertIn('fixture: the fresh-busy phase was shorter than one claim pass', result['failed'], (at_gap, seen_gap))
+
     def test_CONTROL_a_separated_resume_reaches_the_judge_unchanged(self):
         m = self.retained()
         fresh = {'at': m['idleAccepted']['at'] - 15000, 'seenAt': m['idleAccepted']['seenAt'] - 15000}
