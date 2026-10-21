@@ -1,0 +1,27 @@
++0.0s scripts\sandbox\gate\gate.mjs sha256 bd0bfe33702246b843463057ada249ec118691c710e90c800fb7ec7a98e36818
++0.0s scripts\sandbox\gate\pair.mjs sha256 218934320d0bc8f5c89510a7a0d68f977326df97e370105b56844ec77346509a
++0.0s scripts\sandbox\gate\cases.mjs sha256 61b599d3a1a364d3bb5440da3e3802820d891a6be0c44ed195c45a5d34a55040
++0.0s scripts\sandbox\gate\case-judging.mjs sha256 c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92
++0.0s scripts\sandbox\gate\attempt-dir.mjs sha256 cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476
++0.0s scripts\sandbox\gate\judges.mjs sha256 587ca0f5fa86356941586993298305a6e8065a850da8b1f763e64fceb8174764
++0.0s scripts\sandbox\gate\self-check.mjs sha256 1e18d246c038176a3380904c13bc2b0da32b04ff6ffa8b879b47dd4c7b92bb39
++0.0s scripts\sandbox\gate\stand-in.mjs sha256 f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba
++0.0s scripts\sandbox\gate\claude-aify.sh sha256 ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0
++0.0s scripts\sandbox\gate\probe.py sha256 6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d
++0.0s scripts\sandbox\gate\relay.mjs sha256 dacf00e539cbc982f9c6f3b2d8ecf821f77dc73c89f48a8ba72a03b2a030d07d
++0.0s scripts\sandbox\gate\env.Dockerfile sha256 9b193a33f349e36957e3690fb8b9ca3e5de14c8a51072f9c9df8ec72f21c5a46
++0.0s scripts\sandbox\env-against-comms.mjs sha256 9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c
++0.0s scripts\sandbox\sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.1s attempt retire2: comms 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0 = 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0; env f704bcdf5526d3fc4e325296b3cc49ffb5231d5c = f704bcdf5526d3fc4e325296b3cc49ffb5231d5c
++6.5s owned image aify-gate-173c38b4-6d49-comms
++10.5s owned image aify-gate-173c38b4-6d49-env
++10.5s scenario shutdown-no-worker: starting
++10.7s owned network 9cf57583c75013c8a0475dae2e816ab3bc0b549a08637aa8f26e95e24ecc7fce
++11.7s owned container 54e660c9dafcdaca63f6caf448b3c3c126cc326f4774b886e63b6779a86c0dd9
++11.7s owned volume b0532a659ab3ca0cb9a5848fa806d95d07dc36eb6d94eb09587a9e60ff3ad86d
++11.7s owned volume 7b99e802bb05575f53c85572adff7d1a13802e10f56e9223529c570a9a061765
++13.4s owned container eb8add2ffb0b42f0076322fa6e7ea924f3f00b3f66fab9bd7c0116ea4217599f
++13.9s owned container 49ba3d2b61a2e249806c5936dbf9bd45b7e2e454ff210d2ffb90d81e0738bc60
++20.5s primary: 0/0 cases passed
++20.5s cleanup: complete, every owned resource read back absent
++20.5s terminal: exit 1

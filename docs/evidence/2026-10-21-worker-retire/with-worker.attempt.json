@@ -1,0 +1,51 @@
+{
+ "label": "retire1",
+ "commsRef": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "commsSha": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "envRef": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "envSha": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "imagesReused": false,
+ "results": [],
+ "observations": {
+  "shutdown-with-worker": {
+   "marks": {
+    "worker": true,
+    "exitCode": 0,
+    "stoppedAt": 1792594305858,
+    "publisherBefore": {
+     "instance": "default",
+     "generation": 1792594247096,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T14:51:45Z"
+    },
+    "rowsBefore": 1,
+    "publisherAfter": {
+     "instance": "default",
+     "generation": 1792594247096,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T14:51:45Z"
+    },
+    "rowsAfter": 1,
+    "standinBefore": {
+     "deliveries": 1,
+     "last": {
+      "t": 1792594305615,
+      "lifetime": "9938739f-3d14-4eb9-bb02-70391e11ce28",
+      "event": "polled"
+     }
+    }
+   },
+   "error": null
+  },
+  "shutdown-no-worker": {
+   "marks": null,
+   "error": "read the stand-in log exited 1: cat: /tmp/standin/gate-agent.log: No such file or directory\n"
+  }
+ }
+}

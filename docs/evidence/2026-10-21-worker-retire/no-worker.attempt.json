@@ -1,0 +1,43 @@
+{
+ "label": "retire2",
+ "commsRef": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "commsSha": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "envRef": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "envSha": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "imagesReused": false,
+ "results": [],
+ "observations": {
+  "shutdown-no-worker": {
+   "marks": {
+    "worker": false,
+    "exitCode": 0,
+    "stoppedAt": 1792594412017,
+    "publisherBefore": {
+     "instance": "default",
+     "generation": 1792594410063,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:53:30Z"
+    },
+    "rowsBefore": 1,
+    "publisherAfter": {
+     "instance": "default",
+     "generation": 1792594410063,
+     "publication": 2,
+     "kind": "retired",
+     "reason": "shutdown",
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T14:53:31Z"
+    },
+    "rowsAfter": 0,
+    "standinBefore": {
+     "deliveries": 0,
+     "last": null
+    }
+   },
+   "error": "read the stand-in log exited 1: cat: /tmp/standin/gate-agent.log: No such file or directory\n"
+  }
+ }
+}

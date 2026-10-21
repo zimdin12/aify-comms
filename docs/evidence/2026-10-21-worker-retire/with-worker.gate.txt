@@ -1,0 +1,34 @@
++0.0s scripts\sandbox\gate\gate.mjs sha256 bd0bfe33702246b843463057ada249ec118691c710e90c800fb7ec7a98e36818
++0.0s scripts\sandbox\gate\pair.mjs sha256 218934320d0bc8f5c89510a7a0d68f977326df97e370105b56844ec77346509a
++0.0s scripts\sandbox\gate\cases.mjs sha256 6379331e5537d5da3adf1a62db69f40f3b3de7390016c9f0a2c49f3a1177921f
++0.0s scripts\sandbox\gate\case-judging.mjs sha256 c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92
++0.0s scripts\sandbox\gate\attempt-dir.mjs sha256 cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476
++0.0s scripts\sandbox\gate\judges.mjs sha256 587ca0f5fa86356941586993298305a6e8065a850da8b1f763e64fceb8174764
++0.0s scripts\sandbox\gate\self-check.mjs sha256 1e18d246c038176a3380904c13bc2b0da32b04ff6ffa8b879b47dd4c7b92bb39
++0.0s scripts\sandbox\gate\stand-in.mjs sha256 f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba
++0.0s scripts\sandbox\gate\claude-aify.sh sha256 ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0
++0.0s scripts\sandbox\gate\probe.py sha256 6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d
++0.0s scripts\sandbox\gate\relay.mjs sha256 dacf00e539cbc982f9c6f3b2d8ecf821f77dc73c89f48a8ba72a03b2a030d07d
++0.0s scripts\sandbox\gate\env.Dockerfile sha256 9b193a33f349e36957e3690fb8b9ca3e5de14c8a51072f9c9df8ec72f21c5a46
++0.0s scripts\sandbox\env-against-comms.mjs sha256 9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c
++0.0s scripts\sandbox\sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.3s attempt retire1: comms 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0 = 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0; env f704bcdf5526d3fc4e325296b3cc49ffb5231d5c = f704bcdf5526d3fc4e325296b3cc49ffb5231d5c
++6.9s owned image aify-gate-e5100a82-033d-comms
++10.9s owned image aify-gate-e5100a82-033d-env
++10.9s scenario shutdown-with-worker: starting
++11.4s owned network 5c2efbfac512ef3f46b38f252e27c199a13fa5ede5715d384ac75a869e460cd1
++12.3s owned container 80513b7fbc016df4429546039552e88d883822625b10fae8e5ceedb91dd9c84e
++12.4s owned volume 02086a842aee9fc63ca3fe368f03c638dacf1f7c434ce94502e8494a3ccd97b2
++12.4s owned volume c78593b020614647c8904b336fa09756ffc8ed63a110c95267caad2099a4acdb
++14.1s owned container 57b704181f149528aedeb8b0092dd6b4b906ce68f07d38f4b41ddc72756de0ec
++14.7s owned container 5aac31d60772517cab922eccd8c709c8f134dcb140fd24372585df1ac2dd1ffd
++107.6s scenario shutdown-no-worker: starting
++107.8s owned network 49695a69c72e3eb53bd8861a6b8952b609d4005217448c5681fd56401a78bc4a
++108.2s owned container c036d5cadcf3cf6f8ea5a01df15d99898b6c063dd1b0a4938dabc82135d38e28
++108.3s owned volume c70c4cf0c7596cf8cb6a25b19a8d3b04bb49593ca5c42508e14a502c79d63905
++108.3s owned volume 1cb65a6ade80cb81e81697b7cffa0984b3f66ef5cbdda4eab7d96271c72abee4
++110.1s owned container 8276fa8cdd9f42ff4c516049bb238911e69b44ff8a6ca81cc76fc1fb99c9d163
++110.6s owned container a7c320716855dac0f9e8a3a652ca569c267d385db326ef6ea2e1b360975fb878
++118.1s primary: 0/0 cases passed
++118.1s cleanup: complete, every owned resource read back absent
++118.1s terminal: exit 1
