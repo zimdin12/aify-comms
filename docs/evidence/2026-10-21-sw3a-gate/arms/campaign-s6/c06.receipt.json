@@ -9,9 +9,6 @@
  "sha_mutated": "29e0f1f6653bd1665c61a5f0f01d465577e98cacbeb10954d5352307a02d3b7c",
  "exit": 1,
  "named": [
-  "_______________________ ResumePhaseFixtureTests.test_CONTROL_a_separated_resume_reaches_the_judge_unchanged _______________________",
-  "self = <test_gate_apparatus.ResumePhaseFixtureTests testMethod=test_CONTROL_a_separated_resume_reaches_the_judge_unchanged>",
-  "    def test_CONTROL_a_separated_resume_reaches_the_judge_unchanged(self):",
   "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_CONTROL_a_separated_resume_reaches_the_judge_unchanged"
  ],
  "sha_restored": "acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3"

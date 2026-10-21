@@ -1,0 +1,15 @@
+{
+ "arm": "e10",
+ "file": "campaign.py",
+ "guards": "6.3 a kill is a failing line",
+ "witness": "test_a_witness_named_only_on_a_passing_line_is_not_a_kill",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "193fec9fe319b03b4702ef6ca487180374fd146ec0e15f129fe7b47f859f017d",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_witness_named_only_on_a_passing_line_is_not_a_kill"
+ ],
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
+}

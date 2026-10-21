@@ -3,16 +3,13 @@
  "file": "campaign.py",
  "guards": "6.3 the receipt persisted",
  "witness": "test_CONTROL_a_killed_arm_passes_the_campaign",
- "sha_original": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
  "killed": true,
  "problems": [],
- "sha_mutated": "cf1420a99c5d3a0ba3ee6fa952bee2badd35c5cad3110beb64bb145526fe546d",
+ "sha_mutated": "243457ec557bc1e025d31c903c60b5be5adb0a47064982258d3ddf8adfa708d1",
  "exit": 1,
  "named": [
-  "_____________________________ CampaignFailsClosedTests.test_CONTROL_a_killed_arm_passes_the_campaign ______________________________",
-  "self = <test_gate_apparatus.CampaignFailsClosedTests testMethod=test_CONTROL_a_killed_arm_passes_the_campaign>",
-  "    def test_CONTROL_a_killed_arm_passes_the_campaign(self):",
   "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_CONTROL_a_killed_arm_passes_the_campaign - AssertionE..."
  ],
- "sha_restored": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99"
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
 }

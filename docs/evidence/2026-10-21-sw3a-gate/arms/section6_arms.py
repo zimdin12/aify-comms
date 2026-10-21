@@ -12,6 +12,7 @@ CHECKERS = {
     'case-judging.mjs': ['python', '-m', 'pytest', '-q', '-p', 'no:cacheprovider', 'scripts/tests/test_gate_apparatus.py'],
     'attempt-dir.mjs': ['python', '-m', 'pytest', '-q', '-p', 'no:cacheprovider', 'scripts/tests/test_gate_apparatus.py'],
     'campaign.py': ['python', '-m', 'pytest', '-q', '-p', 'no:cacheprovider', 'scripts/tests/test_gate_apparatus.py'],
+    'pair.mjs': ['node', '--test', 'scripts/tests/gate_pair_stdout.mjs'],
 }
 
 # (arm, file, the span replaced, its replacement, the witness that must be named, the obligation it guards)
@@ -55,4 +56,25 @@ ARMS = [
    'test_a_red_baseline_runs_no_arm_and_fails', '6.3 a red baseline'),
   ('e09', 'campaign.py', "        (out / f'{arm_id}.receipt.json').write_text(json.dumps(receipt, indent=1) + '\\n', encoding='utf-8')\n",
    "        pass\n", 'test_CONTROL_a_killed_arm_passes_the_campaign', '6.3 the receipt persisted'),
+  ('e10', 'campaign.py', 'if witness in line and failing(line)]', 'if witness in line]',
+   'test_a_witness_named_only_on_a_passing_line_is_not_a_kill', '6.3 a kill is a failing line'),
+  # Runner R1 in the gate's Pair: every data read takes stdout; each arm puts back the combined `out` at one site.
+  ('s01', 'pair.mjs', '"list volumes").stdout.trim();', '"list volumes").out.trim();',
+   'start: the volumes owned are the names on stdout', 'R1 pair #ownVolumes'),
+  ('s02', 'pair.mjs', '    const text = result.stdout.trim();', '    const text = result.out.trim();',
+   'api: status and JSON body from stdout', 'R1 pair api'),
+  ('s03', 'pair.mjs', '"snapshot").stdout.trim()', '"snapshot").out.trim()',
+   "snapshot: the probe's last stdout line", 'R1 pair snapshot'),
+  ('s04', 'pair.mjs', '"read the timeline").stdout;', '"read the timeline").out;',
+   'timeline: every stdout line is a frame', 'R1 pair timeline'),
+  ('s05', 'pair.mjs', '"read the stand-in log").stdout;', '"read the stand-in log").out;',
+   'standin: a last line with no newline', 'R1 pair standin'),
+  ('s06', 'pair.mjs', '.lifetime.json`]).stdout.trim();', '.lifetime.json`]).out.trim();',
+   "lifetime: the file's JSON", 'R1 pair lifetime'),
+  ('s07', 'pair.mjs', '"find the env daemon").stdout.trim()', '"find the env daemon").out.trim()',
+   'the env daemon pid', 'R1 pair #daemonPid'),
+  ('s08', 'pair.mjs', '"read the relay log").stdout;', '"read the relay log").out;',
+   "contact: the relay log's lines", 'R1 pair contact'),
+  ('s09', 'pair.mjs', '"started at").stdout.trim());', '"started at").out.trim());',
+   'restart: the start time', 'R1 pair restartComms'),
 ]

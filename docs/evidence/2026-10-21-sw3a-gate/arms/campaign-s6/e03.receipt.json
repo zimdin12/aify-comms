@@ -3,16 +3,13 @@
  "file": "campaign.py",
  "guards": "6.3 the named witness",
  "witness": "test_an_arm_killed_by_another_witness_is_not_killed",
- "sha_original": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
  "killed": true,
  "problems": [],
- "sha_mutated": "40366ee9c90255eafa27da9c8b7e493f76fc88d6504c9d14a28f2579cfa6ef8e",
+ "sha_mutated": "331e5057719c34f7df266d86c55dff4e308ebb4a5b8006b0ccdf3a6b6fd7a429",
  "exit": 1,
  "named": [
-  "__________________________ CampaignFailsClosedTests.test_an_arm_killed_by_another_witness_is_not_killed ___________________________",
-  "self = <test_gate_apparatus.CampaignFailsClosedTests testMethod=test_an_arm_killed_by_another_witness_is_not_killed>",
-  "    def test_an_arm_killed_by_another_witness_is_not_killed(self):",
   "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_arm_killed_by_another_witness_is_not_killed - Asse..."
  ],
- "sha_restored": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99"
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
 }

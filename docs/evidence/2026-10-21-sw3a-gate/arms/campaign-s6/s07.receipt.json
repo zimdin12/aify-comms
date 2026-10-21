@@ -1,0 +1,15 @@
+{
+ "arm": "s07",
+ "file": "pair.mjs",
+ "guards": "R1 pair #daemonPid",
+ "witness": "the env daemon pid",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "8bbeb720dc573352bcfe69b888deb898e14fa02475ba7e2e52c29fba18604eea",
+ "exit": 1,
+ "named": [
+  "not ok 7 - the env daemon pid: one pid from stdout, so pausing it names that pid"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

@@ -188,6 +188,16 @@ class CampaignFailsClosedTests(unittest.TestCase):
         self.assertFalse(receipts[0]['killed'])
         self.assertTrue(failures)
 
+    def test_a_witness_named_only_on_a_passing_line_is_not_a_kill(self):
+        # The checker fails (exit 1) for its own reason, and names the witness only on a PASS line.
+        check = ("import sys; t = open('scripts/sandbox/gate/toy.txt', encoding='utf-8').read(); "
+                 "print('PASS the toy is bad'); print('FAIL something unrelated' if 'bad' in t else 'ok'); "
+                 "sys.exit(1 if 'bad' in t else 0)")
+        failures, receipts = self.run_campaign([('n1', 'toy.txt', 'good', 'bad', 'the toy is bad', 'passing line')],
+                                               checker=[sys.executable, '-c', check])
+        self.assertFalse(receipts[0]['killed'])
+        self.assertIn('n1: survived: the checker passed or never named the witness', failures)
+
     def test_an_anchor_that_misses_fails_the_campaign(self):
         failures, _ = self.run_campaign([('m1', 'toy.txt', 'absent', 'bad', 'FAIL the toy is bad', 'miss')])
         self.assertIn('m1: anchor found 0 times', failures)

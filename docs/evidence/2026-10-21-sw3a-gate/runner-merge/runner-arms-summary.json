@@ -1,0 +1,231 @@
+{
+  "driverSha256": "4f5593dc7115399d30f5b6d06d9cc1098631e1a3a6cd49b8621e10adbb6dcb0d",
+  "before": {
+    "selfExit": 0,
+    "histExit": 0,
+    "failedSelf": [],
+    "failedHist": []
+  },
+  "arms": [
+    {
+      "arm": "a01-id-from-combined-output",
+      "mutantSha256": "ff85c396a72b42d7296aeab83bfb6410262cc98aeffc2f63e08a89fcf963c9f2",
+      "witnesses": [
+        "self:a stderr diagnostic never becomes the owned id",
+        "hist:stderr-id-loss"
+      ],
+      "reached": [
+        "self:a stderr diagnostic never becomes the owned id",
+        "hist:stderr-id-loss"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 1,
+      "failedSelf": [
+        "a stderr diagnostic never becomes the owned id"
+      ],
+      "failedHist": [
+        "stderr-id-loss"
+      ]
+    },
+    {
+      "arm": "a02-no-id-shape-or-binding",
+      "mutantSha256": "c549afc5b4a3f60effcb0f4170ab03d42fbe3edb6f7f999a59fa9b8e5d5e9375",
+      "witnesses": [
+        "self:an answer naming no id fails as ownership unknown and is owned by name"
+      ],
+      "reached": [
+        "self:an answer naming no id fails as ownership unknown and is owned by name"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 0,
+      "failedSelf": [
+        "an answer naming no id fails as ownership unknown and is owned by name",
+        "an id the name does not resolve to is not owned as that id"
+      ],
+      "failedHist": []
+    },
+    {
+      "arm": "a03-no-binding",
+      "mutantSha256": "539ec2db19038d2e535bb721f7c5f8623f4d3813598a9fd2ec2c2ff8947ff19b",
+      "witnesses": [
+        "self:an id the name does not resolve to is not owned as that id"
+      ],
+      "reached": [
+        "self:an id the name does not resolve to is not owned as that id"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 0,
+      "failedSelf": [
+        "an id the name does not resolve to is not owned as that id"
+      ],
+      "failedHist": []
+    },
+    {
+      "arm": "a04-loose-absence",
+      "mutantSha256": "61d8e023057a68e1f4e863df5dd865b2237bb84994734c87ca7f3cbbcc9502c8",
+      "witnesses": [
+        "self:a missing daemon socket is not absence (unknown)",
+        "self:a not-found answer for another ref is not absence",
+        "hist:daemon-enoent"
+      ],
+      "reached": [
+        "self:a missing daemon socket is not absence (unknown)",
+        "self:a not-found answer for another ref is not absence",
+        "hist:daemon-enoent"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 1,
+      "failedSelf": [
+        "a missing daemon socket is not absence (unknown)",
+        "a not-found answer for another ref is not absence"
+      ],
+      "failedHist": [
+        "daemon-enoent"
+      ]
+    },
+    {
+      "arm": "a05-absence-not-bound-to-ref",
+      "mutantSha256": "af4695cb8a849d1cc4dba59f661b58609452268b4f1a04d162ce417315283ac1",
+      "witnesses": [
+        "self:a not-found answer for another ref is not absence"
+      ],
+      "reached": [
+        "self:a not-found answer for another ref is not absence"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 0,
+      "failedSelf": [
+        "a not-found answer for another ref is not absence"
+      ],
+      "failedHist": []
+    },
+    {
+      "arm": "a06-no-admission-check",
+      "mutantSha256": "87e4f6bd326c87ba4f64baa8e4cc3fdb0bb9cee3d3a6d647e3ca299c5a7a0aac",
+      "witnesses": [
+        "self:no command starts after the run deadline"
+      ],
+      "reached": [
+        "self:no command starts after the run deadline"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 0,
+      "failedSelf": [
+        "no command starts after the run deadline"
+      ],
+      "failedHist": []
+    },
+    {
+      "arm": "a07-no-timeout-cap",
+      "mutantSha256": "ed4771bc2a0b6105a0bd583547ed83269c5cc328be83158c808bc7d8aba80da9",
+      "witnesses": [
+        "self:a command still running at the run deadline is cut there, not at its own 20 s",
+        "hist:deadline-overrun"
+      ],
+      "reached": [
+        "self:a command still running at the run deadline is cut there, not at its own 20 s",
+        "hist:deadline-overrun"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 1,
+      "failedSelf": [
+        "a command still running at the run deadline is cut there, not at its own 20 s"
+      ],
+      "failedHist": [
+        "deadline-overrun"
+      ]
+    },
+    {
+      "arm": "a08-no-late-result-check",
+      "mutantSha256": "eaf68306609187e0b5c5b0f391733d7ae7ecfec0a59103150586def8efd041ea",
+      "witnesses": [
+        "hist:deadline-late-return"
+      ],
+      "reached": [
+        "hist:deadline-late-return"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 0,
+      "histExit": 1,
+      "failedSelf": [],
+      "failedHist": [
+        "deadline-late-return"
+      ]
+    },
+    {
+      "arm": "a09-cleanup-keeps-the-deadline",
+      "mutantSha256": "df57d46ee5c8a7642c7409c54bd9f16fd05bb3c4def7cf0537043b54825482ce",
+      "witnesses": [
+        "hist:deadline-late-return"
+      ],
+      "reached": [
+        "hist:deadline-late-return"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 0,
+      "histExit": 1,
+      "failedSelf": [],
+      "failedHist": [
+        "deadline-late-return"
+      ]
+    },
+    {
+      "arm": "a10-self-check-child-unbounded",
+      "mutantSha256": "d0b6379ab6a81ff218f6abe9c237f73c4d7564a4333e08c3f5444ec02afd467e",
+      "witnesses": [
+        "self:every spawnSync call in this file names a timeout"
+      ],
+      "reached": [
+        "self:every spawnSync call in this file names a timeout"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 0,
+      "failedSelf": [
+        "every spawnSync call in this file names a timeout"
+      ],
+      "failedHist": []
+    },
+    {
+      "arm": "a11-failed-create-owned-only-if-present",
+      "mutantSha256": "9d19e6fd4f2d8c79ac266a10abcd4a1d37a56c40470c48f65120d8147a9d0e3d",
+      "witnesses": [
+        "self:a failed create whose name cannot be read back is still owned by name"
+      ],
+      "reached": [
+        "self:a failed create whose name cannot be read back is still owned by name"
+      ],
+      "killed": true,
+      "restored": true,
+      "selfExit": 1,
+      "histExit": 0,
+      "failedSelf": [
+        "a failed create whose name cannot be read back is still owned by name"
+      ],
+      "failedHist": []
+    }
+  ],
+  "after": {
+    "selfExit": 0,
+    "histExit": 0,
+    "failedSelf": [],
+    "failedHist": []
+  }
+}

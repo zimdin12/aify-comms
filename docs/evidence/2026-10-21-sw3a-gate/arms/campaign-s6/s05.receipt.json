@@ -1,0 +1,15 @@
+{
+ "arm": "s05",
+ "file": "pair.mjs",
+ "guards": "R1 pair standin",
+ "witness": "standin: a last line with no newline",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "2cd54e46804cb32346a8140660cc731c7e460dd04bb4a8d8a349379696978c01",
+ "exit": 1,
+ "named": [
+  "not ok 4 - standin: a last line with no newline is not glued to the warning"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

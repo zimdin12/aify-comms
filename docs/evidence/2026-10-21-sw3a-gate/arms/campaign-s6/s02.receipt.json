@@ -1,0 +1,15 @@
+{
+ "arm": "s02",
+ "file": "pair.mjs",
+ "guards": "R1 pair api",
+ "witness": "api: status and JSON body from stdout",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "9b7143871c9f6c1bc133b0bff1338f40727e081d7e624809daf6113d2c54c00d",
+ "exit": 1,
+ "named": [
+  "not ok 2 - api: status and JSON body from stdout"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

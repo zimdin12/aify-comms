@@ -1,0 +1,15 @@
+{
+ "arm": "s01",
+ "file": "pair.mjs",
+ "guards": "R1 pair #ownVolumes",
+ "witness": "start: the volumes owned are the names on stdout",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "fcf0e468864aa599a6b639fa905a0867060e5720ac61a5a80b703472970c2d78",
+ "exit": 1,
+ "named": [
+  "not ok 9 - start: the volumes owned are the names on stdout, not words of the warning"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "s06",
+ "file": "pair.mjs",
+ "guards": "R1 pair lifetime",
+ "witness": "lifetime: the file's JSON",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "06913d55acc29c080c16aea0aec522f4e604e8dbcfb6dfbb496406805670574c",
+ "exit": 1,
+ "named": [
+  "not ok 5 - lifetime: the file's JSON, not the file and the warning"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

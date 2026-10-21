@@ -9,9 +9,6 @@
  "sha_mutated": "59dfa048451c81e048ff386df186fd2421427db1952f17d57bf04bb0a1b90498",
  "exit": 1,
  "named": [
-  "________________________ WatchStampsTests.test_previous_seen_from_is_the_last_read_of_the_previous_content ________________________",
-  "self = <test_gate_probe_acquisition.WatchStampsTests testMethod=test_previous_seen_from_is_the_last_read_of_the_previous_content>",
-  "    def test_previous_seen_from_is_the_last_read_of_the_previous_content(self):",
   "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_previous_seen_from_is_the_last_read_of_the_previous_content"
  ],
  "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d"

@@ -1,20 +1,30 @@
-c01 6.1 no fixture check: f5191387 judged the retained attempt directly KILLED | _______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________
-c02 6.1 coinciding phases KILLED | _______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________
-c03 6.1 strictly after KILLED | _______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________
-c04 6.1 a whole claim pass KILLED | _____________________ ResumePhaseFixtureTests.test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused ______________________
-c05 6.1 a fresh busy record KILLED | ________________ ResumePhaseFixtureTests.test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase _________________
-c06 6.1 admitted evidence reaches its judge KILLED | _______________________ ResumePhaseFixtureTests.test_CONTROL_a_separated_resume_reaches_the_judge_unchanged _______________________
-d01 6.2 recursive mkdir is not a claim (f5191387) KILLED | ________________________________ AttemptDirTests.test_a_second_acquisition_of_one_name_is_refused _________________________________
-d02 6.2 a taken name is named KILLED | ________________________________ AttemptDirTests.test_a_second_acquisition_of_one_name_is_refused _________________________________
-e01 6.3 restored in finally KILLED | _____________________________ CampaignFailsClosedTests.test_CONTROL_a_killed_arm_passes_the_campaign ______________________________
-e02 6.3 a nonzero exit KILLED | ___________________________ CampaignFailsClosedTests.test_the_command_line_exits_nonzero_on_any_failure ___________________________
-e03 6.3 the named witness KILLED | __________________________ CampaignFailsClosedTests.test_an_arm_killed_by_another_witness_is_not_killed ___________________________
-e04 6.3 a survivor fails KILLED | ________________________________ CampaignFailsClosedTests.test_a_surviving_arm_fails_the_campaign _________________________________
-e05 6.3 a hung checker KILLED | ____________________________ CampaignFailsClosedTests.test_a_hung_checker_is_killed_and_fails_its_arm _____________________________
-e06 6.3 an exception mid-mutation KILLED | ____________ CampaignFailsClosedTests.test_an_arm_that_throws_mid_mutation_is_restored_recorded_and_fails_the_campaign ____________
-e07 6.3 an anchor miss KILLED | _____________________________ CampaignFailsClosedTests.test_an_anchor_that_misses_fails_the_campaign ______________________________
-e08 6.3 a red baseline KILLED | _______________________________ CampaignFailsClosedTests.test_a_red_baseline_runs_no_arm_and_fails ________________________________
-e09 6.3 the receipt persisted KILLED | _____________________________ CampaignFailsClosedTests.test_CONTROL_a_killed_arm_passes_the_campaign ______________________________
+c01 6.1 no fixture check: f5191387 judged the retained attempt directly KILLED | FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name
+c02 6.1 coinciding phases KILLED | FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name
+c03 6.1 strictly after KILLED | FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name
+c04 6.1 a whole claim pass KILLED | FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused
+c05 6.1 a fresh busy record KILLED | FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase
+c06 6.1 admitted evidence reaches its judge KILLED | FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_CONTROL_a_separated_resume_reaches_the_judge_unchanged
+d01 6.2 recursive mkdir is not a claim (f5191387) KILLED | FAILED scripts/tests/test_gate_apparatus.py::AttemptDirTests::test_a_second_acquisition_of_one_name_is_refused - AssertionError: ...
+d02 6.2 a taken name is named KILLED | FAILED scripts/tests/test_gate_apparatus.py::AttemptDirTests::test_a_second_acquisition_of_one_name_is_refused - AssertionError: ...
+e01 6.3 restored in finally KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_CONTROL_a_killed_arm_passes_the_campaign - AssertionE...
+e02 6.3 a nonzero exit KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_the_command_line_exits_nonzero_on_any_failure - Asser...
+e03 6.3 the named witness KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_arm_killed_by_another_witness_is_not_killed - Asse...
+e04 6.3 a survivor fails KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_surviving_arm_fails_the_campaign - AssertionError: ...
+e05 6.3 a hung checker KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_hung_checker_is_killed_and_fails_its_arm - Assertio...
+e06 6.3 an exception mid-mutation KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_arm_that_throws_mid_mutation_is_restored_recorded_and_fails_the_campaign
+e07 6.3 an anchor miss KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_anchor_that_misses_fails_the_campaign - AssertionE...
+e08 6.3 a red baseline KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_red_baseline_runs_no_arm_and_fails - AssertionError...
+e09 6.3 the receipt persisted KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_CONTROL_a_killed_arm_passes_the_campaign - AssertionE...
+e10 6.3 a kill is a failing line KILLED | FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_witness_named_only_on_a_passing_line_is_not_a_kill
+s01 R1 pair #ownVolumes KILLED | not ok 9 - start: the volumes owned are the names on stdout, not words of the warning
+s02 R1 pair api KILLED | not ok 2 - api: status and JSON body from stdout
+s03 R1 pair snapshot KILLED | not ok 1 - snapshot: the probe's last stdout line, not the warning after it
+s04 R1 pair timeline KILLED | not ok 3 - timeline: every stdout line is a frame, and no warning line is parsed
+s05 R1 pair standin KILLED | not ok 4 - standin: a last line with no newline is not glued to the warning
+s06 R1 pair lifetime KILLED | not ok 5 - lifetime: the file's JSON, not the file and the warning
+s07 R1 pair #daemonPid KILLED | not ok 7 - the env daemon pid: one pid from stdout, so pausing it names that pid
+s08 R1 pair contact KILLED | not ok 6 - contact: the relay log's lines, its last line not glued to the warning
+s09 R1 pair restartComms KILLED | not ok 8 - restart: the start time is stdout's timestamp
 z01 negative control: a comment edit survives NOT KILLED | survived: the checker passed or never named the witness
 CAMPAIGN FAIL z01: survived: the checker passed or never named the witness
-17/18 killed; campaign FAIL
+27/28 killed; campaign FAIL

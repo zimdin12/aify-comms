@@ -1,0 +1,14 @@
+a01-id-from-combined-output: KILLED restored=True self=['a stderr diagnostic never becomes the owned id'] hist=['stderr-id-loss']
+a02-no-id-shape-or-binding: KILLED restored=True self=['an answer naming no id fails as ownership unknown and is owned by name', 'an id the name does not resolve to is not owned as that id'] hist=[]
+a03-no-binding: KILLED restored=True self=['an id the name does not resolve to is not owned as that id'] hist=[]
+a04-loose-absence: KILLED restored=True self=['a missing daemon socket is not absence (unknown)', 'a not-found answer for another ref is not absence'] hist=['daemon-enoent']
+a05-absence-not-bound-to-ref: KILLED restored=True self=['a not-found answer for another ref is not absence'] hist=[]
+a06-no-admission-check: KILLED restored=True self=['no command starts after the run deadline'] hist=[]
+a07-no-timeout-cap: KILLED restored=True self=['a command still running at the run deadline is cut there, not at its own 20 s'] hist=['deadline-overrun']
+a08-no-late-result-check: KILLED restored=True self=[] hist=['deadline-late-return']
+a09-cleanup-keeps-the-deadline: KILLED restored=True self=[] hist=['deadline-late-return']
+a10-self-check-child-unbounded: KILLED restored=True self=['every spawnSync call in this file names a timeout'] hist=[]
+a11-failed-create-owned-only-if-present: KILLED restored=True self=['a failed create whose name cannot be read back is still owned by name'] hist=[]
+control-before: GREEN {'selfExit': 0, 'histExit': 0, 'failedSelf': [], 'failedHist': []}
+control-after: GREEN {'selfExit': 0, 'histExit': 0, 'failedSelf': [], 'failedHist': []}
+11/11 killed; driver restored to 4f5593dc7115399d30f5b6d06d9cc1098631e1a3a6cd49b8621e10adbb6dcb0d: True

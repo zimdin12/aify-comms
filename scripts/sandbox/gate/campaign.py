@@ -58,6 +58,12 @@ def run_checker(argv, root):
         return None, '', '', f'{type(error).__name__}: {error}'
 
 
+def failing(line):
+    """A line that reports a failure: the gate self-check's `FAIL`, pytest's `FAILED`/`ERROR`, node's `not ok`. A witness
+    named on a passing line (node prints `# Subtest: <name>` for every test) never counts as the arm's kill."""
+    return line.lstrip().startswith(('FAIL', 'ERROR', 'not ok'))
+
+
 def checker_for(checkers, name):
     return checkers.get(name) or checkers['*']
 
@@ -84,7 +90,7 @@ def run_arm(arm, root, gate, out, checkers):
         receipt['exit'] = code
         if error:
             receipt['problems'].append(f'checker error: {error}')
-        named = [line for line in (stdout + stderr).splitlines() if witness in line]
+        named = [line for line in (stdout + stderr).splitlines() if witness in line and failing(line)]
         receipt['named'] = named[:5]
         receipt['killed'] = error is None and code != 0 and bool(named)
         if not receipt['killed'] and not error:

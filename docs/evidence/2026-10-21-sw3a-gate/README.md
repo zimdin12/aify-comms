@@ -246,15 +246,47 @@ Witnesses: `scripts/tests/test_gate_apparatus.py` (17 tests).
    its sha256, writes the arm's receipt before the next arm, and exits nonzero on a red baseline or after-control, a
    missed anchor, a survivor, a checker that cannot start or times out, a controller exception, a restore mismatch or
    an unreadable receipt. It reads `arms/run_arms.py`'s ARMS literal in place, together with `arms/section6_arms.py`.
-   - Campaign (`arms/campaign-s6/`): 67/67 killed (the 50 retained arms, then c01-c06, d01-d02, e01-e09), campaign
-     PASS, exit 0. c01 and d01 put back f5191387's behaviour (no fixture check; recursive mkdir) and are killed.
+   - A witness counts only on a failure line (`FAIL…`, pytest `FAILED`/`ERROR`, node `not ok`): node prints
+     `# Subtest: <name>` for passing tests too, and the self-check prints the same words after PASS (arm e10).
+   - Campaign (`arms/campaign-s6/`): 77/77 killed, campaign PASS, exit 0. The arms are the 50 retained ones, then
+     c01-c06, d01-d02, e01-e10 and s01-s09. c01 and d01 put back f5191387's behaviour (no fixture check; recursive
+     mkdir) and are killed.
    - Negative control: one arm that survives makes the campaign exit 1 and restores the file
      (`campaign-s6/negative-control.txt`).
-   - Full per-arm stdout/stderr (2.4 MB) stayed in the session scratchpad; the receipts here carry exit, named lines
+   - Full per-arm stdout/stderr stayed in the session scratchpad; the receipts here carry exit, named failure lines
      and the three hashes.
-4. **Still open: the runner and SW3b.** Runner a5c658ff must be accepted first. Then come three preregistered full
-   attempts on one accepted wired SW5/aify-env pair, every failure retained, with source-bound images and owned
-   cleanup. The two cases that pass on unwired main need their candidate mutations.
+4. **The runner, R1/R2 carried (approved at cfdf15b1, 098/runner-r1r2).** Merged as 558644f1. The variant keeps its
+   exports, volume cleanup and entry-point guard; everything else in `scripts/sandbox/env-against-comms.mjs` is
+   cfdf15b1's text. The exact delta against cfdf15b1:
+   - `export` on LIVE, KEY, redact, log, deadline, run, must, docker, sha, bytesSha, exists, create, cleanup, outcome
+     and sleep;
+   - cleanup orders a volume after its container (`volume rm -f`);
+   - the CLI runs only when the file is the entry point.
+   `histories.mjs` cuts the driver at that guard when present (+3 lines); on cfdf15b1's driver it still cuts at the
+   CLI line (`runner-merge/histories-cfdf15b1-driver-control.txt`). On the merged driver (`runner-merge/`):
+   - self-check: 28 PASS, exit 0;
+   - histories `new`: every history matched;
+   - cfdf15b1's 11 arms: 11/11 killed, controls GREEN before and after, driver restored.
+   The first arms run (`runner-arms-before-boundary-fix.txt`) had RED controls because the cut left the guard's block
+   open, so its kills are void.
+   - **Not integrated:** the gate's `attempt()` does not open the runner's primary window, which is module-private
+     `primaryUntil`, set only by the runner's own `sandbox()`. So R2's admission, late-result and cleanup-deadline
+     rules bound runner runs, not gate attempts; a gate attempt has only its own between-step `deadline()`. Wiring it
+     needs an exported window on the runner and is left for review.
+5. **Pair reads Docker's stdout as data (runner R1 in `scripts/sandbox/gate/pair.mjs`).**
+   - A constructor option `dock` (default: the runner's `docker`) carries every call: the 19 `docker(` calls become
+     `this.#dock(`, and the four `create(...)` calls pass it as their `dock`.
+   - The nine data reads moved from `.out` to `.stdout`: `#ownVolumes` (list volumes), `api` (text), `snapshot`,
+     `timeline`, `standin`, `lifetime`, `#daemonPid` (find the env daemon), `contact` (relay log), and `restartComms`
+     (started at).
+   - Two reads stay on `.out` on purpose. `start`'s `/listening on/` test reads `docker logs`, which carries the
+     container's stderr on its own stderr. The `envLog` tail is a diagnostic.
+   - Witness: `scripts/tests/gate_pair_stdout.mjs`, nine node tests, run by `test_gate_pair_stdout.py`. A scripted
+     stand-in Docker answers every call with the value on stdout and a benign `WARNING` line on stderr. Arms s01-s09
+     each put `.out` back at one site and are killed by that site's test.
+6. **Still open: SW3b.** Three preregistered full attempts on one accepted wired SW5/aify-env pair, every failure
+   retained, with source-bound images and owned cleanup. The two cases that pass on unwired main need their
+   candidate mutations.
 
 ## What this does not show
 

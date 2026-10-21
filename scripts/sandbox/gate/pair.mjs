@@ -21,8 +21,10 @@ export class Pair {
   #images;
   #probe;
   #key;
+  #dock; // every Docker call goes through it: the runner's docker, or a test's stand-in
 
-  constructor({ owned, runId, caseId, images, probePath, key }) {
+  constructor({ owned, runId, caseId, images, probePath, key, dock = docker }) {
+    this.#dock = dock;
     this.#owned = owned;
     this.#images = images;
     this.#probe = probePath;
@@ -38,23 +40,23 @@ export class Pair {
   async start({ silenced = false } = {}) {
     const { network, comms, relay, env } = this.#names;
     const withKey = { ...process.env, API_KEY: this.#key, SANDBOX_COMMS_KEY: this.#key, SANDBOX_DEFINE: AGENT };
-    create(this.#owned, "network", network, ["network", "create", "--internal", network]);
+    create(this.#owned, "network", network, ["network", "create", "--internal", network], undefined, this.#dock);
     // No tmpfs: comms' data must survive `docker restart`. The image's declared volumes are anonymous; each is owned.
     create(this.#owned, "container", comms, ["run", "-d", "--name", comms, "--network", network, "--network-alias",
       "comms-real", "-e", "API_KEY", "-e", "DATA_DIR=/data", "-e", "TRUSTED_HOSTS=comms,comms:8800", this.#images.comms],
-    { env: withKey });
+    { env: withKey }, this.#dock);
     this.#ownVolumes(comms);
-    must(docker(["cp", this.#probe, `${comms}:/tmp/probe.py`]), "copy the probe");
+    must(this.#dock(["cp", this.#probe, `${comms}:/tmp/probe.py`]), "copy the probe");
     await this.#healthy();
     // The relay answers as `comms`, the only name aify-env and the stand-in know; it forwards Host unchanged.
     create(this.#owned, "container", relay, ["run", "-d", "--init", "--name", relay, "--network", network,
-      "--network-alias", "comms", "--entrypoint", "node", this.#images.env, "/opt/gate/relay.mjs"]);
+      "--network-alias", "comms", "--entrypoint", "node", this.#images.env, "/opt/gate/relay.mjs"], undefined, this.#dock);
     await this.waitFor(() => this.contact().some((e) => e.event === "listening"), 60_000, "the relay to listen");
     if (silenced) this.silence(true);
     create(this.#owned, "container", env, ["run", "-d", "--init", "--name", env, "--hostname", "sandbox-env",
-      "--network", network, "-e", "SANDBOX_COMMS_KEY", "-e", "SANDBOX_DEFINE", this.#images.env], { env: withKey });
+      "--network", network, "-e", "SANDBOX_COMMS_KEY", "-e", "SANDBOX_DEFINE", this.#images.env], { env: withKey }, this.#dock);
     this.#ownVolumes(env);
-    await this.waitFor(() => /listening on/.test(docker(["logs", env]).out), 120_000, "aify-env to listen");
+    await this.waitFor(() => /listening on/.test(this.#dock(["logs", env]).out), 120_000, "aify-env to listen");
     const sender = this.api("POST", "/agents", { agentId: SENDER, role: "coder", runtime: "generic",
       machineId: "linux:gate-harness", sessionMode: "resident" });
     if (!sender.ok) throw new Error(`registering the sender answered ${sender.status} ${sender.text}`);
@@ -62,8 +64,8 @@ export class Pair {
   }
 
   #ownVolumes(container) {
-    const listed = must(docker(["inspect", "--format", "{{range .Mounts}}{{if eq .Type \"volume\"}}{{.Name}} {{end}}{{end}}",
-      container]), "list volumes").out.trim();
+    const listed = must(this.#dock(["inspect", "--format", "{{range .Mounts}}{{if eq .Type \"volume\"}}{{.Name}} {{end}}{{end}}",
+      container]), "list volumes").stdout.trim();
     for (const name of listed.split(/\s+/).filter(Boolean)) {
       this.#owned.push({ kind: "volume", ref: name });
       log(`owned volume ${name}`);
@@ -71,15 +73,15 @@ export class Pair {
   }
 
   async #healthy() {
-    await this.waitFor(() => docker(["exec", this.#names.comms, "curl", "-sf", "http://127.0.0.1:8800/health"]).status === 0,
+    await this.waitFor(() => this.#dock(["exec", this.#names.comms, "curl", "-sf", "http://127.0.0.1:8800/health"]).status === 0,
       120_000, "comms /health");
   }
 
   /** One /api/v1 call through the probe, the key read inside the container. */
   api(method, route, body) {
-    const result = docker(["exec", "-i", this.#names.comms, "python", "/tmp/probe.py", "api", method, route],
+    const result = this.#dock(["exec", "-i", this.#names.comms, "python", "/tmp/probe.py", "api", method, route],
       { input: body === undefined ? "" : JSON.stringify(body) });
-    const text = result.out.trim();
+    const text = result.stdout.trim();
     const status = Number(text.slice(0, 3));
     let json = null;
     try { json = JSON.parse(text.slice(4)); } catch { /* kept as text */ }
@@ -88,35 +90,35 @@ export class Pair {
 
   /** What comms holds now, on comms' clock. */
   snapshot() {
-    return JSON.parse(must(docker(["exec", this.#names.comms, "python", "/tmp/probe.py", "snapshot", AGENT]),
-      "snapshot").out.trim().split("\n").pop());
+    return JSON.parse(must(this.#dock(["exec", this.#names.comms, "python", "/tmp/probe.py", "snapshot", AGENT]),
+      "snapshot").stdout.trim().split("\n").pop());
   }
 
   /** The change-only timeline, kept in the container's writable layer so it survives a comms restart. */
   watch() {
-    must(docker(["exec", "-d", this.#names.comms, "python", "/tmp/probe.py", "watch", AGENT, "/tmp/timeline.jsonl"]),
+    must(this.#dock(["exec", "-d", this.#names.comms, "python", "/tmp/probe.py", "watch", AGENT, "/tmp/timeline.jsonl"]),
       "start the watcher");
   }
 
   timeline() {
     // A read that fails is UNKNOWN, never an empty history: must() throws, and a scenario reports the error.
-    const text = must(docker(["exec", this.#names.comms, "cat", "/tmp/timeline.jsonl"]), "read the timeline").out;
+    const text = must(this.#dock(["exec", this.#names.comms, "cat", "/tmp/timeline.jsonl"]), "read the timeline").stdout;
     return text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
   }
 
   standin() {
-    const text = must(docker(["exec", this.#names.env, "cat", `/tmp/standin/${AGENT}.log`]), "read the stand-in log").out;
+    const text = must(this.#dock(["exec", this.#names.env, "cat", `/tmp/standin/${AGENT}.log`]), "read the stand-in log").stdout;
     return text.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
   }
 
   lifetime() {
-    const text = docker(["exec", this.#names.env, "cat", `/tmp/standin/${AGENT}.lifetime.json`]).out.trim();
+    const text = this.#dock(["exec", this.#names.env, "cat", `/tmp/standin/${AGENT}.lifetime.json`]).stdout.trim();
     try { return JSON.parse(text).lifetime; } catch { return null; }
   }
 
   /** The stand-in's instructions: its turn and the status a claimed run is written with. */
   control({ turn = "idle", runStatus = "completed" } = {}) {
-    must(docker(["exec", "-i", this.#names.env, "sh", "-c",
+    must(this.#dock(["exec", "-i", this.#names.env, "sh", "-c",
       "mkdir -p /tmp/standin && cat > /tmp/standin/control.tmp && mv /tmp/standin/control.tmp /tmp/standin/control.json"],
     { input: JSON.stringify({ turn, runStatus }) }), "write the stand-in control");
   }
@@ -167,7 +169,7 @@ export class Pair {
   #daemonPid() {
     const script = `for p in /proc/[0-9]*; do c=$(tr '\\0' ' ' < $p/cmdline 2>/dev/null); `
       + `[ "$c" = "${ENV_DAEMON} " ] && echo \${p#/proc/}; done; true`; // the loop's last test is not the answer
-    const pids = must(docker(["exec", this.#names.env, "sh", "-c", script]), "find the env daemon").out.trim().split(/\s+/);
+    const pids = must(this.#dock(["exec", this.#names.env, "sh", "-c", script]), "find the env daemon").stdout.trim().split(/\s+/);
     if (pids.length !== 1 || !/^\d+$/.test(pids[0])) throw new Error(`expected one aify-env daemon, found [${pids}]`);
     return pids[0];
   }
@@ -175,28 +177,28 @@ export class Pair {
   /** Publication-only silence (review R4): the relay refuses aify-env's agent-state bodies while every other request,
    *  its claimer heartbeat included, still reaches comms. */
   silence(on) {
-    must(docker(["exec", this.#names.relay, "sh", "-c", on ? "touch /tmp/relay/silence" : "rm -f /tmp/relay/silence"]),
+    must(this.#dock(["exec", this.#names.relay, "sh", "-c", on ? "touch /tmp/relay/silence" : "rm -f /tmp/relay/silence"]),
       on ? "silence publications" : "lift the silence");
   }
 
   /** The relay's record of every report aify-env sent: when, which, the interval it announced, and what became of it. */
   contact() {
-    const text = must(docker(["exec", this.#names.relay, "cat", "/tmp/relay/log.jsonl"]), "read the relay log").out;
+    const text = must(this.#dock(["exec", this.#names.relay, "cat", "/tmp/relay/log.jsonl"]), "read the relay log").stdout;
     return text.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
   }
 
   /** The whole aify-env daemon stops (a separate fault history, not page 2's publication silence); the stand-in, its
    *  own process, keeps claiming. */
   // `kill` is a shell builtin in node:24-slim, with no binary on PATH.
-  pauseEnv() { must(docker(["exec", this.#names.env, "sh", "-c", `kill -STOP ${this.#daemonPid()}`]), "pause aify-env"); }
-  resumeEnv() { must(docker(["exec", this.#names.env, "sh", "-c", `kill -CONT ${this.#daemonPid()}`]), "resume aify-env"); }
+  pauseEnv() { must(this.#dock(["exec", this.#names.env, "sh", "-c", `kill -STOP ${this.#daemonPid()}`]), "pause aify-env"); }
+  resumeEnv() { must(this.#dock(["exec", this.#names.env, "sh", "-c", `kill -CONT ${this.#daemonPid()}`]), "resume aify-env"); }
 
   /** comms restarts in the same container, its data kept; resolves to comms' clock at the new start, in ms. */
   async restartComms() {
-    must(docker(["restart", "-t", "10", this.#names.comms], { timeout: 120_000 }), "restart comms");
+    must(this.#dock(["restart", "-t", "10", this.#names.comms], { timeout: 120_000 }), "restart comms");
     await this.#healthy();
     this.watch();
-    return MS(must(docker(["inspect", "--format", "{{.State.StartedAt}}", this.#names.comms]), "started at").out.trim());
+    return MS(must(this.#dock(["inspect", "--format", "{{.State.StartedAt}}", this.#names.comms]), "started at").stdout.trim());
   }
 
   /** The cold start, the stand-in's first turn and its end: a warm agent comms holds a fresh idle record of. */
@@ -214,7 +216,7 @@ export class Pair {
   /** Everything a judge reads, gathered once at the end of the scenario. */
   evidence() {
     return { timeline: this.timeline(), standin: this.standin(), contact: this.contact(), lifetime: this.lifetime(),
-      envLog: docker(["logs", this.#names.env]).out.split("\n").slice(-40) };
+      envLog: this.#dock(["logs", this.#names.env]).out.split("\n").slice(-40) };
   }
 
   saveEvidence(dir, extra) {

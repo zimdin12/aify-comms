@@ -1,0 +1,15 @@
+{
+ "arm": "s09",
+ "file": "pair.mjs",
+ "guards": "R1 pair restartComms",
+ "witness": "restart: the start time",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "e0d1203ecc35091e09660075f98cb5a4dc8e06361ace04db36ca1911aba60cda",
+ "exit": 1,
+ "named": [
+  "not ok 8 - restart: the start time is stdout's timestamp"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

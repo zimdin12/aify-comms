@@ -9,9 +9,6 @@
  "sha_mutated": "3937e2e83030c1c76c947640e72f5093ebd8ae5783bfb4e1aa88f42acae05a3b",
  "exit": 1,
  "named": [
-  "________________ ResumePhaseFixtureTests.test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase _________________",
-  "self = <test_gate_apparatus.ResumePhaseFixtureTests testMethod=test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase>",
-  "    def test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase(self):",
   "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase"
  ],
  "sha_restored": "acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3"

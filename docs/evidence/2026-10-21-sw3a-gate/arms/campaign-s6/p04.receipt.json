@@ -9,9 +9,6 @@
  "sha_mutated": "c6fac54c65fb490296f91b7f5f0c3f5666154169ff7dfda71c04db4476ddf2cf",
  "exit": 1,
  "named": [
-  "_____________________________ WatchStampsTests.test_an_error_read_is_its_own_frame_with_no_inventory ______________________________",
-  "self = <test_gate_probe_acquisition.WatchStampsTests testMethod=test_an_error_read_is_its_own_frame_with_no_inventory>",
-  "    def test_an_error_read_is_its_own_frame_with_no_inventory(self):",
   "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_an_error_read_is_its_own_frame_with_no_inventory - As..."
  ],
  "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d"

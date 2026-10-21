@@ -1,0 +1,15 @@
+{
+ "arm": "s03",
+ "file": "pair.mjs",
+ "guards": "R1 pair snapshot",
+ "witness": "snapshot: the probe's last stdout line",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "1b92efb653784c149751e1f0a6201f645eff0079a4fa6b219b0302c46fdadb40",
+ "exit": 1,
+ "named": [
+  "not ok 1 - snapshot: the probe's last stdout line, not the warning after it"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

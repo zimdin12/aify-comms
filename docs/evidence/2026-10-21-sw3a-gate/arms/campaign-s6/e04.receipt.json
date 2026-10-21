@@ -3,16 +3,13 @@
  "file": "campaign.py",
  "guards": "6.3 a survivor fails",
  "witness": "test_a_surviving_arm_fails_the_campaign",
- "sha_original": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
  "killed": true,
  "problems": [],
- "sha_mutated": "1d6be4886f15a15ca44a283bc4b076bf44f54938484e310e2a9923662346a995",
+ "sha_mutated": "2c353d9115fdeb4e5d9400ad0f255df06ca2f673d4c1efab0ff17b906945d376",
  "exit": 1,
  "named": [
-  "________________________________ CampaignFailsClosedTests.test_a_surviving_arm_fails_the_campaign _________________________________",
-  "self = <test_gate_apparatus.CampaignFailsClosedTests testMethod=test_a_surviving_arm_fails_the_campaign>",
-  "    def test_a_surviving_arm_fails_the_campaign(self):",
   "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_surviving_arm_fails_the_campaign - AssertionError: ..."
  ],
- "sha_restored": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99"
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
 }
