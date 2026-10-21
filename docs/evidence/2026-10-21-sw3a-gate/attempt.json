@@ -1,0 +1,148 @@
+{
+ "label": "main-red",
+ "commsRef": "bbb34c13",
+ "commsSha": "bbb34c13f93908d227092d6b878a4c97b819c6a1",
+ "envRef": "ccf9a7e",
+ "envSha": "ccf9a7e636a2c2f69da55e6c196c5b5a8d568e60",
+ "imagesReused": false,
+ "results": [
+  {
+   "id": "legacy-busy-env-idle",
+   "scenario": "legacy-busy",
+   "expected": "delivered at once",
+   "red": "the reader still takes the legacy table (it holds)",
+   "pass": false,
+   "failed": [
+    "held: never claimed",
+    "the stand-in never received it as a run"
+   ]
+  },
+  {
+   "id": "legacy-idle-env-busy",
+   "scenario": "legacy-idle",
+   "expected": "held; delivered on the first claim pass after comms accepts the idle publication",
+   "red": "the reader takes the legacy table (it delivers mid-turn)",
+   "pass": false,
+   "failed": [
+    "held: run_1792539715270_d69ba18c was claimed inside the window",
+    "held: the stand-in received run_1792539715270_d69ba18c",
+    "delivered after the idle publication: claimed before comms accepted the publication",
+    "delivered after the idle publication: the watcher saw the claim first"
+   ]
+  },
+  {
+   "id": "busy-steerable",
+   "scenario": "steer",
+   "expected": "steered",
+   "red": "the carve-out is removed",
+   "pass": true,
+   "failed": []
+  },
+  {
+   "id": "stale-second-holder",
+   "scenario": "stale-second",
+   "expected": "eligibility unknown: withheld, steer included",
+   "red": "stale holders are ignored (known false: delivered)",
+   "pass": false,
+   "failed": [
+    "withheld: run_1792540090851_8fb5d888 was claimed inside the window",
+    "withheld: the stand-in received run_1792540090851_8fb5d888"
+   ]
+  },
+  {
+   "id": "env-paused",
+   "scenario": "paused",
+   "expected": "after 180 s of receipt silence: `unknown` with a stale last-known note; sends queue; claims withhold, steer included",
+   "red": "unknown read as false, or steer checked before eligibility (the steerable run is delivered)",
+   "pass": false,
+   "failed": [
+    "the word read offline, not unknown",
+    "no stale last-known note beside unknown",
+    "the queueIfBusy send: the send created no run"
+   ]
+  },
+  {
+   "id": "env-resumed",
+   "scenario": "paused",
+   "expected": "queued work drains on the first claim pass after comms accepts a fresh publication",
+   "red": "the queue never drains",
+   "pass": false,
+   "failed": [
+    "no queued work to drain: a send created no run",
+    "no queued work to drain: a send created no run"
+   ]
+  },
+  {
+   "id": "default-send-unknown",
+   "scenario": "paused",
+   "expected": "queued, not claimed",
+   "red": "the claim gate withholds only `queueIfBusy` runs",
+   "pass": false,
+   "failed": [
+    "the default send: the send created no run"
+   ]
+  },
+  {
+   "id": "restart-idle",
+   "scenario": "restart-idle",
+   "expected": "before aify-env's next complete snapshot: `restored`, eligibility unknown, a send queues; after it: delivered",
+   "red": "restored rows promoted to fresh or complete (the send is delivered before the snapshot)",
+   "pass": false,
+   "failed": [
+    "before the snapshot the word read online",
+    "after the snapshot: claimed before comms accepted the publication",
+    "after the snapshot: the watcher saw the claim first"
+   ]
+  },
+  {
+   "id": "restart-mid-turn",
+   "scenario": "restart-busy",
+   "expected": "`restored`, eligibility unknown, word `unknown` with a last-known note",
+   "red": "the restore removed (no last-known note), or promoted (eligibility known)",
+   "pass": false,
+   "failed": [
+    "the word read online, not unknown",
+    "no last-known note beside unknown"
+   ]
+  },
+  {
+   "id": "restored-then-changes",
+   "scenario": "restart-changes",
+   "expected": "still `restored` and unknown until a complete snapshot is accepted",
+   "red": "changes treated as completing the restore",
+   "pass": false,
+   "failed": [
+    "after the changes the word read online"
+   ]
+  },
+  {
+   "id": "cold-start",
+   "scenario": "cold",
+   "expected": "a spawn request with an empty initial message; the run stays queued; the claim withholds until comms accepts the new lifetime's record, then the run is claimed",
+   "red": "the send-time hold skips the backing step (no spawn request; the run waits forever)",
+   "pass": false,
+   "failed": [
+    "claimed after the new lifetime's record: claimed before comms accepted the publication",
+    "claimed after the new lifetime's record: the watcher saw the claim first"
+   ]
+  },
+  {
+   "id": "run-running-idle",
+   "scenario": "running",
+   "expected": "the word reads `working`",
+   "red": "promotion skipped at the view",
+   "pass": true,
+   "failed": []
+  },
+  {
+   "id": "stop-restart",
+   "scenario": "stop",
+   "expected": "`stopped` (a send is stored, not run), then `online`, with queued work drained",
+   "red": "the view's stop row skipped; restart leaves `unknown`",
+   "pass": false,
+   "failed": [
+    "after the stop the word read available"
+   ]
+  }
+ ]
+}

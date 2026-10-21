@@ -1,0 +1,282 @@
+{
+ "baseline_exit": 0,
+ "arms": [
+  {
+   "arm": "a01",
+   "file": "judges.mjs",
+   "expect": "claimed a second before the acceptance, seen after it",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "5d9892297aa07f7128e31d876eb2bdd7363b8dae3eae86d8e6d390d913e95cc8",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a02",
+   "file": "judges.mjs",
+   "expect": "seen claimed first in the same second",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "edafe90437d2109d426d1054723c5928803d36812dc9e4243eaf8407123a376e",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a03",
+   "file": "judges.mjs",
+   "expect": "claimed after the first pass",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: claimed after the first pass fails",
+    "FAIL restart-idle: delivered late fails",
+    "FAIL cold-start: claimed late fails"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: claimed after the first pass fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "68dd26c13d9ba5b9ff886d70bdcded76c244f5dc6a60cd4d75a26e9fafd82754",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a04",
+   "file": "judges.mjs",
+   "expect": "no claimer polling",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: no claimer polling fails",
+    "FAIL stale-second-holder: no claimer polling fails",
+    "FAIL env-paused: no claimer polling fails",
+    "FAIL default-send-unknown: no claimer polling fails"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: no claimer polling fails",
+    "FAIL stale-second-holder: no claimer polling fails",
+    "FAIL env-paused: no claimer polling fails",
+    "FAIL default-send-unknown: no claimer polling fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "1d3f40406fa538e6d994a13200f794df8d20dde689a0d2d576cb4fb829ee0fc9",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a05",
+   "file": "judges.mjs",
+   "expect": "stale-second-holder: received fails",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: received fails"
+   ],
+   "named": [
+    "FAIL stale-second-holder: received fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "1e8f55860db6f0f2eaa58e7e0eec6ec061b8bc91e4adbfc2b2875b92bb5cbc6f",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a06",
+   "file": "judges.mjs",
+   "expect": "no last-known note",
+   "exit": 1,
+   "fails": [
+    "FAIL env-paused: no last-known note fails",
+    "FAIL restart-mid-turn: no last-known note fails"
+   ],
+   "named": [
+    "FAIL env-paused: no last-known note fails",
+    "FAIL restart-mid-turn: no last-known note fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "104ec907b372d697827ccca0eccab8fb1dbd33026f0a4de9c4a951437be1a2d4",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a07",
+   "file": "judges.mjs",
+   "expect": "became a control",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-busy-env-idle: became a control fails"
+   ],
+   "named": [
+    "FAIL legacy-busy-env-idle: became a control fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "1f65cb54b1d9e7328512910fb100607c911aaf6c2d397b292c73861e827cb20f",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a08",
+   "file": "judges.mjs",
+   "expect": "second holder fresh",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: second holder fresh fails"
+   ],
+   "named": [
+    "FAIL stale-second-holder: second holder fresh fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "e587b3c5d3be48e3a08db736f06f5427191cda0677f6227f4a73060c51deeb89",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a09",
+   "file": "judges.mjs",
+   "expect": "an initial message",
+   "exit": 1,
+   "fails": [
+    "FAIL cold-start: an initial message fails"
+   ],
+   "named": [
+    "FAIL cold-start: an initial message fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "98691f7eb8d44ef07d40e87340aaa7d415cf4d2b6fb687e33cc171d0ab1789ee",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a10",
+   "file": "judges.mjs",
+   "expect": "the send started it",
+   "exit": 1,
+   "fails": [
+    "FAIL stop-restart: the send started it fails"
+   ],
+   "named": [
+    "FAIL stop-restart: the send started it fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "9c7c0715b9a3664e98455873616d6e202f1714af53ba5606d83756272726962e",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a11",
+   "file": "judges.mjs",
+   "expect": "no claimer polling",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: no claimer polling fails",
+    "FAIL stale-second-holder: no claimer polling fails",
+    "FAIL env-paused: no claimer polling fails",
+    "FAIL default-send-unknown: no claimer polling fails"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: no claimer polling fails",
+    "FAIL stale-second-holder: no claimer polling fails",
+    "FAIL env-paused: no claimer polling fails",
+    "FAIL default-send-unknown: no claimer polling fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "8f94d231d5a7cb8dea3d09f084df37544c8e0bfa78d9e39bbc6f3d06e2630f38",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a12",
+   "file": "judges.mjs",
+   "expect": "claimed",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: control, the model passes [delivered after the idle publication: R was never claimed]",
+    "FAIL env-resumed: control, the model passes [Q never drained; D never drained]",
+    "FAIL restart-idle: control, the model passes [after the snapshot: R was never claimed]",
+    "FAIL cold-start: control, the model passes [claimed after the new lifetime's record: R was never claimed]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: control, the model passes [delivered after the idle publication: R was never claimed]",
+    "FAIL restart-idle: control, the model passes [after the snapshot: R was never claimed]",
+    "FAIL cold-start: control, the model passes [claimed after the new lifetime's record: R was never claimed]"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "073f4f2e0f8354b63cd3c2a769e344caae963a763e58b93d298569cd179928c3",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a13",
+   "file": "cases.mjs",
+   "expect": "its expected answer is page 2's words",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-busy-env-idle: its expected answer is page 2's words"
+   ],
+   "named": [
+    "FAIL legacy-busy-env-idle: its expected answer is page 2's words"
+   ],
+   "killed": true,
+   "sha_original": "be7de2c930b8d719f7b81fad126297d3dbd5f0abfb608883a4fadc818da2e61b",
+   "sha_mutated": "a8a3ad13b1b50c7be8223952f9e3ffb3706e67881d0cab3b77d19a71693b9b7f",
+   "sha_restored": "be7de2c930b8d719f7b81fad126297d3dbd5f0abfb608883a4fadc818da2e61b",
+   "restored_ok": true
+  },
+  {
+   "arm": "a14",
+   "file": "judges.mjs",
+   "expect": "unknown after the snapshot",
+   "exit": 1,
+   "fails": [
+    "FAIL restored-then-changes: unknown after the snapshot fails"
+   ],
+   "named": [
+    "FAIL restored-then-changes: unknown after the snapshot fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "4e8eff966a3d2385fde01e80365c23f3bb7f24192f12d3fd249dd18b6265f75e",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  },
+  {
+   "arm": "a15",
+   "file": "judges.mjs",
+   "expect": "promotion skipped",
+   "exit": 1,
+   "fails": [
+    "FAIL run-running-idle: promotion skipped fails"
+   ],
+   "named": [
+    "FAIL run-running-idle: promotion skipped fails"
+   ],
+   "killed": true,
+   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "sha_mutated": "9c236bde409430f7fa57945cbb5267b5d0e5aa03a6eb5e5177967fa84d8fd4df",
+   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "restored_ok": true
+  }
+ ],
+ "after_exit": 0
+}

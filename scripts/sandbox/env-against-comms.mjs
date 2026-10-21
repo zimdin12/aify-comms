@@ -32,40 +32,40 @@ const ENV_REPO = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects"
 const HELPERS = ["env.Dockerfile", "sandbox-entry.sh"];
 const COMMAND_MS = 120_000, BUILD_MS = 15 * 60_000, RUN_DEADLINE_MS = 30 * 60_000;
 //: What the live stack is called. A sandbox name equal to one of these is refused before anything is made.
-const LIVE = ["aify-comms-service", "aify-comms-dashboard-next", "aify-comms-network", "aify-comms-data", "aify-comms"];
+export const LIVE = ["aify-comms-service", "aify-comms-dashboard-next", "aify-comms-network", "aify-comms-data", "aify-comms"];
 
-const KEY = process.env.SANDBOX_SELF_CHECK_KEY || randomBytes(32).toString("hex");
-const redact = (text) => String(text).split(KEY).join("<redacted key>");
+export const KEY = process.env.SANDBOX_SELF_CHECK_KEY || randomBytes(32).toString("hex");
+export const redact = (text) => String(text).split(KEY).join("<redacted key>");
 const started = Date.now();
-const log = (line) => console.log(redact(`+${((Date.now() - started) / 1000).toFixed(1)}s ${line}`));
-const deadline = () => { if (Date.now() - started > RUN_DEADLINE_MS) throw new Error("the run deadline passed"); };
+export const log = (line) => console.log(redact(`+${((Date.now() - started) / 1000).toFixed(1)}s ${line}`));
+export const deadline = () => { if (Date.now() - started > RUN_DEADLINE_MS) throw new Error("the run deadline passed"); };
 
 /** One child command, bounded. Never throws; its output is redacted before anything can carry it. */
-function run(command, args, { input, env, cwd, timeout = COMMAND_MS } = {}) {
+export function run(command, args, { input, env, cwd, timeout = COMMAND_MS } = {}) {
   const done = spawnSync(command, args, { input, cwd, env: env ?? process.env, timeout, maxBuffer: 1 << 28,
     encoding: input === undefined || typeof input === "string" ? "utf8" : undefined });
   const raw = `${done.stdout ?? ""}${done.stderr ?? ""}${done.error ? ` ${done.error.message}` : ""}`;
   return { status: done.status, timedOut: done.error?.code === "ETIMEDOUT", leaked: raw.includes(KEY), out: redact(raw) };
 }
 /** A failed or key-printing result becomes an error whose text is already redacted. */
-function must(result, what) {
+export function must(result, what) {
   if (result.status !== 0) throw new Error(`${what} ${result.timedOut ? "timed out" : `exited ${result.status}`}: ${result.out.slice(-2000)}`);
   if (result.leaked) throw new Error(`${what} printed the key; its output is withheld`);
   return result;
 }
-const docker = (args, opts) => run("docker", args, opts);
-const sha = (repo, ref) => must(run("git", ["-C", repo, "rev-parse", `${ref}^{commit}`]), "git rev-parse").out.trim();
-const bytesSha = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+export const docker = (args, opts) => run("docker", args, opts);
+export const sha = (repo, ref) => must(run("git", ["-C", repo, "rev-parse", `${ref}^{commit}`]), "git rev-parse").out.trim();
+export const bytesSha = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
 /** "present", "absent", or "unknown" when docker could not say (a timeout, a daemon error). */
-function exists(kind, ref, dock = docker) {
+export function exists(kind, ref, dock = docker) {
   const r = dock([kind, "inspect", "--format", "{{.Id}}", ref]);
   if (r.status === 0) return "present";
   return r.status !== null && /no such|not found/i.test(r.out) ? "absent" : "unknown";
 }
 
 /** Create one resource this run will own. A name already present, or one docker cannot check, is refused. */
-function create(owned, kind, name, args, opts, dock = docker) {
+export function create(owned, kind, name, args, opts, dock = docker) {
   if (LIVE.includes(name)) throw new Error(`refusing: ${name} is a live name`);
   const before = exists(kind, name, dock);
   if (before !== "absent") throw new Error(`refusing to create ${kind} ${name}: it is ${before}, so it is not this run's`);
@@ -79,10 +79,12 @@ function create(owned, kind, name, args, opts, dock = docker) {
 }
 
 /** Remove each owned resource, then read each one back. ok only when every readback answered absent. */
-function cleanup(owned, workDir, dock = docker) {
-  const order = { container: 0, network: 1, image: 2 };
+export function cleanup(owned, workDir, dock = docker) {
+  // A volume is removed after the container that mounted it, and an image last.
+  const order = { container: 0, network: 1, volume: 2, image: 3 };
   for (const { kind, ref } of [...owned].sort((a, b) => order[a.kind] - order[b.kind])) {
-    dock(kind === "container" ? ["rm", "-f", "-v", ref] : kind === "network" ? ["network", "rm", ref] : ["rmi", "-f", ref]);
+    dock(kind === "container" ? ["rm", "-f", "-v", ref] : kind === "network" ? ["network", "rm", ref]
+      : kind === "volume" ? ["volume", "rm", "-f", ref] : ["rmi", "-f", ref]);
   }
   const remaining = [], unknown = [];
   for (const { kind, ref } of owned) {
@@ -98,7 +100,7 @@ function cleanup(owned, workDir, dock = docker) {
 }
 
 /** Success needs both the primary check and a complete cleanup; either failing is reported on its own line. */
-function outcome(primary, clean) {
+export function outcome(primary, clean) {
   return {
     exit: primary.ok && clean.ok ? 0 : 1,
     lines: [`primary: ${primary.verdict}`, clean.ok ? "cleanup: complete, every owned resource read back absent"
@@ -133,7 +135,7 @@ for c in cur:
 print(json.dumps(dict(publishers=cur)))
 `;
 const observe = (container) => JSON.parse(must(docker(["exec", "-i", container, "python", "-"], { input: OBSERVE }), "observe").out.trim().split("\n").pop());
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function sandbox({ commsRef, envRef, expect, agent }) {
   const owned = [];
@@ -252,19 +254,22 @@ function selfCheck() {
 }
 const LEAKER = "console.log('child says ' + process.env.SANDBOX_SELF_CHECK_KEY); console.error('also ' + process.env.SANDBOX_SELF_CHECK_KEY); process.exit(3)";
 
-const arg = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) ?? "").slice(name.length + 3);
-let exit;
-if (process.argv.includes("--self-check")) exit = selfCheck();
-else if (process.argv.includes("--self-check-leak")) {
-  // The same paths a real failure takes: must() builds the error, the catch logs it.
-  try { must(run(process.execPath, ["-e", LEAKER]), "synthetic child"); } catch (error) { log(`ERROR: ${error.message}`); }
-  exit = 0;
-} else {
-  const commsRef = arg("comms"), envRef = arg("env"), expect = arg("expect");
-  if (!commsRef || !envRef || !["retired", "kept"].includes(expect)) {
-    console.error("usage: env-against-comms.mjs --comms=<ref> --env=<ref> --expect=retired|kept [--no-agent] | --self-check");
-    process.exit(2);
+// The CLI, only when this file is the entry point: the gate (gate/gate.mjs) imports the machinery above.
+if (path.resolve(process.argv[1] ?? "") === SELF) {
+  const arg = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) ?? "").slice(name.length + 3);
+  let exit;
+  if (process.argv.includes("--self-check")) exit = selfCheck();
+  else if (process.argv.includes("--self-check-leak")) {
+    // The same paths a real failure takes: must() builds the error, the catch logs it.
+    try { must(run(process.execPath, ["-e", LEAKER]), "synthetic child"); } catch (error) { log(`ERROR: ${error.message}`); }
+    exit = 0;
+  } else {
+    const commsRef = arg("comms"), envRef = arg("env"), expect = arg("expect");
+    if (!commsRef || !envRef || !["retired", "kept"].includes(expect)) {
+      console.error("usage: env-against-comms.mjs --comms=<ref> --env=<ref> --expect=retired|kept [--no-agent] | --self-check");
+      process.exit(2);
+    }
+    exit = await sandbox({ commsRef, envRef, expect, agent: process.argv.includes("--no-agent") ? "" : "sandbox-probe" });
   }
-  exit = await sandbox({ commsRef, envRef, expect, agent: process.argv.includes("--no-agent") ? "" : "sandbox-probe" });
+  process.exit(exit);
 }
-process.exit(exit);

@@ -1,0 +1,127 @@
+PASS thirteen cases, as page 2's table has thirteen rows
+PASS legacy-busy-env-idle: its expected answer is page 2's words
+PASS legacy-busy-env-idle: its RED is page 2's words
+PASS legacy-busy-env-idle: has a scenario and a judge
+PASS legacy-busy-env-idle: control, the model passes
+PASS legacy-busy-env-idle: legacy not busy fails
+PASS legacy-busy-env-idle: env not idle fails
+PASS legacy-busy-env-idle: held fails
+PASS legacy-busy-env-idle: delivered late fails
+PASS legacy-busy-env-idle: never received as a run fails
+PASS legacy-busy-env-idle: became a control fails
+PASS legacy-idle-env-busy: its expected answer is page 2's words
+PASS legacy-idle-env-busy: its RED is page 2's words
+PASS legacy-idle-env-busy: has a scenario and a judge
+PASS legacy-idle-env-busy: control, the model passes
+PASS legacy-idle-env-busy: legacy busy fails
+PASS legacy-idle-env-busy: env not busy fails
+PASS legacy-idle-env-busy: claimed inside the hold fails
+PASS legacy-idle-env-busy: claimed before the acceptance fails
+PASS legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails
+PASS legacy-idle-env-busy: seen claimed first in the same second fails
+PASS legacy-idle-env-busy: claimed after the first pass fails
+PASS legacy-idle-env-busy: never claimed fails
+PASS legacy-idle-env-busy: no claimer polling fails
+PASS legacy-idle-env-busy: acceptance never seen fails
+PASS busy-steerable: its expected answer is page 2's words
+PASS busy-steerable: its RED is page 2's words
+PASS busy-steerable: has a scenario and a judge
+PASS busy-steerable: control, the model passes
+PASS busy-steerable: env not busy fails
+PASS busy-steerable: never received fails
+PASS busy-steerable: received late fails
+PASS busy-steerable: idle before receipt fails
+PASS stale-second-holder: its expected answer is page 2's words
+PASS stale-second-holder: its RED is page 2's words
+PASS stale-second-holder: has a scenario and a judge
+PASS stale-second-holder: control, the model passes
+PASS stale-second-holder: second holder fresh fails
+PASS stale-second-holder: env holder stale fails
+PASS stale-second-holder: env holder busy fails
+PASS stale-second-holder: claimed fails
+PASS stale-second-holder: received fails
+PASS stale-second-holder: steered fails
+PASS stale-second-holder: no claimer polling fails
+PASS env-paused: its expected answer is page 2's words
+PASS env-paused: its RED is page 2's words
+PASS env-paused: has a scenario and a judge
+PASS env-paused: control, the model passes
+PASS env-paused: silence not passed fails
+PASS env-paused: word not unknown fails
+PASS env-paused: no last-known note fails
+PASS env-paused: queueIfBusy claimed fails
+PASS env-paused: steered fails
+PASS env-paused: no claimer polling fails
+PASS env-resumed: its expected answer is page 2's words
+PASS env-resumed: its RED is page 2's words
+PASS env-resumed: has a scenario and a judge
+PASS env-resumed: control, the model passes
+PASS env-resumed: no fresh publication fails
+PASS env-resumed: drained before the fresh publication fails
+PASS env-resumed: never drained fails
+PASS env-resumed: drained late fails
+PASS env-resumed: idle acceptance never seen fails
+PASS env-resumed: a send created no run fails
+PASS default-send-unknown: its expected answer is page 2's words
+PASS default-send-unknown: its RED is page 2's words
+PASS default-send-unknown: has a scenario and a judge
+PASS default-send-unknown: control, the model passes
+PASS default-send-unknown: not a default send fails
+PASS default-send-unknown: the send created no run fails
+PASS default-send-unknown: claimed fails
+PASS default-send-unknown: eligibility known fails
+PASS default-send-unknown: no claimer polling fails
+PASS restart-idle: its expected answer is page 2's words
+PASS restart-idle: its RED is page 2's words
+PASS restart-idle: has a scenario and a judge
+PASS restart-idle: control, the model passes
+PASS restart-idle: snapshot before the send fails
+PASS restart-idle: word known before the snapshot fails
+PASS restart-idle: delivered before the snapshot fails
+PASS restart-idle: delivered late fails
+PASS restart-idle: never delivered fails
+PASS restart-mid-turn: its expected answer is page 2's words
+PASS restart-mid-turn: its RED is page 2's words
+PASS restart-mid-turn: has a scenario and a judge
+PASS restart-mid-turn: control, the model passes
+PASS restart-mid-turn: not mid-turn fails
+PASS restart-mid-turn: read after the snapshot fails
+PASS restart-mid-turn: word known fails
+PASS restart-mid-turn: no last-known note fails
+PASS restored-then-changes: its expected answer is page 2's words
+PASS restored-then-changes: its RED is page 2's words
+PASS restored-then-changes: has a scenario and a judge
+PASS restored-then-changes: control, the model passes
+PASS restored-then-changes: no changes after the restart fails
+PASS restored-then-changes: snapshot before the changes fails
+PASS restored-then-changes: changes completed the restore fails
+PASS restored-then-changes: unknown after the snapshot fails
+PASS cold-start: its expected answer is page 2's words
+PASS cold-start: its RED is page 2's words
+PASS cold-start: has a scenario and a judge
+PASS cold-start: control, the model passes
+PASS cold-start: no spawn request fails
+PASS cold-start: an initial message fails
+PASS cold-start: the stand-in never started fails
+PASS cold-start: claimed before the record fails
+PASS cold-start: claimed late fails
+PASS cold-start: never claimed fails
+PASS run-running-idle: its expected answer is page 2's words
+PASS run-running-idle: its RED is page 2's words
+PASS run-running-idle: has a scenario and a judge
+PASS run-running-idle: control, the model passes
+PASS run-running-idle: run not running fails
+PASS run-running-idle: record busy fails
+PASS run-running-idle: promotion skipped fails
+PASS stop-restart: its expected answer is page 2's words
+PASS stop-restart: its RED is page 2's words
+PASS stop-restart: has a scenario and a judge
+PASS stop-restart: control, the model passes
+PASS stop-restart: stop row skipped fails
+PASS stop-restart: send not stored fails
+PASS stop-restart: the send started it fails
+PASS stop-restart: delivered while stopped fails
+PASS stop-restart: restart leaves unknown fails
+PASS stop-restart: queued work never drained fails
+PASS every judge is used by a case
+126/126 self-check witnesses passed
