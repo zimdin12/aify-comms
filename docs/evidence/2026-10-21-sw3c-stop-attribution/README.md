@@ -12,5 +12,8 @@ What happened to the seed run `run_1792598417783_01e4b167`, from `stop.evidence.
 - `handoff` at 16:00:44Z, "Auto-mirrored missing handoff to gate-sender": the sender was sent a fallback message about
   the failed run.
 
-There is no `agent_stopped` event, so `_apply_agent_stop_or_resume`'s cancel never ran for this agent. The writer is the
-terminal-close path whose event type is `terminal_closed` (`service/reconcilers/terminal_runs.py`).
+No `agent_stopped` event was captured. That is not proof of absence: no run here shows the probe capturing an
+`agent_stopped` event when one exists. That the cancel path never ran rests on source: `control_agent` delegates a
+defined agent's stop and returns before `_apply_agent_stop_or_resume`. The writer that was observed is the one emitting
+`terminal_closed`, which only `service/reconcilers/terminal_runs.py` does. Which of its three sites wrote it is ASSUMED to
+be the queued-run sweep, because the seed was never claimed.
