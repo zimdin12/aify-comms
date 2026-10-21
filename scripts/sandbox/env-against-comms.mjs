@@ -39,13 +39,24 @@ export const redact = (text) => String(text).split(KEY).join("<redacted key>");
 const started = Date.now();
 export const log = (line) => console.log(redact(`+${((Date.now() - started) / 1000).toFixed(1)}s ${line}`));
 export const deadline = () => { if (Date.now() - started > RUN_DEADLINE_MS) throw new Error("the run deadline passed"); };
+//: While the primary steps run, the moment they must all be done by; null outside them, so cleanup is never cut short.
+let primaryUntil = null;
 
-/** One child command, bounded. Never throws; its output is redacted before anything can carry it. */
+/**
+ * One child command, bounded. Never throws; its output is redacted before anything can carry it. `stdout` is the
+ * command's answer and the only thing parsed as data; `out` (stdout, stderr, error) is for diagnostics. Inside the
+ * primary steps a command is not started after the run deadline, is cut at it, and a result that comes back after it
+ * is not accepted: it reads as timed out, so no primary check can pass on it.
+ */
 export function run(command, args, { input, env, cwd, timeout = COMMAND_MS } = {}) {
-  const done = spawnSync(command, args, { input, cwd, env: env ?? process.env, timeout, maxBuffer: 1 << 28,
+  const left = primaryUntil === null ? Infinity : primaryUntil - Date.now();
+  if (left <= 0) return { status: null, timedOut: true, leaked: false, out: `${command} not started: the run deadline passed`, stdout: "", stderr: "" };
+  const done = spawnSync(command, args, { input, cwd, env: env ?? process.env, timeout: Math.min(timeout, left), maxBuffer: 1 << 28,
     encoding: input === undefined || typeof input === "string" ? "utf8" : undefined });
   const raw = `${done.stdout ?? ""}${done.stderr ?? ""}${done.error ? ` ${done.error.message}` : ""}`;
-  return { status: done.status, timedOut: done.error?.code === "ETIMEDOUT", leaked: raw.includes(KEY), out: redact(raw) };
+  const late = primaryUntil !== null && Date.now() > primaryUntil;
+  return { status: late ? null : done.status, timedOut: late || done.error?.code === "ETIMEDOUT", leaked: raw.includes(KEY),
+    out: redact(late ? `${raw} [came back after the run deadline]` : raw), stdout: late ? "" : redact(done.stdout ?? ""), stderr: redact(done.stderr ?? "") };
 }
 /** A failed or key-printing result becomes an error whose text is already redacted. */
 export function must(result, what) {
@@ -54,27 +65,55 @@ export function must(result, what) {
   return result;
 }
 export const docker = (args, opts) => run("docker", args, opts);
-export const sha = (repo, ref) => must(run("git", ["-C", repo, "rev-parse", `${ref}^{commit}`]), "git rev-parse").out.trim();
+export const sha = (repo, ref) => must(run("git", ["-C", repo, "rev-parse", `${ref}^{commit}`]), "git rev-parse").stdout.trim();
 export const bytesSha = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
-/** "present", "absent", or "unknown" when docker could not say (a timeout, a daemon error). */
+//: The daemon's not-found answer for exactly one ref, per kind, as Docker 29.8 words it and as the newer CLI does.
+const NOT_FOUND = {
+  container: (ref) => [`No such container: ${ref}`],
+  network: (ref) => [`network ${ref} not found`, `No such network: ${ref}`],
+  image: (ref) => [`No such image: ${ref}`, `No such image: ${ref}:latest`],
+  volume: (ref) => [`get ${ref}: no such volume`, `No such volume: ${ref}`],
+};
+/**
+ * "present", "absent", or "unknown" when docker could not say. Absent only on the daemon's own not-found answer
+ * naming exactly this ref: a transport or daemon failure (a missing socket's "no such file", a refused connection,
+ * a timeout) says nothing about the resource, so it stays unknown.
+ */
 export function exists(kind, ref, dock = docker) {
   const r = dock([kind, "inspect", "--format", "{{.Id}}", ref]);
   if (r.status === 0) return "present";
-  return r.status !== null && /no such|not found/i.test(r.out) ? "absent" : "unknown";
+  const answers = NOT_FOUND[kind](ref).flatMap((m) => [`Error response from daemon: ${m}`, `Error: ${m}`]);
+  return r.status === 1 && (r.stdout ?? "").trim() === "" && answers.includes((r.stderr ?? "").trim()) ? "absent" : "unknown";
 }
+//: A Docker object id as `run -d` and `network create` print it: 64 hex, or the 12-hex short form.
+const DOCKER_ID = /^(?:[0-9a-f]{12}|[0-9a-f]{64})$/;
 
-/** Create one resource this run will own. A name already present, or one docker cannot check, is refused. */
+/**
+ * Create one resource this run will own. A name already present, or one docker cannot check, is refused. The id
+ * comes from the command's stdout alone and must be one Docker id that the name resolves to; anything else is
+ * ownership unknown, which fails the run, and the resource is owned by its name so cleanup still removes it.
+ */
 export function create(owned, kind, name, args, opts, dock = docker) {
   if (LIVE.includes(name)) throw new Error(`refusing: ${name} is a live name`);
   const before = exists(kind, name, dock);
   if (before !== "absent") throw new Error(`refusing to create ${kind} ${name}: it is ${before}, so it is not this run's`);
   const r = dock(args, opts);
   // Checked absent a moment ago under a random name, so a resource by that name now is this run's, even if the
-  // command failed after making it (a container that could not start, say).
-  if (r.status !== 0 && exists(kind, name, dock) === "present") owned.push({ kind, ref: name });
+  // command failed after making it (a container that could not start, say) or its answer came back too late.
+  if (r.status !== 0 && exists(kind, name, dock) !== "absent") owned.push({ kind, ref: name });
   must(r, `create ${kind} ${name}`);
-  owned.push({ kind, ref: kind === "image" ? name : r.out.trim().split(/\s+/).pop() });
+  let ref = name;
+  if (kind !== "image") {
+    const id = (r.stdout ?? "").trim();
+    const bound = DOCKER_ID.test(id) ? dock([kind, "inspect", "--format", "{{.Id}}", name]) : null;
+    if (!bound || bound.status !== 0 || !(bound.stdout ?? "").trim().startsWith(id)) {
+      owned.push({ kind, ref: name });
+      throw new Error(`create ${kind} ${name}: its answer named no ${kind} id this name resolves to, so ownership is unknown; owned by name for cleanup`);
+    }
+    ref = bound.stdout.trim();
+  }
+  owned.push({ kind, ref });
   log(`owned ${kind} ${owned.at(-1).ref}`);
 }
 
@@ -134,13 +173,14 @@ for c in cur:
                            (c['machine'], c['instance'])).fetchone()[0]
 print(json.dumps(dict(publishers=cur)))
 `;
-const observe = (container) => JSON.parse(must(docker(["exec", "-i", container, "python", "-"], { input: OBSERVE }), "observe").out.trim().split("\n").pop());
+const observe = (container) => JSON.parse(must(docker(["exec", "-i", container, "python", "-"], { input: OBSERVE }), "observe").stdout.trim().split("\n").pop());
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function sandbox({ commsRef, envRef, expect, agent }) {
   const owned = [];
   let workDir = null;
   const primary = { ok: false, verdict: "ERROR" };
+  primaryUntil = started + RUN_DEADLINE_MS;
   try {
     log(`driver sha256 ${bytesSha(SELF)}; ${HELPERS.map((h) => `${h} sha256 ${bytesSha(path.join(HERE, h))}`).join("; ")}`);
     const commsSha = sha(REPO, commsRef), envSha = sha(ENV_REPO, envRef);
@@ -194,15 +234,17 @@ async function sandbox({ commsRef, envRef, expect, agent }) {
     log(`env published: ${JSON.stringify(before)}`);
 
     must(docker(["kill", "-s", "TERM", names.env]), "docker kill");
-    log(`env stopped by SIGTERM, exit ${must(docker(["wait", names.env], { timeout: 60_000 }), "docker wait").out.trim()}`);
+    log(`env stopped by SIGTERM, exit ${must(docker(["wait", names.env], { timeout: 60_000 }), "docker wait").stdout.trim()}`);
     const after = observe(names.comms);
     log(`after: ${JSON.stringify(after)}`);
     log(`env log, last lines:\n${docker(["logs", names.env]).out.split("\n").slice(-25).join("\n")}`);
+    deadline();
     primary.ok = expect === "retired" ? retiredHolds(before, after) : keptHolds(before, after);
     primary.verdict = `${primary.ok ? "AS EXPECTED" : "NOT AS EXPECTED"} (${expect})`;
   } catch (error) {
     primary.verdict = `ERROR: ${redact(error.message)}`;
   } finally {
+    primaryUntil = null;
     const clean = cleanup(owned, workDir);
     const result = outcome(primary, clean);
     for (const line of result.lines) log(line);
@@ -218,27 +260,79 @@ function selfCheck() {
   // Secrets: a child that fails and prints a synthetic key, run through this file's own error and log paths.
   const synthetic = randomBytes(16).toString("hex");
   const leakEnv = { ...process.env, SANDBOX_SELF_CHECK_KEY: synthetic };
-  const direct = spawnSync(process.execPath, ["-e", LEAKER], { env: leakEnv, encoding: "utf8" });
+  const direct = spawnSync(process.execPath, ["-e", LEAKER], { env: leakEnv, encoding: "utf8", timeout: COMMAND_MS });
   check("control: the synthetic child really prints its key", `${direct.stdout}${direct.stderr}`.includes(synthetic));
   const inner = spawnSync(process.execPath, [SELF, "--self-check-leak"], { env: leakEnv, encoding: "utf8", timeout: COMMAND_MS });
   const seen = `${inner.stdout}${inner.stderr}`;
   check("the key never reaches this file's output on a failing child", !seen.includes(synthetic));
   check("the failure is still reported, redacted", seen.includes("exited 3") && seen.includes("<redacted key>"));
   // Cleanup: a stub docker that cannot remove, one that cannot list, and one that works.
-  const stub = (inspect) => (args) => (args[1] === "inspect" ? inspect : { status: 0, out: "", timedOut: false, leaked: false });
-  const presentStub = stub({ status: 0, out: "sha256:x", timedOut: false });
+  const answer = (status, stdout = "", stderr = "") => ({ status, stdout, stderr, out: `${stdout}${stderr}`, timedOut: status === null, leaked: false });
+  const stub = (inspect) => (args) => (args[1] === "inspect" ? inspect : answer(0));
+  const presentStub = stub(answer(0, "sha256:x"));
   const owned = [{ kind: "container", ref: "c1" }];
   const stuck = cleanup(owned, null, presentStub);
   check("a resource still present fails cleanup and is named", !stuck.ok && stuck.remaining.includes("container c1"));
   check("a primary pass with failed cleanup exits nonzero", outcome({ ok: true, verdict: "x" }, stuck).exit === 1);
-  const blind = cleanup(owned, null, stub({ status: null, out: "spawnSync docker ETIMEDOUT", timedOut: true }));
+  const blind = cleanup(owned, null, stub(answer(null, "", "spawnSync docker ETIMEDOUT")));
   check("a listing that times out fails cleanup (unknown, not empty)", !blind.ok && blind.unknown.includes("container c1"));
-  const fine = cleanup(owned, null, stub({ status: 1, out: "Error: No such container: c1", timedOut: false }));
+  const socket = cleanup(owned, null, stub(answer(1, "", "error during connect: dial unix /x/docker.sock: connect: no such file or directory")));
+  check("a missing daemon socket is not absence (unknown)", !socket.ok && socket.unknown.includes("container c1"));
+  const other = cleanup(owned, null, stub(answer(1, "", "Error response from daemon: No such container: c2")));
+  check("a not-found answer for another ref is not absence", !other.ok && other.unknown.includes("container c1"));
+  const fine = cleanup(owned, null, stub(answer(1, "", "Error response from daemon: No such container: c1")));
   check("control: a clean readback passes and exits 0", fine.ok && outcome({ ok: true, verdict: "x" }, fine).exit === 0);
+  for (const [kind, said] of [["network", "network n1 not found"], ["image", "No such image: n1:latest"], ["volume", "get n1: no such volume"]]) {
+    check(`control: Docker 29.8's ${kind} not-found answer reads absent`, exists(kind, "n1", stub(answer(1, "", `Error response from daemon: ${said}`))) === "absent");
+  }
   const adopted = [];
   let refused = false;
   try { create(adopted, "container", "aify-sandbox-taken", ["run"], {}, presentStub); } catch { refused = true; }
   check("an existing name is refused and never owned", refused && adopted.length === 0);
+  // Ownership: the id comes from stdout alone and must be what the name resolves to.
+  const ID = "a".repeat(64);
+  const creating = (made) => { let createdYet = false; return (args) => {
+    if (args[1] === "inspect") return createdYet ? answer(0, `${ID}\n`) : answer(1, "", `Error response from daemon: No such container: ${args.at(-1)}`);
+    createdYet = true; return made; }; };
+  // A witness whose body throws records a FAIL under its own name; a crash would hide every result after it.
+  const attempt = (fn) => { try { return fn(); } catch { return false; } };
+  const warned = [];
+  check("a stderr diagnostic never becomes the owned id", attempt(() => {
+    create(warned, "container", "aify-sandbox-w", ["run"], {}, creating(answer(0, `${ID}\n`, "WARNING: benign diagnostic\n")));
+    return warned.length === 1 && warned[0].ref === ID;
+  }));
+  const garbled = [];
+  let unknownOwner = false;
+  try { create(garbled, "container", "aify-sandbox-g", ["run"], {}, creating(answer(0, "not an id\n"))); } catch (e) { unknownOwner = /ownership is unknown/.test(e.message); }
+  check("an answer naming no id fails as ownership unknown and is owned by name", unknownOwner && garbled.length === 1 && garbled[0].ref === "aify-sandbox-g");
+  const unbound = [];
+  let notBound = false;
+  try { create(unbound, "container", "aify-sandbox-u", ["run"], {}, creating(answer(0, `${"b".repeat(64)}\n`))); } catch (e) { notBound = /ownership is unknown/.test(e.message); }
+  check("an id the name does not resolve to is not owned as that id", notBound && unbound.length === 1 && unbound[0].ref === "aify-sandbox-u");
+  const lost = [];
+  let checks = 0;
+  try {
+    create(lost, "container", "aify-sandbox-l", ["run"], {}, (args) => (args[1] !== "inspect" ? answer(1, "", "daemon hiccup")
+      : (checks += 1) === 1 ? answer(1, "", "Error response from daemon: No such container: aify-sandbox-l") : answer(1, "", "daemon connection refused")));
+  } catch { /* the failed create is the point */ }
+  check("a failed create whose name cannot be read back is still owned by name", lost.length === 1 && lost[0].ref === "aify-sandbox-l");
+  // The run deadline: no command starts after it, and one running at it is cut there.
+  let refusedRun = null, cut = null, cutMs = Infinity;
+  try {
+    primaryUntil = Date.now() - 1;
+    refusedRun = attempt(() => run(process.execPath, ["-e", "0"]));
+    primaryUntil = Date.now() + 300;
+    const cutFrom = Date.now();
+    cut = attempt(() => run(process.execPath, ["-e", "setTimeout(() => {}, 20000)"]));
+    cutMs = Date.now() - cutFrom;
+  } finally { primaryUntil = null; }
+  check("no command starts after the run deadline", Boolean(refusedRun) && refusedRun.status === null && refusedRun.timedOut && refusedRun.out.includes("not started"));
+  check("a command still running at the run deadline is cut there, not at its own 20 s", Boolean(cut) && cut.status === null && cut.timedOut && cutMs < 10_000);
+  // Every child this file starts is bounded: each spawnSync call names a timeout.
+  const spawns = fs.readFileSync(SELF, "utf8").split("\n").filter((l) => /\bspawnSync\(/.test(l) && !l.trimStart().startsWith("//"));
+  check("every spawnSync call in this file names a timeout", spawns.length === 3 && spawns.every((l) => /timeout/.test(l)));
+  const after = run(process.execPath, ["-e", "process.stdout.write('ok')"]);
+  check("control: outside the primary steps a command runs normally", after.status === 0 && after.stdout === "ok");
   // The predicate: each single-field countermodel fails; the real transition passes.
   const b = { machine: "m", instance: "default", generation: 7, publication: 1, kind: "snapshot", reason: null, rows: 1 };
   const r = { machine: "m", instance: "residents-x", generation: 8, publication: 1, kind: "snapshot", reason: null, rows: 0 };
