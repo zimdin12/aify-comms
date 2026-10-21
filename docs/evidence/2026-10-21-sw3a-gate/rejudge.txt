@@ -1,0 +1,15 @@
+legacy-busy-env-idle: FAIL, identical to the recorded verdict [held: never claimed; the stand-in never received it as a run]
+legacy-idle-env-busy: FAIL, identical to the recorded verdict [held: run_1792546051947_b026ae6e was claimed inside the window; held: the stand-in received run_1792546051947_b026ae6e inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]
+busy-steerable: PASS, identical to the recorded verdict
+stale-second-holder: FAIL, identical to the recorded verdict [withheld: run_1792546251558_9a796eec was claimed inside the window; withheld: the stand-in received run_1792546251558_9a796eec inside the window]
+env-paused: FAIL, identical to the recorded verdict [the word read online, not unknown; no lastKnown beside unknown; the queueIfBusy send: run_1792546551646_92e3f370 was claimed inside the window; the queueIfBusy send: the stand-in received run_1792546551646_92e3f370 inside the window; the steerable send: run_1792546552124_5859ff0e was claimed inside the window; the steerable send: the stand-in received run_1792546552124_5859ff0e inside the window]
+env-resumed: FAIL, identical to the recorded verdict [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the steerable send drained before a fresh publication; the watcher saw the steerable claim first]
+default-send-unknown: FAIL, identical to the recorded verdict [the default send: run_1792546552124_5859ff0e was claimed inside the window; the default send: the stand-in received run_1792546552124_5859ff0e inside the window]
+restart-idle: FAIL, identical to the recorded verdict [before the snapshot the word read online; after the snapshot: claimed before comms accepted the publication; after the snapshot: the watcher saw the claim first]
+restart-mid-turn: FAIL, identical to the recorded verdict [the word read online, not unknown; no lastKnown beside unknown]
+restored-then-changes: FAIL, identical to the recorded verdict [after the changes the word read online]
+cold-start: FAIL, identical to the recorded verdict [withheld before the record: run_1792547129618_bc068929 was claimed inside the window; withheld before the record: the stand-in received run_1792547129618_bc068929 inside the window; claimed after the new lifetime's record: claimed before comms accepted the publication; claimed after the new lifetime's record: the watcher saw the claim first]
+run-running-idle: PASS, identical to the recorded verdict
+stop-restart: FAIL, identical to the recorded verdict [after the stop the word read available; after the first turn the word read working; the seeded run: run_1792547324642_8aea865d was never claimed]
+fresh-busy-beside-unknown: FAIL, identical to the recorded verdict [withheld, steer included: run_1792547577170_7f6164ac was claimed inside the window; withheld, steer included: the stand-in received run_1792547577170_7f6164ac inside the window]
+14/14 cases identical

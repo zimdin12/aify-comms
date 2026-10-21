@@ -9,16 +9,16 @@
    "expect": "claimed a second before the acceptance, seen after it",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails []"
+    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails [PASS: ]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails []"
+    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "6eab333d310450f9f59be37b5a010239eaa98a4619508998ce67144765b98f46",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "ae57585b0bc9736d823a53ad624755281258b0fc81c75a5fa4d369e3ae719eeb",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -28,17 +28,17 @@
    "expect": "seen claimed first in the same second",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails []",
-    "FAIL env-resumed: the queueIfBusy send seen claimed before idle in the same second fails []"
+    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails [PASS: ]",
+    "FAIL env-resumed: the queueIfBusy send seen claimed before idle in the same second fails [PASS: ]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails []"
+    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "fe20368308b9e64926219c567b2d8f6c734b603db77583994a098b74373ee5f6",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "a7d5348728c77b8c520e69b61b51bc98a270f9b3d0aa11acc8c7fe13123109d6",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -48,19 +48,19 @@
    "expect": "claimed after the first pass",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: claimed after the first pass fails []",
-    "FAIL env-resumed: the queueIfBusy send late fails []",
-    "FAIL restart-idle: delivered late fails []",
-    "FAIL cold-start: claimed late fails []"
+    "FAIL legacy-idle-env-busy: claimed after the first pass fails [PASS: ]",
+    "FAIL env-resumed: the queueIfBusy send late fails [PASS: ]",
+    "FAIL restart-idle: delivered late fails [PASS: ]",
+    "FAIL cold-start: claimed late fails [PASS: ]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: claimed after the first pass fails []"
+    "FAIL legacy-idle-env-busy: claimed after the first pass fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "b2d083b5fb360df0077526a6471cb56c9f01d86531b2739eb1e65ef500326862",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "ef0494c7ac69f8e2f95781e703e88c5def756d8ca39d086b4323cc2441a5741a",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -70,24 +70,24 @@
    "expect": "no claimer polling",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: no claimer polling fails []",
-    "FAIL stale-second-holder: no claimer polling fails []",
-    "FAIL default-send-unknown: no claimer polling fails []",
-    "FAIL cold-start: no claimer polling in the hold fails []",
-    "FAIL fresh-busy-beside-unknown: no claimer polling fails []"
+    "FAIL legacy-idle-env-busy: no claimer polling fails [PASS: ]",
+    "FAIL stale-second-holder: no claimer polling fails [PASS: ]",
+    "FAIL default-send-unknown: no claimer polling fails [PASS: ]",
+    "FAIL cold-start: no claimer polling in the hold fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: no claimer polling fails [PASS: ]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: no claimer polling fails []",
-    "FAIL stale-second-holder: no claimer polling fails []",
-    "FAIL default-send-unknown: no claimer polling fails []",
-    "FAIL cold-start: no claimer polling in the hold fails []",
-    "FAIL fresh-busy-beside-unknown: no claimer polling fails []"
+    "FAIL legacy-idle-env-busy: no claimer polling fails [PASS: ]",
+    "FAIL stale-second-holder: no claimer polling fails [PASS: ]",
+    "FAIL default-send-unknown: no claimer polling fails [PASS: ]",
+    "FAIL cold-start: no claimer polling in the hold fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: no claimer polling fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "2a02729afe8cfe8d1661ca9d8c01e81e0f09c2187a74b341014564d9ec247ea6",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "06c1a792d28b09f149d226b07dd12403adb508c25d0c5fb7d378f4d51edab472",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -97,21 +97,27 @@
    "expect": "review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: control, the model passes [held: the stand-in received R inside the window]",
-    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: the stand-in received R inside the window]",
-    "FAIL stale-second-holder: control, the model passes [withheld: the stand-in received R inside the window]",
-    "FAIL env-paused: a release after the window is lawful passes [the queueIfBusy send: the stand-in received Q inside the window; the steerable send: the stand-in received D inside the window]",
-    "FAIL cold-start: control, the model passes [withheld before the record: the stand-in received R inside the window]",
-    "FAIL fresh-busy-beside-unknown: control, the model passes [withheld, steer included: the stand-in received R inside the window]"
+    "FAIL legacy-idle-env-busy: control, the model passes [FAIL: held: the stand-in received R inside the window]",
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: the stand-in received R inside the window]",
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [FAIL: held: the stand-in received R inside the window]",
+    "FAIL legacy-idle-env-busy: review F1: released in the next second passes [FAIL: held: the stand-in received R inside the window]",
+    "FAIL stale-second-holder: control, the model passes [FAIL: withheld: the stand-in received R inside the window]",
+    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [FAIL: withheld: the stand-in received R inside the window]",
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: the stand-in received R inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL env-paused: a release after the window is lawful passes [FAIL: the queueIfBusy send: the stand-in received Q inside the window; the steerable send: the stand-in received D inside the window]",
+    "FAIL cold-start: control, the model passes [FAIL: withheld before the record: the stand-in received R inside the window]",
+    "FAIL fresh-busy-beside-unknown: control, the model passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: the stand-in received R inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: the stand-in received R inside the window]"
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: the stand-in received R inside the window]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "9f7dbe54272962308547246fba23ab2058cdb7ca67c072149b2f9d572e81bd7d",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "9ae7323b2faa6ae3e4f668a231a3a00922232ebd5b36e8587d89f0a4a2b23148",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -121,21 +127,28 @@
    "expect": "review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: control, the model passes [held: R was claimed inside the window]",
-    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: R was claimed inside the window]",
-    "FAIL stale-second-holder: control, the model passes [withheld: R was claimed inside the window]",
-    "FAIL env-paused: a release after the window is lawful passes [the queueIfBusy send: Q was claimed inside the window; the steerable send: D was claimed inside the window]",
-    "FAIL cold-start: control, the model passes [withheld before the record: R was claimed inside the window]",
-    "FAIL fresh-busy-beside-unknown: control, the model passes [withheld, steer included: R was claimed inside the window]"
+    "FAIL legacy-idle-env-busy: control, the model passes [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: review F1: released in the next second passes [FAIL: held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]",
+    "FAIL stale-second-holder: control, the model passes [FAIL: withheld: R was claimed inside the window]",
+    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [FAIL: withheld: R was claimed inside the window]",
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: R was claimed inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL env-paused: a release after the window is lawful passes [FAIL: the queueIfBusy send: Q was claimed inside the window; the steerable send: D was claimed inside the window]",
+    "FAIL cold-start: control, the model passes [FAIL: withheld before the record: R was claimed inside the window]",
+    "FAIL fresh-busy-beside-unknown: control, the model passes [FAIL: withheld, steer included: R was claimed inside the window]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [FAIL: withheld, steer included: R was claimed inside the window]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: R was claimed inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: R was claimed inside the window]"
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: R was claimed inside the window]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "1b3e4ad0608452ce909f30e55076f1bacaddec2defbf47a3bcca7525130b6121",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "bc51563416db0216ad0b670bfd0b10811e9339f7e13205246f396b7110c3d4d0",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -145,19 +158,19 @@
    "expect": "received inside the hold",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: received inside the hold fails []",
-    "FAIL stale-second-holder: received inside the window fails []",
-    "FAIL env-paused: the steerable send received in the window fails []",
-    "FAIL fresh-busy-beside-unknown: received inside the window fails []"
+    "FAIL legacy-idle-env-busy: received inside the hold fails [PASS: ]",
+    "FAIL stale-second-holder: received inside the window fails [PASS: ]",
+    "FAIL env-paused: the steerable send received in the window fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: received inside the window fails [PASS: ]"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: received inside the hold fails []"
+    "FAIL legacy-idle-env-busy: received inside the hold fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "1d9bf187c1c68cb362630ee6aaf856368bde0b74e626de2000ac3499383be1f1",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "fef821098e678cc276ff31ae40e3dac828d4fc83915a6df47b3daa4ee4db6f79",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -167,19 +180,21 @@
    "expect": "steered inside the window",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: steered inside the window fails []",
-    "FAIL env-paused: the steerable send steered in the window fails []",
-    "FAIL fresh-busy-beside-unknown: steered inside the window fails []"
+    "FAIL stale-second-holder: steered inside the window fails [PASS: ]",
+    "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL env-paused: the steerable send steered in the window fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: steered inside the window fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [PASS: ]"
    ],
    "named": [
-    "FAIL stale-second-holder: steered inside the window fails []",
-    "FAIL fresh-busy-beside-unknown: steered inside the window fails []"
+    "FAIL stale-second-holder: steered inside the window fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: steered inside the window fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "ee51179b555a1d364f2f6cfaf03e804e534ed016f239f36ea8885b4f2f4bdf57",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "9894222801eab7ec99b0c839cbd6d77eafb8cb2a1fa294a3ba69e8c709183ae4",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -189,17 +204,17 @@
    "expect": "review R2: the queueIfBusy send claimed while busy, before idle",
    "exit": 1,
    "fails": [
-    "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails []",
-    "FAIL env-resumed: the queueIfBusy send seen claimed before idle in the same second fails []"
+    "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails [PASS: ]",
+    "FAIL env-resumed: the queueIfBusy send seen claimed before idle in the same second fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails []"
+    "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "2122599b0204ab7e9e18e7228fac559d6e74bb7ec2035cc58f9f33dee2c98d0d",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "dbd1d24712e3e8d02424bb3f2f502085dda362434d6c8beb9a7dce8735ae6dec",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -209,16 +224,16 @@
    "expect": "no fresh publication after the resume",
    "exit": 1,
    "fails": [
-    "FAIL env-resumed: no fresh publication after the resume fails []"
+    "FAIL env-resumed: no fresh publication after the resume fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-resumed: no fresh publication after the resume fails []"
+    "FAIL env-resumed: no fresh publication after the resume fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "916e89dd3fec8ebd8916a7c8ae0ef579ba8d75b8ee1d417da105b61db45cbdc4",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "d37bf020a35ccae4809255532b94ae3f778df80f37e09449a26fb88f479558d0",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -228,16 +243,16 @@
    "expect": "the steerable send late",
    "exit": 1,
    "fails": [
-    "FAIL env-resumed: the steerable send late fails []"
+    "FAIL env-resumed: the steerable send late fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-resumed: the steerable send late fails []"
+    "FAIL env-resumed: the steerable send late fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "1e7c4e2a72cfe122bb320989b2e5121d8ced61c373e7162cc2739b66d11199e8",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "806d452087ff3683e02508d8e7a20c785324dd7941b0b801bcb16315cf9c97c7",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -247,16 +262,16 @@
    "expect": "the steerable send a second before the fresh publication, seen after it",
    "exit": 1,
    "fails": [
-    "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails []"
+    "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails []"
+    "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "51f8f084051c45b224d0de880bbe9a07ae94dfc13717265b92145a3de25e964e",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "b8cfd453d4a36bb8a87dd1173c11985986523b9334dd3d2e10434a9d32200ac3",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -266,16 +281,16 @@
    "expect": "review R3: an available row with no lifetime before the send",
    "exit": 1,
    "fails": [
-    "FAIL cold-start: review R3: an available row with no lifetime before the send fails []"
+    "FAIL cold-start: review R3: an available row with no lifetime before the send fails [PASS: ]"
    ],
    "named": [
-    "FAIL cold-start: review R3: an available row with no lifetime before the send fails []"
+    "FAIL cold-start: review R3: an available row with no lifetime before the send fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "b2a233715d8b8d1e34054f1e9a07a1440a41c3667cd2a535e32c446aabbea1c6",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "43bdac5670cfe7253649ba688a4851e1c9a7425edc1d2becac4358ffc8644f21",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -285,18 +300,18 @@
    "expect": "aify-env announced nothing",
    "exit": 1,
    "fails": [
-    "FAIL env-paused: aify-env announced nothing fails []",
-    "FAIL default-send-unknown: aify-env announced nothing fails []"
+    "FAIL env-paused: aify-env announced nothing fails [PASS: ]",
+    "FAIL default-send-unknown: aify-env announced nothing fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-paused: aify-env announced nothing fails []",
-    "FAIL default-send-unknown: aify-env announced nothing fails []"
+    "FAIL env-paused: aify-env announced nothing fails [PASS: ]",
+    "FAIL default-send-unknown: aify-env announced nothing fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "4a67fa0d765d690b41df0e6ca880ab6e0e379bbcb172fc2deb4f02999e3aebbc",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "b8c27296d51125dcf00cad5baf8ae8e9904c266f2b210ad6fce6fd967b894722",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -306,18 +321,18 @@
    "expect": "three intervals not passed",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: the second holder not stale fails []",
-    "FAIL env-paused: three intervals not passed fails []",
-    "FAIL fresh-busy-beside-unknown: the second holder not stale fails []"
+    "FAIL stale-second-holder: the second holder not stale fails [PASS: ]",
+    "FAIL env-paused: three intervals not passed fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: the second holder not stale fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-paused: three intervals not passed fails []"
+    "FAIL env-paused: three intervals not passed fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "2b0fdd51f1add16dae7598cce5629972fa896a14e78e47f89806e1880added07",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "ff73d3877bfe015fbc60855296273be50b3e2df36d1ceba0cb91646b88065757",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -327,16 +342,16 @@
    "expect": "a report reached comms during the silence",
    "exit": 1,
    "fails": [
-    "FAIL env-paused: a report reached comms during the silence fails []"
+    "FAIL env-paused: a report reached comms during the silence fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-paused: a report reached comms during the silence fails []"
+    "FAIL env-paused: a report reached comms during the silence fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "c9d0c2065d3ac22ec2b7f515fadb745d026dd98c300bf2568e0f16e6167571c5",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "2876cede4775dcc7ad6ff0416e0206ae186b7eef0164ed54d9a3b76a8b8b9061",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -346,18 +361,18 @@
    "expect": "aify-env out of contact",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: aify-env out of contact fails []",
-    "FAIL fresh-busy-beside-unknown: aify-env out of contact fails []"
+    "FAIL stale-second-holder: aify-env out of contact fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: aify-env out of contact fails [PASS: ]"
    ],
    "named": [
-    "FAIL stale-second-holder: aify-env out of contact fails []",
-    "FAIL fresh-busy-beside-unknown: aify-env out of contact fails []"
+    "FAIL stale-second-holder: aify-env out of contact fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: aify-env out of contact fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "4e1b4181d5ddee6dbc6b5e11c84e6d98cfaf3eda6adb851a4cf5dd22f1c54476",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "638cb095b276d39910a89d6b0f65a50ecb40cb8d7636372b8873ee75f1fc20c8",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -367,17 +382,17 @@
    "expect": "aify-env not busy",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: aify-env busy fails []",
-    "FAIL fresh-busy-beside-unknown: aify-env not busy fails []"
+    "FAIL stale-second-holder: aify-env busy fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: aify-env not busy fails [PASS: ]"
    ],
    "named": [
-    "FAIL fresh-busy-beside-unknown: aify-env not busy fails []"
+    "FAIL fresh-busy-beside-unknown: aify-env not busy fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "32b9f3bad7420a093082d8c307686a6b8774b2db58a63bf5dfe2b0054d77a392",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "e5cab4bb753dfbc618a34a91a22da577e5768fcda076aeedb99df1c7b91c07c6",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -387,16 +402,16 @@
    "expect": "the send not steerable",
    "exit": 1,
    "fails": [
-    "FAIL fresh-busy-beside-unknown: the send not steerable fails []"
+    "FAIL fresh-busy-beside-unknown: the send not steerable fails [PASS: ]"
    ],
    "named": [
-    "FAIL fresh-busy-beside-unknown: the send not steerable fails []"
+    "FAIL fresh-busy-beside-unknown: the send not steerable fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "3343b9f329fd0ceaeb45bbbe40f2b2c00e1a2e8c18ad3b0644b842bbc7de8091",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "a3bc704db5b34b79bd921b8068a2b53a097063d43675ed5500c3c7700c904931",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -406,16 +421,16 @@
    "expect": "review R7: no queued work seeded",
    "exit": 1,
    "fails": [
-    "FAIL stop-restart: review R7: no queued work seeded fails []"
+    "FAIL stop-restart: review R7: no queued work seeded fails [PASS: ]"
    ],
    "named": [
-    "FAIL stop-restart: review R7: no queued work seeded fails []"
+    "FAIL stop-restart: review R7: no queued work seeded fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "e70fadcf3859b5f78e297f53f24c620ca67cf0cd8e8d0e948e43765e752014f2",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "ca4b8b464f9e1a314dcee121110c4ad246f6b69d61cf0a4ab5f2eb89dd5be6e6",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -425,17 +440,17 @@
    "expect": "review R7: the named seed never drained",
    "exit": 1,
    "fails": [
-    "FAIL stop-restart: review R7: the named seed never drained fails []",
-    "FAIL stop-restart: the seed claimed before the restart fails []"
+    "FAIL stop-restart: review R7: the named seed never drained fails [PASS: ]",
+    "FAIL stop-restart: the seed claimed before the restart fails [PASS: ]"
    ],
    "named": [
-    "FAIL stop-restart: review R7: the named seed never drained fails []"
+    "FAIL stop-restart: review R7: the named seed never drained fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "bb7a537190379152ab7ac99f1b09c3da926b5bb5501910ffb4ead31466600ca7",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "7c4ad61f9054c160d23364a30eaa76b6fd7d40c7821364a0c3491987ba95f9ba",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -445,16 +460,16 @@
    "expect": "restart leaves unknown after the first turn",
    "exit": 1,
    "fails": [
-    "FAIL stop-restart: restart leaves unknown after the first turn fails []"
+    "FAIL stop-restart: restart leaves unknown after the first turn fails [PASS: ]"
    ],
    "named": [
-    "FAIL stop-restart: restart leaves unknown after the first turn fails []"
+    "FAIL stop-restart: restart leaves unknown after the first turn fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "271a6cfe592580bcc2d2a33ece7659b7626917262c2b3d4eb446fae83adaa32e",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "20af17ecf2aab679ed70aaaba6cf394fdd2f577f242a2fbea65565cd59c6b3a4",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -464,18 +479,18 @@
    "expect": "review R8: negative prose in statusNote",
    "exit": 1,
    "fails": [
-    "FAIL env-paused: review R8: negative prose in statusNote fails []",
-    "FAIL restart-mid-turn: review R8: negative prose in statusNote fails []"
+    "FAIL env-paused: review R8: negative prose in statusNote fails [PASS: ]",
+    "FAIL restart-mid-turn: review R8: negative prose in statusNote fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-paused: review R8: negative prose in statusNote fails []",
-    "FAIL restart-mid-turn: review R8: negative prose in statusNote fails []"
+    "FAIL env-paused: review R8: negative prose in statusNote fails [PASS: ]",
+    "FAIL restart-mid-turn: review R8: negative prose in statusNote fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "f874ac1c1f02d3f1eae0c7eec7b3082421b34cb8d08579d72882c54263dc7ffb",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "9927b83b8c0aacc0ab863a304a9fecdc95210c7884259c7def6cfad5a40fb01c",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -485,18 +500,18 @@
    "expect": "lastKnown names another word",
    "exit": 1,
    "fails": [
-    "FAIL env-paused: lastKnown names another word fails []",
-    "FAIL restart-mid-turn: lastKnown names another word fails []"
+    "FAIL env-paused: lastKnown names another word fails [PASS: ]",
+    "FAIL restart-mid-turn: lastKnown names another word fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-paused: lastKnown names another word fails []",
-    "FAIL restart-mid-turn: lastKnown names another word fails []"
+    "FAIL env-paused: lastKnown names another word fails [PASS: ]",
+    "FAIL restart-mid-turn: lastKnown names another word fails [PASS: ]"
    ],
    "killed": true,
-   "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "245af265aa628d5494c0b78c2c0253f9504aa934dbbebcb9b4547e3a20d25c34",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "d5ff37764ad2d4c4a950e1474948cf8ea8f44b3bc5680967853bfd71142eb950",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -506,16 +521,16 @@
    "expect": "lastKnown names another time",
    "exit": 1,
    "fails": [
-    "FAIL env-paused: lastKnown names another time fails []"
+    "FAIL env-paused: lastKnown names another time fails [PASS: ]"
    ],
    "named": [
-    "FAIL env-paused: lastKnown names another time fails []"
+    "FAIL env-paused: lastKnown names another time fails [PASS: ]"
    ],
    "killed": true,
-   "replay_exit": 0,
-   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
-   "sha_mutated": "31a08097f1d0cd9a156fa53501df23027fa3d9a2a90a31074deda78eeee6dffc",
-   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "78c34b0fd3e47818642311ca9d1a88a6d93b61495cbb1ed31bdb03954171bc89",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   },
   {
@@ -554,6 +569,253 @@
    "sha_original": "688dd43dbe9435f1f513aaf859bece03871e2d424bdc3ab3e464185b7bae5a41",
    "sha_mutated": "9efa40ce09fa03e89c759da5b4f72cda5787b649c99833c89b08f090b99ffddb",
    "sha_restored": "688dd43dbe9435f1f513aaf859bece03871e2d424bdc3ab3e464185b7bae5a41",
+   "restored_ok": true
+  },
+  {
+   "arm": "f01",
+   "file": "judges.mjs",
+   "guards": "F1 no blanket grace",
+   "expect": "claimed in the hold's last second, seen claimed before it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [PASS: ]",
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [PASS: ]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "fc87fd229cb694ab8d7311ca3880d633a851bac7c1b949b2eb88bf8423e5bc53",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f02",
+   "file": "judges.mjs",
+   "guards": "F1 bucket wholly before",
+   "expect": "claimed in an earlier second, seen late, with no receipt",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: claimed in an earlier second, seen late, with no receipt fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: claimed in an earlier second, seen late, with no receipt fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "6846868562c7d0053283bdb5e0df06a630f5950dc731f1829ca6730ed194ef5f",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f03",
+   "file": "judges.mjs",
+   "guards": "F1 seen by the end",
+   "expect": "claimed in the hold's last second, seen claimed before it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "0d4c3b37b3498464629b773d11fd18d4fa375f3045f483cf326c335ea95f55f0",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f04",
+   "file": "judges.mjs",
+   "guards": "F1 absent after the end",
+   "expect": "review F1: released in the hold's last second, seen queued after it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "7ab71d17fee5d98554535c4f41a494e7360f38330c1fdce670c762a691e2cbda",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f05",
+   "file": "judges.mjs",
+   "guards": "F1 unknown, not a breach",
+   "expect": "a claim straddling the hold's end with no millisecond evidence",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]",
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: R was steered inside the window]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: R was steered inside the window]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "8bcc53db61a6b0477989585b012d90f3fd2d7fd1734f3c8cf900e22830887d5a",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f06",
+   "file": "judges.mjs",
+   "guards": "F1 unknown, not a pass",
+   "expect": "a claim straddling the hold's end with no millisecond evidence",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "37124e9f71a189f68ddcbda3e3e8b877bb35a1fe2424532bfd6b6468238d6d39",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f07",
+   "file": "judges.mjs",
+   "guards": "F1 unknown, not a pass",
+   "expect": "a claim straddling the hold's end with no millisecond evidence",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "7d611b2c7cb906e07541dccf4ce0be75ef394508cc70b7f2220d2a08d23a4e58",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f08",
+   "file": "judges.mjs",
+   "guards": "F1 watcher sight",
+   "expect": "claimed in the hold's last second, seen claimed before it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "6d67def7ed5a57237138fd91275458c114f4fad792192a5f83e14008239bf38d",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f09",
+   "file": "judges.mjs",
+   "guards": "F1 watcher order",
+   "expect": "review F1: released in the hold's last second, seen queued after it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, seen queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "8d8c7d669ebf46070405bd9d6f4e9aa00743a0ffe589ca1cabafbeae1fa7e5a4",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f10",
+   "file": "judges.mjs",
+   "guards": "F1 controls",
+   "expect": "steered in the window's last second, seen before it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "ee0156a31d8bffc9c90d0cce4e05d6920386a4080316dfab54ee027997c7c3a3",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f11",
+   "file": "judges.mjs",
+   "guards": "F1 controls",
+   "expect": "steered in the window's last second, seen absent after it ends",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL stale-second-holder: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "87ee7823a364b35b757010de15ff1578b071ff6d5f26069af8941a1db7d0b5a0",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "restored_ok": true
+  },
+  {
+   "arm": "f12",
+   "file": "judges.mjs",
+   "guards": "F1 controls",
+   "expect": "a steer straddling the window's end with no millisecond evidence",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+   ],
+   "named": [
+    "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
+   "sha_mutated": "f8254653817bb1b6dbd00f35e8ab60f88c357c8ae772731a010e34a01edefeec",
+   "sha_restored": "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b",
    "restored_ok": true
   }
  ],

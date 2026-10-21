@@ -1,10 +1,11 @@
 // The gate's judges: PURE, over what a scenario gathered: `marks`, comms' change-only `timeline` (DATA, runs, words),
 // the stand-in's `standin` log, and the relay's `contact` log (every report aify-env sent and what became of it). Each
-// returns {pass, failed: [the conditions that did not hold]}, so a RED names its reason.
+// returns {pass, verdict, failed, unknown}: a RED names its reason, and an UNKNOWN names what could not be resolved.
 //
 // Clocks: comms' rows carry whole seconds; the timeline's, the stand-in's and the relay's `t` are milliseconds on the
 // one Docker VM clock. An ordering is judged on comms' seconds (">=" admits a tie within the second) AND on the order the
-// watcher first saw the two events, so a tie inside one second cannot pass a claim that the watcher saw first.
+// watcher first saw the two events, so a tie inside one second cannot pass a claim that the watcher saw first. A
+// whole-second stamp against a millisecond window end is a one-second bucket, placed by `byEnd` (review F1).
 //
 // Contact, DATA and eligibility stay apart (review R5). Contact is the relay's: a report comms answered 204 (applied).
 // DATA is comms' rows. Eligibility is never read from either: it is what the claim gate DID (claimed or withheld) and
@@ -20,11 +21,15 @@ const runOf = (snapshot, runId) => snapshot?.runs?.find((r) => r.id === runId) ?
 const last = (timeline) => timeline.at(-1) ?? {};
 const envRecord = (s) => s?.records?.find((r) => r.instance === "default") ?? null;
 
-/** The run's claim on comms' clock, and the watcher time it was first seen claimed; nulls while it never was. */
+/** The run's claim on comms' clock, the watcher time it was first seen claimed, and the last watcher time it was still
+ *  seen queued before that; nulls where there is no such sight. */
 export function claimOf(timeline, runId) {
-  const seen = timeline.find((s) => { const r = runOf(s, runId); return r && r.status !== "queued"; });
-  const run = runOf(seen, runId);
-  return { claimedAt: ms(run?.claimed_at), seenAt: seen?.t ?? null, status: runOf(last(timeline), runId)?.status ?? null };
+  const index = timeline.findIndex((s) => { const r = runOf(s, runId); return r && r.status !== "queued"; });
+  const seen = timeline[index] ?? null;
+  const before = index < 0 ? timeline : timeline.slice(0, index);
+  return { claimedAt: ms(runOf(seen, runId)?.claimed_at), seenAt: seen?.t ?? null,
+    queuedAt: before.filter((s) => runOf(s, runId)?.status === "queued").at(-1)?.t ?? null,
+    status: runOf(last(timeline), runId)?.status ?? null };
 }
 
 /** The first snapshot at or after `fromT` (watcher time) matching `test`, or null. */
@@ -33,8 +38,33 @@ export const polls = (standin, from, to) => standin.filter((e) => e.event === "p
 /** A receipt of the run (delivered, or a control on it) at or before `to`: only the forbidden interval counts (R1). */
 const receivedBy = (standin, runId, to) => standin.find((e) => (e.event === "delivered" || e.event === "control")
   && e.runId === runId && e.t <= to);
-const controlsBy = (timeline, runId, to) => (last(timeline).controls ?? [])
-  .filter((c) => c.run_id === runId && ms(c.requested_at) <= to);
+const controlsOn = (timeline, runId) => (last(timeline).controls ?? []).filter((c) => c.run_id === runId);
+const earliest = (...times) => times.filter((t) => t != null).reduce((a, b) => Math.min(a, b), Infinity);
+
+export const SECOND_MS = 1000;
+/** Whether an event comms stamped with the whole second `stampMs` happened by the millisecond `to` (review F1). The
+ *  stamp places the event only in [stamp, stamp + 1 s). Where that bucket straddles `to`, a millisecond observation
+ *  decides it: seen by `to` (the watcher, or the stand-in's receipt) is inside, still seen absent after `to` is outside.
+ *  With neither, the answer is "unknown", never a breach. */
+export function byEnd(stampMs, to, { seenBy = Infinity, absentAfter = null } = {}) {
+  if (stampMs === null || stampMs > to) return "outside";
+  if (stampMs + SECOND_MS - 1 <= to) return "inside";
+  if (seenBy <= to) return "inside";
+  if (absentAfter !== null && absentAfter > to) return "outside";
+  return "unknown";
+}
+
+/** Each control on the run, placed against `to` from its requested_at second, the watcher's first sight of it or the
+ *  stand-in's receipt of it, and the snapshot just before that sight. */
+function controlsByEnd(ev, runId, to) {
+  const received = ev.standin.find((e) => e.event === "control" && e.runId === runId)?.t;
+  return controlsOn(ev.timeline, runId).map((c) => {
+    const index = ev.timeline.findIndex((s) => (s.controls ?? []).some((x) => x.run_id === runId
+      && x.action === c.action && x.requested_at === c.requested_at));
+    return byEnd(ms(c.requested_at), to, { seenBy: earliest(ev.timeline[index]?.t, received),
+      absentAfter: index > 0 ? ev.timeline[index - 1].t : null });
+  });
+}
 
 /** The word comms' candidate shows for a record state (`candidate_word`): idle reads online. */
 export const candidateWord = (state) => (state === "idle" ? "online" : state ?? null);
@@ -81,13 +111,18 @@ function claimedOnFirstPassAfter(timeline, runId, accepted, failed, label) {
 }
 
 /** Neither claimed nor received nor steered inside the window, against a claimer that kept asking. After `window.to`
- *  a release is lawful, so nothing later counts here (R1). */
-function withheld(ev, runId, window, failed, label) {
+ *  a release is lawful, so nothing later counts here (R1). A whole-second stamp is placed by `byEnd` (F1). */
+function withheld(ev, runId, window, failed, unknown, label) {
   if (!runId) return failed.push(`${label}: the send created no run`);
   const claim = claimOf(ev.timeline, runId);
-  if (claim.claimedAt !== null && claim.claimedAt <= window.to) failed.push(`${label}: ${runId} was claimed inside the window`);
+  const delivered = ev.standin.find((e) => e.event === "delivered" && e.runId === runId)?.t;
+  const claimed = byEnd(claim.claimedAt, window.to, { seenBy: earliest(claim.seenAt, delivered), absentAfter: claim.queuedAt });
+  if (claimed === "inside") failed.push(`${label}: ${runId} was claimed inside the window`);
+  if (claimed === "unknown") unknown.push(`${label}: ${runId}'s claim second straddles the window's end, and nothing finer orders them`);
   if (receivedBy(ev.standin, runId, window.to)) failed.push(`${label}: the stand-in received ${runId} inside the window`);
-  if (controlsBy(ev.timeline, runId, window.to).length) failed.push(`${label}: ${runId} was steered inside the window`);
+  const steered = controlsByEnd(ev, runId, window.to);
+  if (steered.includes("inside")) failed.push(`${label}: ${runId} was steered inside the window`);
+  else if (steered.includes("unknown")) unknown.push(`${label}: a control's second on ${runId} straddles the window's end, and nothing finer orders them`);
   if (polls(ev.standin, window.from, window.to) < MIN_POLLS) failed.push(`${label}: the stand-in was not seen polling`);
 }
 
@@ -103,63 +138,65 @@ function secondHolderFixture(ev, m, busy, failed) {
   if (m.envBusyAtSend !== busy) failed.push(`fixture: aify-env's holder was ${busy ? "not busy" : "not idle"}`);
 }
 
-const verdict = (failed) => ({ pass: failed.length === 0, failed });
+/** PASS, FAIL, or UNKNOWN where nothing failed but the instrument could not resolve a condition (F1): never a pass. */
+const verdict = (failed, unknown = []) => ({ pass: failed.length === 0 && unknown.length === 0,
+  verdict: failed.length ? "FAIL" : unknown.length ? "UNKNOWN" : "PASS", failed, unknown });
 
 export const JUDGES = {
   "legacy-busy-env-idle"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (m.preLegacyBusy !== 1) failed.push("fixture: comms' legacy turn was not busy");
     if (m.preEnvBusy !== false) failed.push("fixture: aify-env's fresh record was not idle");
     const claim = claimOf(ev.timeline, m.runId);
     if (claim.claimedAt === null) failed.push("held: never claimed");
     else if (claim.claimedAt - m.sentAt > FIRST_PASS_MS) failed.push("not delivered at once");
     if (!ev.standin.some((e) => e.event === "delivered" && e.runId === m.runId)) failed.push("the stand-in never received it as a run");
-    if (controlsBy(ev.timeline, m.runId, Infinity).length) failed.push("it became a control, not a delivery");
-    return verdict(failed);
+    if (controlsOn(ev.timeline, m.runId).length) failed.push("it became a control, not a delivery");
+    return verdict(failed, unknown);
   },
   "legacy-idle-env-busy"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (m.preLegacyBusy === 1) failed.push("fixture: comms' legacy turn was busy");
     if (m.preEnvBusy !== true) failed.push("fixture: aify-env's fresh record was not busy");
-    withheld(ev, m.runId, m.holdWindow, failed, "held");
+    withheld(ev, m.runId, m.holdWindow, failed, unknown, "held");
     claimedOnFirstPassAfter(ev.timeline, m.runId, m.idleAccepted, failed, "delivered after the idle publication");
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "busy-steerable"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (m.preEnvBusy !== true) failed.push("fixture: aify-env's fresh record was not busy");
     const got = receivedBy(ev.standin, m.runId, Infinity);
     if (!got) failed.push("not steered: the stand-in never received it");
     else if (got.t - m.sentAt > FIRST_PASS_MS) failed.push("not steered at once");
     if (m.idleSeenBeforeReceipt) failed.push("fixture: the agent went idle before it arrived");
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "stale-second-holder"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     secondHolderFixture(ev, m, false, failed);
-    withheld(ev, m.runId, m.window, failed, "withheld");
-    return verdict(failed);
+    withheld(ev, m.runId, m.window, failed, unknown, "withheld");
+    return verdict(failed, unknown);
   },
   "fresh-busy-beside-unknown"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     secondHolderFixture(ev, m, true, failed);
     const run = runOf(ev.timeline.find((s) => runOf(s, m.runId)), m.runId);
     if (run && run.steer_if_busy !== 1) failed.push("fixture: the send was not steerable");
-    withheld(ev, m.runId, m.window, failed, "withheld, steer included");
-    return verdict(failed);
+    withheld(ev, m.runId, m.window, failed, unknown, "withheld, steer included");
+    return verdict(failed, unknown);
   },
   "env-paused"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     silenceDerived(m, failed);
     silenceHeld(ev.contact, m.lastContactAt, m.window.to, failed);
     if (m.word?.status !== "unknown") failed.push(`the word read ${m.word?.status}, not unknown`);
     lastKnownMatches(m.word, m.prior, failed);
-    withheld(ev, m.queueRunId, m.window, failed, "the queueIfBusy send");
-    withheld(ev, m.defaultRunId, m.window, failed, "the steerable send");
-    return verdict(failed);
+    withheld(ev, m.queueRunId, m.window, failed, unknown, "the queueIfBusy send");
+    withheld(ev, m.defaultRunId, m.window, failed, unknown, "the steerable send");
+    return verdict(failed, unknown);
   },
   "env-resumed"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     // comms' stamp is the whole second, so an acceptance in the resume's own second reads up to 1 s before it.
     if (!(m.freshAccepted?.at >= m.resumedAt - 1000)) failed.push("no fresh publication was accepted after the resume");
     if (!m.queueRunId) failed.push("no queued work to drain: the queueIfBusy send created no run");
@@ -178,42 +215,42 @@ export const JUDGES = {
         }
       }
     }
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "default-send-unknown"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     silenceDerived(m, failed);
     silenceHeld(ev.contact, m.lastContactAt, m.window.to, failed);
     const run = runOf(ev.timeline.find((s) => runOf(s, m.defaultRunId)), m.defaultRunId);
     if (run && run.queue_if_busy !== 0) failed.push("fixture: the send was not a default send");
-    withheld(ev, m.defaultRunId, m.window, failed, "the default send");
-    return verdict(failed);
+    withheld(ev, m.defaultRunId, m.window, failed, unknown, "the default send");
+    return verdict(failed, unknown);
   },
   "restart-idle"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (!(m.snapshotAccepted?.at > m.sentAt)) failed.push("fixture: the send was not made before the next snapshot");
     if (m.wordBefore?.status !== "unknown") failed.push(`before the snapshot the word read ${m.wordBefore?.status}`);
     claimedOnFirstPassAfter(ev.timeline, m.runId, m.snapshotAccepted, failed, "after the snapshot");
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "restart-mid-turn"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (m.preEnvBusy !== true) failed.push("fixture: the agent was not mid-turn");
     if (!(m.snapshotAccepted?.at > m.readAt)) failed.push("fixture: the read was not before the next snapshot");
     if (m.word?.status !== "unknown") failed.push(`the word read ${m.word?.status}, not unknown`);
     lastKnownMatches(m.word, m.prior, failed);
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "restored-then-changes"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (!(m.changesAccepted?.at >= m.restartedAt)) failed.push("fixture: no changes publication after the restart");
     if (!(m.snapshotAccepted?.at > m.changesAccepted?.at)) failed.push("fixture: the snapshot came before the changes");
     if (m.wordAtChanges?.status !== "unknown") failed.push(`after the changes the word read ${m.wordAtChanges?.status}`);
     if (m.wordAfterSnapshot?.status === "unknown") failed.push("still unknown after the complete snapshot");
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "cold-start"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     // Page 2's frozen input: no record of the agent from any publisher, fresh or stale, read back before the send (R3).
     if (!Array.isArray(m.preRecords)) failed.push("fixture: the no-record population was not read back");
     else if (m.preRecords.length) failed.push(`fixture: comms held ${m.preRecords.length} record(s) of the agent before the send`);
@@ -221,21 +258,21 @@ export const JUDGES = {
     if (!spawns.length) failed.push("no spawn request");
     else if (spawns.some((s) => s.initial_message !== "")) failed.push("a spawn request carried an initial message");
     if (!ev.lifetime) failed.push("the stand-in never started");
-    withheld(ev, m.runId, m.window, failed, "withheld before the record");
+    withheld(ev, m.runId, m.window, failed, unknown, "withheld before the record");
     const seen = firstSeen(ev.timeline, (s) => envRecord(s)?.lifetime === ev.lifetime);
     const accepted = seen ? { at: ms(envRecord(seen).appliedAt), seenAt: seen.t } : null;
     claimedOnFirstPassAfter(ev.timeline, m.runId, accepted, failed, "claimed after the new lifetime's record");
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "run-running-idle"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     if (m.runStatus !== "running") failed.push(`fixture: the run read ${m.runStatus}, not running`);
     if (m.record?.busy !== false || m.record?.state !== "idle") failed.push("fixture: the record was not idle");
     if (m.word?.status !== "working") failed.push(`the word read ${m.word?.status}, not working`);
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
   "stop-restart"(ev) {
-    const { marks: m } = ev, failed = [];
+    const { marks: m } = ev, failed = [], unknown = [];
     // A named run, seeded and queued before the stop, is the queued work that must drain (R7).
     if (!m.seedRunId) failed.push("fixture: no queued work was seeded before the stop");
     else if (m.seedStatusAtStop !== "queued") failed.push(`fixture: the seeded run was ${m.seedStatusAtStop} at the stop`);
@@ -248,6 +285,6 @@ export const JUDGES = {
     if (!m.wordAtRestart || m.wordAtRestart.status === "stopped") failed.push(`at the restart the word read ${m.wordAtRestart?.status}`);
     if (m.wordAfterFirstTurn?.status !== "online") failed.push(`after the first turn the word read ${m.wordAfterFirstTurn?.status}`);
     if (m.seedRunId) claimedOnFirstPassAfter(ev.timeline, m.seedRunId, m.restartAccepted, failed, "the seeded run");
-    return verdict(failed);
+    return verdict(failed, unknown);
   },
 };

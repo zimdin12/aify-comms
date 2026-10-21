@@ -1,0 +1,6336 @@
+{
+ "timeline": [
+  {
+   "t": 1792547165425,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792547163884,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792547163933,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "runs": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "No live channel sidecar heartbeat (not deliverable).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792547165934,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792547163884,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792547163933,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792547165532_2824b5bc",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T01:46:05Z",
+     "claimed_at": "2026-10-21T01:46:05Z",
+     "claim_bridge_id": "stand-in-e6299bf8-3b14-4d5f-b5ed-a99222e19341"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792547165530_35021ac3",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T01:46:05Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792547193225,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792547163884,
+     "publication": 2,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T01:46:33Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792547163933,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T01:46:33Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792547165532_2824b5bc",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T01:46:05Z",
+     "claimed_at": "2026-10-21T01:46:05Z",
+     "claim_bridge_id": "stand-in-e6299bf8-3b14-4d5f-b5ed-a99222e19341"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792547165530_35021ac3",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T01:46:05Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792547222476,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792547163884,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T01:47:02Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792547163933,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T01:47:02Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792547165532_2824b5bc",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T01:46:05Z",
+     "claimed_at": "2026-10-21T01:46:05Z",
+     "claim_bridge_id": "stand-in-e6299bf8-3b14-4d5f-b5ed-a99222e19341"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792547165530_35021ac3",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T01:46:05Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792547224031,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792547163884,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T01:47:02Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792547163933,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T01:46:03Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T01:47:02Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792547165532_2824b5bc",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T01:46:05Z",
+     "claimed_at": "2026-10-21T01:46:05Z",
+     "claim_bridge_id": "stand-in-e6299bf8-3b14-4d5f-b5ed-a99222e19341"
+    },
+    {
+     "id": "run_1792547223630_5c0d8c87",
+     "subject": "C12 a running run on an idle record",
+     "status": "running",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T01:47:03Z",
+     "claimed_at": "2026-10-21T01:47:03Z",
+     "claim_bridge_id": "stand-in-e6299bf8-3b14-4d5f-b5ed-a99222e19341"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792547165530_35021ac3",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T01:46:05Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792547165682,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792547165707,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "delivered",
+   "runId": "run_1792547165532_2824b5bc",
+   "messageId": "1792547165525-6280b33f",
+   "subject": "warm-up",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  },
+  {
+   "t": 1792547167123,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792547167723,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547169730,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547171741,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547173752,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547175762,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547177772,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547179781,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547181793,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547183805,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547185818,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547187830,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547189841,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547191073,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547193087,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547193808,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792547195094,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547197106,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547199120,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547201132,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547203143,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547205154,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547207166,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547209177,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547211189,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547213208,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547215219,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547217232,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547219242,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547220488,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547222511,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223642,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "delivered",
+   "runId": "run_1792547223630_5c0d8c87",
+   "messageId": "1792547223624-0f09d39c",
+   "subject": "C12 a running run on an idle record",
+   "executionMode": "channel",
+   "writtenAs": "running"
+  },
+  {
+   "t": 1792547223651,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223656,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223661,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223665,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223668,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223671,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223674,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223677,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223681,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223684,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223687,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223691,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223694,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223697,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223700,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223703,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223706,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223711,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223715,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223718,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223721,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223727,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223734,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223742,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223746,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223749,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223753,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223756,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223760,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223763,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223767,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223772,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223776,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223780,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223786,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223789,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223792,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223796,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223799,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223802,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223805,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223808,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223811,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223815,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223818,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223821,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223825,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223829,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223832,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223838,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223843,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223848,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223854,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223859,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223866,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223871,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223877,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223883,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223889,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223895,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223902,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223907,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223913,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223919,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223925,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223931,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223938,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223945,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223953,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223961,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223969,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223975,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223982,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547223989,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224003,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224013,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224025,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224033,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224040,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224046,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224053,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224061,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224066,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224076,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224084,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224089,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224094,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224100,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224105,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224110,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224115,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224120,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224125,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224129,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224133,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224137,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224142,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224146,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224150,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224154,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224158,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224161,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224166,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224170,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224175,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224179,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224183,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224187,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224195,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224200,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224204,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224209,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224213,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224217,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224221,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224225,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224229,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224232,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224235,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224238,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224242,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224246,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224249,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224252,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224296,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224302,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224306,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224311,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224316,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224320,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224324,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224328,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224332,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224336,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224339,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224342,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224345,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224348,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224352,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224355,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224358,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224360,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224364,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224367,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224370,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224374,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224377,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224380,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224383,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224386,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224390,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224394,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224397,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224400,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224403,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224407,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224412,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224416,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224420,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224425,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224428,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224433,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224437,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224440,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224444,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224447,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224451,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224454,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224457,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224461,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224464,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224468,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224472,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224476,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224479,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224483,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224486,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224490,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224494,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224498,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224503,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224506,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224511,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224515,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224518,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224522,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224525,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224529,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224537,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224547,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224551,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224554,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224558,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224562,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224565,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224569,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224573,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224577,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224580,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224583,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224587,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224590,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224594,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224597,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224601,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224605,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224608,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224612,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224616,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224619,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224623,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224626,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224629,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224633,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224636,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224639,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224642,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224646,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224650,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224653,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224657,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224660,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224664,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224667,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224671,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224674,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224678,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224681,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224685,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224689,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224693,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224696,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224700,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224704,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224707,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224710,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224713,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224717,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224720,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224723,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224726,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224729,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224732,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224736,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224740,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224744,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224748,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224752,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224755,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224759,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224763,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224766,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224770,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224773,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224777,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224781,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224785,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224788,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224791,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224794,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224798,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224802,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224805,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224808,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224811,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224815,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224819,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224823,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224827,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224831,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224835,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224839,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224843,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224847,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224851,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224854,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224857,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224862,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224866,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224869,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224873,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224877,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224881,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224886,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224889,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224893,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224896,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224900,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224904,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224908,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224911,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224914,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224918,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224922,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224926,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224929,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224933,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224936,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224940,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224944,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224947,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224950,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224954,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224957,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224961,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224965,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224969,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224973,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224977,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224981,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224985,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224989,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224992,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224996,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547224999,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225003,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225007,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225011,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225015,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225021,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225027,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225032,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225036,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225040,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225044,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225049,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225057,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225061,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225064,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225069,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225072,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225075,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225079,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225082,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225086,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225089,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225093,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225097,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225101,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225104,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225107,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225110,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225113,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225117,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225121,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225124,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225127,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225131,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225135,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225139,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225143,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225146,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225149,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225153,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225156,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225159,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225162,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225164,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225167,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225171,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225173,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225176,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225180,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225183,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225186,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225189,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225192,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225195,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225199,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225203,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225207,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225210,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225214,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225217,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225220,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225224,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225228,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225231,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225235,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225238,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225241,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225244,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225247,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225250,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225252,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225255,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225258,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225261,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225264,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225267,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225270,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225273,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225276,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225279,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225281,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225284,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225287,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225290,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225293,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225296,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225299,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225303,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225306,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225310,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225313,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225317,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225321,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225324,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225326,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225329,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225332,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225335,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225339,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225342,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225345,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225348,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225350,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225353,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225356,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225359,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225361,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225364,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225367,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225370,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225373,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225377,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225381,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225385,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225388,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225392,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225396,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225400,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225403,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225407,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225411,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225414,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225417,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225421,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225424,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225428,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225431,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225434,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225438,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225441,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225444,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225448,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225451,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225455,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225459,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225463,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225466,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225470,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225472,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225475,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225478,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225481,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225484,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225487,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225490,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225494,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225497,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225501,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225505,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225509,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225512,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225516,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225520,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225523,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225526,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225529,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225532,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225535,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225539,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225543,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225547,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225550,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225553,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225557,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225563,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225568,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225571,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225575,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225578,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225581,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225585,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225588,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225591,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225594,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225597,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225601,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225604,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225607,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225610,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225613,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225617,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225621,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225626,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225630,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225635,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225638,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225642,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225647,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225651,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225656,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225660,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225664,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225669,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225672,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225675,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225679,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225682,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225685,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225688,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225692,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225695,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225698,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225702,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225705,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225709,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225712,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225715,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225718,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225721,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225724,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225727,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225730,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225733,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225736,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225740,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225744,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225747,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225750,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225753,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225756,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225759,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225762,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225765,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225769,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225772,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225775,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225777,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225780,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225784,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225787,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225791,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225795,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225798,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225801,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225805,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225809,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225812,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225815,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225818,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225822,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225826,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225829,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225833,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225837,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225841,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225844,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225848,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225852,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225856,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225860,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225865,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225869,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225872,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225875,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225878,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225882,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225885,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225889,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225892,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225895,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225898,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225902,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225906,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225910,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225913,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225918,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225921,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225924,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225927,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225931,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225935,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225939,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225942,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225946,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225949,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225953,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225956,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225959,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225963,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225966,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225970,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225973,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225977,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225980,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225983,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225986,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225988,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225991,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225994,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547225997,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226000,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226003,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226006,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226009,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226012,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226015,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226017,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226020,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226023,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226026,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226030,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226033,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226037,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226040,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226043,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226047,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226050,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226053,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226056,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226059,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226062,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226065,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226068,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226073,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226081,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226084,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226088,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226091,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226094,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226097,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226100,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226104,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226107,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226111,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226115,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226118,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226122,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226125,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226128,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226132,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226135,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226139,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226142,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226145,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226149,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226152,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226155,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226158,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226161,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226164,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226167,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226171,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226174,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226177,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226180,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226183,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226186,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226190,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226193,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226196,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226200,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226203,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226206,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226209,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226212,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226215,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226218,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226221,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226225,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226229,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226232,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226235,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226238,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226240,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226243,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226246,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226249,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226254,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226258,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226262,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226267,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226270,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226274,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226277,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226282,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226286,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226290,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226294,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226299,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226304,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226307,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226312,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226316,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226321,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226325,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226328,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226332,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226336,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226339,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226343,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226347,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226352,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226356,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226362,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226368,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226373,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226378,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226383,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226387,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226391,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226396,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226400,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226405,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226410,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226414,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226419,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226425,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226430,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226434,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226438,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226442,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226446,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226449,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226453,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226457,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226461,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226464,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226468,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226471,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226475,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226478,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226482,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226486,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226491,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226495,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226499,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226502,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226507,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226511,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226516,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226520,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226525,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226529,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226533,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226538,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226541,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226546,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226552,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226556,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226560,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226564,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226568,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226572,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226575,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226580,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226587,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226592,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226597,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226601,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226605,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226609,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226613,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226617,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226622,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226626,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226629,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226633,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226637,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226641,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226645,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226648,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226652,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226656,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226660,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226664,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226667,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226670,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226673,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226678,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226681,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226684,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226688,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226692,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226696,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226700,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226704,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226707,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226710,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226714,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226717,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226720,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226723,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226727,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226731,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226734,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226738,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226742,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226746,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226750,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226753,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226757,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226761,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226765,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226768,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226772,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226776,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226780,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226784,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226789,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226793,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226797,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226801,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226806,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226811,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226815,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226819,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226824,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226828,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226834,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226838,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226842,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226845,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226849,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226853,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226857,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226861,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226865,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226869,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226872,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226875,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226878,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226881,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226884,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226887,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226891,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226893,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226896,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226899,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226902,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226905,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226908,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226910,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226913,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226916,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226919,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226922,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226925,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226928,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226932,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226934,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226937,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226940,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226943,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226946,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226949,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226951,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226955,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226957,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226960,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226963,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226966,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226969,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226971,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226974,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226977,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226980,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226983,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226986,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226988,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226991,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226994,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226997,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547226999,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227002,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227005,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227008,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227011,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227014,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227016,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227019,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227022,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227025,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227027,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227030,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227033,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227036,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227039,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227041,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227045,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227047,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227050,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227053,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227056,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227059,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227061,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227064,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227067,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227071,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227076,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227079,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227082,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227085,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227088,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227091,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227097,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227102,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227107,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227111,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227114,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227119,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227123,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227127,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227131,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227134,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227137,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227141,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227145,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227148,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227152,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227156,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227159,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227164,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227167,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227171,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227175,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227179,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227199,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227212,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227216,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227220,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227224,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227228,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227232,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227236,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227239,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227244,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227248,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227252,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227256,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227260,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227265,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227269,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227273,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227276,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227280,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227284,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227287,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227292,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227296,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227299,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227303,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227308,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227312,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227317,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227322,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227326,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227331,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227335,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227339,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227344,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227347,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227350,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227355,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227359,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227363,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227367,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227371,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227375,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227379,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227383,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227386,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227389,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227393,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227397,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227402,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227406,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227410,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227414,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227419,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227423,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227427,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227431,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227435,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227439,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227445,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227449,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227453,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227457,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227461,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227466,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227470,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227474,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227478,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227482,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227486,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227489,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227493,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227496,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227500,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227504,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227507,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227511,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227516,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227519,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227523,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227526,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227531,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227535,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227539,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227543,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227547,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227551,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227556,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227563,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227569,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227573,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227578,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227582,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227587,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227591,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227595,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227599,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227604,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227609,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227613,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227617,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227621,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227625,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227628,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227632,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227635,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227638,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227641,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227644,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227647,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227650,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227653,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227656,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227659,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227663,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227668,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227671,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227674,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227678,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227681,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227685,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227688,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227691,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227695,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227698,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227701,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227705,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227707,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227711,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227714,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227717,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227719,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227722,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227725,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227728,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227730,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227733,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227736,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227739,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227742,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227744,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227747,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227750,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227753,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227756,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227759,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227762,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227766,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227769,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227772,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227774,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227777,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227780,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227783,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227785,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227788,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227791,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227793,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227796,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227799,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227802,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227805,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227807,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227810,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227813,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227815,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227818,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227821,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227824,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227826,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227829,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227832,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227835,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227837,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227840,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227843,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227846,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227848,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227851,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227854,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227857,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227859,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227862,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227866,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227869,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227872,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227875,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227878,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227881,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227884,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227887,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227890,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227893,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227897,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227899,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227902,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227905,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227907,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227910,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227914,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227918,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227921,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227926,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227930,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227935,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227939,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227944,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227948,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227953,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227957,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227962,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227968,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227973,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227978,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227983,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227989,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227994,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547227999,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547228004,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547228008,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  },
+  {
+   "t": 1792547228013,
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "event": "polled"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792547162558,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792547164005,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792547163884,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792547164009,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792547163933,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792547193109,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792547163884,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792547222345,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 3,
+   "generation": 1792547163884,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792547163933, publishing as residents-fda01c99a296",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792547165530_35021ac3",
+  "[aify-env] started terminal term_1792547165552_263bda73 for \"gate-agent\" as f0b078ae-fe23-4e6a-833d-2477adecad09-p1",
+  ""
+ ],
+ "marks": {
+  "runId": "run_1792547223630_5c0d8c87",
+  "runStatus": "running",
+  "record": {
+   "instance": "default",
+   "lifetime": "e6299bf8-3b14-4d5f-b5ed-a99222e19341",
+   "busy": false,
+   "state": "idle",
+   "stateCause": "at-prompt",
+   "appliedAt": "2026-10-21T01:47:02Z"
+  },
+  "word": {
+   "status": "working",
+   "statusNote": "",
+   "lastKnown": null
+  }
+ },
+ "error": null
+}

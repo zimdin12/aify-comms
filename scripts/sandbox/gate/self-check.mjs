@@ -50,7 +50,15 @@ function secondHolder(busy) {
     ["claimed inside the window", { ...pass, timeline: [snap(T0 + 5200, { runs: [run("R", "completed", T0 + 5000, steerable)] })] }],
     ["received inside the window", { ...pass, standin: [...pass.standin, delivered("R", T0 + 5000)] }],
     ["steered inside the window", { ...pass, timeline: [{ ...pass.timeline[0], controls: [steer("R", T0 + 5000)] }] }],
-    ["no claimer polling", { ...pass, standin: [] }]];
+    ["no claimer polling", { ...pass, standin: [] }],
+    // Review F1 for controls: the window ends at 20.900 and comms stamps a steer at 20.500 with the second 20.000.
+    ...[["steered in the window's last second, seen before it ends", [T0 + 20_800], undefined],
+      ["steered in the window's last second, seen absent after it ends", [T0 + 20_950, T0 + 21_500], true],
+      ["a steer straddling the window's end with no millisecond evidence", [T0 + 21_500], "UNKNOWN"]]
+      .map(([name, sights, expect]) => [name, { ...pass, marks: { ...marks, window: { from: T0, to: T0 + 20_900 } },
+        timeline: [pass.timeline[0], ...sights.map((t, i) => snap(t, { runs: [run("R", "queued", null, steerable)],
+          controls: i === sights.length - 1 || sights.length === 1 ? [steer("R", T0 + 20_500)] : [] })),
+        snap(T0 + 26_200, { runs: [run("R", "completed", T0 + 26_000, steerable)], controls: [steer("R", T0 + 20_500)] })] }, expect])];
 }
 
 /** The silenced scenario's shared marks (A2): busy, then three announced intervals without a report. */
@@ -79,8 +87,21 @@ const MODELS = {
     const pass = { marks, timeline: claimedAt(T0 + 27_000), standin: [...polling(T0, T0 + 20_000), delivered("R", T0 + 27_000)] };
     const lawful = { marks: { ...marks, idleAccepted: { at: T0 + 21_000, seenAt: T0 + 21_000 } }, timeline: claimedAt(T0 + 22_000, T0 + 22_000),
       standin: [...polling(T0, T0 + 20_000), delivered("R", T0 + 22_000)] };
+    // Review F1: the hold ends at 20.900, so a claim comms stamps with the second 20.000 straddles its end. `sights` are
+    // the watcher times it is seen queued, the last one claimed; `idle` is the idle acceptance [at, seenAt].
+    const edge = (sights, { claim = T0 + 20_970, idle = [T0 + 20_000, T0 + 20_950], receipt = null } = {}) => ({
+      marks: { ...marks, holdWindow: { from: T0, to: T0 + 20_900 }, idleAccepted: { at: idle[0], seenAt: idle[1] } },
+      timeline: [snap(T0 + 100, { runs: [run("R", "queued")] }), ...sights.map((t, i) =>
+        snap(t, { runs: [i === sights.length - 1 ? run("R", "completed", claim) : run("R", "queued")] }))],
+      standin: [...polling(T0, T0 + 20_000), ...(receipt ? [delivered("R", receipt)] : [])] });
     return [pass,
       ["review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes", { lawful }],
+      ["review F1: released in the hold's last second, seen queued after it ends", edge([T0 + 20_950, T0 + 21_500], { receipt: T0 + 20_975 }), true],
+      ["review F1: released in the next second", edge([T0 + 21_100, T0 + 21_650], { claim: T0 + 21_150,
+        idle: [T0 + 21_000, T0 + 21_100], receipt: T0 + 21_160 }), true],
+      ["claimed in the hold's last second, seen claimed before it ends", edge([T0 + 20_800], { idle: [T0 + 20_000, T0 + 20_500] })],
+      ["claimed in an earlier second, seen late, with no receipt", edge([T0 + 21_500], { claim: T0 + 19_500, idle: [T0 + 19_000, T0 + 21_400] })],
+      ["a claim straddling the hold's end with no millisecond evidence", edge([T0 + 21_500]), "UNKNOWN"],
       ["legacy busy", { ...pass, marks: { ...marks, preLegacyBusy: 1 } }],
       ["env not busy", { ...pass, marks: { ...marks, preEnvBusy: false } }],
       ["claimed inside the hold", { ...pass, timeline: claimedAt(T0 + 5000) }],
@@ -281,14 +302,17 @@ export function selfCheck() {
     check(`${c.id}: has a scenario and a judge`, typeof SCENARIOS[c.scenario] === "function" && typeof JUDGES[c.id] === "function");
     const [model, ...counters] = MODELS[c.id] ?? [];
     if (!model) { check(`${c.id}: has models`, false); continue; }
+    const why = (v) => ` [${v.verdict}: ${[...v.failed, ...v.unknown].join("; ")}]`;
     const passed = JUDGES[c.id](model);
-    check(`${c.id}: control, the model passes${passed.pass ? "" : ` [${passed.failed.join("; ")}]`}`, passed.pass);
-    for (const [name, counter, shouldPass] of counters) {
-      // A named pair { lawful } is a second healthy model; a third element `true` marks one too.
+    check(`${c.id}: control, the model passes${passed.verdict === "PASS" ? "" : why(passed)}`, passed.verdict === "PASS");
+    for (const [name, counter, expect] of counters) {
+      // A named pair { lawful } is a second healthy model, as is a third element `true`; "UNKNOWN" expects that verdict.
       const evidence = counter.lawful ?? counter;
-      const want = Boolean(counter.lawful) || shouldPass === true;
+      const want = counter.lawful || expect === true ? "PASS" : expect === "UNKNOWN" ? "UNKNOWN" : "FAIL";
       const got = JUDGES[c.id](evidence);
-      check(`${c.id}: ${name} ${want ? "passes" : "fails"}${got.pass === want ? "" : ` [${got.failed.join("; ")}]`}`, got.pass === want);
+      // `pass` is what the gate counts, so it must agree with the verdict: an UNKNOWN is never a pass.
+      const held = got.verdict === want && got.pass === (want === "PASS");
+      check(`${c.id}: ${name} ${{ PASS: "passes", FAIL: "fails", UNKNOWN: "reads UNKNOWN" }[want]}${held ? "" : why(got)}`, held);
     }
   }
   check("every judge is used by a case", Object.keys(JUDGES).every((id) => CASES.some((c) => c.id === id)));

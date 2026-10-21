@@ -1,55 +1,91 @@
+== round 1, sw3a-source-1792542290852: 88efbf12 against this commit
 lawful-release-false-red (legacy-idle-env-busy)
   ok   88efbf12, verbatim: FAIL [held: the stand-in received R]; the review recorded FAIL
   ok   88efbf12, adapted: FAIL [held: the stand-in received R]
-  ok   successor: PASS; the oracle is PASS
+  ok   this commit: PASS; the oracle is PASS
   -> a review defect: RED on 88efbf12, GREEN after
 omitted-lawful-receipt-incomplete-model (legacy-idle-env-busy)
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
-  ok   successor: PASS; the oracle is PASS
+  ok   this commit: PASS; the oracle is PASS
 early-held-claim-negative-control (legacy-idle-env-busy)
   ok   88efbf12, verbatim: FAIL [held: R was claimed inside the window; held: the stand-in received R; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the review recorded FAIL
   ok   88efbf12, adapted: FAIL [held: R was claimed inside the window; held: the stand-in received R; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]
-  ok   successor: FAIL [held: R was claimed inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the oracle is FAIL
+  ok   this commit: FAIL [held: R was claimed inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the oracle is FAIL
 resume-after-idle-healthy (env-resumed)
   adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
-  ok   successor: PASS; the oracle is PASS
+  ok   this commit: PASS; the oracle is PASS
 resume-Q-before-idle-false-green (env-resumed)
   adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
-  ok   successor: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first]; the oracle is FAIL
+  ok   this commit: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first]; the oracle is FAIL
   -> a review defect: RED on 88efbf12, GREEN after
 resume-pre-fresh-negative-control (env-resumed)
   adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
   ok   88efbf12, verbatim: FAIL [Q drained before a fresh publication was accepted]; the review recorded FAIL
   ok   88efbf12, adapted: FAIL [Q drained before a fresh publication was accepted]
-  ok   successor: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the watcher saw the steerable claim first]; the oracle is FAIL
+  ok   this commit: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the watcher saw the steerable claim first]; the oracle is FAIL
 stop-empty-drain-false-green (stop-restart)
   adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
-  ok   successor: FAIL [fixture: no queued work was seeded before the stop]; the oracle is FAIL
+  ok   this commit: FAIL [fixture: no queued work was seeded before the stop]; the oracle is FAIL
   -> a review defect: RED on 88efbf12, GREEN after
 stop-named-undrained-negative (stop-restart)
   adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
   ok   88efbf12, verbatim: FAIL [PREEXISTING queued at the restart never drained]; the review recorded FAIL
   ok   88efbf12, adapted: FAIL [PREEXISTING queued at the restart never drained]
-  ok   successor: FAIL [the seeded run: PREEXISTING was never claimed]; the oracle is FAIL
+  ok   this commit: FAIL [the seeded run: PREEXISTING was never claimed]; the oracle is FAIL
 stop-named-drained-healthy (stop-restart)
   adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
-  ok   successor: PASS; the oracle is PASS
+  ok   this commit: PASS; the oracle is PASS
 last-known-negation-false-green (restart-mid-turn)
   adapted: A7: the prior record the scenario reads before the restart, which the note is compared against
   ok   88efbf12, verbatim: PASS; the review recorded PASS
   ok   88efbf12, adapted: PASS
-  ok   successor: FAIL [no lastKnown beside unknown]; the oracle is FAIL
+  ok   this commit: FAIL [no lastKnown beside unknown]; the oracle is FAIL
   -> a review defect: RED on 88efbf12, GREEN after
 last-known-values-matched-control (restart-mid-turn)
   adapted: a matched control, built here
-  ok   successor: PASS; the oracle is PASS
+  info 88efbf12: PASS
+  ok   this commit: PASS; the oracle is PASS
+== round 2, sw3a-successor-1792548943247: 5f4effad against this commit
+original-lawful-release (legacy-idle-env-busy)
+  ok   5f4effad, verbatim: PASS; the review recorded PASS
+  ok   5f4effad, adapted: PASS
+  ok   this commit: PASS; the oracle is PASS
+lawful-release-same-second-as-window-end (legacy-idle-env-busy)
+  ok   5f4effad, verbatim: FAIL [held: R was claimed inside the window]; the review recorded FAIL
+  ok   5f4effad, adapted: FAIL [held: R was claimed inside the window]
+  ok   this commit: PASS; the oracle is PASS
+  -> a review defect: RED on 5f4effad, GREEN after
+same-model-release-next-second-control (legacy-idle-env-busy)
+  ok   5f4effad, verbatim: PASS; the review recorded PASS
+  ok   5f4effad, adapted: PASS
+  ok   this commit: PASS; the oracle is PASS
+actual-early-claim-adverse-control (legacy-idle-env-busy)
+  ok   5f4effad, verbatim: FAIL [held: R was claimed inside the window; held: the stand-in received R inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the review recorded FAIL
+  ok   5f4effad, adapted: FAIL [held: R was claimed inside the window; held: the stand-in received R inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]
+  ok   this commit: FAIL [held: R was claimed inside the window; held: the stand-in received R inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the oracle is FAIL
+last-known-exact-values-control (restart-mid-turn)
+  ok   5f4effad, verbatim: PASS; the review recorded PASS
+  ok   5f4effad, adapted: PASS
+  ok   this commit: PASS; the oracle is PASS
+last-known-wrong-status (restart-mid-turn)
+  ok   5f4effad, verbatim: FAIL [lastKnown.status online, not the prior working]; the review recorded FAIL
+  ok   5f4effad, adapted: FAIL [lastKnown.status online, not the prior working]
+  ok   this commit: FAIL [lastKnown.status online, not the prior working]; the oracle is FAIL
+last-known-wrong-appliedAt (restart-mid-turn)
+  ok   5f4effad, verbatim: FAIL [lastKnown.appliedAt 2026-10-20T23:59:51.000Z, not 2026-10-20T23:59:50.000Z]; the review recorded FAIL
+  ok   5f4effad, adapted: FAIL [lastKnown.appliedAt 2026-10-20T23:59:51.000Z, not 2026-10-20T23:59:50.000Z]
+  ok   this commit: FAIL [lastKnown.appliedAt 2026-10-20T23:59:51.000Z, not 2026-10-20T23:59:50.000Z]; the oracle is FAIL
+same-second-without-millisecond-evidence (legacy-idle-env-busy)
+  adapted: a matched control, built here: the review's same-second row less its 20.950 s queued snapshot
+  info 5f4effad: FAIL [held: R was claimed inside the window]
+  ok   this commit: UNKNOWN [held: R's claim second straddles the window's end, and nothing finer orders them]; the oracle is UNKNOWN
 every check held

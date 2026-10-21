@@ -1,11 +1,12 @@
-# SW3a: the sandbox gate's harness (2026-10-21, successor after review sw3a-source-1792542290852)
+# SW3a: the sandbox gate's harness (2026-10-21, second successor, after review sw3a-successor-1792548943247)
 
 Plan `docs/superpowers/plans/2026-10-20-s4-hard-switch.md`, page 2 (approved at 31a790ac). SW3a builds the harness:
 the stand-in, the frozen cases and their REDs. Qualifying a candidate (three attempts against one pinned pair) is
 SW3b, and the gate qualifies nothing until the runner (`scripts/sandbox/env-against-comms.mjs`, a5c658ff) is accepted.
 
-The first pass was 88efbf12. Its review (R1-R8) is closed here; every change to page 2's fixtures, checkpoints or
-interfaces is an entry in [AMENDMENTS.md](AMENDMENTS.md), each standing only once the reviewer accepts it.
+The first pass was 88efbf12; its review raised R1-R8. The first successor, 5f4effad, closed R2-R8, and the reviewer
+accepted amendments A1-A8 ([AMENDMENTS.md](AMENDMENTS.md)) on that carrier. This commit repairs the one item left
+open, F1 (R1's window precision), and leaves R2-R8 and A1-A8 as they were.
 
 ## What is here
 
@@ -20,8 +21,9 @@ interfaces is an entry in [AMENDMENTS.md](AMENDMENTS.md), each standing only onc
 | `scripts/sandbox/gate/probe.py` | runs inside comms: API calls with the container's own key, and a change-only timeline on comms' clock |
 | `scripts/sandbox/gate/env.Dockerfile` | the gate's aify-env image: the runner's, plus build tools for node-pty, the stand-in and the relay |
 | `scripts/sandbox/gate/self-check.mjs` | every judge against its healthy models and one countermodel per condition, the review's histories among them |
-| [review-replay/](review-replay/) | the review's own synthetic histories, replayed through 88efbf12's judges and this commit's |
+| [review-replay/](review-replay/) | both reviews' synthetic histories, replayed through the judges each review read (88efbf12, 5f4effad) and this commit's |
 | [arms/](arms/) | the mutation arms over the judges |
+| [decision2-red/](decision2-red/), [rejudge.mjs](rejudge.mjs) | the receipt attempt's per-scenario evidence, and this commit's judges run over it again |
 
 The runner is reused, not copied: `env-against-comms.mjs` exports its machinery and runs its CLI only as the entry point.
 
@@ -52,11 +54,22 @@ first saw the two events, so a tie inside one second cannot pass a claim the wat
 **A hold is bounded.** A withheld run is judged over its window only. A claim or receipt after the window closes is
 the lawful release, judged by the case's own release rule, never as a breach of the hold (R1).
 
+**A whole-second stamp is a one-second bucket (F1).** comms stamps a claim (`claimed_at`) or a control
+(`requested_at`) with the second it happened in, while a window ends at a millisecond. `judges.mjs` `byEnd` places the
+bucket [s, s + 1 s) against the end:
+- wholly after the end: outside the window (a release);
+- wholly before it: inside (a breach);
+- straddling it: a millisecond observation decides. The watcher seeing it claimed (or the control present), or the
+  stand-in receiving it, by the end puts it inside; the watcher still seeing it queued (or the control absent) after
+  the end puts it outside.
+- With neither, the condition reads UNKNOWN. A judge then returns the verdict UNKNOWN, which is never a pass and never
+  an asserted breach. There is no grace interval: an early claim or receipt with millisecond evidence still fails.
+
 ## Review R1-R8, and where each is closed
 
 | item | closed by |
 |---|---|
-| R1 bounded holds, lawful release | `withheld` judges claims, receipts and steers inside the window only; the healthy models carry the release after it, and the review's lawful-release history passes |
+| R1 bounded holds, lawful release | `withheld` judges claims, receipts and steers inside the window only; the healthy models carry the release after it, and the review's lawful-release history passes. F1, the second review's remainder: whole-second stamps are buckets placed by `byEnd`, and the review's same-second release passes |
 | R2 Q waits for idle, D does not | env-resumed: the queueIfBusy send on the first pass after the idle acceptance, in seconds and watcher order; the steerable send after the fresh acceptance and by the first pass after idle, never held to idle |
 | R3 cold-start population | A8: the relay refuses aify-env's publications from before it starts; the records are read back empty before the send, and the judge fails any other population |
 | R4 publication-only silence | A2: the relay refuses `POST /agent-state` alone, so the claimer stays in contact and sends create runs; A3: the whole-daemon pause is a separate, unjudged observation. No timer was changed |
@@ -69,8 +82,12 @@ the lawful release, judged by the case's own release rule, never as a breach of 
 
 From the receipt attempt `decision2-red` ([attempt.json](attempt.json), [decision2-red.txt](decision2-red.txt)): both
 images built from those commits (`imagesReused: false`), 34 minutes, cleanup read every owned resource back absent.
-Every source file hashed at the attempt's start hashes the same in this commit. Both readers are unwired there, so
-every case whose RED is the reader still taking the legacy path must fail.
+The attempt ran 5f4effad's sources. Since then the F1 repair changed `judges.mjs`, `self-check.mjs` and `gate.mjs`
+(its log line); the other nine hashed files are unchanged. [rejudge.mjs](rejudge.mjs) runs this commit's judges over
+the retained evidence ([decision2-red/](decision2-red/), each file identical as JSON to what the attempt saved), and
+all 14 verdicts and reasons are identical to the recorded ones, with nothing UNKNOWN ([rejudge.txt](rejudge.txt)).
+Changing one recorded verdict makes it exit 1. Both readers are unwired there, so every case whose RED is the reader
+still taking the legacy path must fail.
 
 No case failed a fixture: every input page 2 and the amendments freeze was constructed and read back. Each RED below
 is the case's own.
@@ -97,20 +114,39 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
 
 ## The judging, proven
 
-- **Self-check** ([self-check.txt](self-check.txt)): 185/185 witnesses pass. Every judge passes its healthy models and
-  fails each countermodel. Every page 2 case's words are found in page 2, and every amended case's words in its own
-  amendment entry.
-- **The review's histories** ([review-replay/replay.txt](review-replay/replay.txt)): the review's ten synthetic rows,
-  pinned by sha256, replayed through 88efbf12's judges and this commit's. 88efbf12 gives the review's recorded verdict
-  on all ten. The four defects (lawful release, Q before idle, empty drain, negative prose) are RED on 88efbf12 and
-  GREEN here; the six controls keep their verdicts, and a matched last-known control passes. Rows are adapted only by
-  added marks, printed with their reasons, and 88efbf12 gives the same verdict on the adapted rows. Run with the old
-  judges in place of the new, the replay exits 1 on exactly the four defects.
-- **Mutation arms** ([arms/run_arms.py](arms/run_arms.py), [arms/summary.json](arms/summary.json)): 27/27 killed, all
-  restored by byte copy and checked by sha256, baseline and after both exit 0. They cover each review item's guard.
-  An arm counts as killed only when the self-check exits nonzero AND a FAIL line names that arm's witness. The replay
-  exits 1 under the six arms that revert a reviewed defect. Per-arm captures are kept beside the driver's run, not
-  committed.
+- **Self-check** ([self-check.txt](self-check.txt)): 196/196 witnesses pass. Every judge passes its healthy models and
+  gives each countermodel its expected verdict (FAIL, or UNKNOWN where the model withholds the millisecond evidence),
+  with `pass` agreeing with the verdict. Every page 2 case's words are found in page 2, and every amended case's words
+  in its own amendment entry. The F1 witnesses are:
+  - the release in the hold's last second, seen queued after it ends: passes;
+  - the release in the next second: passes;
+  - a claim in the hold's last second, seen claimed before it ends: fails;
+  - a claim in an earlier second, seen late, with no receipt: fails;
+  - a claim straddling the end with no millisecond evidence: UNKNOWN;
+  - the same three for a steer: fails, passes, UNKNOWN.
+- **The reviews' histories** ([review-replay/replay.txt](review-replay/replay.txt)). Each review's rows and the judges it
+  read are pinned by sha256: the copies are committed with LF line ends and one final newline, and the replay restores
+  each original's own line ends and ending before hashing. A one-byte edit stops it with exit 2.
+  - *Round 1* (sw3a-source-1792542290852, judged by 88efbf12): 88efbf12 gives the recorded verdict on all ten rows. The
+    four defects (lawful release, Q before idle, empty drain, negative prose) are RED on 88efbf12 and GREEN here. The
+    six controls keep their verdicts, and a matched last-known control passes. Rows are adapted only by added marks,
+    printed with their reasons, and 88efbf12 gives the same verdict on the adapted rows.
+  - *Round 2* (sw3a-successor-1792548943247, judged by 5f4effad): 5f4effad gives the recorded verdict on the seven
+    graded rows. The four A6 rows are not graded, because the review withdrew their premise
+    (INTERPRETATION-CORRECTION-A6.json).
+    - The same-second lawful release is RED on 5f4effad and GREEN here.
+    - The next-second release, the original lawful release and the genuine early claim keep their verdicts, as do the
+      three last-known controls.
+    - A matched control (that row less its 20.950 s queued snapshot) reads UNKNOWN here; 5f4effad called it a breach.
+  - With 5f4effad's judges in place of this commit's, the replay exits 1 on exactly the two F1 rows.
+- **Mutation arms** ([arms/run_arms.py](arms/run_arms.py), [arms/summary.json](arms/summary.json)): 39/39 killed, all
+  restored by byte copy and checked by sha256, baseline and after both exit 0.
+  - They cover each review item's guard; f01-f12 are F1's: no blanket grace, the wholly-before bucket, each
+    millisecond observation for claims and controls, and UNKNOWN as neither a breach nor a pass.
+  - An arm counts as killed only when the self-check exits nonzero AND a FAIL line names that arm's witness.
+  - The replay also exits 1 under 13 arms: a05 a06 a09 a20 a21 a23 a24 a25 f01 f04 f05 f06 f09.
+  - Per-arm captures are kept beside the driver's run, not committed. One arm (f07) missed its anchor on the first
+    campaign; the driver skipped it before writing, the anchor was corrected, and the whole campaign was re-run.
 
 ## What remains not buildable as written
 
@@ -123,6 +159,22 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
    question outside these cases.
 5. **A pair without decision 2** fails the announcement fixtures by name rather than running the cases.
 6. **The runner** (a5c658ff) is still unaccepted, so nothing here qualifies a candidate.
+
+## Open before qualified use (review sw3a-successor-1792548943247, section 6)
+
+These are qualification obligations, outside this source repair, and are not closed here:
+
+1. **R2's native discriminator.** The silenced scenario lifts the silence and asks for idle at once, so in the receipt
+   the fresh and the idle acceptance are the same snapshot. A distinct fresh-busy phase, polled, before idle must be
+   constructed and retained for the SW3b candidate mutation. The pure judge and the replay do not substitute for it.
+2. **Exclusive attempt storage.** `gate.mjs` refuses a non-empty `--out`, but check-then-mkdir is not an exclusive
+   acquisition: two concurrent attempts can both claim an absent folder.
+3. **The mutation controller.** `arms/run_arms.py` observes and does not fail on a survivor, a missed anchor, a bad
+   control or a restore mismatch. It has no try/finally around its child runs, so a timeout or launch error could skip
+   the restore. Each campaign's rows are checked by hand; this must be bounded before another automatic campaign.
+4. **The runner and SW3b.** Runner a5c658ff must be accepted first. Then come three preregistered full attempts on one
+   accepted wired SW5/aify-env pair, every failure retained, with source-bound images and owned cleanup. The two cases
+   that pass on unwired main need their candidate mutations.
 
 ## What this does not show
 

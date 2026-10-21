@@ -98,7 +98,7 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
         const judged = error || !evidence ? { pass: false, failed: [`scenario error: ${error ?? "no evidence"}`] }
           : JUDGES[c.id](evidence);
         results.push({ id: c.id, scenario: name, expected: c.expected, red: c.red, ...judged });
-        log(`case ${c.id}: ${judged.pass ? "PASS" : `FAIL [${judged.failed.join("; ")}]`}`);
+        log(`case ${c.id}: ${judged.verdict ?? "FAIL"}${judged.pass ? "" : ` [${[...judged.failed, ...(judged.unknown ?? [])].join("; ")}]`}`);
       }
       if (!clean.ok) log(`scenario ${name}: cleanup left [${clean.remaining.join(", ")}] unknown [${clean.unknown.join(", ")}]`);
     }

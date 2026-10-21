@@ -1,0 +1,1342 @@
+{
+  "scope": "pure exact successor judges; synthetic complete histories, not Docker/fixture execution",
+  "observations": [
+    {
+      "name": "original-lawful-release",
+      "judge": "legacy-idle-env-busy",
+      "oracle": "Original complete lawful control passes",
+      "want": true,
+      "actual": {
+        "pass": true,
+        "failed": []
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540801000,
+            "to": 1792540820000
+          },
+          "idleAccepted": {
+            "at": 1792540821000,
+            "seenAt": 1792540821000
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540801000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540821000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540822000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:00:22.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540822000
+          }
+        ]
+      }
+    },
+    {
+      "name": "lawful-release-same-second-as-window-end",
+      "judge": "legacy-idle-env-busy",
+      "oracle": "Hold ends20.900; idle accepted20.950; claim20.970 and receipt20.975: all release events are lawful. Whole-second DB claim20.000 is not proof inside hold.",
+      "want": true,
+      "actual": {
+        "pass": false,
+        "failed": [
+          "held: R was claimed inside the window"
+        ]
+      },
+      "agrees": false,
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540801000,
+            "to": 1792540820900
+          },
+          "idleAccepted": {
+            "at": 1792540820000,
+            "seenAt": 1792540820950
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540801000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540820950,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:20.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:20.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540821500,
+            "runs": [
+              {
+                "id": "R",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:00:20.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:20.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:20.000Z"
+              }
+            ],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540820975
+          }
+        ]
+      }
+    },
+    {
+      "name": "same-model-release-next-second-control",
+      "judge": "legacy-idle-env-busy",
+      "oracle": "Only release crosses into next DB second; same lawful protocol must pass",
+      "want": true,
+      "actual": {
+        "pass": true,
+        "failed": []
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540801000,
+            "to": 1792540820900
+          },
+          "idleAccepted": {
+            "at": 1792540821000,
+            "seenAt": 1792540821100
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540801000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540821100,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540821650,
+            "runs": [
+              {
+                "id": "R",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:00:21.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540821160
+          }
+        ]
+      }
+    },
+    {
+      "name": "actual-early-claim-adverse-control",
+      "judge": "legacy-idle-env-busy",
+      "oracle": "Actual claim and receipt within hold must fail",
+      "want": false,
+      "actual": {
+        "pass": false,
+        "failed": [
+          "held: R was claimed inside the window",
+          "held: the stand-in received R inside the window",
+          "delivered after the idle publication: claimed before comms accepted the publication",
+          "delivered after the idle publication: the watcher saw the claim first"
+        ]
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "preLegacyBusy": 0,
+          "preEnvBusy": true,
+          "holdWindow": {
+            "from": 1792540801000,
+            "to": 1792540820000
+          },
+          "idleAccepted": {
+            "at": 1792540821000,
+            "seenAt": 1792540821000
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540801000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540810100,
+            "runs": [
+              {
+                "id": "R",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:00:10.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:00.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540821000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:00:10.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "spawns": []
+          },
+          {
+            "t": 1792540822000,
+            "runs": [
+              {
+                "id": "R",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:00:10.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "controls": [],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:00:21.000Z"
+              }
+            ],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "delivered",
+            "runId": "R",
+            "t": 1792540810050
+          }
+        ]
+      }
+    },
+    {
+      "name": "A6-seed-claimed-before-first-idle",
+      "judge": "stop-restart",
+      "oracle": "First record is turn-unknown/busy=null, so eligibility unknown; seed is queueIfBusy. Claim64s before busy70s/idle75s violates claim contract despite being within10s of restart record.",
+      "want": false,
+      "actual": {
+        "pass": true,
+        "failed": []
+      },
+      "agrees": false,
+      "evidence": {
+        "marks": {
+          "seedRunId": "S",
+          "seedStatusAtStop": "queued",
+          "wordStopped": {
+            "status": "stopped"
+          },
+          "sendStored": true,
+          "spawnsAfterSend": 0,
+          "deliveredWhileStopped": 0,
+          "restartAccepted": {
+            "at": 1792540860000,
+            "seenAt": 1792540860200
+          },
+          "wordAtRestart": {
+            "status": "unknown"
+          },
+          "wordAfterFirstTurn": {
+            "status": "online"
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540860200,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": null,
+                "state": "unknown",
+                "appliedAt": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540865000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:01:04.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": null,
+                "state": "unknown",
+                "appliedAt": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540870000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:01:04.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:01:10.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:10.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540875000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:01:04.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "delivered",
+            "runId": "S",
+            "t": 1792540864050
+          }
+        ]
+      }
+    },
+    {
+      "name": "A6-seed-legally-claimed-after-first-idle",
+      "judge": "stop-restart",
+      "oracle": "Seed legally waits through unknown and busy; idle75s, claim76s is first-pass healthy. Record60s is not the eligibility boundary.",
+      "want": true,
+      "actual": {
+        "pass": false,
+        "failed": [
+          "the seeded run: not claimed on the first pass after acceptance"
+        ]
+      },
+      "agrees": false,
+      "evidence": {
+        "marks": {
+          "seedRunId": "S",
+          "seedStatusAtStop": "queued",
+          "wordStopped": {
+            "status": "stopped"
+          },
+          "sendStored": true,
+          "spawnsAfterSend": 0,
+          "deliveredWhileStopped": 0,
+          "restartAccepted": {
+            "at": 1792540860000,
+            "seenAt": 1792540860200
+          },
+          "wordAtRestart": {
+            "status": "unknown"
+          },
+          "wordAfterFirstTurn": {
+            "status": "online"
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540860200,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": null,
+                "state": "unknown",
+                "appliedAt": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540870000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:01:10.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:10.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540875000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540876500,
+            "runs": [
+              {
+                "id": "S",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:01:16.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "delivered",
+            "runId": "S",
+            "t": 1792540876050
+          }
+        ]
+      }
+    },
+    {
+      "name": "A6-quick-first-idle-healthy-control",
+      "judge": "stop-restart",
+      "oracle": "Same correct protocol, first turn ends65s; claim66s falls within both unrelated10s windows",
+      "want": true,
+      "actual": {
+        "pass": true,
+        "failed": []
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "seedRunId": "S",
+          "seedStatusAtStop": "queued",
+          "wordStopped": {
+            "status": "stopped"
+          },
+          "sendStored": true,
+          "spawnsAfterSend": 0,
+          "deliveredWhileStopped": 0,
+          "restartAccepted": {
+            "at": 1792540860000,
+            "seenAt": 1792540860200
+          },
+          "wordAtRestart": {
+            "status": "unknown"
+          },
+          "wordAfterFirstTurn": {
+            "status": "online"
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540860200,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": null,
+                "state": "unknown",
+                "appliedAt": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540862000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:01:02.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:02.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540865000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:05.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:05.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540866500,
+            "runs": [
+              {
+                "id": "S",
+                "status": "completed",
+                "claimed_at": "2026-10-21T00:01:06.000Z",
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:05.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:05.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          }
+        ],
+        "standin": [
+          {
+            "event": "delivered",
+            "runId": "S",
+            "t": 1792540866050
+          }
+        ]
+      }
+    },
+    {
+      "name": "A6-positive-seed-never-drains-adverse-control",
+      "judge": "stop-restart",
+      "oracle": "Positive named queued population never drains",
+      "want": false,
+      "actual": {
+        "pass": false,
+        "failed": [
+          "the seeded run: S was never claimed"
+        ]
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "seedRunId": "S",
+          "seedStatusAtStop": "queued",
+          "wordStopped": {
+            "status": "stopped"
+          },
+          "sendStored": true,
+          "spawnsAfterSend": 0,
+          "deliveredWhileStopped": 0,
+          "restartAccepted": {
+            "at": 1792540860000,
+            "seenAt": 1792540860200
+          },
+          "wordAtRestart": {
+            "status": "unknown"
+          },
+          "wordAfterFirstTurn": {
+            "status": "online"
+          }
+        },
+        "timeline": [
+          {
+            "t": 1792540860200,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": null,
+                "state": "unknown",
+                "appliedAt": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:00.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540870000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": true,
+                "state": "working",
+                "appliedAt": "2026-10-21T00:01:10.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:10.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540875000,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          },
+          {
+            "t": 1792540876500,
+            "runs": [
+              {
+                "id": "S",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 1,
+                "steer_if_busy": 0
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "NEW",
+                "busy": false,
+                "state": "idle",
+                "appliedAt": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "publishers": [
+              {
+                "instance": "default",
+                "kind": "changes",
+                "data_applied_at": "2026-10-21T00:01:15.000Z"
+              }
+            ],
+            "controls": [],
+            "spawns": []
+          }
+        ],
+        "standin": []
+      }
+    },
+    {
+      "name": "last-known-exact-values-control",
+      "judge": "restart-mid-turn",
+      "oracle": "Actual status/time match the prior record",
+      "want": true,
+      "actual": {
+        "pass": true,
+        "failed": []
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "preEnvBusy": true,
+          "readAt": 1792540800000,
+          "word": {
+            "status": "unknown",
+            "lastKnown": {
+              "status": "working",
+              "appliedAt": "2026-10-20T23:59:50.000Z"
+            }
+          },
+          "snapshotAccepted": {
+            "at": 1792540830000,
+            "seenAt": 1792540830000
+          },
+          "prior": {
+            "status": "working",
+            "appliedAt": "2026-10-20T23:59:50.000Z"
+          }
+        },
+        "timeline": [],
+        "standin": []
+      }
+    },
+    {
+      "name": "last-known-wrong-status",
+      "judge": "restart-mid-turn",
+      "oracle": "Single-field mismatch must fail",
+      "want": false,
+      "actual": {
+        "pass": false,
+        "failed": [
+          "lastKnown.status online, not the prior working"
+        ]
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "preEnvBusy": true,
+          "readAt": 1792540800000,
+          "word": {
+            "status": "unknown",
+            "lastKnown": {
+              "status": "online",
+              "appliedAt": "2026-10-20T23:59:50.000Z"
+            }
+          },
+          "snapshotAccepted": {
+            "at": 1792540830000,
+            "seenAt": 1792540830000
+          },
+          "prior": {
+            "status": "working",
+            "appliedAt": "2026-10-20T23:59:50.000Z"
+          }
+        },
+        "timeline": [],
+        "standin": []
+      }
+    },
+    {
+      "name": "last-known-wrong-appliedAt",
+      "judge": "restart-mid-turn",
+      "oracle": "Single-field mismatch must fail",
+      "want": false,
+      "actual": {
+        "pass": false,
+        "failed": [
+          "lastKnown.appliedAt 2026-10-20T23:59:51.000Z, not 2026-10-20T23:59:50.000Z"
+        ]
+      },
+      "agrees": true,
+      "evidence": {
+        "marks": {
+          "preEnvBusy": true,
+          "readAt": 1792540800000,
+          "word": {
+            "status": "unknown",
+            "lastKnown": {
+              "status": "working",
+              "appliedAt": "2026-10-20T23:59:51.000Z"
+            }
+          },
+          "snapshotAccepted": {
+            "at": 1792540830000,
+            "seenAt": 1792540830000
+          },
+          "prior": {
+            "status": "working",
+            "appliedAt": "2026-10-20T23:59:50.000Z"
+          }
+        },
+        "timeline": [],
+        "standin": []
+      }
+    }
+  ]
+}
