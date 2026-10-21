@@ -238,7 +238,13 @@ Witnesses: `scripts/tests/test_gate_apparatus.py` (17 tests).
    - Development attempt 2 (`development-s6/2-separated`): fresh busy at 1792558068000 (seen ...068380), idle requested
      12 049 ms later, idle accepted at 1792558097000 (seen ...097923). The fixture is admitted; env-resumed reaches its
      judge and FAILs on unwired main, because main claims the queued send during the silence. The separated phase
-     discriminates R2 only on an SW5 candidate. Both are DEVELOPMENT attempts, not qualification.
+     discriminates R2 only on an SW5 candidate.
+   - Development attempt 3 (`development-s6/3-final-tree`), on 3d82bad5 with the runner merge and the stdout-only Pair:
+     - the network and three containers were owned by full bound ids, and two volumes were owned;
+     - the timeline (9 frames), stand-in log (187), relay log (22) and lifetime all parsed;
+     - idle was requested 12 102 ms after fresh busy, and the two were accepted 29 000 ms apart;
+     - cleanup read back complete, and env-resumed FAILs at its judge (main's RED).
+   All three are DEVELOPMENT attempts, not qualification.
 2. **Exclusive attempt storage.** `attempt-dir.mjs` claims `--out` with a non-recursive `mkdir`, which the operating
    system grants to exactly one caller; any existing folder, empty or not, is refused. Witnesses: a second acquisition
    of one name is refused, and of eight concurrent node processes exactly one wins.
