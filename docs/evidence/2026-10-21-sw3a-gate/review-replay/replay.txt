@@ -134,4 +134,18 @@ control-positive-before-end-control (stale-second-holder)
   ok   ef2264d9, verbatim: FAIL [withheld: the stand-in received R inside the window; withheld: R was steered inside the window]; the review recorded FAIL
   ok   ef2264d9, adapted: FAIL [withheld: the stand-in received R inside the window; withheld: R was steered inside the window]
   ok   this commit: FAIL [withheld: the stand-in received R inside the window; withheld: R was steered inside the window]; the oracle is FAIL
+== round 4, sw3a-acquisition-1792553532164: b7824b6a against this commit
+known-in-window-control-then-tail-error (stale-second-holder)
+  ok   b7824b6a, verbatim: PASS; the review recorded PASS
+  ok   b7824b6a, adapted: PASS
+  ok   this commit: FAIL [withheld: R was steered inside the window]; the oracle is FAIL
+  -> a review defect: RED on b7824b6a, GREEN after
+same-positive-without-tail-error (stale-second-holder)
+  ok   b7824b6a, verbatim: FAIL [withheld: R was steered inside the window]; the review recorded FAIL
+  ok   b7824b6a, adapted: FAIL [withheld: R was steered inside the window]
+  ok   this commit: FAIL [withheld: R was steered inside the window]; the oracle is FAIL
+tail-error-replaced-by-persistent-success (stale-second-holder)
+  ok   b7824b6a, verbatim: FAIL [withheld: R was steered inside the window]; the review recorded FAIL
+  ok   b7824b6a, adapted: FAIL [withheld: R was steered inside the window]
+  ok   this commit: FAIL [withheld: R was steered inside the window]; the oracle is FAIL
 every check held

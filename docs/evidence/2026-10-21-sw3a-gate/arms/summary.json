@@ -16,9 +16,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "d1d1338677af5812cab56f35e2c8afcfe661af0cb0a8b564add4bc60dcb05c41",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "532fc3639d728505291b5411a67035fbe855f171d12eddb008e414c04ca2888b",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -36,9 +36,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "47925fa86ae6a49fea054e72e408f71e09bcf8a04f4d58564b2c5ad2d1ebab84",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "664b4f946a27847633ced952270e9348e152ed0134ebd1df1a61c5dc90a53129",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -58,9 +58,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "2e50589ed31372e20d3dc862eb25ed766c0251d8cdde100ebc844e2ee51be67a",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "32cc2cd145675edb9d928793551f248c23de6ac7eb329c73edf8dea040a492ce",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -85,9 +85,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "585673b4619c1ad87b09f2d54cd4b4efd8a8f5475aae324860ff85ce75ab2d18",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "ea4ff2ea846a13934ed439fc0a544632d1069414365388b0b4acd5d8c84a000c",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -107,21 +107,23 @@
     "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [FAIL: withheld: the stand-in received R inside the window]",
     "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld: the stand-in received R inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld: the stand-in received R inside the window; withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: a steer only a failed read mentions stays unseen passes [FAIL: withheld: the stand-in received R inside the window]",
     "FAIL env-paused: a release after the window is lawful passes [FAIL: the queueIfBusy send: the stand-in received Q inside the window; the steerable send: the stand-in received D inside the window]",
     "FAIL cold-start: control, the model passes [FAIL: withheld before the record: the stand-in received R inside the window]",
     "FAIL fresh-busy-beside-unknown: control, the model passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
     "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [FAIL: withheld, steer included: the stand-in received R inside the window]",
     "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [FAIL: withheld, steer included: the stand-in received R inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
-    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: the stand-in received R inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [FAIL: withheld, steer included: the stand-in received R inside the window; withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer only a failed read mentions stays unseen passes [FAIL: withheld, steer included: the stand-in received R inside the window]"
    ],
    "named": [
     "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: the stand-in received R inside the window]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "a6d46d5e9ea653dc24303402c3af445a97c5f2c378c970b3fb78390dc5666ebd",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "aa1a678ba14847e6c04c3f17e1f7f9c9c18730855b552c67d71640de92237aea",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -154,9 +156,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "daa1dd9c0e8d3721679141513ae1a77d96d766a2ac15622b4cfc228edb39c2bf",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "2fac20af932f6c34f05781e780dfd77be665f18648548a149b1ec96fe4a8a681",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -176,9 +178,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "4cffa800ff32f86edb4fdb83f68277742170f860e77139c3ab65569e3880b1e1",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "f73337d859f9adeb6b76cc081c4e78402edd554850dde453b8e0538014b193cc",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -190,19 +192,25 @@
    "fails": [
     "FAIL stale-second-holder: steered inside the window fails [PASS: ]",
     "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL stale-second-holder: a steer seen in the window, with no tail fails [PASS: ]",
+    "FAIL stale-second-holder: a steer seen in the window, still in a successful last inventory fails [PASS: ]",
     "FAIL env-paused: the steerable send steered in the window fails [PASS: ]",
     "FAIL fresh-busy-beside-unknown: steered inside the window fails [PASS: ]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [PASS: ]"
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, with no tail fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, still in a successful last inventory fails [PASS: ]"
    ],
    "named": [
     "FAIL stale-second-holder: steered inside the window fails [PASS: ]",
     "FAIL fresh-busy-beside-unknown: steered inside the window fails [PASS: ]"
    ],
    "killed": true,
-   "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "1de9883a19a63cbc640f8604e6275771ef298cb7f237c5e710dd05c9c54618a5",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "replay_exit": 1,
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "d09bcc54cc98d087bbfce2f601e032041fe6b0cd13a970897ada3557101f5261",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -220,9 +228,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "466445b48f7f0b0bfa465d8d53eb90416e2b46cfe77875a4c5109ef57bf5bdb3",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "f9173ab57ff31e076a2605ee29d29e20550c33f474c7910ed45b026741aaac9f",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -239,9 +247,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "20917355b5d1c48a283e26d05009feb5d5cbf058c70a3c836892b234b0237062",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "0758ab48aee18d3934d1b52e514becfd64dc4c9bb6766e9f64cfa1b02be2a672",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -258,9 +266,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "e155401f887365a9ba948fd2ca3aba6c27f9163bbfa9c38afefaa38117eb46d8",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "55822c29a1cf584ee714b07b074fa716843fd049e92f29d18df62c82fb5213d1",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -277,9 +285,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "8ce5329b7574cb70964a957d4dd92a814d73f16f1f120d15939bd01f2b359df5",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "0c0ab45fe4abb3af64044756648796b05cf6bfd219c775752d634ee90d41f6b7",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -296,9 +304,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "d4336d9eb9415924019f89effc71cff11049e6777634a6a18c3da1403a91b9f1",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "4821f5809e5d173cafda8a5478877e3cc69404901ae362c92a886a6cc320d580",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -317,9 +325,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "dc9f80cd8c3c7c63ad7f1ee782a72b8262c5c92cc2993b2ea566fb3136f17f1a",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "fbb5cfddecb18cc4e61ffd618d760a8dbffa6253aa761dc3d33e874da0a9ec52",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -338,9 +346,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "e7cc783374d6c60fd91441fde35ab6ba81ceb892d583261bc4b19b24ac52da4b",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "406bb7bf163d3fc29432e71308c1049056be6d1fe26b352d25edce7a5c420f8b",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -357,9 +365,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "e62529a1cd704b3bb6b0eb17d6bcf3179df638c942368553f9353baa0a042adf",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "0495462ecc6ca588fcb29861a92e2ff39bbbeb6b25a5cb7b7fe6d39d269c3065",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -378,9 +386,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "1eae793bcca7be9f23efb4c4821e3550eefc8e5de1c0c54f7132dfd3f648da2e",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "84943cbc291d4537b3f74ae5129cadc2380a1baa445fecf0245ec6b58c6c48ab",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -398,9 +406,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "d3c296ee7a7d1bcae6c026eb949a1719c022f57e9f9db7b53da94a83c1762605",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "73ff594c1d5423c5315e544fb267229ad5ee00ee6b223096490e82983425578d",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -417,9 +425,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "083b28ffbe2d160d8c867b7a450b94e051334914dfc6ed1058b2fdc28138564a",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "4e14bdeb1f393330ebaa7564e72d8c3b8364973a1cfdcf7a239f7162bc4f5615",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -436,9 +444,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "703c66641c48ccb11a9b8ffa9e6d06012ca678139f4abb30ef0a90fc690bff19",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "934767a7a8e07a72f8dbd0905caa33bc409bb0d2ef8ff26426b71f7331733473",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -456,9 +464,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "9a7e623c3632bdeafbea3bfd66ca4711b36a42f4728e1a986b895d4ef4b6cb12",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "fda3c31a497b98b86f2d2aeedab9151ed5ee75e896edc3d3c2009d1a1e6f5239",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -475,9 +483,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "b4048e27611d985189030dd09b6d012cd2d075b6255262ccae74b626f9d06d0a",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "fcec60aae4552173dcc13f9b238aae644db7bc21a804a8cf8adbf564af4375b4",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -496,9 +504,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "cfe8175f0d3a7acaa22cc9571e9e8d19f54750c29f01416d7ec93a3042a055e2",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "66236f55e98bfd6f818af27eb6ac3a817974a79211f09172e8ce7b232f12f6a5",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -517,9 +525,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "32ea39e387139a27f420b90e37fb2dd9b31661c748dbad5ec297f1641c0e1a9e",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "4b4927d35734871b0d466c7d67d7f5f7e89347d119de19b11fec283ad3398247",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -536,9 +544,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "1babb96e6571b1fe3701c534e443faf1a84f8afa982bb944934fd0e2ca44017d",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "c02eca9393f95120d7a8ed2aecfac67027d9f937375e28aca4d8b7cdca302730",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -592,18 +600,24 @@
     "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [PASS: ]",
     "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
     "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL stale-second-holder: a steer seen in the window, with no tail fails [PASS: ]",
+    "FAIL stale-second-holder: a steer seen in the window, still in a successful last inventory fails [PASS: ]",
     "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [PASS: ]",
     "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
-    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+    "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, with no tail fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, still in a successful last inventory fails [PASS: ]"
    ],
    "named": [
     "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [PASS: ]"
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "2ea076f2df99597a21bc08978d04715c1560e29ad5a1eecb2dde2ed8e6908b43",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "3e587d308e7b1ba91b08bb57ca87d92d7576800e852ba99dbec7b7d6bf642dde",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -620,9 +634,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "3b5604ac67b02fd84ca8cbeb247380b526c7ec21591ae75c5af69a1449af910f",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "38e6f00cf78df718418dff18cce1666f50af9b8055ef023aee648fbb19a7b60a",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -634,16 +648,22 @@
    "fails": [
     "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]",
     "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+    "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: a steer seen in the window, with no tail fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: a steer seen in the window, still in a successful last inventory fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, with no tail fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, still in a successful last inventory fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
     "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
    ],
    "killed": true,
-   "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "1758850551ef5e841a0d1ff307b2f09e53d8193a97072da18af682933981a2cd",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "replay_exit": 1,
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "ce9bd12eced493b22ae9aa32b7a9526267e4fd7cd41a9ecfb28566a9d69c1de8",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -663,9 +683,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "9eb2860e5779db4ccbff8d33b5246cb958b1cea2aab3523967b4672da3e70599",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "d287122284b5892bd0466c1690e08a608c0c1cf89697c7e9485eb8ecfe21df0c",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -687,9 +707,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "12faa44b8a3aa511287bb91e4184d1d4eec481167c23affa34bc3357489f5ac9",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "c81fc4bcd57eea3fc92bb110bb792514628c6b17d27646ee38ad0f6688f1a1e0",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -707,9 +727,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "623fc8e84bab52058a536a881a54d716976ecb536a5265456e582281461193e9",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "c3ef68ac232b3e9fa3228f63244028bee4923565a451b5aff1bfa7cc968a725f",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -731,9 +751,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "1bab7742b771966104989510d5323cfed9137dcd2291b4c88248d2933e37ebc3",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "e5711dc07d081616b4f9b7c1554a451ecaadc46f396760c198ba640098f475f5",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -750,9 +770,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "b3250ee1196d7215ffebb5ed29a341f7ab5c55b2c594fc173711b733f7edd384",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "521e8d18be960ace75d62dbbf63777cdca2233afccf76da2ccdc8c8388546689",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -770,9 +790,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "99e75652a2c84bfb2351764fc00218190c4105c7215bcaf86b660218b86d25b3",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "902e5d028d9979465b9c3b07914cb430f5e7eb641606f8c7a5ad5906e02c7fa2",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -783,17 +803,23 @@
    "exit": 1,
    "fails": [
     "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
-    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+    "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: a steer seen in the window, with no tail fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL stale-second-holder: a steer seen in the window, still in a successful last inventory fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, with no tail fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer seen in the window, still in a successful last inventory fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "named": [
     "FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
     "FAIL fresh-busy-beside-unknown: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
    ],
    "killed": true,
-   "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "c63f1656c9a5b9a248ca63d2994c1ecaa1f55c35d8a4ea417d378d31598acef1",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "replay_exit": 1,
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "116283036570a0ae9d9060af8a48497246fd27746100d7efe27f77d6380952e4",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -812,9 +838,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "65fa5beae0eb6369557913538f06c6f73f029668884c610206745aa349d32684",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "827fbced6cf16bcad8318bb0588d5d0fca58131cc48f387572c3f2acaba7c50f",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -835,9 +861,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "0b4a81d12524d68b10791c3d90fc67c25eebc68862710632c1ef29ebdc494474",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "cb6f0294a947d0cff64e871d577d4a82fdbd3467f6e20dace606560a3994542b",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -854,9 +880,9 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "fc8d4d8da7436aa652d37508f5f76cd58be55f8561c92eea20e1b4191743b3fa",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "7ceed1ad6b8d31101b85e667ce2850842a6cc7af56fe67e66f055b432dcf4d0b",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -875,9 +901,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "596a3cf4a2d9274c0b48cb7ae36d2475aa3bd855a225de275b416b9bbf744ddb",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "a0acc580de986250f34e43e0722f1d0e271d5504f373de7c4beea53494f7116b",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -894,9 +920,9 @@
    ],
    "killed": true,
    "replay_exit": 0,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "e844a113674580de29a3f6b8876a9f050a2f740d54045af1632d346af157dc80",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "7d2eaef0ab196df494e43a917bd667c09b68a0121705d4bfb04f13d39f0677ca",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {
@@ -915,9 +941,71 @@
    ],
    "killed": true,
    "replay_exit": 1,
-   "sha_original": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
-   "sha_mutated": "11498d2ef9834e0177f7baf1d08026269e00e3917fa26069345341f5db209fbd",
-   "sha_restored": "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b",
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "5a21229458e7668d39e9eaf7675dbe5ecfc2998f96979980f7feebc0de3ae089",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "restored_ok": true
+  },
+  {
+   "arm": "h01",
+   "file": "judges.mjs",
+   "guards": "F1.b a failed read sees nothing",
+   "expect": "a steer only a failed read mentions stays unseen",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "named": [
+    "FAIL stale-second-holder: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+    "FAIL fresh-busy-beside-unknown: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "1036471804afbcff5ebfe8e4ab2fab68af37d2f76dcd6fbad13836725f6309e5",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "restored_ok": true
+  },
+  {
+   "arm": "h02",
+   "file": "judges.mjs",
+   "guards": "F1.b a failed tail erases nothing",
+   "expect": "review F1.b: a steer seen in the window, then a failed last read",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL known controls: a steer seen in three successful frames counts once"
+   ],
+   "named": [
+    "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+    "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "2d29aaa8abb776c83c064fc49904ef8b397936c8664fce39ef0d6bf5a864fd91",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "restored_ok": true
+  },
+  {
+   "arm": "h03",
+   "file": "judges.mjs",
+   "guards": "F1.b one control once",
+   "expect": "a steer seen in three successful frames counts once",
+   "exit": 1,
+   "fails": [
+    "FAIL known controls: a steer seen in three successful frames counts once"
+   ],
+   "named": [
+    "FAIL known controls: a steer seen in three successful frames counts once"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+   "sha_mutated": "b1276cacb86b0d8f73cf272ecc81c4a44f913cfa80016095a81f8bba89650318",
+   "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
    "restored_ok": true
   },
   {

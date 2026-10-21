@@ -1,0 +1,670 @@
+{
+  "scope": "Pure controlled history; positive control was actually in a successful watcher frame before hold end; error shape is supported by source collector",
+  "rows": [
+    {
+      "name": "known-in-window-control-then-tail-error",
+      "want": "FAIL",
+      "actual": {
+        "pass": true,
+        "verdict": "PASS",
+        "failed": [],
+        "unknown": []
+      },
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540821000
+          }
+        ],
+        "timeline": [
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540820200,
+            "acquiredFrom": 1792540820150,
+            "previousSeenFrom": null,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540820800,
+            "acquiredFrom": 1792540820750,
+            "previousSeenFrom": 1792540820150,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          },
+          {
+            "t": 1792540821500,
+            "acquiredFrom": 1792540821450,
+            "previousSeenFrom": 1792540820750,
+            "error": "URLError: controlled failed read"
+          }
+        ]
+      }
+    },
+    {
+      "name": "same-positive-without-tail-error",
+      "want": "FAIL",
+      "actual": {
+        "pass": false,
+        "verdict": "FAIL",
+        "failed": [
+          "withheld: R was steered inside the window"
+        ],
+        "unknown": []
+      },
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540821000
+          }
+        ],
+        "timeline": [
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540820200,
+            "acquiredFrom": 1792540820150,
+            "previousSeenFrom": null,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540820800,
+            "acquiredFrom": 1792540820750,
+            "previousSeenFrom": 1792540820150,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "tail-error-replaced-by-persistent-success",
+      "want": "FAIL",
+      "actual": {
+        "pass": false,
+        "verdict": "FAIL",
+        "failed": [
+          "withheld: R was steered inside the window"
+        ],
+        "unknown": []
+      },
+      "evidence": {
+        "marks": {
+          "runId": "R",
+          "sentAt": 1792540800000,
+          "secondStatus": 204,
+          "secondAnnouncedMs": 1000,
+          "secondAppliedAt": 1792540790000,
+          "envBusyAtSend": false,
+          "window": {
+            "from": 1792540800000,
+            "to": 1792540820900
+          }
+        },
+        "contact": [
+          {
+            "t": 1792540799000,
+            "instance": "default",
+            "forwarded": true,
+            "status": 204,
+            "reportEveryMs": 60000
+          }
+        ],
+        "standin": [
+          {
+            "event": "polled",
+            "t": 1792540805000
+          },
+          {
+            "event": "polled",
+            "t": 1792540810000
+          },
+          {
+            "event": "polled",
+            "t": 1792540815000
+          },
+          {
+            "event": "control",
+            "runId": "R",
+            "controlId": "C",
+            "t": 1792540821000
+          }
+        ],
+        "timeline": [
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540820200,
+            "acquiredFrom": 1792540820150,
+            "previousSeenFrom": null,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": []
+          },
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540820800,
+            "acquiredFrom": 1792540820750,
+            "previousSeenFrom": 1792540820150,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          },
+          {
+            "publishers": [
+              {
+                "machine_id": "M",
+                "instance": "default",
+                "generation": 1,
+                "publication": 2,
+                "kind": "changes",
+                "reason": null,
+                "data_publication": 2,
+                "data_applied_at": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "machine_id": "M",
+                "instance": "gate-second",
+                "generation": 1,
+                "publication": 1,
+                "kind": "snapshot",
+                "reason": null,
+                "data_publication": 1,
+                "data_applied_at": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "records": [
+              {
+                "instance": "default",
+                "lifetime": "L1",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:59.000Z"
+              },
+              {
+                "instance": "gate-second",
+                "lifetime": "L2",
+                "busy": false,
+                "state": "idle",
+                "stateCause": "at-prompt",
+                "appliedAt": "2026-10-20T23:59:50.000Z"
+              }
+            ],
+            "legacy": [],
+            "spawns": [],
+            "word": {
+              "status": "unknown",
+              "statusNote": "",
+              "lastKnown": null
+            },
+            "wordStatus": 200,
+            "t": 1792540821500,
+            "acquiredFrom": 1792540821450,
+            "previousSeenFrom": 1792540820750,
+            "runs": [
+              {
+                "subject": "controlled steerability case",
+                "requested_at": "2026-10-21T00:00:00.000Z",
+                "claim_bridge_id": null,
+                "id": "R",
+                "status": "queued",
+                "claimed_at": null,
+                "queue_if_busy": 0,
+                "steer_if_busy": 1
+              }
+            ],
+            "controls": [
+              {
+                "id": "C",
+                "run_id": "R",
+                "action": "steer",
+                "requested_at": "2026-10-21T00:00:20.000Z"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

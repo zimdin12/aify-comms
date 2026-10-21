@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CASES, OBSERVATIONS, SCENARIOS, START } from "./cases.mjs";
-import { JUDGES } from "./judges.mjs";
+import { JUDGES, controlsOn } from "./judges.mjs";
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const PAGE_2 = path.join(REPO, "docs", "superpowers", "plans", "s4-hard-switch", "2-sandbox-gate.md");
@@ -63,8 +63,21 @@ function secondHolder(busy) {
         timeline: [pass.timeline[0], ...sights.map((sight, i) => (Array.isArray(sight)
           ? snap(sight[0], { runs: [run("R", "queued", null, steerable)], stamps: { acquiredFrom: sight[1], previousSeenFrom: sight[2] },
             controls: i === sights.length - 1 ? [steer("R", T0 + 20_500)] : [] }) : sight)),
-        snap(T0 + 26_200, { runs: [run("R", "completed", T0 + 26_000, steerable)], controls: [steer("R", T0 + 20_500)] })] }, expect])];
+        snap(T0 + 26_200, { runs: [run("R", "completed", T0 + 26_000, steerable)], controls: [steer("R", T0 + 20_500)] })] }, expect]),
+    // Review F1.b, the final inventory: a steer seen by a successful frame at 20.800, inside the window ending 20.900,
+    // then the timeline's tail. A failed read can neither erase it nor stand in for an inventory.
+    ...[["review F1.b: a steer seen in the window, then a failed last read", [failedRead(T0 + 21_500)], undefined],
+      ["a steer seen in the window, with no tail", [], undefined],
+      ["a steer seen in the window, still in a successful last inventory", [held(T0 + 21_500, [steer("R", T0 + 20_500)])], undefined],
+      ["a steer only a failed read mentions stays unseen", [{ ...failedRead(T0 + 21_500), controls: [steer("R", T0 + 20_500)] }], true]]
+      .map(([name, tail, expect]) => [name, { ...pass, marks: { ...marks, window: { from: T0, to: T0 + 20_900 } },
+        timeline: [pass.timeline[0], held(T0 + 20_200, []), ...(name.startsWith("a steer only") ? [] : [held(T0 + 20_800, [steer("R", T0 + 20_500)])]), ...tail] }, expect])];
 }
+/** A successful frame holding `controls`, and a failed read (probe.py `watch`), both with acquisition stamps. */
+function held(t, controls) {
+  return snap(t, { runs: [run("R", "queued", null, steerable)], controls, stamps: { acquiredFrom: t - 50, previousSeenFrom: null } });
+}
+const failedRead = (t) => ({ t, acquiredFrom: t - 50, previousSeenFrom: t - 650, error: "URLError: a failed read" });
 
 /** The silenced scenario's shared marks (A2): busy, then three announced intervals without a report. */
 const silenced = { announcedMs: 60_000, lastContactAt: T0 - 190_000, sentAt: T0, window,
@@ -327,6 +340,10 @@ export function selfCheck() {
       check(`${c.id}: ${name} ${{ PASS: "passes", FAIL: "fails", UNKNOWN: "reads UNKNOWN" }[want]}${held ? "" : why(got)}`, held);
     }
   }
+  // Review F1.b: one control seen in three successful frames is one known control, and a failed tail keeps it.
+  const seenThrice = [held(T0 + 20_200, [steer("R", T0 + 20_500)]), held(T0 + 20_800, [steer("R", T0 + 20_500)]),
+    held(T0 + 21_400, [steer("R", T0 + 20_500)]), failedRead(T0 + 22_000)];
+  check("known controls: a steer seen in three successful frames counts once", controlsOn(seenThrice, "R").length === 1);
   check("every judge is used by a case", Object.keys(JUDGES).every((id) => CASES.some((c) => c.id === id)));
   check("every observation has a scenario", OBSERVATIONS.every((o) => typeof SCENARIOS[o.scenario] === "function"));
   check("every start option names a scenario", Object.keys(START).every((s) => typeof SCENARIOS[s] === "function"));

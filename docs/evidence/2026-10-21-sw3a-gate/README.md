@@ -1,4 +1,4 @@
-# SW3a: the sandbox gate's harness (2026-10-21, third successor, after review sw3a-f1-1792551632225)
+# SW3a: the sandbox gate's harness (2026-10-21, fourth successor, after review sw3a-acquisition-1792553532164)
 
 Plan `docs/superpowers/plans/2026-10-20-s4-hard-switch.md`, page 2 (approved at 31a790ac). SW3a builds the harness:
 the stand-in, the frozen cases and their REDs. Qualifying a candidate (three attempts against one pinned pair) is
@@ -6,9 +6,10 @@ SW3b, and the gate qualifies nothing until the runner (`scripts/sandbox/env-agai
 
 The first pass was 88efbf12; its review raised R1-R8. The first successor, 5f4effad, closed R2-R8, and the reviewer
 accepted amendments A1-A8 ([AMENDMENTS.md](AMENDMENTS.md)) on that carrier. The second successor, ef2264d9, repaired
-F1 (R1's window precision) with the bucket model and the typed PASS/FAIL/UNKNOWN verdict, which its review kept. This
-commit repairs that review's two findings, F1.a and F1.b: an absence witness now has to be a successful read that
-began after the end. R2-R8, A1-A8 and A6 are as they were.
+F1 (R1's window precision) with the bucket model and the typed PASS/FAIL/UNKNOWN verdict, which its review kept. The
+third, b7824b6a, closed F1.a and F1.b's prior-frame path: an absence witness has to be a successful read that began
+after the end. This commit closes F1.b's last path: a failed final read no longer erases a control an earlier
+successful frame showed. R2-R8, A1-A8, A6, F1.a and F1.b's prior-frame path are as they were.
 
 ## What is here
 
@@ -24,7 +25,7 @@ began after the end. R2-R8, A1-A8 and A6 are as they were.
 | `scripts/tests/test_gate_probe_acquisition.py` | the collector's stamps, from its real `watch` loop on a scripted clock |
 | `scripts/sandbox/gate/env.Dockerfile` | the gate's aify-env image: the runner's, plus build tools for node-pty, the stand-in and the relay |
 | `scripts/sandbox/gate/self-check.mjs` | every judge against its healthy models and one countermodel per condition, the review's histories among them |
-| [review-replay/](review-replay/) | both reviews' synthetic histories, replayed through the judges each review read (88efbf12, 5f4effad) and this commit's |
+| [review-replay/](review-replay/) | the four reviews' synthetic histories, replayed through the judges each review read (88efbf12, 5f4effad, ef2264d9, b7824b6a) and this commit's |
 | [arms/](arms/) | the mutation arms over the judges |
 | [decision2-red/](decision2-red/), [rejudge.mjs](rejudge.mjs) | the receipt attempt's per-scenario evidence, and this commit's judges run over it again |
 
@@ -70,6 +71,8 @@ bucket [s, s + 1 s) against the end:
     `previousSeenFrom` of the read just before it, which returned the previous frame's content. Only those lower
     bounds count. An emitted `t` never proves absence (F1.a), and a frame with an error, or without the inventory in
     question, is never an empty one (F1.b). `judges.mjs` `absentThrough` holds this rule.
+- The controls placed are every control a successful frame showed, once per identity (`controlsOn`). A failed read,
+  last or not, neither erases one already seen nor adds one only it mentions (F1.b).
 - With neither, the condition reads UNKNOWN. A judge then returns the verdict UNKNOWN, which is never a pass and never
   an asserted breach. There is no grace interval: an early claim or receipt with millisecond evidence still fails.
 
@@ -97,9 +100,9 @@ carry no acquisition stamps.
   each file identical as JSON to what the attempt saved).
 - All 14 verdicts and reasons are identical to the recorded ones, with nothing UNKNOWN ([rejudge.txt](rejudge.txt)):
   the re-judge delta is 0 of 14.
-- Why nothing moved: the receipt's ten claimed withheld runs were all claimed in seconds wholly before their window's
-  end (20.8 to 22.2 s before it), and it holds no controls. No straddling bucket arose, so no absence witness was
-  ever decisive.
+- Why nothing moved: the receipt's withheld check ran 7 times over 6 named runs, and every claim second lay wholly
+  before its window's end (20,763 to 22,179 ms before it). The receipt holds no controls. No straddling bucket arose,
+  so no absence witness was ever decisive.
 - Changing one recorded verdict makes it exit 1. Both readers are unwired there, so every case whose RED is the reader
 still taking the legacy path must fail.
 
@@ -128,7 +131,7 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
 
 ## The judging, proven
 
-- **Self-check** ([self-check.txt](self-check.txt)): 201/201 witnesses pass. Every judge passes its healthy models and
+- **Self-check** ([self-check.txt](self-check.txt)): 210/210 witnesses pass. Every judge passes its healthy models and
   gives each countermodel its expected verdict (FAIL, or UNKNOWN where the model withholds the millisecond evidence),
   with `pass` agreeing with the verdict. Every page 2 case's words are found in page 2, and every amended case's words
   in its own amendment entry. The F1 witnesses are:
@@ -142,6 +145,12 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
   - a claim straddling the end with no millisecond evidence: UNKNOWN;
   - for a steer: seen before the end fails; read absent after the end passes; F1.b, an error read after the end
     between an empty inventory and the steer, UNKNOWN; no millisecond evidence, UNKNOWN.
+  - for a steer a successful frame showed inside the window (F1.b, the final inventory), on both judges that use it:
+    - followed by a failed last read: fails;
+    - with no tail: fails;
+    - still in a successful last inventory: fails;
+    - a steer only a failed read mentions stays unseen: passes;
+    - one steer seen in three successful frames is one known control.
 - **The collector** ([scripts/tests/test_gate_probe_acquisition.py](../../../scripts/tests/test_gate_probe_acquisition.py)):
   the real `watch` loop, run against a scripted clock and a stand-in `snapshot`, shows three things:
   - every frame's `acquiredFrom` is at or before its read, and its `t` after it;
@@ -168,18 +177,34 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
       UNKNOWN here.
     - The six matched controls keep their verdicts. The successful post-end empty inventory is adapted with the
       `acquiredFrom` its description gives it (20.920 s), and verbatim it reads UNKNOWN.
-  - With 5f4effad's judges in place of this commit's, the replay exits 1 on exactly round 2's two F1 rows. With
-    ef2264d9's, it exits 1 on exactly round 3's two erroneous PASSes.
-- **Mutation arms** ([arms/run_arms.py](arms/run_arms.py), [arms/summary.json](arms/summary.json)): 47/47 killed, all
+  - *Round 4* (sw3a-acquisition-1792553532164, judged by b7824b6a): b7824b6a gives the recorded verdict on all three
+    rows. A steer seen in the window and then a failed last read is RED on b7824b6a (PASS) and GREEN here (FAIL). The
+    same history with no tail, and with a successful last inventory keeping the steer, fail on both.
+  - Each predecessor's judges in place of this commit's make the replay exit 1. The BAD checks, counted over the
+    whole replay:
+
+    | judges substituted | BAD by round | total |
+    |---|---|---|
+    | 88efbf12 | round 1: 4, round 2: 6, round 3: 6 | 16 |
+    | 5f4effad | round 2: 2, round 3: 5, round 4: 1 | 8 |
+    | ef2264d9 | round 3: 2, round 4: 1 | 3 |
+    | b7824b6a | round 4: 1 | 1 |
+
+    The previous README said 5f4effad's judges failed "exactly round 2's two F1 rows". That is round 2's subset only;
+    the review counted 7 across the three rounds then.
+- **Mutation arms** ([arms/run_arms.py](arms/run_arms.py), [arms/summary.json](arms/summary.json)): 50/50 killed, all
   restored by byte copy and checked by sha256, baseline and after both exit 0.
   - They cover each review item's guard. f01-f12 are F1's: no blanket grace, the wholly-before bucket, each
     millisecond observation for claims and controls, and UNKNOWN as neither a breach nor a pass.
   - g01-g04 are F1.a/F1.b's in the judges: the emitted `t` used as absence, an error frame counted as an empty
     inventory, `previousSeenFrom` ignored, and a frame's own `acquiredFrom` ignored.
+  - h01-h03 are the final inventory's: a failed read's controls counted, the known set taken from the last frame
+    only, and one control counted once per sighting.
   - p01-p04 are the collector's, judged by its own test: the stamp taken after the read, `previousSeenFrom` wrong or
     never advanced, and an error frame given an empty inventory.
   - An arm counts as killed only when its checker exits nonzero AND a FAIL line names that arm's witness.
-  - The replay also exits 1 under 17 arms: a05 a06 a09 a20 a21 a23 a24 a25 f01 f04 f05 f06 f09 f11 f12 g01 g04.
+  - The replay also exits 1 under 21 arms: a05 a06 a08 a09 a20 a21 a23 a24 a25 f01 f03 f04 f05 f06 f09 f10 f11 f12
+    g01 g04 h02.
   - Per-arm captures are kept beside the driver's run, not committed. One arm (f07) missed its anchor on the first
     campaign, and p01 matched twice on this one. Each time the driver skipped the arm before writing anything, the
     anchor was corrected, and the whole campaign was re-run.

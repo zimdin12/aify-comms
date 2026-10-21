@@ -52,7 +52,19 @@ export const polls = (standin, from, to) => standin.filter((e) => e.event === "p
 /** A receipt of the run (delivered, or a control on it) at or before `to`: only the forbidden interval counts (R1). */
 const receivedBy = (standin, runId, to) => standin.find((e) => (e.event === "delivered" || e.event === "control")
   && e.runId === runId && e.t <= to);
-const controlsOn = (timeline, runId) => (last(timeline).controls ?? []).filter((c) => c.run_id === runId);
+/** Every control on the run that a successful frame showed, once per identity (review F1.b). A failed read never erases
+ *  a control already seen, and a control only a failed read mentions is never seen. */
+export function controlsOn(timeline, runId) {
+  const known = new Map();
+  for (const frame of timeline) {
+    if (frame.error || !Array.isArray(frame.controls)) continue;
+    for (const c of frame.controls.filter((x) => x.run_id === runId)) {
+      const identity = c.id ?? `${c.action}@${c.requested_at}`;
+      if (!known.has(identity)) known.set(identity, c);
+    }
+  }
+  return [...known.values()];
+}
 const earliest = (...times) => times.filter((t) => t != null).reduce((a, b) => Math.min(a, b), Infinity);
 
 export const SECOND_MS = 1000;

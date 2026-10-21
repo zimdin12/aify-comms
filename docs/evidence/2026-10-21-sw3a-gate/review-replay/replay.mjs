@@ -1,7 +1,8 @@
 // The reviews' own synthetic histories, replayed through the judges each review read and through this commit's:
 //   round 1, sw3a-source-1792542290852: JUDGE-COHERENT-OBSERVATIONS.json (observations.json), judged by 88efbf12;
 //   round 2, sw3a-successor-1792548943247: PARENT-JUDGE-OBSERVATIONS.json (observations-2.json), judged by 5f4effad;
-//   round 3, sw3a-f1-1792551632225: PARENT-JUDGE-OBSERVATIONS.json (observations-3.json), judged by ef2264d9.
+//   round 3, sw3a-f1-1792551632225: PARENT-JUDGE-OBSERVATIONS.json (observations-3.json), judged by ef2264d9;
+//   round 4, sw3a-acquisition-1792553532164: TAIL-ERROR-OBSERVATIONS.json (observations-4.json), judged by b7824b6a.
 //
 //   node docs/evidence/2026-10-21-sw3a-gate/review-replay/replay.mjs > replay.txt
 //
@@ -30,6 +31,8 @@ const PINNED = {
   "judges-5f4effad.mjs": { sha: "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5", eol: "\n", ending: "\n" },
   "observations-3.json": { sha: "c34cac4457f02e6205e268a8ce2b815ef430b75cf539c5468eb84e6bf2c90e35", eol: "\r\n", ending: "" },
   "judges-ef2264d9.mjs": { sha: "3e257789867cdab1e997c291c327d3c7db7607303bd457df09b86dfe588fba9b", eol: "\n", ending: "\n" },
+  "observations-4.json": { sha: "c357e3011f433ec87d97396cc644ca0ffea4b56fe76706a8d278cbd68bc32401", eol: "\r\n", ending: "" },
+  "judges-b7824b6a.mjs": { sha: "33b92bfc698db917ef8de40b1f6295c296a5bb66e3cb8b29a2f851e4da968c3b", eol: "\n", ending: "\n" },
 };
 for (const [file, { sha, eol, ending }] of Object.entries(PINNED)) {
   const text = fs.readFileSync(path.join(HERE, file), "utf8").replace(/\r\n/g, "\n").replace(/\n+$/, "");
@@ -109,6 +112,10 @@ const round3 = read("observations-3.json").observations.map((r) => {
     evidence: { ...r.evidence, timeline: r.evidence.timeline.map((s) => (s.t === T + 20_950 ? { ...s, acquiredFrom: T + 20_920 } : s)) } };
 });
 
+/** Round 4. Its rows carry their typed oracle (`want`) and the verdict b7824b6a gave (`actual.verdict`), as used. */
+const round4 = read("observations-4.json").rows.map((r) => ({ name: r.name, judge: "stale-second-holder", oracle: r.want,
+  recorded: r.actual.verdict, evidence: r.evidence, why: null }));
+
 let failures = 0;
 const verdictOf = (v) => v.verdict ?? word(v.pass);
 const show = (v) => `${verdictOf(v)}${v.failed.length || v.unknown?.length ? ` [${[...v.failed, ...(v.unknown ?? [])].join("; ")}]` : ""}`;
@@ -116,7 +123,8 @@ const check = (ok, text) => { if (!ok) failures += 1; console.log(`  ${ok ? "ok 
 for (const [title, judgesFile, rows, originals] of [
   ["round 1, sw3a-source-1792542290852", "judges-88efbf12.mjs", round1, read("observations.json").rows],
   ["round 2, sw3a-successor-1792548943247", "judges-5f4effad.mjs", round2, read("observations-2.json").observations],
-  ["round 3, sw3a-f1-1792551632225", "judges-ef2264d9.mjs", round3, read("observations-3.json").observations]]) {
+  ["round 3, sw3a-f1-1792551632225", "judges-ef2264d9.mjs", round3, read("observations-3.json").observations],
+  ["round 4, sw3a-acquisition-1792553532164", "judges-b7824b6a.mjs", round4, read("observations-4.json").rows]]) {
   const OLD = await judgesAt(judgesFile);
   const old = judgesFile.slice(7, 15);
   console.log(`== ${title}: ${old} against this commit`);

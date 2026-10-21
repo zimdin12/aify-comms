@@ -103,6 +103,13 @@ ARMS = [
    'a read still queued after the end, recorded on the next frame', 'F1.a the last read of a state'),
   ('g04', 'judges.mjs', '    const bound = timeline[j + 1]?.previousSeenFrom ?? frame.acquiredFrom;', '    const bound = timeline[j + 1]?.previousSeenFrom;',
    "steered in the window's last second, read absent after it ends", 'F1.a a frame\'s own acquisition'),
+  # Review F1.b, the final inventory: known controls come from every successful frame, once each.
+  ('h01', 'judges.mjs', '    if (frame.error || !Array.isArray(frame.controls)) continue;', '    if (!Array.isArray(frame.controls)) continue;',
+   'a steer only a failed read mentions stays unseen', 'F1.b a failed read sees nothing'),
+  ('h02', 'judges.mjs', '  for (const frame of timeline) {', '  for (const frame of timeline.slice(-1)) {',
+   'review F1.b: a steer seen in the window, then a failed last read', 'F1.b a failed tail erases nothing'),
+  ('h03', 'judges.mjs', '      if (!known.has(identity)) known.set(identity, c);', '      known.set(`${identity}#${known.size}`, c);',
+   'a steer seen in three successful frames counts once', 'F1.b one control once'),
   # The collector: its stamps are what the judges' lower bounds stand on. Judged by its own test, not the self-check.
   ('p01', 'probe.py', '        acquired = now_ms()\n        try:\n', '        acquired = now_ms() + 250\n        try:\n',
    'test_a_frame_is_acquired_before_its_read_and_emitted_after_it', 'F1.a stamped before the read'),

@@ -69,6 +69,10 @@ PASS stale-second-holder: steered in the window's last second, seen before it en
 PASS stale-second-holder: steered in the window's last second, read absent after it ends passes
 PASS stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN
 PASS stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN
+PASS stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails
+PASS stale-second-holder: a steer seen in the window, with no tail fails
+PASS stale-second-holder: a steer seen in the window, still in a successful last inventory fails
+PASS stale-second-holder: a steer only a failed read mentions stays unseen passes
 PASS env-paused: its expected answer is page 2's or its amendment's words
 PASS env-paused: its RED is page 2's or its amendment's words
 PASS env-paused: has a scenario and a judge
@@ -195,8 +199,13 @@ PASS fresh-busy-beside-unknown: steered in the window's last second, seen before
 PASS fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes
 PASS fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN
 PASS fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN
+PASS fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails
+PASS fresh-busy-beside-unknown: a steer seen in the window, with no tail fails
+PASS fresh-busy-beside-unknown: a steer seen in the window, still in a successful last inventory fails
+PASS fresh-busy-beside-unknown: a steer only a failed read mentions stays unseen passes
 PASS fresh-busy-beside-unknown: the send not steerable fails
+PASS known controls: a steer seen in three successful frames counts once
 PASS every judge is used by a case
 PASS every observation has a scenario
 PASS every start option names a scenario
-201/201 self-check witnesses passed
+210/210 self-check witnesses passed
