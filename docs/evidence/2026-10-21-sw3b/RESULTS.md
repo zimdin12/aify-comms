@@ -14,7 +14,7 @@ None was rerun or replaced.
 | case | q1 | q2 | q3 | cause | at fault |
 |---|---|---|---|---|---|
 | default-send-unknown | FAIL | FAIL | FAIL | C7 and C5 came from one sender, and comms folds a send into its sender's queued run (`_find_mergeable_queued_run`), so `defaultRunId == queueRunId` | the case; fixed in `7f81e1d1` (098/sw3c) |
-| stop-restart | FAIL | FAIL | FAIL | a defined agent's stop is delegated to its host (`control_agent` → `delegate`, D9c), so `_apply_agent_stop_or_resume` never cancels; the terminal-close sweep in `terminal_runs.py` fails the queued seed. Same source on main | the case's expectation, which nobody decided; held for the operator (dashboard 01M5FDG04RQP1Z7M6CQQ5X7JTT) |
+| stop-restart | FAIL | FAIL | FAIL | a defined agent's stop is delegated to its host (`control_agent` → `delegate`, D9c), so `_apply_agent_stop_or_resume` never cancels; the terminal-close sweep in `terminal_runs.py` fails the queued seed. Same source on main | the observed delegated stop conflicts with the frozen bar (A6/R7: queued work drained after the restart); held for the owner's ruling (dashboard 01M5FDG04RQP1Z7M6CQQ5X7JTT). The terminal-close writer is source-compatible, not observed: the captures hold no event or error_text |
 | legacy-busy-env-idle | pass | pass | FAIL | the stand-in logged `delivered` 10 ms after the run existed; `claimed()` saw the claim through a direct snapshot, and the evidence was read before the watcher's 0.5 s poll wrote it | the apparatus; fixed in `7f81e1d1` |
 
 ## Validity
@@ -33,6 +33,8 @@ None was rerun or replaced.
 
 ## Where things are
 
-- The logs are `logs/q1.gate.txt`, `logs/q2.gate.txt`, `logs/q3.gate.txt` and `logs/exits.txt`. They are not the
+- The logs are `logs/q1.gate.txt`, `logs/q2.gate.txt`, `logs/q3.gate.txt` and `logs/exits.txt`, force-added because the
+  repo ignores `logs/`. They were missing from 2208ae5b and are committed in the commit after it, byte for byte as
+  written by the run. They are not the
   preregistered `<q>/gate.txt`, because the gate refuses an out dir that already exists.
 - `q1/`, `q2/` and `q3/` are each attempt's own out dir: `attempt.json`, plus one `evidence.json` per scenario.
