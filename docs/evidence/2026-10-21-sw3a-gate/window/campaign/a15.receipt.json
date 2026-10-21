@@ -1,0 +1,15 @@
+{
+ "arm": "a15",
+ "file": "judges.mjs",
+ "guards": "R5",
+ "witness": "three intervals not passed",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "406bb7bf163d3fc29432e71308c1049056be6d1fe26b352d25edce7a5c420f8b",
+ "exit": 1,
+ "named": [
+  "FAIL env-paused: three intervals not passed fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

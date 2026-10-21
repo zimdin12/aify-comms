@@ -1,0 +1,15 @@
+{
+ "arm": "w01",
+ "file": "gate.mjs",
+ "guards": "R2 admission and cap in a gate attempt",
+ "witness": "the window cuts a command running when the attempt budget passes",
+ "sha_original": "07da5a35f603dbbe3ca7c899e82c2988d0f8bb35dc19d042e88e952daab853f1",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "9a69a07cc92c20292246a1a8e1d895866f39dd6b6a0e83e1f439cb49cd922ef4",
+ "exit": 1,
+ "named": [
+  "not ok 1 - the window cuts a command running when the attempt budget passes"
+ ],
+ "sha_restored": "07da5a35f603dbbe3ca7c899e82c2988d0f8bb35dc19d042e88e952daab853f1"
+}

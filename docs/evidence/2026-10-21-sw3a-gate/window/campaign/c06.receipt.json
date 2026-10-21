@@ -1,0 +1,15 @@
+{
+ "arm": "c06",
+ "file": "case-judging.mjs",
+ "guards": "6.1 admitted evidence reaches its judge",
+ "witness": "test_CONTROL_a_separated_resume_reaches_the_judge_unchanged",
+ "sha_original": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "2d60f0cd461e6b414d23d57424259e13e6660af497b4a6a2ddf3bd46a51bb086",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_CONTROL_a_separated_resume_reaches_the_judge_unchanged"
+ ],
+ "sha_restored": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92"
+}

@@ -1,0 +1,16 @@
+{
+ "arm": "f12",
+ "file": "judges.mjs",
+ "guards": "F1 controls",
+ "witness": "a steer straddling the window's end with no millisecond evidence",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "cb6f0294a947d0cff64e871d577d4a82fdbd3467f6e20dace606560a3994542b",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]",
+  "FAIL fresh-busy-beside-unknown: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

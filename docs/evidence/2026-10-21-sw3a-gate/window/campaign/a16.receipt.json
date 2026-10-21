@@ -1,0 +1,15 @@
+{
+ "arm": "a16",
+ "file": "judges.mjs",
+ "guards": "R4",
+ "witness": "a report reached comms during the silence",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "0495462ecc6ca588fcb29861a92e2ff39bbbeb6b25a5cb7b7fe6d39d269c3065",
+ "exit": 1,
+ "named": [
+  "FAIL env-paused: a report reached comms during the silence fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "f02",
+ "file": "judges.mjs",
+ "guards": "F1 bucket wholly before",
+ "witness": "claimed in an earlier second, seen late, with no receipt",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "38e6f00cf78df718418dff18cce1666f50af9b8055ef023aee648fbb19a7b60a",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: claimed in an earlier second, seen late, with no receipt fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

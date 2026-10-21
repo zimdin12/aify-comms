@@ -1,0 +1,15 @@
+{
+ "arm": "f08",
+ "file": "judges.mjs",
+ "guards": "F1 watcher sight",
+ "witness": "claimed in the hold's last second, seen claimed before it ends",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "521e8d18be960ace75d62dbbf63777cdca2233afccf76da2ccdc8c8388546689",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

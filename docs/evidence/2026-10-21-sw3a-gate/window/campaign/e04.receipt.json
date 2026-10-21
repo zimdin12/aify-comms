@@ -1,0 +1,15 @@
+{
+ "arm": "e04",
+ "file": "campaign.py",
+ "guards": "6.3 a survivor fails",
+ "witness": "test_a_surviving_arm_fails_the_campaign",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "2c353d9115fdeb4e5d9400ad0f255df06ca2f673d4c1efab0ff17b906945d376",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_surviving_arm_fails_the_campaign - AssertionError: ..."
+ ],
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
+}

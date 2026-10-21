@@ -1,0 +1,15 @@
+{
+ "arm": "e09",
+ "file": "campaign.py",
+ "guards": "6.3 the receipt persisted",
+ "witness": "test_CONTROL_a_killed_arm_passes_the_campaign",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "243457ec557bc1e025d31c903c60b5be5adb0a47064982258d3ddf8adfa708d1",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_CONTROL_a_killed_arm_passes_the_campaign - AssertionE..."
+ ],
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
+}

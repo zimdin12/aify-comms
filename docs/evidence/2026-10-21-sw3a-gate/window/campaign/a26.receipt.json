@@ -1,0 +1,15 @@
+{
+ "arm": "a26",
+ "file": "cases.mjs",
+ "guards": "amendment words",
+ "witness": "env-paused: its expected answer is page 2's or its amendment's words",
+ "sha_original": "a25ce94d044b53c104a0aa4be4cf21eb07bde97106f4f27f908b778a9ac7d898",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "fb8c7953ca01805e5a81225204c5597fe0e8f361ce0c234fc27e67f707e58966",
+ "exit": 1,
+ "named": [
+  "FAIL env-paused: its expected answer is page 2's or its amendment's words"
+ ],
+ "sha_restored": "a25ce94d044b53c104a0aa4be4cf21eb07bde97106f4f27f908b778a9ac7d898"
+}

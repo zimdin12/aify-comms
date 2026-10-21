@@ -1,0 +1,15 @@
+{
+ "arm": "c02",
+ "file": "case-judging.mjs",
+ "guards": "6.1 coinciding phases",
+ "witness": "test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name",
+ "sha_original": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "5d3fade922556aaa6a29cef1176980f07bed5bd744bccf5cf4d8b737efb2db9b",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name"
+ ],
+ "sha_restored": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92"
+}

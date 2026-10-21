@@ -1,0 +1,15 @@
+{
+ "arm": "c04b",
+ "file": "case-judging.mjs",
+ "guards": "6.1 on comms' clock",
+ "witness": "test_a_claim_pass_on_only_one_clock_is_refused",
+ "sha_original": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "a9f28d667b004e5c0a766a5a7fecb59b7384d6454b259fe2e9cbc43ca3225f4d",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_a_claim_pass_on_only_one_clock_is_refused - AssertionE..."
+ ],
+ "sha_restored": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92"
+}

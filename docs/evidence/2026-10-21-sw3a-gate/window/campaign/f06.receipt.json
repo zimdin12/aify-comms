@@ -1,0 +1,15 @@
+{
+ "arm": "f06",
+ "file": "judges.mjs",
+ "guards": "F1 unknown, not a pass",
+ "witness": "a claim straddling the hold's end with no millisecond evidence",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "c3ef68ac232b3e9fa3228f63244028bee4923565a451b5aff1bfa7cc968a725f",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

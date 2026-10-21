@@ -224,7 +224,7 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
 ## Section 6: the qualification apparatus (review sw3a-successor-1792548943247)
 
 Built after the F1 approval at f5191387; judges.mjs, self-check.mjs, AMENDMENTS.md and the CASES table are unchanged.
-Witnesses: `scripts/tests/test_gate_apparatus.py` (17 tests).
+Witnesses: `scripts/tests/test_gate_apparatus.py` (20 tests after the review of 11d8f3ae; 11d8f3ae had 18, not the 17 it stated).
 
 1. **R2's native discriminator.** The silenced scenario now waits, after the resume, for comms to accept a fresh BUSY
    record, holds busy for one claim pass (FIRST_PASS_MS + 1 s, on the watcher's frame clock), and only then asks for
@@ -232,6 +232,13 @@ Witnesses: `scripts/tests/test_gate_apparatus.py` (17 tests).
    by name, before its judge runs, when fresh and idle coincide, when no fresh busy record was accepted, or when the
    busy phase was shorter than a claim pass. The retained receipt's marks coincide (both 1792546599000, seen
    1792546599943) and are refused. `rejudge.mjs` stays judge-only.
+   - **Changed after review of 11d8f3ae.** The claim-pass check had measured `idleRequestedAt`, the request mark. Idle
+     can arrive without the request (the stand-in's unreadable-control fallback), so a 7 000 ms observed phase behind an
+     11 800 ms mark was admitted. Admission now reads the observed interval, `idleAccepted` minus `freshBusyAccepted`,
+     which must be at least FIRST_PASS_MS on comms' clock (`at`) and on the watcher's (`seenAt`). The request mark is
+     still recorded and no longer judged. Witnesses: the review's counterexample, and a pass on only one clock, each
+     way. Arms c04a-c04c (`window/campaign`). Under this rule, attempt 1 below (29 000 ms observed) would be admitted;
+     its refusal was by the old request-mark rule.
    - Development attempt 1 (`development-s6/1-phase-too-short`, comms 36028554 + env 7a855db0, silenced only):
      fresh busy 29 000 ms before idle, but the phase was 9 349 ms on the frame clock. The fixture check refused it by
      name. The scenario had slept on its own clock; it now waits on the frame clock.
@@ -275,10 +282,23 @@ Witnesses: `scripts/tests/test_gate_apparatus.py` (17 tests).
    - cfdf15b1's 11 arms: 11/11 killed, controls GREEN before and after, driver restored.
    The first arms run (`runner-arms-before-boundary-fix.txt`) had RED controls because the cut left the guard's block
    open, so its kills are void.
-   - **Not integrated:** the gate's `attempt()` does not open the runner's primary window, which is module-private
-     `primaryUntil`, set only by the runner's own `sandbox()`. So R2's admission, late-result and cleanup-deadline
-     rules bound runner runs, not gate attempts; a gate attempt has only its own between-step `deadline()`. Wiring it
-     needs an exported window on the runner and is left for review.
+   - **Integrated after review of 11d8f3ae** (it found R2 not consumed by gate attempts):
+     - the runner exports `setPrimaryUntil`, and `cleanup()` lifts the window around itself, so a caller cleaning up
+       inside a window (the gate, per scenario) is never cut;
+     - `attempt()` opens the window for its own budget (120 min), so R2's admission, cap and late-result rules bound
+       every gate command;
+     - a verdict reached after the budget is refused before `attempt.json`;
+     - `gate.mjs` runs its CLI only as the entry point, and `attempt()` takes `dock` and `budgetMs` for its test.
+     Witness: `scripts/tests/gate_attempt_window.mjs` (by `test_gate_attempt_window.py`). The real `attempt()` runs
+     against a stand-in Docker whose every call goes through the runner's `run()` as a node child. A 4 s budget
+     passes while comms starts (20 s), and three tests check the cut, full cleanup and the refused verdict. The
+     control (120 s budget, nothing slow) expects nothing cut and the cases' own verdict.
+     Arms (`window/`):
+     - w01 (no window) and w02 (no terminal check) are killed, each by its own test (campaign receipts);
+     - r01 (cleanup keeps the window) is killed by the cleanup test, run by hand because the campaign mutates the
+       gate directory only (`runner-cleanup-arm.txt`).
+     cfdf15b1's arm a09 (removing `sandbox()`'s own lift before cleanup) now survives by design: cleanup lifts the
+     window itself, so that line is no longer what guarantees it. The other 10 arms are still killed.
 5. **Pair reads Docker's stdout as data (runner R1 in `scripts/sandbox/gate/pair.mjs`).**
    - A constructor option `dock` (default: the runner's `docker`) carries every call: the 19 `docker(` calls become
      `this.#dock(`, and the four `create(...)` calls pass it as their `dock`.

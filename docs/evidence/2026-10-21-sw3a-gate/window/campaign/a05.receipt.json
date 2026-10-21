@@ -1,0 +1,15 @@
+{
+ "arm": "a05",
+ "file": "judges.mjs",
+ "guards": "R1",
+ "witness": "review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "aa1a678ba14847e6c04c3f17e1f7f9c9c18730855b552c67d71640de92237aea",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: the stand-in received R inside the window]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

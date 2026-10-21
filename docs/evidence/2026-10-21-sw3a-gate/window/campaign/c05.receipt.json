@@ -1,0 +1,15 @@
+{
+ "arm": "c05",
+ "file": "case-judging.mjs",
+ "guards": "6.1 a fresh busy record",
+ "witness": "test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase",
+ "sha_original": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "5a5b8c14f33b7c6beb17e2d78a46ca3b2965ac8cf5926c6cd9f580448f266556",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase"
+ ],
+ "sha_restored": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92"
+}

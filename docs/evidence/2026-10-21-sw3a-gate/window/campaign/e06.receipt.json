@@ -1,0 +1,15 @@
+{
+ "arm": "e06",
+ "file": "campaign.py",
+ "guards": "6.3 an exception mid-mutation",
+ "witness": "test_an_arm_that_throws_mid_mutation_is_restored_recorded_and_fails_the_campaign",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "41b380469d0629fd2f79e240ef28a24ea5ab7f357cb8a7efb384daf55afd6de6",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_arm_that_throws_mid_mutation_is_restored_recorded_and_fails_the_campaign"
+ ],
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
+}

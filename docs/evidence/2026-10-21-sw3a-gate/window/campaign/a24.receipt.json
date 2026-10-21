@@ -1,0 +1,16 @@
+{
+ "arm": "a24",
+ "file": "judges.mjs",
+ "guards": "R8",
+ "witness": "lastKnown names another word",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "4b4927d35734871b0d466c7d67d7f5f7e89347d119de19b11fec283ad3398247",
+ "exit": 1,
+ "named": [
+  "FAIL env-paused: lastKnown names another word fails [PASS: ]",
+  "FAIL restart-mid-turn: lastKnown names another word fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

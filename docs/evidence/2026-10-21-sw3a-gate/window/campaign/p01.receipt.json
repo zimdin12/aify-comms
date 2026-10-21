@@ -1,0 +1,15 @@
+{
+ "arm": "p01",
+ "file": "probe.py",
+ "guards": "F1.a stamped before the read",
+ "witness": "test_a_frame_is_acquired_before_its_read_and_emitted_after_it",
+ "sha_original": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "9759d61fad08000c502478c078853ae82a730f77d18abdc34d2856c1d3e0da24",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_probe_acquisition.py::WatchStampsTests::test_a_frame_is_acquired_before_its_read_and_emitted_after_it"
+ ],
+ "sha_restored": "6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d"
+}

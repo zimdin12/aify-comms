@@ -1,0 +1,15 @@
+{
+ "arm": "a06",
+ "file": "judges.mjs",
+ "guards": "R1",
+ "witness": "review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "2fac20af932f6c34f05781e780dfd77be665f18648548a149b1ec96fe4a8a681",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: R was claimed inside the window]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "f01",
+ "file": "judges.mjs",
+ "guards": "F1 no blanket grace",
+ "witness": "claimed in the hold's last second, seen claimed before it ends",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "3e587d308e7b1ba91b08bb57ca87d92d7576800e852ba99dbec7b7d6bf642dde",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

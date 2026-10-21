@@ -1,0 +1,15 @@
+{
+ "arm": "a12",
+ "file": "judges.mjs",
+ "guards": "R2",
+ "witness": "the steerable send a second before the fresh publication, seen after it",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "0c0ab45fe4abb3af64044756648796b05cf6bfd219c775752d634ee90d41f6b7",
+ "exit": 1,
+ "named": [
+  "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

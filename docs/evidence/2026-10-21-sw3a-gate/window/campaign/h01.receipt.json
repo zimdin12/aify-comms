@@ -1,0 +1,16 @@
+{
+ "arm": "h01",
+ "file": "judges.mjs",
+ "guards": "F1.b a failed read sees nothing",
+ "witness": "a steer only a failed read mentions stays unseen",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "1036471804afbcff5ebfe8e4ab2fab68af37d2f76dcd6fbad13836725f6309e5",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+  "FAIL fresh-busy-beside-unknown: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

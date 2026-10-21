@@ -1,0 +1,15 @@
+{
+ "arm": "a09",
+ "file": "judges.mjs",
+ "guards": "R2",
+ "witness": "review R2: the queueIfBusy send claimed while busy, before idle",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "f9173ab57ff31e076a2605ee29d29e20550c33f474c7910ed45b026741aaac9f",
+ "exit": 1,
+ "named": [
+  "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

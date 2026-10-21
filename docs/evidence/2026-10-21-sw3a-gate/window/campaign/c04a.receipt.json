@@ -1,0 +1,15 @@
+{
+ "arm": "c04a",
+ "file": "case-judging.mjs",
+ "guards": "6.1 observed interval, not the request mark",
+ "witness": "test_a_late_idle_request_mark_does_not_stand_for_an_observed_claim_pass",
+ "sha_original": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "41a130865ac36fa3bc24fc196a757fbcb92ebadfdbcfb99b99239e2861d9461c",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_a_late_idle_request_mark_does_not_stand_for_an_observed_claim_pass"
+ ],
+ "sha_restored": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92"
+}

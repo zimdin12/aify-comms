@@ -1,0 +1,15 @@
+{
+ "arm": "e02",
+ "file": "campaign.py",
+ "guards": "6.3 a nonzero exit",
+ "witness": "test_the_command_line_exits_nonzero_on_any_failure",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "b81c3acc706fd6aa70d6aff56b6e3b6b7941910da75ea94c15f284ea9bc62162",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_the_command_line_exits_nonzero_on_any_failure - Asser..."
+ ],
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
+}

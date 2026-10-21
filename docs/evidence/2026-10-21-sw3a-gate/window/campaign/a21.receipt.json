@@ -1,0 +1,15 @@
+{
+ "arm": "a21",
+ "file": "judges.mjs",
+ "guards": "R7",
+ "witness": "review R7: the named seed never drained",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "fda3c31a497b98b86f2d2aeedab9151ed5ee75e896edc3d3c2009d1a1e6f5239",
+ "exit": 1,
+ "named": [
+  "FAIL stop-restart: review R7: the named seed never drained fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "w02",
+ "file": "gate.mjs",
+ "guards": "terminal check before the verdict and attempt.json",
+ "witness": "a verdict reached after the attempt budget is refused",
+ "sha_original": "07da5a35f603dbbe3ca7c899e82c2988d0f8bb35dc19d042e88e952daab853f1",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "6baeb6f36b04811dae9ce501918c60d42b96ac5f3384d9c04c05da63f49e2fc8",
+ "exit": 1,
+ "named": [
+  "not ok 3 - a verdict reached after the attempt budget is refused"
+ ],
+ "sha_restored": "07da5a35f603dbbe3ca7c899e82c2988d0f8bb35dc19d042e88e952daab853f1"
+}

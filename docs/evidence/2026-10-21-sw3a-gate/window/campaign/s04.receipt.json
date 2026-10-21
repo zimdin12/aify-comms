@@ -1,0 +1,15 @@
+{
+ "arm": "s04",
+ "file": "pair.mjs",
+ "guards": "R1 pair timeline",
+ "witness": "timeline: every stdout line is a frame",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "b6ccfffffc44f659607229f2bb6cc51dc32fdcb0c8a81e41d07a0c59811bbc78",
+ "exit": 1,
+ "named": [
+  "not ok 3 - timeline: every stdout line is a frame, and no warning line is parsed"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

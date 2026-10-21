@@ -1,0 +1,15 @@
+{
+ "arm": "e08",
+ "file": "campaign.py",
+ "guards": "6.3 a red baseline",
+ "witness": "test_a_red_baseline_runs_no_arm_and_fails",
+ "sha_original": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "c61b5d402c44db24042626978af9e61e38920159e37cd08b1ef3cc2965098fc0",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_a_red_baseline_runs_no_arm_and_fails - AssertionError..."
+ ],
+ "sha_restored": "6fbadb6c142b811f53c0a01fbacb410a1f03f21f9d2dd86f4984025d0cbb1e4a"
+}

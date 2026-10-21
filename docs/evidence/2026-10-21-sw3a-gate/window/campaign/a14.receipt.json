@@ -1,0 +1,16 @@
+{
+ "arm": "a14",
+ "file": "judges.mjs",
+ "guards": "R5",
+ "witness": "aify-env announced nothing",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "fbb5cfddecb18cc4e61ffd618d760a8dbffa6253aa761dc3d33e874da0a9ec52",
+ "exit": 1,
+ "named": [
+  "FAIL env-paused: aify-env announced nothing fails [PASS: ]",
+  "FAIL default-send-unknown: aify-env announced nothing fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "a03",
+ "file": "judges.mjs",
+ "guards": "first pass",
+ "witness": "claimed after the first pass",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "32cc2cd145675edb9d928793551f248c23de6ac7eb329c73edf8dea040a492ce",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: claimed after the first pass fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

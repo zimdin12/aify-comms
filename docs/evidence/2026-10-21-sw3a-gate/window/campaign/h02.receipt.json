@@ -1,0 +1,16 @@
+{
+ "arm": "h02",
+ "file": "judges.mjs",
+ "guards": "F1.b a failed tail erases nothing",
+ "witness": "review F1.b: a steer seen in the window, then a failed last read",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "2d29aaa8abb776c83c064fc49904ef8b397936c8664fce39ef0d6bf5a864fd91",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]",
+  "FAIL fresh-busy-beside-unknown: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

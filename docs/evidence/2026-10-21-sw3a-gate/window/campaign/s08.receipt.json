@@ -1,0 +1,15 @@
+{
+ "arm": "s08",
+ "file": "pair.mjs",
+ "guards": "R1 pair contact",
+ "witness": "contact: the relay log's lines",
+ "sha_original": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "af40c4384afaa2b832c95ac394d53a15ce71fd0f596c4b2a6b3c7d04119b00a7",
+ "exit": 1,
+ "named": [
+  "not ok 6 - contact: the relay log's lines, its last line not glued to the warning"
+ ],
+ "sha_restored": "7b9cfd5e01b54ead86c50d666d8e1ae04a15d1b4449f60e376c8680e774531a6"
+}

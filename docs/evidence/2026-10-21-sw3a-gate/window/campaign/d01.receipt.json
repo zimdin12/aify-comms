@@ -1,0 +1,15 @@
+{
+ "arm": "d01",
+ "file": "attempt-dir.mjs",
+ "guards": "6.2 recursive mkdir is not a claim (f5191387)",
+ "witness": "test_a_second_acquisition_of_one_name_is_refused",
+ "sha_original": "cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "512873fbe41140173ec8509bd1fdeeee094db67bf00766892a9b517012453fa7",
+ "exit": 1,
+ "named": [
+  "FAILED scripts/tests/test_gate_apparatus.py::AttemptDirTests::test_a_second_acquisition_of_one_name_is_refused - AssertionError: ..."
+ ],
+ "sha_restored": "cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476"
+}

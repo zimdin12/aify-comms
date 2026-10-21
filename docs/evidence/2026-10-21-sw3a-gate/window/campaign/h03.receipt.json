@@ -1,0 +1,15 @@
+{
+ "arm": "h03",
+ "file": "judges.mjs",
+ "guards": "F1.b one control once",
+ "witness": "a steer seen in three successful frames counts once",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "b1276cacb86b0d8f73cf272ecc81c4a44f913cfa80016095a81f8bba89650318",
+ "exit": 1,
+ "named": [
+  "FAIL known controls: a steer seen in three successful frames counts once"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}
