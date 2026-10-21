@@ -1,0 +1,263 @@
+{
+ "label": "q1",
+ "commsRef": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "commsSha": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "envRef": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "envSha": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "imagesReused": false,
+ "results": [
+  {
+   "id": "legacy-busy-env-idle",
+   "scenario": "legacy-busy",
+   "expected": "delivered at once",
+   "red": "the reader still takes the legacy table (it holds)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "legacy-idle-env-busy",
+   "scenario": "legacy-idle",
+   "expected": "held; delivered on the first claim pass after comms accepts the idle publication",
+   "red": "the reader takes the legacy table (it delivers mid-turn)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "busy-steerable",
+   "scenario": "steer",
+   "expected": "steered",
+   "red": "the carve-out is removed",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "stale-second-holder",
+   "scenario": "stale-second",
+   "expected": "eligibility unknown: withheld, steer included",
+   "red": "stale holders are ignored (known false: delivered)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "env-paused",
+   "scenario": "silenced",
+   "expected": "after three announced intervals of publication silence: `unknown` with the prior record's word and application time; sends queue; claims withhold, steer included",
+   "red": "unknown read as false (a send is delivered during the silence)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "env-resumed",
+   "scenario": "silenced",
+   "expected": "queued work drains on the first claim pass after comms accepts a fresh publication",
+   "red": "the queue never drains",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "default-send-unknown",
+   "scenario": "silenced",
+   "expected": "queued, not claimed",
+   "red": "the claim gate withholds only `queueIfBusy` runs",
+   "pass": false,
+   "verdict": "FAIL",
+   "failed": [
+    "fixture: the send was not a default send"
+   ],
+   "unknown": []
+  },
+  {
+   "id": "restart-idle",
+   "scenario": "restart-idle",
+   "expected": "before aify-env's next complete snapshot: `restored`, eligibility unknown, a send queues; after it: delivered",
+   "red": "restored rows promoted to fresh or complete (the send is delivered before the snapshot)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "restart-mid-turn",
+   "scenario": "restart-busy",
+   "expected": "`restored`, eligibility unknown, word `unknown` with a last-known note",
+   "red": "the restore removed (no last-known note), or promoted (eligibility known)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "restored-then-changes",
+   "scenario": "restart-changes",
+   "expected": "still `restored` and unknown until a complete snapshot is accepted",
+   "red": "changes treated as completing the restore",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "cold-start",
+   "scenario": "cold",
+   "expected": "a spawn request with an empty initial message; the run stays queued; the claim withholds until comms accepts the new lifetime's record, then the run is claimed",
+   "red": "the send-time hold skips the backing step (no spawn request; the run waits forever)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "run-running-idle",
+   "scenario": "running",
+   "expected": "the word reads `working`",
+   "red": "promotion skipped at the view",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  },
+  {
+   "id": "stop-restart",
+   "scenario": "stop",
+   "expected": "`stopped` (a send is stored, not run), then `online`, with queued work drained",
+   "red": "the view's stop row skipped; restart leaves `unknown`",
+   "pass": false,
+   "verdict": "FAIL",
+   "failed": [
+    "the seeded run: run_1792588804763_bb257f00 was never claimed"
+   ],
+   "unknown": []
+  },
+  {
+   "id": "fresh-busy-beside-unknown",
+   "scenario": "busy-beside-unknown",
+   "expected": "eligibility unknown beside a fresh busy holder: withheld, steer included",
+   "red": "steer checked before eligibility (the steerable run is steered)",
+   "pass": true,
+   "verdict": "PASS",
+   "failed": [],
+   "unknown": []
+  }
+ ],
+ "observations": {
+  "daemon-lost": {
+   "marks": {
+    "announcedMs": 60000,
+    "waitedMs": 185000,
+    "word": {
+     "status": "unknown",
+     "statusNote": "aify-env's state for this agent is not current; last known working at 2026-10-21T13:26:12Z",
+     "lastKnown": {
+      "status": "working",
+      "appliedAt": "2026-10-21T13:26:12Z"
+     }
+    },
+    "queueRunId": null,
+    "defaultRunId": null,
+    "queueAnswer": {
+     "ok": true,
+     "messageId": "1792589358537-d4194e9a",
+     "stored": true,
+     "notice": "Wake failed for gate-agent (managed environment \"docker:sandbox-env:default\" is offline). The message is in gate-agent's inbox; gate-agent can read it when it is online.",
+     "recipients": [
+      "gate-agent"
+     ],
+     "recipientStatus": {
+      "gate-agent": {
+       "status": "unknown",
+       "unread": 1,
+       "runtime": "claude-code",
+       "machineId": "wsl:sandbox-env"
+      }
+     },
+     "dispatchRuns": [],
+     "notStarted": [
+      {
+       "targetAgentId": "gate-agent",
+       "reason": "managed environment \"docker:sandbox-env:default\" is offline",
+       "runtime": "claude-code",
+       "sessionMode": "managed",
+       "capabilities": [
+        "managed-run",
+        "resume",
+        "interrupt",
+        "steer",
+        "spawn"
+       ],
+       "fix": "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps.",
+       "suggestedCommands": [
+        "comms_agent_info(agentId=\"gate-agent\")"
+       ],
+       "recipientStatus": "offline"
+      }
+     ],
+     "held": [],
+     "consoleDeliveries": [],
+     "warnings": []
+    },
+    "defaultAnswer": {
+     "ok": true,
+     "messageId": "1792589358849-2e106242",
+     "stored": true,
+     "notice": "Wake failed for gate-agent (managed environment \"docker:sandbox-env:default\" is offline). The message is in gate-agent's inbox; gate-agent can read it when it is online.",
+     "recipients": [
+      "gate-agent"
+     ],
+     "recipientStatus": {
+      "gate-agent": {
+       "status": "unknown",
+       "unread": 2,
+       "runtime": "claude-code",
+       "machineId": "wsl:sandbox-env"
+      }
+     },
+     "dispatchRuns": [],
+     "notStarted": [
+      {
+       "targetAgentId": "gate-agent",
+       "reason": "managed environment \"docker:sandbox-env:default\" is offline",
+       "runtime": "claude-code",
+       "sessionMode": "managed",
+       "capabilities": [
+        "managed-run",
+        "resume",
+        "interrupt",
+        "steer",
+        "spawn"
+       ],
+       "fix": "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps.",
+       "suggestedCommands": [
+        "comms_agent_info(agentId=\"gate-agent\")"
+       ],
+       "recipientStatus": "offline"
+      }
+     ],
+     "held": [],
+     "consoleDeliveries": [],
+     "warnings": []
+    },
+    "environment": {
+     "status": "offline",
+     "spawnClaim": {
+      "state": "stale",
+      "canClaim": false,
+      "bridgeLastSeen": "2026-10-21T13:26:12Z"
+     }
+    }
+   },
+   "error": null
+  }
+ }
+}

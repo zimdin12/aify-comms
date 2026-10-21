@@ -1,0 +1,1702 @@
+{
+ "timeline": [
+  {
+   "t": 1792590750525,
+   "acquiredFrom": 1792590750506,
+   "previousSeenFrom": null,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "runs": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "No live channel sidecar heartbeat (not deliverable).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590751039,
+   "acquiredFrom": 1792590751029,
+   "previousSeenFrom": 1792590750506,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590778591,
+   "acquiredFrom": 1792590778582,
+   "previousSeenFrom": 1792590778076,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 2,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T13:52:58Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T13:52:58Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590807778,
+   "acquiredFrom": 1792590807769,
+   "previousSeenFrom": 1792590807244,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T13:53:27Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T13:53:27Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590809302,
+   "acquiredFrom": 1792590809293,
+   "previousSeenFrom": 1792590808788,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T13:53:27Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T13:52:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T13:53:27Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590836857,
+   "acquiredFrom": 1792590836848,
+   "previousSeenFrom": 1792590836342,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "working",
+    "statusNote": "Executing turn (claude-code).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590837867,
+   "acquiredFrom": 1792590837862,
+   "previousSeenFrom": 1792590837357,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "queued",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "working",
+    "statusNote": "Executing turn (claude-code).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590847075,
+   "acquiredFrom": 1792590847064,
+   "previousSeenFrom": 1792590846547,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "failed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "failed",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590866071,
+   "acquiredFrom": 1792590866067,
+   "previousSeenFrom": 1792590865538,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 5,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 5,
+     "data_applied_at": "2026-10-21T13:54:25Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T13:53:56Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "stopped",
+     "stateCause": "operator-stop",
+     "appliedAt": "2026-10-21T13:54:25Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "failed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "failed",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "stopped",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590894774,
+   "acquiredFrom": 1792590894764,
+   "previousSeenFrom": 1792590894257,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 6,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 6,
+     "data_applied_at": "2026-10-21T13:54:54Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T13:54:54Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "stopped",
+     "stateCause": "operator-stop",
+     "appliedAt": "2026-10-21T13:54:54Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "failed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "failed",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "stopped",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590923871,
+   "acquiredFrom": 1792590923862,
+   "previousSeenFrom": 1792590923356,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 7,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 7,
+     "data_applied_at": "2026-10-21T13:55:23Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T13:54:54Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+     "busy": false,
+     "state": "unknown",
+     "stateCause": "turn-unknown",
+     "appliedAt": "2026-10-21T13:55:23Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "failed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "failed",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env has no current record of this agent",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590952966,
+   "acquiredFrom": 1792590952957,
+   "previousSeenFrom": 1792590952448,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 8,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 8,
+     "data_applied_at": "2026-10-21T13:55:52Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T13:55:52Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T13:55:52Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "failed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "failed",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "working",
+    "statusNote": "Executing turn (claude-code).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792590982212,
+   "acquiredFrom": 1792590982203,
+   "previousSeenFrom": 1792590981696,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792590749115,
+     "publication": 9,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 9,
+     "data_applied_at": "2026-10-21T13:56:21Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792590749135,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T13:55:52Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T13:56:21Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792590750625_6052556c",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T13:52:30Z",
+     "claimed_at": "2026-10-21T13:52:30Z",
+     "claim_bridge_id": "stand-in-fb3d7584-7df7-4621-a5ed-556407ae31d1"
+    },
+    {
+     "id": "run_1792590837538_f2b22b29",
+     "subject": "C13 seeded before the stop",
+     "status": "failed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-21T13:53:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792590750624_e367159c",
+     "status": "failed",
+     "initial_message": "",
+     "created_at": "2026-10-21T13:52:30Z"
+    }
+   ],
+   "legacy": [
+    {
+     "turn_busy": 1,
+     "turn_updated_at": "2026-10-21T13:53:29Z"
+    }
+   ],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792590750753,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792590750784,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "delivered",
+   "runId": "run_1792590750625_6052556c",
+   "messageId": "1792590750619-57d45388",
+   "subject": "warm-up",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  },
+  {
+   "t": 1792590752180,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792590752802,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590754811,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590756820,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590758829,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590760839,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590762849,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590763967,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590765979,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590767986,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590769995,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590772002,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590774009,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590776017,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590778024,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590778876,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792590780031,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590782039,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590784046,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590786055,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590788063,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590790070,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590792079,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590793189,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590795199,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590797207,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590799216,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590801224,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590803230,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590805238,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590807249,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590809264,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590809298,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792590811271,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590813280,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590815290,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590817300,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590819309,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590821319,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590822417,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590824427,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590826437,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590828443,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590830451,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590832459,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590834467,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590836476,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590838486,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590840496,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590842504,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590843591,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792590844512,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590846521,
+   "lifetime": "fb3d7584-7df7-4621-a5ed-556407ae31d1",
+   "event": "polled"
+  },
+  {
+   "t": 1792590894998,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792590897012,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590899021,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590901031,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590903040,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590905047,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590907055,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590908163,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590910172,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590912181,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590914190,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590916199,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590918208,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590920217,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590922229,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590924240,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590924704,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792590926250,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590928259,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590930269,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590932278,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590934286,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590936293,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590937391,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590939398,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590941406,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590943415,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590945422,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590947430,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590949435,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590951441,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590953450,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590954129,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792590955459,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590957467,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590959476,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590961485,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590963493,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590965501,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590966618,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590968630,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590970639,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590972647,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590974657,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590976665,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590978673,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590980685,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590982694,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590984704,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  },
+  {
+   "t": 1792590986710,
+   "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+   "event": "polled"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792590748074,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792590749186,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590749190,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792590749135,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590778222,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590807322,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 3,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590836419,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 4,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590836437,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 2,
+   "generation": 1792590749135,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590865569,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 5,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590894631,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 6,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590894648,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 3,
+   "generation": 1792590749135,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590923726,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 7,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590952826,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 8,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590952850,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 4,
+   "generation": 1792590749135,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792590981941,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 9,
+   "generation": 1792590749115,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "ef369919-6daa-4a68-93a1-7da3dbbf1973",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792590749135, publishing as residents-fda01c99a296",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792590750624_e367159c",
+  "[aify-env] started terminal term_1792590750646_a28a9787 for \"gate-agent\" as 43b83031-1638-495e-8136-cbfdac76b707-p1",
+  ""
+ ],
+ "marks": {
+  "seedRunId": "run_1792590837538_f2b22b29",
+  "seedStatusAtStop": "queued",
+  "wordStopped": {
+   "status": "stopped",
+   "statusNote": "",
+   "lastKnown": null
+  },
+  "sendStored": true,
+  "sendRunId": null,
+  "spawnsAfterSend": 0,
+  "deliveredWhileStopped": 0,
+  "wordAtRestart": {
+   "status": "unknown",
+   "statusNote": "aify-env has no current record of this agent",
+   "lastKnown": null
+  },
+  "restartAccepted": {
+   "at": 1792590923000,
+   "seenAt": 1792590923871
+  },
+  "wordAfterFirstTurn": {
+   "status": "online",
+   "statusNote": "",
+   "lastKnown": null
+  }
+ },
+ "error": null
+}

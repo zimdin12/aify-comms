@@ -1,0 +1,1013 @@
+{
+ "timeline": [
+  {
+   "t": 1792593023098,
+   "acquiredFrom": 1792593023081,
+   "previousSeenFrom": null,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:30:21Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:30:21Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-21T14:30:21Z"
+    }
+   ],
+   "runs": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "No live channel sidecar heartbeat (not deliverable).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593023609,
+   "acquiredFrom": 1792593023599,
+   "previousSeenFrom": 1792593023081,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:30:21Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:30:21Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-21T14:30:21Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593050889,
+   "acquiredFrom": 1792593050880,
+   "previousSeenFrom": 1792593050369,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 2,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T14:30:50Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:30:21Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T14:30:50Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593079990,
+   "acquiredFrom": 1792593079982,
+   "previousSeenFrom": 1792593079476,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T14:31:19Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:30:21Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T14:31:19Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593109136,
+   "acquiredFrom": 1792593109127,
+   "previousSeenFrom": 1792593108612,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T14:31:48Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593109661,
+   "acquiredFrom": 1792593109652,
+   "previousSeenFrom": 1792593109127,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "gate-second",
+     "generation": 1792593109328,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:31:49Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T14:31:48Z"
+    },
+    {
+     "instance": "gate-second",
+     "lifetime": "d50b2455-868c-4244-926b-76613101fc0d",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T14:31:49Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env has no current record of this agent",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593112221,
+   "acquiredFrom": 1792593112213,
+   "previousSeenFrom": 1792593111706,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "gate-second",
+     "generation": 1792593109328,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:31:49Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T14:31:48Z"
+    },
+    {
+     "instance": "gate-second",
+     "lifetime": "d50b2455-868c-4244-926b-76613101fc0d",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T14:31:49Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env's state for this agent is not current; last known online at 2026-10-21T14:31:49Z",
+    "lastKnown": {
+     "status": "online",
+     "appliedAt": "2026-10-21T14:31:49Z"
+    }
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792593117832,
+   "acquiredFrom": 1792593117827,
+   "previousSeenFrom": 1792593117320,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792593021700,
+     "publication": 4,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "gate-second",
+     "generation": 1792593109328,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-21T14:31:49Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792593021722,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-21T14:31:48Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-21T14:31:48Z"
+    },
+    {
+     "instance": "gate-second",
+     "lifetime": "d50b2455-868c-4244-926b-76613101fc0d",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-21T14:31:49Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792593023206_c1421d58",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:30:23Z",
+     "claimed_at": "2026-10-21T14:30:23Z",
+     "claim_bridge_id": "stand-in-efeab2d7-91c7-4642-bc3f-67e840384e28"
+    },
+    {
+     "id": "run_1792593117383_2eea1a0c",
+     "subject": "C14 fresh busy beside unknown, steerable",
+     "status": "queued",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-21T14:31:57Z",
+     "claimed_at": null,
+     "claim_bridge_id": ""
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792593023204_4bfeb07b",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-21T14:30:23Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env's state for this agent is not current; last known online at 2026-10-21T14:31:49Z",
+    "lastKnown": {
+     "status": "online",
+     "appliedAt": "2026-10-21T14:31:49Z"
+    }
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792593023330,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792593023356,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "delivered",
+   "runId": "run_1792593023206_c1421d58",
+   "messageId": "1792593023199-a8bf203f",
+   "subject": "warm-up",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  },
+  {
+   "t": 1792593024746,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792593025369,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593027375,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593029383,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593031390,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593032497,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593034505,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593036512,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593038519,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593040527,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593042536,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593044544,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593046551,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593048561,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593050569,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593051554,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792593052578,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593054589,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593056597,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593058604,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593060611,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593061709,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593063721,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593065737,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593067745,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593069756,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593071767,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593073778,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593075786,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593077796,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593079808,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593081154,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792593081820,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593083827,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593085835,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593087843,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593089850,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593090948,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593092955,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593094963,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593096971,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593098980,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593100989,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593102999,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593105006,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593107015,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593109022,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593111030,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593113038,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593115045,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593117052,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593119061,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593120149,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593122157,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593124163,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593126169,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593128175,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593130184,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593132192,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593134198,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  },
+  {
+   "t": 1792593136208,
+   "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+   "event": "polled"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792593020964,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792593021775,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792593021700,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792593021776,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792593021722,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792593050797,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792593021700,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792593079887,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 3,
+   "generation": 1792593021700,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792593108985,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 4,
+   "generation": 1792593021700,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792593109003,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 2,
+   "generation": 1792593021722,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "efeab2d7-91c7-4642-bc3f-67e840384e28",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792593021722, publishing as residents-fda01c99a296",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792593023204_4bfeb07b",
+  "[aify-env] started terminal term_1792593023226_5b71e44f for \"gate-agent\" as 9bbe08f8-f07a-4ff2-8729-b7959cb49dcf-p1",
+  ""
+ ],
+ "marks": {
+  "secondStatus": 204,
+  "secondAnnouncedMs": 1000,
+  "secondAppliedAt": 1792593109000,
+  "runId": "run_1792593117383_2eea1a0c",
+  "sentAt": 1792593117000,
+  "envBusyAtSend": true,
+  "window": {
+   "from": 1792593117705,
+   "to": 1792593137576
+  }
+ },
+ "error": null
+}
