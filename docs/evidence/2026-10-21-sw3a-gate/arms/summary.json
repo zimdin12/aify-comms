@@ -1,282 +1,562 @@
 {
  "baseline_exit": 0,
+ "baseline_replay_exit": 0,
  "arms": [
   {
    "arm": "a01",
    "file": "judges.mjs",
+   "guards": "ordering",
    "expect": "claimed a second before the acceptance, seen after it",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails"
+    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails []"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails"
+    "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "5d9892297aa07f7128e31d876eb2bdd7363b8dae3eae86d8e6d390d913e95cc8",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "6eab333d310450f9f59be37b5a010239eaa98a4619508998ce67144765b98f46",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a02",
    "file": "judges.mjs",
+   "guards": "ordering",
    "expect": "seen claimed first in the same second",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails"
+    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails []",
+    "FAIL env-resumed: the queueIfBusy send seen claimed before idle in the same second fails []"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails"
+    "FAIL legacy-idle-env-busy: seen claimed first in the same second fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "edafe90437d2109d426d1054723c5928803d36812dc9e4243eaf8407123a376e",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "fe20368308b9e64926219c567b2d8f6c734b603db77583994a098b74373ee5f6",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a03",
    "file": "judges.mjs",
+   "guards": "first pass",
    "expect": "claimed after the first pass",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: claimed after the first pass fails",
-    "FAIL restart-idle: delivered late fails",
-    "FAIL cold-start: claimed late fails"
+    "FAIL legacy-idle-env-busy: claimed after the first pass fails []",
+    "FAIL env-resumed: the queueIfBusy send late fails []",
+    "FAIL restart-idle: delivered late fails []",
+    "FAIL cold-start: claimed late fails []"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: claimed after the first pass fails"
+    "FAIL legacy-idle-env-busy: claimed after the first pass fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "68dd26c13d9ba5b9ff886d70bdcded76c244f5dc6a60cd4d75a26e9fafd82754",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "b2d083b5fb360df0077526a6471cb56c9f01d86531b2739eb1e65ef500326862",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a04",
    "file": "judges.mjs",
+   "guards": "claimer control",
    "expect": "no claimer polling",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: no claimer polling fails",
-    "FAIL stale-second-holder: no claimer polling fails",
-    "FAIL env-paused: no claimer polling fails",
-    "FAIL default-send-unknown: no claimer polling fails"
+    "FAIL legacy-idle-env-busy: no claimer polling fails []",
+    "FAIL stale-second-holder: no claimer polling fails []",
+    "FAIL default-send-unknown: no claimer polling fails []",
+    "FAIL cold-start: no claimer polling in the hold fails []",
+    "FAIL fresh-busy-beside-unknown: no claimer polling fails []"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: no claimer polling fails",
-    "FAIL stale-second-holder: no claimer polling fails",
-    "FAIL env-paused: no claimer polling fails",
-    "FAIL default-send-unknown: no claimer polling fails"
+    "FAIL legacy-idle-env-busy: no claimer polling fails []",
+    "FAIL stale-second-holder: no claimer polling fails []",
+    "FAIL default-send-unknown: no claimer polling fails []",
+    "FAIL cold-start: no claimer polling in the hold fails []",
+    "FAIL fresh-busy-beside-unknown: no claimer polling fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "1d3f40406fa538e6d994a13200f794df8d20dde689a0d2d576cb4fb829ee0fc9",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "2a02729afe8cfe8d1661ca9d8c01e81e0f09c2187a74b341014564d9ec247ea6",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a05",
    "file": "judges.mjs",
-   "expect": "stale-second-holder: received fails",
+   "guards": "R1",
+   "expect": "review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: received fails"
+    "FAIL legacy-idle-env-busy: control, the model passes [held: the stand-in received R inside the window]",
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: the stand-in received R inside the window]",
+    "FAIL stale-second-holder: control, the model passes [withheld: the stand-in received R inside the window]",
+    "FAIL env-paused: a release after the window is lawful passes [the queueIfBusy send: the stand-in received Q inside the window; the steerable send: the stand-in received D inside the window]",
+    "FAIL cold-start: control, the model passes [withheld before the record: the stand-in received R inside the window]",
+    "FAIL fresh-busy-beside-unknown: control, the model passes [withheld, steer included: the stand-in received R inside the window]"
    ],
    "named": [
-    "FAIL stale-second-holder: received fails"
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: the stand-in received R inside the window]"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "1e8f55860db6f0f2eaa58e7e0eec6ec061b8bc91e4adbfc2b2875b92bb5cbc6f",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 1,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "9f7dbe54272962308547246fba23ab2058cdb7ca67c072149b2f9d572e81bd7d",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a06",
    "file": "judges.mjs",
-   "expect": "no last-known note",
+   "guards": "R1",
+   "expect": "review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes",
    "exit": 1,
    "fails": [
-    "FAIL env-paused: no last-known note fails",
-    "FAIL restart-mid-turn: no last-known note fails"
+    "FAIL legacy-idle-env-busy: control, the model passes [held: R was claimed inside the window]",
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: R was claimed inside the window]",
+    "FAIL stale-second-holder: control, the model passes [withheld: R was claimed inside the window]",
+    "FAIL env-paused: a release after the window is lawful passes [the queueIfBusy send: Q was claimed inside the window; the steerable send: D was claimed inside the window]",
+    "FAIL cold-start: control, the model passes [withheld before the record: R was claimed inside the window]",
+    "FAIL fresh-busy-beside-unknown: control, the model passes [withheld, steer included: R was claimed inside the window]"
    ],
    "named": [
-    "FAIL env-paused: no last-known note fails",
-    "FAIL restart-mid-turn: no last-known note fails"
+    "FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [held: R was claimed inside the window]"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "104ec907b372d697827ccca0eccab8fb1dbd33026f0a4de9c4a951437be1a2d4",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 1,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "1b3e4ad0608452ce909f30e55076f1bacaddec2defbf47a3bcca7525130b6121",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a07",
    "file": "judges.mjs",
-   "expect": "became a control",
+   "guards": "R1",
+   "expect": "received inside the hold",
    "exit": 1,
    "fails": [
-    "FAIL legacy-busy-env-idle: became a control fails"
+    "FAIL legacy-idle-env-busy: received inside the hold fails []",
+    "FAIL stale-second-holder: received inside the window fails []",
+    "FAIL env-paused: the steerable send received in the window fails []",
+    "FAIL fresh-busy-beside-unknown: received inside the window fails []"
    ],
    "named": [
-    "FAIL legacy-busy-env-idle: became a control fails"
+    "FAIL legacy-idle-env-busy: received inside the hold fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "1f65cb54b1d9e7328512910fb100607c911aaf6c2d397b292c73861e827cb20f",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "1d9bf187c1c68cb362630ee6aaf856368bde0b74e626de2000ac3499383be1f1",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a08",
    "file": "judges.mjs",
-   "expect": "second holder fresh",
+   "guards": "R6",
+   "expect": "steered inside the window",
    "exit": 1,
    "fails": [
-    "FAIL stale-second-holder: second holder fresh fails"
+    "FAIL stale-second-holder: steered inside the window fails []",
+    "FAIL env-paused: the steerable send steered in the window fails []",
+    "FAIL fresh-busy-beside-unknown: steered inside the window fails []"
    ],
    "named": [
-    "FAIL stale-second-holder: second holder fresh fails"
+    "FAIL stale-second-holder: steered inside the window fails []",
+    "FAIL fresh-busy-beside-unknown: steered inside the window fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "e587b3c5d3be48e3a08db736f06f5427191cda0677f6227f4a73060c51deeb89",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "ee51179b555a1d364f2f6cfaf03e804e534ed016f239f36ea8885b4f2f4bdf57",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a09",
    "file": "judges.mjs",
-   "expect": "an initial message",
+   "guards": "R2",
+   "expect": "review R2: the queueIfBusy send claimed while busy, before idle",
    "exit": 1,
    "fails": [
-    "FAIL cold-start: an initial message fails"
+    "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails []",
+    "FAIL env-resumed: the queueIfBusy send seen claimed before idle in the same second fails []"
    ],
    "named": [
-    "FAIL cold-start: an initial message fails"
+    "FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "98691f7eb8d44ef07d40e87340aaa7d415cf4d2b6fb687e33cc171d0ab1789ee",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 1,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "2122599b0204ab7e9e18e7228fac559d6e74bb7ec2035cc58f9f33dee2c98d0d",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a10",
    "file": "judges.mjs",
-   "expect": "the send started it",
+   "guards": "R2",
+   "expect": "no fresh publication after the resume",
    "exit": 1,
    "fails": [
-    "FAIL stop-restart: the send started it fails"
+    "FAIL env-resumed: no fresh publication after the resume fails []"
    ],
    "named": [
-    "FAIL stop-restart: the send started it fails"
+    "FAIL env-resumed: no fresh publication after the resume fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "9c7c0715b9a3664e98455873616d6e202f1714af53ba5606d83756272726962e",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "916e89dd3fec8ebd8916a7c8ae0ef579ba8d75b8ee1d417da105b61db45cbdc4",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a11",
    "file": "judges.mjs",
-   "expect": "no claimer polling",
+   "guards": "R2",
+   "expect": "the steerable send late",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: no claimer polling fails",
-    "FAIL stale-second-holder: no claimer polling fails",
-    "FAIL env-paused: no claimer polling fails",
-    "FAIL default-send-unknown: no claimer polling fails"
+    "FAIL env-resumed: the steerable send late fails []"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: no claimer polling fails",
-    "FAIL stale-second-holder: no claimer polling fails",
-    "FAIL env-paused: no claimer polling fails",
-    "FAIL default-send-unknown: no claimer polling fails"
+    "FAIL env-resumed: the steerable send late fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "8f94d231d5a7cb8dea3d09f084df37544c8e0bfa78d9e39bbc6f3d06e2630f38",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "1e7c4e2a72cfe122bb320989b2e5121d8ced61c373e7162cc2739b66d11199e8",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a12",
    "file": "judges.mjs",
-   "expect": "claimed",
+   "guards": "R2",
+   "expect": "the steerable send a second before the fresh publication, seen after it",
    "exit": 1,
    "fails": [
-    "FAIL legacy-idle-env-busy: control, the model passes [delivered after the idle publication: R was never claimed]",
-    "FAIL env-resumed: control, the model passes [Q never drained; D never drained]",
-    "FAIL restart-idle: control, the model passes [after the snapshot: R was never claimed]",
-    "FAIL cold-start: control, the model passes [claimed after the new lifetime's record: R was never claimed]"
+    "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails []"
    ],
    "named": [
-    "FAIL legacy-idle-env-busy: control, the model passes [delivered after the idle publication: R was never claimed]",
-    "FAIL restart-idle: control, the model passes [after the snapshot: R was never claimed]",
-    "FAIL cold-start: control, the model passes [claimed after the new lifetime's record: R was never claimed]"
+    "FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "073f4f2e0f8354b63cd3c2a769e344caae963a763e58b93d298569cd179928c3",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "51f8f084051c45b224d0de880bbe9a07ae94dfc13717265b92145a3de25e964e",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a13",
-   "file": "cases.mjs",
-   "expect": "its expected answer is page 2's words",
+   "file": "judges.mjs",
+   "guards": "R3",
+   "expect": "review R3: an available row with no lifetime before the send",
    "exit": 1,
    "fails": [
-    "FAIL legacy-busy-env-idle: its expected answer is page 2's words"
+    "FAIL cold-start: review R3: an available row with no lifetime before the send fails []"
    ],
    "named": [
-    "FAIL legacy-busy-env-idle: its expected answer is page 2's words"
+    "FAIL cold-start: review R3: an available row with no lifetime before the send fails []"
    ],
    "killed": true,
-   "sha_original": "be7de2c930b8d719f7b81fad126297d3dbd5f0abfb608883a4fadc818da2e61b",
-   "sha_mutated": "a8a3ad13b1b50c7be8223952f9e3ffb3706e67881d0cab3b77d19a71693b9b7f",
-   "sha_restored": "be7de2c930b8d719f7b81fad126297d3dbd5f0abfb608883a4fadc818da2e61b",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "b2a233715d8b8d1e34054f1e9a07a1440a41c3667cd2a535e32c446aabbea1c6",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a14",
    "file": "judges.mjs",
-   "expect": "unknown after the snapshot",
+   "guards": "R5",
+   "expect": "aify-env announced nothing",
    "exit": 1,
    "fails": [
-    "FAIL restored-then-changes: unknown after the snapshot fails"
+    "FAIL env-paused: aify-env announced nothing fails []",
+    "FAIL default-send-unknown: aify-env announced nothing fails []"
    ],
    "named": [
-    "FAIL restored-then-changes: unknown after the snapshot fails"
+    "FAIL env-paused: aify-env announced nothing fails []",
+    "FAIL default-send-unknown: aify-env announced nothing fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "4e8eff966a3d2385fde01e80365c23f3bb7f24192f12d3fd249dd18b6265f75e",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "4a67fa0d765d690b41df0e6ca880ab6e0e379bbcb172fc2deb4f02999e3aebbc",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
    "restored_ok": true
   },
   {
    "arm": "a15",
    "file": "judges.mjs",
-   "expect": "promotion skipped",
+   "guards": "R5",
+   "expect": "three intervals not passed",
    "exit": 1,
    "fails": [
-    "FAIL run-running-idle: promotion skipped fails"
+    "FAIL stale-second-holder: the second holder not stale fails []",
+    "FAIL env-paused: three intervals not passed fails []",
+    "FAIL fresh-busy-beside-unknown: the second holder not stale fails []"
    ],
    "named": [
-    "FAIL run-running-idle: promotion skipped fails"
+    "FAIL env-paused: three intervals not passed fails []"
    ],
    "killed": true,
-   "sha_original": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
-   "sha_mutated": "9c236bde409430f7fa57945cbb5267b5d0e5aa03a6eb5e5177967fa84d8fd4df",
-   "sha_restored": "86ea74ddf7558eb24189063a4f343265993cfde61f39cbc95eb5a2510252cfea",
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "2b0fdd51f1add16dae7598cce5629972fa896a14e78e47f89806e1880added07",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a16",
+   "file": "judges.mjs",
+   "guards": "R4",
+   "expect": "a report reached comms during the silence",
+   "exit": 1,
+   "fails": [
+    "FAIL env-paused: a report reached comms during the silence fails []"
+   ],
+   "named": [
+    "FAIL env-paused: a report reached comms during the silence fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "c9d0c2065d3ac22ec2b7f515fadb745d026dd98c300bf2568e0f16e6167571c5",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a17",
+   "file": "judges.mjs",
+   "guards": "R5",
+   "expect": "aify-env out of contact",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: aify-env out of contact fails []",
+    "FAIL fresh-busy-beside-unknown: aify-env out of contact fails []"
+   ],
+   "named": [
+    "FAIL stale-second-holder: aify-env out of contact fails []",
+    "FAIL fresh-busy-beside-unknown: aify-env out of contact fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "4e1b4181d5ddee6dbc6b5e11c84e6d98cfaf3eda6adb851a4cf5dd22f1c54476",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a18",
+   "file": "judges.mjs",
+   "guards": "R6",
+   "expect": "aify-env not busy",
+   "exit": 1,
+   "fails": [
+    "FAIL stale-second-holder: aify-env busy fails []",
+    "FAIL fresh-busy-beside-unknown: aify-env not busy fails []"
+   ],
+   "named": [
+    "FAIL fresh-busy-beside-unknown: aify-env not busy fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "32b9f3bad7420a093082d8c307686a6b8774b2db58a63bf5dfe2b0054d77a392",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a19",
+   "file": "judges.mjs",
+   "guards": "R6",
+   "expect": "the send not steerable",
+   "exit": 1,
+   "fails": [
+    "FAIL fresh-busy-beside-unknown: the send not steerable fails []"
+   ],
+   "named": [
+    "FAIL fresh-busy-beside-unknown: the send not steerable fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "3343b9f329fd0ceaeb45bbbe40f2b2c00e1a2e8c18ad3b0644b842bbc7de8091",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a20",
+   "file": "judges.mjs",
+   "guards": "R7",
+   "expect": "review R7: no queued work seeded",
+   "exit": 1,
+   "fails": [
+    "FAIL stop-restart: review R7: no queued work seeded fails []"
+   ],
+   "named": [
+    "FAIL stop-restart: review R7: no queued work seeded fails []"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "e70fadcf3859b5f78e297f53f24c620ca67cf0cd8e8d0e948e43765e752014f2",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a21",
+   "file": "judges.mjs",
+   "guards": "R7",
+   "expect": "review R7: the named seed never drained",
+   "exit": 1,
+   "fails": [
+    "FAIL stop-restart: review R7: the named seed never drained fails []",
+    "FAIL stop-restart: the seed claimed before the restart fails []"
+   ],
+   "named": [
+    "FAIL stop-restart: review R7: the named seed never drained fails []"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "bb7a537190379152ab7ac99f1b09c3da926b5bb5501910ffb4ead31466600ca7",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a22",
+   "file": "judges.mjs",
+   "guards": "R7",
+   "expect": "restart leaves unknown after the first turn",
+   "exit": 1,
+   "fails": [
+    "FAIL stop-restart: restart leaves unknown after the first turn fails []"
+   ],
+   "named": [
+    "FAIL stop-restart: restart leaves unknown after the first turn fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "271a6cfe592580bcc2d2a33ece7659b7626917262c2b3d4eb446fae83adaa32e",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a23",
+   "file": "judges.mjs",
+   "guards": "R8",
+   "expect": "review R8: negative prose in statusNote",
+   "exit": 1,
+   "fails": [
+    "FAIL env-paused: review R8: negative prose in statusNote fails []",
+    "FAIL restart-mid-turn: review R8: negative prose in statusNote fails []"
+   ],
+   "named": [
+    "FAIL env-paused: review R8: negative prose in statusNote fails []",
+    "FAIL restart-mid-turn: review R8: negative prose in statusNote fails []"
+   ],
+   "killed": true,
+   "replay_exit": 1,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "f874ac1c1f02d3f1eae0c7eec7b3082421b34cb8d08579d72882c54263dc7ffb",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a24",
+   "file": "judges.mjs",
+   "guards": "R8",
+   "expect": "lastKnown names another word",
+   "exit": 1,
+   "fails": [
+    "FAIL env-paused: lastKnown names another word fails []",
+    "FAIL restart-mid-turn: lastKnown names another word fails []"
+   ],
+   "named": [
+    "FAIL env-paused: lastKnown names another word fails []",
+    "FAIL restart-mid-turn: lastKnown names another word fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "245af265aa628d5494c0b78c2c0253f9504aa934dbbebcb9b4547e3a20d25c34",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a25",
+   "file": "judges.mjs",
+   "guards": "R8",
+   "expect": "lastKnown names another time",
+   "exit": 1,
+   "fails": [
+    "FAIL env-paused: lastKnown names another time fails []"
+   ],
+   "named": [
+    "FAIL env-paused: lastKnown names another time fails []"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "sha_mutated": "31a08097f1d0cd9a156fa53501df23027fa3d9a2a90a31074deda78eeee6dffc",
+   "sha_restored": "619f645472e1ad779410c123ca45803bf60700726e85ce3ced90875f49e84ac5",
+   "restored_ok": true
+  },
+  {
+   "arm": "a26",
+   "file": "cases.mjs",
+   "guards": "amendment words",
+   "expect": "env-paused: its expected answer is page 2's or its amendment's words",
+   "exit": 1,
+   "fails": [
+    "FAIL env-paused: its expected answer is page 2's or its amendment's words"
+   ],
+   "named": [
+    "FAIL env-paused: its expected answer is page 2's or its amendment's words"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "688dd43dbe9435f1f513aaf859bece03871e2d424bdc3ab3e464185b7bae5a41",
+   "sha_mutated": "4c4f7f7c44cbd500d6945450463441217cf29dfc4ca99a8782dbedefae949a64",
+   "sha_restored": "688dd43dbe9435f1f513aaf859bece03871e2d424bdc3ab3e464185b7bae5a41",
+   "restored_ok": true
+  },
+  {
+   "arm": "a27",
+   "file": "cases.mjs",
+   "guards": "page 2 words",
+   "expect": "legacy-busy-env-idle: its expected answer is page 2's or its amendment's words",
+   "exit": 1,
+   "fails": [
+    "FAIL legacy-busy-env-idle: its expected answer is page 2's or its amendment's words"
+   ],
+   "named": [
+    "FAIL legacy-busy-env-idle: its expected answer is page 2's or its amendment's words"
+   ],
+   "killed": true,
+   "replay_exit": 0,
+   "sha_original": "688dd43dbe9435f1f513aaf859bece03871e2d424bdc3ab3e464185b7bae5a41",
+   "sha_mutated": "9efa40ce09fa03e89c759da5b4f72cda5787b649c99833c89b08f090b99ffddb",
+   "sha_restored": "688dd43dbe9435f1f513aaf859bece03871e2d424bdc3ab3e464185b7bae5a41",
    "restored_ok": true
   }
  ],
- "after_exit": 0
+ "after_exit": 0,
+ "after_replay_exit": 0
 }

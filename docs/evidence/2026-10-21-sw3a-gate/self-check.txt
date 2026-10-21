@@ -1,6 +1,16 @@
-PASS thirteen cases, as page 2's table has thirteen rows
-PASS legacy-busy-env-idle: its expected answer is page 2's words
-PASS legacy-busy-env-idle: its RED is page 2's words
+PASS page 2's 13 rows are thirteen, each a case, and every other case is an amendment's new one
+PASS legacy-busy-env-idle: amendment A1 is recorded
+PASS stale-second-holder: amendment A4 is recorded
+PASS env-paused: amendment A2 is recorded
+PASS env-resumed: amendment A2 is recorded
+PASS default-send-unknown: amendment A2 is recorded
+PASS restart-mid-turn: amendment A7 is recorded
+PASS cold-start: amendment A8 is recorded
+PASS stop-restart: amendment A6 is recorded
+PASS fresh-busy-beside-unknown: amendment A5 is recorded
+PASS daemon-lost: amendment A3 is recorded
+PASS legacy-busy-env-idle: its expected answer is page 2's or its amendment's words
+PASS legacy-busy-env-idle: its RED is page 2's or its amendment's words
 PASS legacy-busy-env-idle: has a scenario and a judge
 PASS legacy-busy-env-idle: control, the model passes
 PASS legacy-busy-env-idle: legacy not busy fails
@@ -9,13 +19,15 @@ PASS legacy-busy-env-idle: held fails
 PASS legacy-busy-env-idle: delivered late fails
 PASS legacy-busy-env-idle: never received as a run fails
 PASS legacy-busy-env-idle: became a control fails
-PASS legacy-idle-env-busy: its expected answer is page 2's words
-PASS legacy-idle-env-busy: its RED is page 2's words
+PASS legacy-idle-env-busy: its expected answer is page 2's or its amendment's words
+PASS legacy-idle-env-busy: its RED is page 2's or its amendment's words
 PASS legacy-idle-env-busy: has a scenario and a judge
 PASS legacy-idle-env-busy: control, the model passes
+PASS legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes
 PASS legacy-idle-env-busy: legacy busy fails
 PASS legacy-idle-env-busy: env not busy fails
 PASS legacy-idle-env-busy: claimed inside the hold fails
+PASS legacy-idle-env-busy: received inside the hold fails
 PASS legacy-idle-env-busy: claimed before the acceptance fails
 PASS legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails
 PASS legacy-idle-env-busy: seen claimed first in the same second fails
@@ -23,56 +35,73 @@ PASS legacy-idle-env-busy: claimed after the first pass fails
 PASS legacy-idle-env-busy: never claimed fails
 PASS legacy-idle-env-busy: no claimer polling fails
 PASS legacy-idle-env-busy: acceptance never seen fails
-PASS busy-steerable: its expected answer is page 2's words
-PASS busy-steerable: its RED is page 2's words
+PASS busy-steerable: its expected answer is page 2's or its amendment's words
+PASS busy-steerable: its RED is page 2's or its amendment's words
 PASS busy-steerable: has a scenario and a judge
 PASS busy-steerable: control, the model passes
 PASS busy-steerable: env not busy fails
 PASS busy-steerable: never received fails
 PASS busy-steerable: received late fails
 PASS busy-steerable: idle before receipt fails
-PASS stale-second-holder: its expected answer is page 2's words
-PASS stale-second-holder: its RED is page 2's words
+PASS stale-second-holder: its expected answer is page 2's or its amendment's words
+PASS stale-second-holder: its RED is page 2's or its amendment's words
 PASS stale-second-holder: has a scenario and a judge
 PASS stale-second-holder: control, the model passes
-PASS stale-second-holder: second holder fresh fails
-PASS stale-second-holder: env holder stale fails
-PASS stale-second-holder: env holder busy fails
-PASS stale-second-holder: claimed fails
-PASS stale-second-holder: received fails
-PASS stale-second-holder: steered fails
+PASS stale-second-holder: the second holder's report refused fails
+PASS stale-second-holder: the second holder announced nothing fails
+PASS stale-second-holder: the second holder not stale fails
+PASS stale-second-holder: aify-env announced nothing fails
+PASS stale-second-holder: aify-env out of contact fails
+PASS stale-second-holder: aify-env busy fails
+PASS stale-second-holder: claimed inside the window fails
+PASS stale-second-holder: received inside the window fails
+PASS stale-second-holder: steered inside the window fails
 PASS stale-second-holder: no claimer polling fails
-PASS env-paused: its expected answer is page 2's words
-PASS env-paused: its RED is page 2's words
+PASS env-paused: its expected answer is page 2's or its amendment's words
+PASS env-paused: its RED is page 2's or its amendment's words
 PASS env-paused: has a scenario and a judge
 PASS env-paused: control, the model passes
-PASS env-paused: silence not passed fails
-PASS env-paused: word not unknown fails
-PASS env-paused: no last-known note fails
-PASS env-paused: queueIfBusy claimed fails
-PASS env-paused: steered fails
-PASS env-paused: no claimer polling fails
-PASS env-resumed: its expected answer is page 2's words
-PASS env-resumed: its RED is page 2's words
+PASS env-paused: a release after the window is lawful passes
+PASS env-paused: aify-env announced nothing fails
+PASS env-paused: three intervals not passed fails
+PASS env-paused: a report reached comms during the silence fails
+PASS env-paused: aify-env not seen trying fails
+PASS env-paused: the word not unknown fails
+PASS env-paused: no lastKnown fails
+PASS env-paused: review R8: negative prose in statusNote fails
+PASS env-paused: lastKnown names another word fails
+PASS env-paused: lastKnown names another time fails
+PASS env-paused: the queueIfBusy send claimed in the window fails
+PASS env-paused: the steerable send steered in the window fails
+PASS env-paused: the steerable send received in the window fails
+PASS env-paused: a send created no run fails
+PASS env-resumed: its expected answer is page 2's or its amendment's words
+PASS env-resumed: its RED is page 2's or its amendment's words
 PASS env-resumed: has a scenario and a judge
 PASS env-resumed: control, the model passes
-PASS env-resumed: no fresh publication fails
-PASS env-resumed: drained before the fresh publication fails
-PASS env-resumed: never drained fails
-PASS env-resumed: drained late fails
+PASS env-resumed: no fresh publication after the resume fails
+PASS env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails
+PASS env-resumed: the queueIfBusy send seen claimed before idle in the same second fails
+PASS env-resumed: the queueIfBusy send late fails
+PASS env-resumed: the queueIfBusy send never drained fails
+PASS env-resumed: the steerable send before the fresh publication fails
+PASS env-resumed: the steerable send a second before the fresh publication, seen after it fails
+PASS env-resumed: the steerable send late fails
+PASS env-resumed: the steerable send never drained fails
+PASS env-resumed: no queueIfBusy run fails
+PASS env-resumed: no steerable run fails
 PASS env-resumed: idle acceptance never seen fails
-PASS env-resumed: a send created no run fails
-PASS default-send-unknown: its expected answer is page 2's words
-PASS default-send-unknown: its RED is page 2's words
+PASS default-send-unknown: its expected answer is page 2's or its amendment's words
+PASS default-send-unknown: its RED is page 2's or its amendment's words
 PASS default-send-unknown: has a scenario and a judge
 PASS default-send-unknown: control, the model passes
 PASS default-send-unknown: not a default send fails
 PASS default-send-unknown: the send created no run fails
 PASS default-send-unknown: claimed fails
-PASS default-send-unknown: eligibility known fails
+PASS default-send-unknown: aify-env announced nothing fails
 PASS default-send-unknown: no claimer polling fails
-PASS restart-idle: its expected answer is page 2's words
-PASS restart-idle: its RED is page 2's words
+PASS restart-idle: its expected answer is page 2's or its amendment's words
+PASS restart-idle: its RED is page 2's or its amendment's words
 PASS restart-idle: has a scenario and a judge
 PASS restart-idle: control, the model passes
 PASS restart-idle: snapshot before the send fails
@@ -80,48 +109,78 @@ PASS restart-idle: word known before the snapshot fails
 PASS restart-idle: delivered before the snapshot fails
 PASS restart-idle: delivered late fails
 PASS restart-idle: never delivered fails
-PASS restart-mid-turn: its expected answer is page 2's words
-PASS restart-mid-turn: its RED is page 2's words
+PASS restart-mid-turn: its expected answer is page 2's or its amendment's words
+PASS restart-mid-turn: its RED is page 2's or its amendment's words
 PASS restart-mid-turn: has a scenario and a judge
 PASS restart-mid-turn: control, the model passes
 PASS restart-mid-turn: not mid-turn fails
 PASS restart-mid-turn: read after the snapshot fails
 PASS restart-mid-turn: word known fails
-PASS restart-mid-turn: no last-known note fails
-PASS restored-then-changes: its expected answer is page 2's words
-PASS restored-then-changes: its RED is page 2's words
+PASS restart-mid-turn: no lastKnown fails
+PASS restart-mid-turn: review R8: negative prose in statusNote fails
+PASS restart-mid-turn: a bare truthy lastKnown fails
+PASS restart-mid-turn: lastKnown names another word fails
+PASS restart-mid-turn: no prior to compare fails
+PASS restored-then-changes: its expected answer is page 2's or its amendment's words
+PASS restored-then-changes: its RED is page 2's or its amendment's words
 PASS restored-then-changes: has a scenario and a judge
 PASS restored-then-changes: control, the model passes
 PASS restored-then-changes: no changes after the restart fails
 PASS restored-then-changes: snapshot before the changes fails
 PASS restored-then-changes: changes completed the restore fails
 PASS restored-then-changes: unknown after the snapshot fails
-PASS cold-start: its expected answer is page 2's words
-PASS cold-start: its RED is page 2's words
+PASS cold-start: its expected answer is page 2's or its amendment's words
+PASS cold-start: its RED is page 2's or its amendment's words
 PASS cold-start: has a scenario and a judge
 PASS cold-start: control, the model passes
+PASS cold-start: review R3: an available row with no lifetime before the send fails
+PASS cold-start: the population not read back fails
 PASS cold-start: no spawn request fails
 PASS cold-start: an initial message fails
 PASS cold-start: the stand-in never started fails
-PASS cold-start: claimed before the record fails
+PASS cold-start: claimed inside the hold fails
+PASS cold-start: claimed after the hold but before the record fails
 PASS cold-start: claimed late fails
 PASS cold-start: never claimed fails
-PASS run-running-idle: its expected answer is page 2's words
-PASS run-running-idle: its RED is page 2's words
+PASS cold-start: no claimer polling in the hold fails
+PASS run-running-idle: its expected answer is page 2's or its amendment's words
+PASS run-running-idle: its RED is page 2's or its amendment's words
 PASS run-running-idle: has a scenario and a judge
 PASS run-running-idle: control, the model passes
 PASS run-running-idle: run not running fails
 PASS run-running-idle: record busy fails
 PASS run-running-idle: promotion skipped fails
-PASS stop-restart: its expected answer is page 2's words
-PASS stop-restart: its RED is page 2's words
+PASS stop-restart: its expected answer is page 2's or its amendment's words
+PASS stop-restart: its RED is page 2's or its amendment's words
 PASS stop-restart: has a scenario and a judge
 PASS stop-restart: control, the model passes
+PASS stop-restart: review R7: no queued work seeded fails
+PASS stop-restart: the seed not queued at the stop fails
+PASS stop-restart: review R7: the named seed never drained fails
+PASS stop-restart: the seed claimed before the restart fails
 PASS stop-restart: stop row skipped fails
 PASS stop-restart: send not stored fails
 PASS stop-restart: the send started it fails
 PASS stop-restart: delivered while stopped fails
-PASS stop-restart: restart leaves unknown fails
-PASS stop-restart: queued work never drained fails
+PASS stop-restart: the restart never accepted fails
+PASS stop-restart: still stopped at the restart fails
+PASS stop-restart: restart leaves unknown after the first turn fails
+PASS fresh-busy-beside-unknown: its expected answer is page 2's or its amendment's words
+PASS fresh-busy-beside-unknown: its RED is page 2's or its amendment's words
+PASS fresh-busy-beside-unknown: has a scenario and a judge
+PASS fresh-busy-beside-unknown: control, the model passes
+PASS fresh-busy-beside-unknown: the second holder's report refused fails
+PASS fresh-busy-beside-unknown: the second holder announced nothing fails
+PASS fresh-busy-beside-unknown: the second holder not stale fails
+PASS fresh-busy-beside-unknown: aify-env announced nothing fails
+PASS fresh-busy-beside-unknown: aify-env out of contact fails
+PASS fresh-busy-beside-unknown: aify-env not busy fails
+PASS fresh-busy-beside-unknown: claimed inside the window fails
+PASS fresh-busy-beside-unknown: received inside the window fails
+PASS fresh-busy-beside-unknown: steered inside the window fails
+PASS fresh-busy-beside-unknown: no claimer polling fails
+PASS fresh-busy-beside-unknown: the send not steerable fails
 PASS every judge is used by a case
-126/126 self-check witnesses passed
+PASS every observation has a scenario
+PASS every start option names a scenario
+185/185 self-check witnesses passed

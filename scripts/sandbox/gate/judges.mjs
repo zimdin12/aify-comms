@@ -1,17 +1,24 @@
-// The gate's judges: PURE, over what a scenario gathered (`marks`, comms' change-only `timeline`, the stand-in's
-// `standin` log). Each returns {pass, failed: [the conditions that did not hold]}, so a RED names its reason.
+// The gate's judges: PURE, over what a scenario gathered: `marks`, comms' change-only `timeline` (DATA, runs, words),
+// the stand-in's `standin` log, and the relay's `contact` log (every report aify-env sent and what became of it). Each
+// returns {pass, failed: [the conditions that did not hold]}, so a RED names its reason.
 //
-// Clocks: comms' rows carry whole seconds; the timeline's `t` and the stand-in's `t` are milliseconds on the same Docker
-// VM clock. An ordering is judged on comms' seconds (">=" admits a tie within the second) AND on the order the watcher
-// first saw the two events, so a tie inside one second cannot pass a claim that the watcher saw first.
+// Clocks: comms' rows carry whole seconds; the timeline's, the stand-in's and the relay's `t` are milliseconds on the
+// one Docker VM clock. An ordering is judged on comms' seconds (">=" admits a tie within the second) AND on the order the
+// watcher first saw the two events, so a tie inside one second cannot pass a claim that the watcher saw first.
+//
+// Contact, DATA and eligibility stay apart (review R5). Contact is the relay's: a report comms answered 204 (applied).
+// DATA is comms' rows. Eligibility is never read from either: it is what the claim gate DID (claimed or withheld) and
+// the word comms showed. The silence a case waits for is derived from the interval aify-env announced, three of them
+// (DECISIONS: "aify-env announces its reporting interval"); an absent announcement derives nothing and fails the fixture.
 
 export const FIRST_PASS_MS = 10_000; // "the first claim pass": the stand-in long-polls 2 s; comms' fallback is 3 s
-export const RECEIPT_SILENCE_MS = 180_000; // decision 2: receipt freshness on comms' own clock
+export const MISSED_REPORTS = 3; // decision 2: not reporting once three announced intervals pass without a receipt
 export const MIN_POLLS = 3; // a withheld run is judged against a claimer seen asking at least this often
 
 export const ms = (iso) => (iso ? Date.parse(String(iso).endsWith("Z") ? iso : `${iso}Z`) : null);
 const runOf = (snapshot, runId) => snapshot?.runs?.find((r) => r.id === runId) ?? null;
 const last = (timeline) => timeline.at(-1) ?? {};
+const envRecord = (s) => s?.records?.find((r) => r.instance === "default") ?? null;
 
 /** The run's claim on comms' clock, and the watcher time it was first seen claimed; nulls while it never was. */
 export function claimOf(timeline, runId) {
@@ -22,13 +29,48 @@ export function claimOf(timeline, runId) {
 
 /** The first snapshot at or after `fromT` (watcher time) matching `test`, or null. */
 export const firstSeen = (timeline, test, fromT = 0) => timeline.find((s) => s.t >= fromT && test(s)) ?? null;
-const envRecord = (s) => s?.records?.find((r) => r.instance === "default") ?? null;
 export const polls = (standin, from, to) => standin.filter((e) => e.event === "polled" && e.t >= from && e.t <= to).length;
-const received = (standin, runId) => standin.find((e) => (e.event === "delivered" || e.event === "control") && e.runId === runId);
-const controlsFor = (timeline, runId) => (last(timeline).controls ?? []).filter((c) => c.run_id === runId);
-const lastKnownShown = (word) => Boolean(word?.lastKnown) || /last[ -]?known/i.test(String(word?.statusNote ?? ""));
+/** A receipt of the run (delivered, or a control on it) at or before `to`: only the forbidden interval counts (R1). */
+const receivedBy = (standin, runId, to) => standin.find((e) => (e.event === "delivered" || e.event === "control")
+  && e.runId === runId && e.t <= to);
+const controlsBy = (timeline, runId, to) => (last(timeline).controls ?? [])
+  .filter((c) => c.run_id === runId && ms(c.requested_at) <= to);
 
-/** Claimed no earlier than `acceptedAt` (comms seconds and watcher order both) and within the first pass after it. */
+/** The word comms' candidate shows for a record state (`candidate_word`): idle reads online. */
+export const candidateWord = (state) => (state === "idle" ? "online" : state ?? null);
+
+/** The applied reports from aify-env's own key, in order, from the relay's log. */
+export const applied = (contact) => (contact ?? []).filter((e) => e.instance === "default" && e.forwarded && e.status === 204);
+/** The interval aify-env announced in its last applied report at or before `at`; null when it announced none. */
+export function announcedAt(contact, at) {
+  const report = applied(contact).filter((e) => e.t <= at).at(-1);
+  return Number.isInteger(report?.reportEveryMs) ? report.reportEveryMs : null;
+}
+
+/** Publication silence held over [from, to]: no applied report from the env key, and the env was seen trying. */
+function silenceHeld(contact, from, to, failed) {
+  if (applied(contact).some((e) => e.t > from && e.t <= to)) failed.push("fixture: a report reached comms during the silence");
+  if (!(contact ?? []).some((e) => e.instance === "default" && !e.forwarded && e.t > from && e.t <= to)) {
+    failed.push("fixture: aify-env was not seen trying to report during the silence");
+  }
+}
+
+/** The derived silence passed before the send: three announced intervals since the last contact (R5). */
+function silenceDerived(m, failed) {
+  if (!Number.isInteger(m.announcedMs)) return failed.push("fixture: aify-env announced no interval, so no silence is derived");
+  if (!(m.sentAt - m.lastContactAt >= MISSED_REPORTS * m.announcedMs)) failed.push("fixture: three announced intervals had not passed");
+}
+
+/** The last-known note carries the prior record's word and its application time, as values (R8). */
+function lastKnownMatches(word, prior, failed) {
+  const note = word?.lastKnown;
+  if (!prior?.status || !prior?.appliedAt) return failed.push("fixture: no prior applied record to compare against");
+  if (!note || typeof note !== "object") return failed.push("no lastKnown beside unknown");
+  if (note.status !== prior.status) failed.push(`lastKnown.status ${note.status}, not the prior ${prior.status}`);
+  if (ms(note.appliedAt) !== ms(prior.appliedAt)) failed.push(`lastKnown.appliedAt ${note.appliedAt}, not ${prior.appliedAt}`);
+}
+
+/** Claimed no earlier than `accepted` (comms seconds and watcher order both) and within the first pass after it. */
 function claimedOnFirstPassAfter(timeline, runId, accepted, failed, label) {
   const claim = claimOf(timeline, runId);
   if (claim.claimedAt === null) return failed.push(`${label}: ${runId} was never claimed`);
@@ -38,13 +80,27 @@ function claimedOnFirstPassAfter(timeline, runId, accepted, failed, label) {
   if (claim.claimedAt - accepted.at > FIRST_PASS_MS) failed.push(`${label}: not claimed on the first pass after acceptance`);
 }
 
-/** Never claimed through the window, against a claimer that kept asking. */
+/** Neither claimed nor received nor steered inside the window, against a claimer that kept asking. After `window.to`
+ *  a release is lawful, so nothing later counts here (R1). */
 function withheld(ev, runId, window, failed, label) {
-  const claim = claimOf(ev.timeline, runId);
   if (!runId) return failed.push(`${label}: the send created no run`);
+  const claim = claimOf(ev.timeline, runId);
   if (claim.claimedAt !== null && claim.claimedAt <= window.to) failed.push(`${label}: ${runId} was claimed inside the window`);
-  if (received(ev.standin, runId)) failed.push(`${label}: the stand-in received ${runId}`);
+  if (receivedBy(ev.standin, runId, window.to)) failed.push(`${label}: the stand-in received ${runId} inside the window`);
+  if (controlsBy(ev.timeline, runId, window.to).length) failed.push(`${label}: ${runId} was steered inside the window`);
   if (polls(ev.standin, window.from, window.to) < MIN_POLLS) failed.push(`${label}: the stand-in was not seen polling`);
+}
+
+/** A stale second holder beside aify-env's holder, judged by announcements on both sides (R5, R6). */
+function secondHolderFixture(ev, m, busy, failed) {
+  if (m.secondStatus !== 204) failed.push(`fixture: the second holder's report was refused (${m.secondStatus})`);
+  if (!Number.isInteger(m.secondAnnouncedMs)) failed.push("fixture: the second holder announced no interval");
+  else if (!(m.sentAt - m.secondAppliedAt >= MISSED_REPORTS * m.secondAnnouncedMs)) failed.push("fixture: the second holder was not stale");
+  const envMs = announcedAt(ev.contact, m.sentAt);
+  const lastEnv = applied(ev.contact).filter((e) => e.t <= m.sentAt).at(-1);
+  if (!Number.isInteger(envMs)) failed.push("fixture: aify-env announced no interval");
+  else if (!lastEnv || m.sentAt - lastEnv.t >= MISSED_REPORTS * envMs) failed.push("fixture: aify-env's holder was not in contact");
+  if (m.envBusyAtSend !== busy) failed.push(`fixture: aify-env's holder was ${busy ? "not busy" : "not idle"}`);
 }
 
 const verdict = (failed) => ({ pass: failed.length === 0, failed });
@@ -58,7 +114,7 @@ export const JUDGES = {
     if (claim.claimedAt === null) failed.push("held: never claimed");
     else if (claim.claimedAt - m.sentAt > FIRST_PASS_MS) failed.push("not delivered at once");
     if (!ev.standin.some((e) => e.event === "delivered" && e.runId === m.runId)) failed.push("the stand-in never received it as a run");
-    if (controlsFor(ev.timeline, m.runId).length) failed.push("it became a control, not a delivery");
+    if (controlsBy(ev.timeline, m.runId, Infinity).length) failed.push("it became a control, not a delivery");
     return verdict(failed);
   },
   "legacy-idle-env-busy"(ev) {
@@ -72,7 +128,7 @@ export const JUDGES = {
   "busy-steerable"(ev) {
     const { marks: m } = ev, failed = [];
     if (m.preEnvBusy !== true) failed.push("fixture: aify-env's fresh record was not busy");
-    const got = received(ev.standin, m.runId);
+    const got = receivedBy(ev.standin, m.runId, Infinity);
     if (!got) failed.push("not steered: the stand-in never received it");
     else if (got.t - m.sentAt > FIRST_PASS_MS) failed.push("not steered at once");
     if (m.idleSeenBeforeReceipt) failed.push("fixture: the agent went idle before it arrived");
@@ -80,41 +136,54 @@ export const JUDGES = {
   },
   "stale-second-holder"(ev) {
     const { marks: m } = ev, failed = [];
-    if (!(m.sentAt - m.secondAppliedAt > RECEIPT_SILENCE_MS)) failed.push("fixture: the second holder was not stale");
-    if (!(m.sentAt - m.envAppliedAt < RECEIPT_SILENCE_MS)) failed.push("fixture: aify-env's holder was not fresh");
-    if (m.envBusyAtSend !== false) failed.push("fixture: aify-env's holder was not idle");
+    secondHolderFixture(ev, m, false, failed);
     withheld(ev, m.runId, m.window, failed, "withheld");
-    if (controlsFor(ev.timeline, m.runId).length) failed.push("steered while eligibility was unknown");
+    return verdict(failed);
+  },
+  "fresh-busy-beside-unknown"(ev) {
+    const { marks: m } = ev, failed = [];
+    secondHolderFixture(ev, m, true, failed);
+    const run = runOf(ev.timeline.find((s) => runOf(s, m.runId)), m.runId);
+    if (run && run.steer_if_busy !== 1) failed.push("fixture: the send was not steerable");
+    withheld(ev, m.runId, m.window, failed, "withheld, steer included");
     return verdict(failed);
   },
   "env-paused"(ev) {
     const { marks: m } = ev, failed = [];
-    if (!(m.sentAt - m.envAppliedAt > RECEIPT_SILENCE_MS)) failed.push("fixture: 180 s of receipt silence had not passed");
+    silenceDerived(m, failed);
+    silenceHeld(ev.contact, m.lastContactAt, m.window.to, failed);
     if (m.word?.status !== "unknown") failed.push(`the word read ${m.word?.status}, not unknown`);
-    if (!lastKnownShown(m.word)) failed.push("no stale last-known note beside unknown");
+    lastKnownMatches(m.word, m.prior, failed);
     withheld(ev, m.queueRunId, m.window, failed, "the queueIfBusy send");
-    for (const runId of [m.queueRunId, m.defaultRunId]) {
-      if (controlsFor(ev.timeline, runId).length) failed.push(`${runId} was steered while unknown`);
-    }
+    withheld(ev, m.defaultRunId, m.window, failed, "the steerable send");
     return verdict(failed);
   },
   "env-resumed"(ev) {
     const { marks: m } = ev, failed = [];
-    if (m.freshAccepted?.at == null) failed.push("no fresh publication was accepted after the resume");
-    for (const runId of [m.queueRunId, m.defaultRunId]) {
-      if (!runId) { failed.push("no queued work to drain: a send created no run"); continue; }
-      const claim = claimOf(ev.timeline, runId);
-      if (claim.claimedAt === null) { failed.push(`${runId} never drained`); continue; }
-      if (claim.claimedAt < m.freshAccepted?.at) failed.push(`${runId} drained before a fresh publication was accepted`);
-      if (m.idleAccepted?.at == null || claim.claimedAt - m.idleAccepted.at > FIRST_PASS_MS) {
-        failed.push(`${runId} did not drain on the first pass after the idle publication`);
+    // comms' stamp is the whole second, so an acceptance in the resume's own second reads up to 1 s before it.
+    if (!(m.freshAccepted?.at >= m.resumedAt - 1000)) failed.push("no fresh publication was accepted after the resume");
+    if (!m.queueRunId) failed.push("no queued work to drain: the queueIfBusy send created no run");
+    // Non-steer work waits for known idle, in comms' seconds and the watcher's order (R2).
+    else claimedOnFirstPassAfter(ev.timeline, m.queueRunId, m.idleAccepted, failed, "the queueIfBusy send");
+    // A steerable send may proceed as soon as eligibility is known, busy or not; it is not held to idle (R2).
+    if (!m.defaultRunId) failed.push("no queued work to drain: the steerable send created no run");
+    else {
+      const claim = claimOf(ev.timeline, m.defaultRunId);
+      if (claim.claimedAt === null) failed.push("the steerable send never drained");
+      else {
+        if (claim.claimedAt < m.freshAccepted?.at) failed.push("the steerable send drained before a fresh publication");
+        if (m.freshAccepted?.seenAt != null && claim.seenAt < m.freshAccepted.seenAt) failed.push("the watcher saw the steerable claim first");
+        if (m.idleAccepted?.at == null || claim.claimedAt - m.idleAccepted.at > FIRST_PASS_MS) {
+          failed.push("the steerable send did not drain by the first pass after the idle publication");
+        }
       }
     }
     return verdict(failed);
   },
   "default-send-unknown"(ev) {
     const { marks: m } = ev, failed = [];
-    if (!(m.sentAt - m.envAppliedAt > RECEIPT_SILENCE_MS)) failed.push("fixture: eligibility was not unknown");
+    silenceDerived(m, failed);
+    silenceHeld(ev.contact, m.lastContactAt, m.window.to, failed);
     const run = runOf(ev.timeline.find((s) => runOf(s, m.defaultRunId)), m.defaultRunId);
     if (run && run.queue_if_busy !== 0) failed.push("fixture: the send was not a default send");
     withheld(ev, m.defaultRunId, m.window, failed, "the default send");
@@ -132,7 +201,7 @@ export const JUDGES = {
     if (m.preEnvBusy !== true) failed.push("fixture: the agent was not mid-turn");
     if (!(m.snapshotAccepted?.at > m.readAt)) failed.push("fixture: the read was not before the next snapshot");
     if (m.word?.status !== "unknown") failed.push(`the word read ${m.word?.status}, not unknown`);
-    if (!lastKnownShown(m.word)) failed.push("no last-known note beside unknown");
+    lastKnownMatches(m.word, m.prior, failed);
     return verdict(failed);
   },
   "restored-then-changes"(ev) {
@@ -145,10 +214,14 @@ export const JUDGES = {
   },
   "cold-start"(ev) {
     const { marks: m } = ev, failed = [];
+    // Page 2's frozen input: no record of the agent from any publisher, fresh or stale, read back before the send (R3).
+    if (!Array.isArray(m.preRecords)) failed.push("fixture: the no-record population was not read back");
+    else if (m.preRecords.length) failed.push(`fixture: comms held ${m.preRecords.length} record(s) of the agent before the send`);
     const spawns = last(ev.timeline).spawns ?? [];
     if (!spawns.length) failed.push("no spawn request");
     else if (spawns.some((s) => s.initial_message !== "")) failed.push("a spawn request carried an initial message");
     if (!ev.lifetime) failed.push("the stand-in never started");
+    withheld(ev, m.runId, m.window, failed, "withheld before the record");
     const seen = firstSeen(ev.timeline, (s) => envRecord(s)?.lifetime === ev.lifetime);
     const accepted = seen ? { at: ms(envRecord(seen).appliedAt), seenAt: seen.t } : null;
     claimedOnFirstPassAfter(ev.timeline, m.runId, accepted, failed, "claimed after the new lifetime's record");
@@ -163,16 +236,18 @@ export const JUDGES = {
   },
   "stop-restart"(ev) {
     const { marks: m } = ev, failed = [];
+    // A named run, seeded and queued before the stop, is the queued work that must drain (R7).
+    if (!m.seedRunId) failed.push("fixture: no queued work was seeded before the stop");
+    else if (m.seedStatusAtStop !== "queued") failed.push(`fixture: the seeded run was ${m.seedStatusAtStop} at the stop`);
     if (m.wordStopped?.status !== "stopped") failed.push(`after the stop the word read ${m.wordStopped?.status}`);
     if (m.sendStored !== true) failed.push("the send to the stopped agent was not stored");
     if (m.spawnsAfterSend > 0) failed.push("the send to the stopped agent started it");
     if (m.deliveredWhileStopped > 0) failed.push("something was delivered while stopped");
-    if (m.wordAfter?.status !== "online") failed.push(`after the restart the word read ${m.wordAfter?.status}`);
-    for (const runId of m.queuedAtStart ?? []) {
-      const claim = claimOf(ev.timeline, runId);
-      if (claim.claimedAt === null) failed.push(`${runId} queued at the restart never drained`);
-    }
+    // Two named checkpoints: the restart (the new lifetime's first accepted record) and its first turn (amendment A6).
+    if (!m.restartAccepted?.at) failed.push("fixture: the new lifetime's record was never accepted");
+    if (!m.wordAtRestart || m.wordAtRestart.status === "stopped") failed.push(`at the restart the word read ${m.wordAtRestart?.status}`);
+    if (m.wordAfterFirstTurn?.status !== "online") failed.push(`after the first turn the word read ${m.wordAfterFirstTurn?.status}`);
+    if (m.seedRunId) claimedOnFirstPassAfter(ev.timeline, m.seedRunId, m.restartAccepted, failed, "the seeded run");
     return verdict(failed);
   },
 };
-

@@ -1,0 +1,55 @@
+lawful-release-false-red (legacy-idle-env-busy)
+  ok   88efbf12, verbatim: FAIL [held: the stand-in received R]; the review recorded FAIL
+  ok   88efbf12, adapted: FAIL [held: the stand-in received R]
+  ok   successor: PASS; the oracle is PASS
+  -> a review defect: RED on 88efbf12, GREEN after
+omitted-lawful-receipt-incomplete-model (legacy-idle-env-busy)
+  ok   88efbf12, verbatim: PASS; the review recorded PASS
+  ok   88efbf12, adapted: PASS
+  ok   successor: PASS; the oracle is PASS
+early-held-claim-negative-control (legacy-idle-env-busy)
+  ok   88efbf12, verbatim: FAIL [held: R was claimed inside the window; held: the stand-in received R; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the review recorded FAIL
+  ok   88efbf12, adapted: FAIL [held: R was claimed inside the window; held: the stand-in received R; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]
+  ok   successor: FAIL [held: R was claimed inside the window; delivered after the idle publication: claimed before comms accepted the publication; delivered after the idle publication: the watcher saw the claim first]; the oracle is FAIL
+resume-after-idle-healthy (env-resumed)
+  adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
+  ok   88efbf12, verbatim: PASS; the review recorded PASS
+  ok   88efbf12, adapted: PASS
+  ok   successor: PASS; the oracle is PASS
+resume-Q-before-idle-false-green (env-resumed)
+  adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
+  ok   88efbf12, verbatim: PASS; the review recorded PASS
+  ok   88efbf12, adapted: PASS
+  ok   successor: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first]; the oracle is FAIL
+  -> a review defect: RED on 88efbf12, GREEN after
+resume-pre-fresh-negative-control (env-resumed)
+  adapted: resumedAt: the successor bounds the fresh acceptance after the resume (R2); the review's history opens at 29 s
+  ok   88efbf12, verbatim: FAIL [Q drained before a fresh publication was accepted]; the review recorded FAIL
+  ok   88efbf12, adapted: FAIL [Q drained before a fresh publication was accepted]
+  ok   successor: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the watcher saw the steerable claim first]; the oracle is FAIL
+stop-empty-drain-false-green (stop-restart)
+  adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
+  ok   88efbf12, verbatim: PASS; the review recorded PASS
+  ok   88efbf12, adapted: PASS
+  ok   successor: FAIL [fixture: no queued work was seeded before the stop]; the oracle is FAIL
+  -> a review defect: RED on 88efbf12, GREEN after
+stop-named-undrained-negative (stop-restart)
+  adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
+  ok   88efbf12, verbatim: FAIL [PREEXISTING queued at the restart never drained]; the review recorded FAIL
+  ok   88efbf12, adapted: FAIL [PREEXISTING queued at the restart never drained]
+  ok   successor: FAIL [the seeded run: PREEXISTING was never claimed]; the oracle is FAIL
+stop-named-drained-healthy (stop-restart)
+  adapted: A6: the review's queuedAtStart names the seed; its restart is the 50 s snapshot; its wordAfter is read at both checkpoints
+  ok   88efbf12, verbatim: PASS; the review recorded PASS
+  ok   88efbf12, adapted: PASS
+  ok   successor: PASS; the oracle is PASS
+last-known-negation-false-green (restart-mid-turn)
+  adapted: A7: the prior record the scenario reads before the restart, which the note is compared against
+  ok   88efbf12, verbatim: PASS; the review recorded PASS
+  ok   88efbf12, adapted: PASS
+  ok   successor: FAIL [no lastKnown beside unknown]; the oracle is FAIL
+  -> a review defect: RED on 88efbf12, GREEN after
+last-known-values-matched-control (restart-mid-turn)
+  adapted: a matched control, built here
+  ok   successor: PASS; the oracle is PASS
+every check held

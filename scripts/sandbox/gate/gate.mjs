@@ -15,7 +15,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { KEY, bytesSha, cleanup, create, log, must, outcome, redact, run, sha } from "../env-against-comms.mjs";
-import { CASES, SCENARIOS } from "./cases.mjs";
+import { CASES, OBSERVATIONS, SCENARIOS, START } from "./cases.mjs";
 import { JUDGES } from "./judges.mjs";
 import { Pair } from "./pair.mjs";
 import { selfCheck } from "./self-check.mjs";
@@ -31,7 +31,7 @@ const ATTEMPT_MS = 120 * 60_000;
 const started = Date.now();
 const deadline = () => { if (Date.now() - started > ATTEMPT_MS) throw new Error("the attempt deadline passed"); };
 const SOURCES = ["gate.mjs", "pair.mjs", "cases.mjs", "judges.mjs", "self-check.mjs", "stand-in.mjs", "claude-aify.sh",
-  "probe.py", "env.Dockerfile"].map((name) => path.join(HERE, name))
+  "probe.py", "relay.mjs", "env.Dockerfile"].map((name) => path.join(HERE, name))
   .concat([path.join(SANDBOX, "env-against-comms.mjs"), path.join(SANDBOX, "sandbox-entry.sh")]);
 
 /** The env build context: the archive, the gate's Dockerfile, the runner's entry script and the stand-in. */
@@ -44,12 +44,14 @@ function envContext(workDir, envSha) {
   copy(path.join(SANDBOX, "sandbox-entry.sh"), "sandbox-entry.sh");
   copy(path.join(HERE, "stand-in.mjs"), "gate-stand-in.mjs");
   copy(path.join(HERE, "claude-aify.sh"), "gate-claude-aify.sh");
+  copy(path.join(HERE, "relay.mjs"), "gate-relay.mjs");
   return path.join(workDir, "env");
 }
 
 async function attempt({ commsRef, envRef, label, only, outDir }) {
   const owned = [];
   const results = [];
+  const observations = {};
   let workDir = null;
   let reused = null;
   const primary = { ok: false, verdict: "ERROR" };
@@ -75,7 +77,7 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
       create(owned, "image", images.env, ["build", "-q", "-t", images.env, envContext(workDir, envSha)], { timeout: BUILD_MS });
     }
     const probePath = path.join(HERE, "probe.py");
-    const scenarios = [...new Set(CASES.map((c) => c.scenario))].filter((s) => !only || only.includes(s));
+    const scenarios = [...new Set([...CASES, ...OBSERVATIONS].map((c) => c.scenario))].filter((s) => !only || only.includes(s));
     for (const [index, name] of scenarios.entries()) {
       deadline();
       const caseOwned = [];
@@ -84,13 +86,14 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
       let marks = null, error = null;
       try {
         log(`scenario ${name}: starting`);
-        await pair.start();
+        await pair.start(START[name] ?? {});
         marks = await SCENARIOS[name](pair, () => pair.evidence());
       } catch (failure) { error = redact(failure?.message || failure); }
       let evidence = null;
       try { evidence = pair.saveEvidence(dir, { marks, error }); } catch (failure) { error ??= redact(failure?.message); }
       const clean = cleanup(caseOwned, null);
       owned.push(...caseOwned);
+      for (const o of OBSERVATIONS.filter((x) => x.scenario === name)) observations[o.id] = { marks, error };
       for (const c of CASES.filter((x) => x.scenario === name)) {
         const judged = error || !evidence ? { pass: false, failed: [`scenario error: ${error ?? "no evidence"}`] }
           : JUDGES[c.id](evidence);
@@ -101,7 +104,7 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
     }
     primary.ok = results.length > 0 && results.every((r) => r.pass);
     primary.verdict = `${results.filter((r) => r.pass).length}/${results.length} cases passed`;
-    fs.writeFileSync(path.join(outDir, "attempt.json"), `${JSON.stringify({ label, commsRef, commsSha, envRef, envSha, imagesReused: Boolean(reused), results }, null, 1)}\n`);
+    fs.writeFileSync(path.join(outDir, "attempt.json"), `${JSON.stringify({ label, commsRef, commsSha, envRef, envSha, imagesReused: Boolean(reused), results, observations }, null, 1)}\n`);
   } catch (error) {
     primary.verdict = `ERROR: ${redact(error?.message || error)}`;
   }
@@ -122,6 +125,11 @@ else {
     process.exit(2);
   }
   const outDir = path.resolve(arg("out") || path.join(os.tmpdir(), `aify-gate-${label}`));
+  // An attempt owns its output: an existing, non-empty folder is another attempt's record and is never overwritten.
+  if (fs.existsSync(outDir) && fs.readdirSync(outDir).length) {
+    console.error(`refusing: ${outDir} already holds an attempt; name a new --attempt or --out`);
+    process.exit(2);
+  }
   fs.mkdirSync(outDir, { recursive: true });
   exit = await attempt({ commsRef, envRef, label, only: arg("scenarios") ? arg("scenarios").split(",") : null, outDir });
 }

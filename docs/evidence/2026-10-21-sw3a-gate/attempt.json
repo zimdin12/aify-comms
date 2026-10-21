@@ -1,9 +1,9 @@
 {
- "label": "main-red",
- "commsRef": "bbb34c13",
- "commsSha": "bbb34c13f93908d227092d6b878a4c97b819c6a1",
- "envRef": "ccf9a7e",
- "envSha": "ccf9a7e636a2c2f69da55e6c196c5b5a8d568e60",
+ "label": "decision2-red",
+ "commsRef": "36028554",
+ "commsSha": "36028554f2b71b438de2a6805b3ae4dbea207d41",
+ "envRef": "7a855db0",
+ "envSha": "7a855db0d0e6449a1d7ebfb3c19344624bdd595b",
  "imagesReused": false,
  "results": [
   {
@@ -24,8 +24,8 @@
    "red": "the reader takes the legacy table (it delivers mid-turn)",
    "pass": false,
    "failed": [
-    "held: run_1792539715270_d69ba18c was claimed inside the window",
-    "held: the stand-in received run_1792539715270_d69ba18c",
+    "held: run_1792546051947_b026ae6e was claimed inside the window",
+    "held: the stand-in received run_1792546051947_b026ae6e inside the window",
     "delivered after the idle publication: claimed before comms accepted the publication",
     "delivered after the idle publication: the watcher saw the claim first"
    ]
@@ -45,41 +45,47 @@
    "red": "stale holders are ignored (known false: delivered)",
    "pass": false,
    "failed": [
-    "withheld: run_1792540090851_8fb5d888 was claimed inside the window",
-    "withheld: the stand-in received run_1792540090851_8fb5d888"
+    "withheld: run_1792546251558_9a796eec was claimed inside the window",
+    "withheld: the stand-in received run_1792546251558_9a796eec inside the window"
    ]
   },
   {
    "id": "env-paused",
-   "scenario": "paused",
-   "expected": "after 180 s of receipt silence: `unknown` with a stale last-known note; sends queue; claims withhold, steer included",
-   "red": "unknown read as false, or steer checked before eligibility (the steerable run is delivered)",
+   "scenario": "silenced",
+   "expected": "after three announced intervals of publication silence: `unknown` with the prior record's word and application time; sends queue; claims withhold, steer included",
+   "red": "unknown read as false (a send is delivered during the silence)",
    "pass": false,
    "failed": [
-    "the word read offline, not unknown",
-    "no stale last-known note beside unknown",
-    "the queueIfBusy send: the send created no run"
+    "the word read online, not unknown",
+    "no lastKnown beside unknown",
+    "the queueIfBusy send: run_1792546551646_92e3f370 was claimed inside the window",
+    "the queueIfBusy send: the stand-in received run_1792546551646_92e3f370 inside the window",
+    "the steerable send: run_1792546552124_5859ff0e was claimed inside the window",
+    "the steerable send: the stand-in received run_1792546552124_5859ff0e inside the window"
    ]
   },
   {
    "id": "env-resumed",
-   "scenario": "paused",
+   "scenario": "silenced",
    "expected": "queued work drains on the first claim pass after comms accepts a fresh publication",
    "red": "the queue never drains",
    "pass": false,
    "failed": [
-    "no queued work to drain: a send created no run",
-    "no queued work to drain: a send created no run"
+    "the queueIfBusy send: claimed before comms accepted the publication",
+    "the queueIfBusy send: the watcher saw the claim first",
+    "the steerable send drained before a fresh publication",
+    "the watcher saw the steerable claim first"
    ]
   },
   {
    "id": "default-send-unknown",
-   "scenario": "paused",
+   "scenario": "silenced",
    "expected": "queued, not claimed",
    "red": "the claim gate withholds only `queueIfBusy` runs",
    "pass": false,
    "failed": [
-    "the default send: the send created no run"
+    "the default send: run_1792546552124_5859ff0e was claimed inside the window",
+    "the default send: the stand-in received run_1792546552124_5859ff0e inside the window"
    ]
   },
   {
@@ -102,7 +108,7 @@
    "pass": false,
    "failed": [
     "the word read online, not unknown",
-    "no last-known note beside unknown"
+    "no lastKnown beside unknown"
    ]
   },
   {
@@ -122,6 +128,8 @@
    "red": "the send-time hold skips the backing step (no spawn request; the run waits forever)",
    "pass": false,
    "failed": [
+    "withheld before the record: run_1792547129618_bc068929 was claimed inside the window",
+    "withheld before the record: the stand-in received run_1792547129618_bc068929 inside the window",
     "claimed after the new lifetime's record: claimed before comms accepted the publication",
     "claimed after the new lifetime's record: the watcher saw the claim first"
    ]
@@ -141,8 +149,125 @@
    "red": "the view's stop row skipped; restart leaves `unknown`",
    "pass": false,
    "failed": [
-    "after the stop the word read available"
+    "after the stop the word read available",
+    "after the first turn the word read working",
+    "the seeded run: run_1792547324642_8aea865d was never claimed"
+   ]
+  },
+  {
+   "id": "fresh-busy-beside-unknown",
+   "scenario": "busy-beside-unknown",
+   "expected": "eligibility unknown beside a fresh busy holder: withheld, steer included",
+   "red": "steer checked before eligibility (the steerable run is steered)",
+   "pass": false,
+   "failed": [
+    "withheld, steer included: run_1792547577170_7f6164ac was claimed inside the window",
+    "withheld, steer included: the stand-in received run_1792547577170_7f6164ac inside the window"
    ]
   }
- ]
+ ],
+ "observations": {
+  "daemon-lost": {
+   "marks": {
+    "announcedMs": 60000,
+    "waitedMs": 185000,
+    "word": {
+     "status": "offline",
+     "statusNote": "Owning environment \"docker:sandbox-env:default\" is offline; only its bridge can host this managed worker.",
+     "lastKnown": null
+    },
+    "queueRunId": null,
+    "defaultRunId": null,
+    "queueAnswer": {
+     "ok": true,
+     "messageId": "1792547878782-2be2b4c1",
+     "stored": true,
+     "notice": "Wake failed for gate-agent (agent status is \"offline\"). The message is in gate-agent's inbox; gate-agent can read it when it is online.",
+     "recipients": [
+      "gate-agent"
+     ],
+     "recipientStatus": {
+      "gate-agent": {
+       "status": "offline",
+       "unread": 1,
+       "runtime": "claude-code",
+       "machineId": "wsl:sandbox-env"
+      }
+     },
+     "dispatchRuns": [],
+     "notStarted": [
+      {
+       "targetAgentId": "gate-agent",
+       "reason": "agent status is \"offline\"",
+       "runtime": "claude-code",
+       "sessionMode": "managed",
+       "capabilities": [
+        "managed-run",
+        "resume",
+        "interrupt",
+        "steer",
+        "spawn"
+       ],
+       "fix": "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps.",
+       "suggestedCommands": [
+        "comms_agent_info(agentId=\"gate-agent\")"
+       ],
+       "recipientStatus": "offline"
+      }
+     ],
+     "consoleDeliveries": [],
+     "warnings": []
+    },
+    "defaultAnswer": {
+     "ok": true,
+     "messageId": "1792547879549-033cf66d",
+     "stored": true,
+     "notice": "Wake failed for gate-agent (agent status is \"offline\"). The message is in gate-agent's inbox; gate-agent can read it when it is online.",
+     "recipients": [
+      "gate-agent"
+     ],
+     "recipientStatus": {
+      "gate-agent": {
+       "status": "offline",
+       "unread": 2,
+       "runtime": "claude-code",
+       "machineId": "wsl:sandbox-env"
+      }
+     },
+     "dispatchRuns": [],
+     "notStarted": [
+      {
+       "targetAgentId": "gate-agent",
+       "reason": "agent status is \"offline\"",
+       "runtime": "claude-code",
+       "sessionMode": "managed",
+       "capabilities": [
+        "managed-run",
+        "resume",
+        "interrupt",
+        "steer",
+        "spawn"
+       ],
+       "fix": "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps.",
+       "suggestedCommands": [
+        "comms_agent_info(agentId=\"gate-agent\")"
+       ],
+       "recipientStatus": "offline"
+      }
+     ],
+     "consoleDeliveries": [],
+     "warnings": []
+    },
+    "environment": {
+     "status": "offline",
+     "spawnClaim": {
+      "state": "stale",
+      "canClaim": false,
+      "bridgeLastSeen": "2026-10-21T01:54:52Z"
+     }
+    }
+   },
+   "error": null
+  }
+ }
 }

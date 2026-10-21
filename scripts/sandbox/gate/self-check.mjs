@@ -1,18 +1,22 @@
 // The gate's judging, proven without Docker: every judge passes its model and fails each single-condition
-// countermodel, and every case's frozen words are page 2's own (read from the plan, never copied here twice).
+// countermodel; the healthy models carry the lawful events that follow a hold (review R1). Every case's frozen words
+// are page 2's own or an amendment's, read from the documents, never copied here twice. The review's own synthetic
+// histories (sw3a-source-1792542290852) are among the models, named "review".
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CASES, SCENARIOS } from "./cases.mjs";
+import { CASES, OBSERVATIONS, SCENARIOS, START } from "./cases.mjs";
 import { JUDGES } from "./judges.mjs";
 
-const PAGE_2 = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..",
-  "docs", "superpowers", "plans", "s4-hard-switch", "2-sandbox-gate.md");
+const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const PAGE_2 = path.join(REPO, "docs", "superpowers", "plans", "s4-hard-switch", "2-sandbox-gate.md");
+const AMENDMENTS = path.join(REPO, "docs", "evidence", "2026-10-21-sw3a-gate", "AMENDMENTS.md");
 const T0 = Date.parse("2026-10-21T00:00:00Z");
 const iso = (t) => (t == null ? null : new Date(Math.floor(t / 1000) * 1000).toISOString().replace(".000Z", "Z"));
 const run = (id, status, claimedT = null, extra = {}) => ({ id, status, claimed_at: iso(claimedT), queue_if_busy: 1,
   steer_if_busy: 0, ...extra });
+const steerable = { queue_if_busy: 0, steer_if_busy: 1 };
 /** One watcher snapshot. `record: null` is comms holding no record of the agent yet. */
 const snap = (t, { runs = [], record = { busy: false, state: "idle", lifetime: "L1" }, applied = t, kind = "changes",
   spawns = [], controls = [] } = {}) => ({
@@ -21,33 +25,66 @@ const snap = (t, { runs = [], record = { busy: false, state: "idle", lifetime: "
   records: record ? [{ instance: "default", appliedAt: iso(applied), ...record }] : [],
 });
 const polling = (from, to) => Array.from({ length: Math.floor((to - from) / 2000) + 1 }, (_, i) => ({ event: "polled", t: from + i * 2000 }));
+const delivered = (runId, t) => ({ event: "delivered", runId, t });
 const window = { from: T0, to: T0 + 20_000 };
 const queued = (id, extra) => [snap(T0 + 100, { runs: [run(id, "queued", null, extra)] })];
+const report = (t, reportEveryMs = 60_000) => ({ t, instance: "default", kind: "changes", forwarded: true, status: 204, reportEveryMs });
+const refused = (t) => ({ t, instance: "default", kind: "changes", forwarded: false, status: 503, reportEveryMs: 60_000 });
+const steer = (runId, t) => ({ run_id: runId, action: "steer", requested_at: iso(t) });
+const prior = { status: "working", appliedAt: iso(T0 - 190_000) };
+
+/** A stale second holder beside aify-env's holder: the shared shape of A4 and A5. */
+function secondHolder(busy) {
+  const marks = { runId: "R", sentAt: T0, secondStatus: 204, secondAnnouncedMs: 1000, secondAppliedAt: T0 - 10_000,
+    envBusyAtSend: busy, window };
+  const pass = { marks, contact: [report(T0 - 20_000)], timeline: queued("R", steerable),
+    standin: [...polling(T0, T0 + 20_000), delivered("R", T0 + 26_000)] };
+  pass.timeline.push(snap(T0 + 26_200, { runs: [run("R", "completed", T0 + 26_000, steerable)] }));
+  return [pass,
+    ["the second holder's report refused", { ...pass, marks: { ...marks, secondStatus: 422 } }],
+    ["the second holder announced nothing", { ...pass, marks: { ...marks, secondAnnouncedMs: null } }],
+    ["the second holder not stale", { ...pass, marks: { ...marks, secondAppliedAt: T0 - 1000 } }],
+    ["aify-env announced nothing", { ...pass, contact: [{ ...report(T0 - 20_000), reportEveryMs: null }] }],
+    ["aify-env out of contact", { ...pass, contact: [report(T0 - 200_000)] }],
+    [busy ? "aify-env not busy" : "aify-env busy", { ...pass, marks: { ...marks, envBusyAtSend: !busy } }],
+    ["claimed inside the window", { ...pass, timeline: [snap(T0 + 5200, { runs: [run("R", "completed", T0 + 5000, steerable)] })] }],
+    ["received inside the window", { ...pass, standin: [...pass.standin, delivered("R", T0 + 5000)] }],
+    ["steered inside the window", { ...pass, timeline: [{ ...pass.timeline[0], controls: [steer("R", T0 + 5000)] }] }],
+    ["no claimer polling", { ...pass, standin: [] }]];
+}
+
+/** The silenced scenario's shared marks (A2): busy, then three announced intervals without a report. */
+const silenced = { announcedMs: 60_000, lastContactAt: T0 - 190_000, sentAt: T0, window,
+  contact: [report(T0 - 190_000), refused(T0 - 100_000), refused(T0 - 10_000)] };
 
 /** case id -> [the passing model, ...[name, countermodel]] */
 const MODELS = {
   "legacy-busy-env-idle": (() => {
     const pass = { marks: { runId: "R", sentAt: T0, preLegacyBusy: 1, preEnvBusy: false },
-      timeline: [snap(T0 + 1500, { runs: [run("R", "completed", T0 + 1000)] })],
-      standin: [{ event: "delivered", runId: "R", t: T0 + 1000 }] };
+      timeline: [snap(T0 + 1500, { runs: [run("R", "completed", T0 + 1000)] })], standin: [delivered("R", T0 + 1000)] };
     return [pass,
       ["legacy not busy", { ...pass, marks: { ...pass.marks, preLegacyBusy: 0 } }],
       ["env not idle", { ...pass, marks: { ...pass.marks, preEnvBusy: true } }],
       ["held", { ...pass, timeline: queued("R"), standin: [] }],
       ["delivered late", { ...pass, timeline: [snap(T0 + 21_000, { runs: [run("R", "completed", T0 + 20_000)] })] }],
       ["never received as a run", { ...pass, standin: [] }],
-      ["became a control", { ...pass, timeline: [{ ...pass.timeline[0], controls: [{ run_id: "R", action: "steer" }] }] }]];
+      ["became a control", { ...pass, timeline: [{ ...pass.timeline[0], controls: [steer("R", T0 + 500)] }] }]];
   })(),
   "legacy-idle-env-busy": (() => {
     const marks = { runId: "R", preLegacyBusy: 0, preEnvBusy: true, holdWindow: window,
       idleAccepted: { at: T0 + 25_000, seenAt: T0 + 25_200 } };
     const claimedAt = (t, seen = t + 200) => [snap(T0 + 100, { runs: [run("R", "queued")] }),
       snap(seen, { runs: [run("R", "completed", t)] })];
-    const pass = { marks, timeline: claimedAt(T0 + 27_000), standin: polling(T0, T0 + 20_000) };
+    // Healthy: held through the window, then the lawful release, received by the stand-in after it (R1).
+    const pass = { marks, timeline: claimedAt(T0 + 27_000), standin: [...polling(T0, T0 + 20_000), delivered("R", T0 + 27_000)] };
+    const lawful = { marks: { ...marks, idleAccepted: { at: T0 + 21_000, seenAt: T0 + 21_000 } }, timeline: claimedAt(T0 + 22_000, T0 + 22_000),
+      standin: [...polling(T0, T0 + 20_000), delivered("R", T0 + 22_000)] };
     return [pass,
+      ["review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes", { lawful }],
       ["legacy busy", { ...pass, marks: { ...marks, preLegacyBusy: 1 } }],
       ["env not busy", { ...pass, marks: { ...marks, preEnvBusy: false } }],
       ["claimed inside the hold", { ...pass, timeline: claimedAt(T0 + 5000) }],
+      ["received inside the hold", { ...pass, standin: [...pass.standin, delivered("R", T0 + 10_000)] }],
       ["claimed before the acceptance", { ...pass, timeline: claimedAt(T0 + 23_000) }],
       // comms' seconds say before, while the watcher happened to see the claim later: only the seconds catch it.
       ["claimed a second before the acceptance, seen after it", { ...pass, timeline: claimedAt(T0 + 24_000, T0 + 25_300) }],
@@ -60,59 +97,76 @@ const MODELS = {
   })(),
   "busy-steerable": (() => {
     const pass = { marks: { runId: "R", sentAt: T0, preEnvBusy: true, idleSeenBeforeReceipt: false }, timeline: [],
-      standin: [{ event: "delivered", runId: "R", t: T0 + 2000 }] };
+      standin: [delivered("R", T0 + 2000)] };
     return [pass,
       ["env not busy", { ...pass, marks: { ...pass.marks, preEnvBusy: false } }],
       ["never received", { ...pass, standin: [] }],
-      ["received late", { ...pass, standin: [{ event: "delivered", runId: "R", t: T0 + 30_000 }] }],
+      ["received late", { ...pass, standin: [delivered("R", T0 + 30_000)] }],
       ["idle before receipt", { ...pass, marks: { ...pass.marks, idleSeenBeforeReceipt: true } }]];
   })(),
-  "stale-second-holder": (() => {
-    const marks = { runId: "R", sentAt: T0, secondAppliedAt: T0 - 190_000, envAppliedAt: T0 - 30_000, envBusyAtSend: false, window };
-    const pass = { marks, timeline: queued("R", { steer_if_busy: 1, queue_if_busy: 0 }), standin: polling(T0, T0 + 20_000) };
-    return [pass,
-      ["second holder fresh", { ...pass, marks: { ...marks, secondAppliedAt: T0 - 100_000 } }],
-      ["env holder stale", { ...pass, marks: { ...marks, envAppliedAt: T0 - 200_000 } }],
-      ["env holder busy", { ...pass, marks: { ...marks, envBusyAtSend: true } }],
-      ["claimed", { ...pass, timeline: [snap(T0 + 3000, { runs: [run("R", "completed", T0 + 2000)] })] }],
-      ["received", { ...pass, standin: [...pass.standin, { event: "delivered", runId: "R", t: T0 + 2000 }] }],
-      ["steered", { ...pass, timeline: [{ ...pass.timeline[0], controls: [{ run_id: "R", action: "steer" }] }] }],
-      ["no claimer polling", { ...pass, standin: [] }]];
+  "stale-second-holder": secondHolder(false),
+  "fresh-busy-beside-unknown": (() => {
+    const [pass, ...counters] = secondHolder(true);
+    return [pass, ...counters, ["the send not steerable", { ...pass, timeline: [snap(T0 + 100, { runs: [run("R", "queued")] })] }]];
   })(),
   "env-paused": (() => {
-    const marks = { word: { status: "unknown", lastKnown: { word: "working" } }, envAppliedAt: T0 - 190_000, sentAt: T0,
-      queueRunId: "Q", defaultRunId: "D", window };
-    const pass = { marks, timeline: [snap(T0 + 100, { runs: [run("Q", "queued"), run("D", "queued")] })],
+    const marks = { ...silenced, prior, word: { status: "unknown", lastKnown: { status: "working", appliedAt: prior.appliedAt } },
+      queueRunId: "Q", defaultRunId: "D" };
+    delete marks.contact;
+    const runs = (q, d) => [snap(T0 + 100, { runs: [q, d] })];
+    const pass = { marks, contact: silenced.contact, timeline: runs(run("Q", "queued"), run("D", "queued", null, steerable)),
       standin: polling(T0, T0 + 20_000) };
     return [pass,
-      ["silence not passed", { ...pass, marks: { ...marks, envAppliedAt: T0 - 100_000 } }],
-      ["word not unknown", { ...pass, marks: { ...marks, word: { status: "online" } } }],
-      ["no last-known note", { ...pass, marks: { ...marks, word: { status: "unknown", lastKnown: null } } }],
-      ["queueIfBusy claimed", { ...pass, timeline: [snap(T0 + 3000, { runs: [run("Q", "completed", T0 + 2000), run("D", "queued")] })] }],
-      ["steered", { ...pass, timeline: [{ ...pass.timeline[0], controls: [{ run_id: "D", action: "steer" }] }] }],
-      ["no claimer polling", { ...pass, standin: [] }]];
-  })(),
-  "env-resumed": (() => {
-    const marks = { queueRunId: "Q", defaultRunId: "D", freshAccepted: { at: T0 + 10_000 }, idleAccepted: { at: T0 + 15_000 } };
-    const claims = (q, d) => [snap(T0 + 100, { runs: [run("Q", "queued"), run("D", "queued")] }),
-      snap(T0 + 50_000, { runs: [q === null ? run("Q", "queued") : run("Q", "completed", q), run("D", "completed", d)] })];
-    const pass = { marks, timeline: claims(T0 + 16_000, T0 + 12_000), standin: [] };
-    return [pass,
-      ["no fresh publication", { ...pass, marks: { ...marks, freshAccepted: null } }],
-      ["drained before the fresh publication", { ...pass, timeline: claims(T0 + 5000, T0 + 12_000) }],
-      ["never drained", { ...pass, timeline: claims(null, T0 + 12_000) }],
-      ["drained late", { ...pass, timeline: claims(T0 + 40_000, T0 + 12_000) }],
-      ["idle acceptance never seen", { ...pass, marks: { ...marks, idleAccepted: null } }],
+      ["a release after the window is lawful", { ...pass, timeline: [...pass.timeline, snap(T0 + 30_000, { runs: [
+        run("Q", "completed", T0 + 29_000), run("D", "completed", T0 + 25_000, steerable)] })],
+      standin: [...pass.standin, delivered("D", T0 + 25_000), delivered("Q", T0 + 29_000)] }, true],
+      ["aify-env announced nothing", { ...pass, marks: { ...marks, announcedMs: null } }],
+      ["three intervals not passed", { ...pass, marks: { ...marks, lastContactAt: T0 - 100_000 } }],
+      ["a report reached comms during the silence", { ...pass, contact: [...silenced.contact, report(T0 - 50_000)] }],
+      ["aify-env not seen trying", { ...pass, contact: [report(T0 - 190_000)] }],
+      ["the word not unknown", { ...pass, marks: { ...marks, word: { ...marks.word, status: "online" } } }],
+      ["no lastKnown", { ...pass, marks: { ...marks, word: { status: "unknown" } } }],
+      ["review R8: negative prose in statusNote", { ...pass, marks: { ...marks,
+        word: { status: "unknown", statusNote: "No last known record or application timestamp exists" } } }],
+      ["lastKnown names another word", { ...pass, marks: { ...marks, word: { status: "unknown", lastKnown: { ...prior, status: "online" } } } }],
+      ["lastKnown names another time", { ...pass, marks: { ...marks, word: { status: "unknown", lastKnown: { ...prior, appliedAt: iso(T0) } } } }],
+      ["the queueIfBusy send claimed in the window", { ...pass, timeline: runs(run("Q", "completed", T0 + 5000), run("D", "queued", null, steerable)) }],
+      ["the steerable send steered in the window", { ...pass, timeline: [{ ...pass.timeline[0], controls: [steer("D", T0 + 5000)] }] }],
+      ["the steerable send received in the window", { ...pass, standin: [...pass.standin, delivered("D", T0 + 4000)] }],
       ["a send created no run", { ...pass, marks: { ...marks, queueRunId: null } }]];
   })(),
+  "env-resumed": (() => {
+    const marks = { queueRunId: "Q", defaultRunId: "D", resumedAt: T0, freshAccepted: { at: T0 + 3000, seenAt: T0 + 3200 },
+      idleAccepted: { at: T0 + 10_000, seenAt: T0 + 10_200 } };
+    const tl = (q, d, qSeen = q + 200, dSeen = d + 200) => [snap(T0 - 100, { runs: [run("Q", "queued"), run("D", "queued", null, steerable)] }),
+      ...[[q, qSeen, "Q"], [d, dSeen, "D"]].filter(([t]) => t !== null).sort((a, b) => a[1] - b[1]).map(([, seen], i, all) =>
+        snap(seen, { runs: [all.slice(0, i + 1).some(([, , id]) => id === "Q") ? run("Q", "completed", q) : run("Q", "queued"),
+          all.slice(0, i + 1).some(([, , id]) => id === "D") ? run("D", "completed", d, steerable) : run("D", "queued", null, steerable)] }))];
+    // Healthy: the steerable send drains as soon as a fresh busy publication is accepted, the queueIfBusy one after idle.
+    const pass = { marks, timeline: tl(T0 + 11_000, T0 + 4000), standin: [] };
+    return [pass,
+      ["no fresh publication after the resume", { ...pass, marks: { ...marks, freshAccepted: { at: T0 - 5000, seenAt: T0 - 4800 } } }],
+      ["review R2: the queueIfBusy send claimed while busy, before idle", { ...pass, timeline: tl(T0 + 6000, T0 + 4000) }],
+      ["the queueIfBusy send seen claimed before idle in the same second", { ...pass, timeline: tl(T0 + 10_000, T0 + 4000, T0 + 10_100) }],
+      ["the queueIfBusy send late", { ...pass, timeline: tl(T0 + 25_000, T0 + 4000) }],
+      ["the queueIfBusy send never drained", { ...pass, timeline: tl(null, T0 + 4000) }],
+      ["the steerable send before the fresh publication", { ...pass, timeline: tl(T0 + 11_000, T0 + 2000) }],
+      ["the steerable send a second before the fresh publication, seen after it", { ...pass, timeline: tl(T0 + 11_000, T0 + 2000, T0 + 11_200, T0 + 3300) }],
+      ["the steerable send late", { ...pass, timeline: tl(T0 + 11_000, T0 + 25_000) }],
+      ["the steerable send never drained", { ...pass, timeline: tl(T0 + 11_000, null) }],
+      ["no queueIfBusy run", { ...pass, marks: { ...marks, queueRunId: null } }],
+      ["no steerable run", { ...pass, marks: { ...marks, defaultRunId: null } }],
+      ["idle acceptance never seen", { ...pass, marks: { ...marks, idleAccepted: null } }]];
+  })(),
   "default-send-unknown": (() => {
-    const marks = { defaultRunId: "D", sentAt: T0, envAppliedAt: T0 - 190_000, window };
-    const pass = { marks, timeline: queued("D", { queue_if_busy: 0, steer_if_busy: 1 }), standin: polling(T0, T0 + 20_000) };
+    const marks = { ...silenced, defaultRunId: "D" };
+    delete marks.contact;
+    const pass = { marks, contact: silenced.contact, timeline: queued("D", steerable), standin: polling(T0, T0 + 20_000) };
     return [pass,
       ["not a default send", { ...pass, timeline: queued("D", { queue_if_busy: 1 }) }],
       ["the send created no run", { ...pass, marks: { ...marks, defaultRunId: null }, timeline: [] }],
-      ["claimed", { ...pass, timeline: [snap(T0 + 3000, { runs: [run("D", "completed", T0 + 2000, { queue_if_busy: 0 })] })] }],
-      ["eligibility known", { ...pass, marks: { ...marks, envAppliedAt: T0 - 10_000 } }],
+      ["claimed", { ...pass, timeline: [snap(T0 + 3000, { runs: [run("D", "completed", T0 + 2000, steerable)] })] }],
+      ["aify-env announced nothing", { ...pass, marks: { ...marks, announcedMs: null } }],
       ["no claimer polling", { ...pass, standin: [] }]];
   })(),
   "restart-idle": (() => {
@@ -128,14 +182,19 @@ const MODELS = {
       ["never delivered", { ...pass, timeline: queued("R") }]];
   })(),
   "restart-mid-turn": (() => {
-    const marks = { preEnvBusy: true, readAt: T0, word: { status: "unknown", statusNote: "last known: working" },
+    const marks = { preEnvBusy: true, readAt: T0, prior, word: { status: "unknown", lastKnown: { ...prior } },
       snapshotAccepted: { at: T0 + 30_000 } };
     const pass = { marks, timeline: [], standin: [] };
     return [pass,
       ["not mid-turn", { ...pass, marks: { ...marks, preEnvBusy: false } }],
       ["read after the snapshot", { ...pass, marks: { ...marks, readAt: T0 + 40_000 } }],
-      ["word known", { ...pass, marks: { ...marks, word: { status: "working" } } }],
-      ["no last-known note", { ...pass, marks: { ...marks, word: { status: "unknown", statusNote: "" } } }]];
+      ["word known", { ...pass, marks: { ...marks, word: { status: "working", lastKnown: { ...prior } } } }],
+      ["no lastKnown", { ...pass, marks: { ...marks, word: { status: "unknown" } } }],
+      ["review R8: negative prose in statusNote", { ...pass, marks: { ...marks,
+        word: { status: "unknown", statusNote: "No last known record or application timestamp exists" } } }],
+      ["a bare truthy lastKnown", { ...pass, marks: { ...marks, word: { status: "unknown", lastKnown: true } } }],
+      ["lastKnown names another word", { ...pass, marks: { ...marks, word: { status: "unknown", lastKnown: { ...prior, status: "online" } } } }],
+      ["no prior to compare", { ...pass, marks: { ...marks, prior: null } }]];
   })(),
   "restored-then-changes": (() => {
     const marks = { restartedAt: T0, changesAccepted: { at: T0 + 5000 }, snapshotAccepted: { at: T0 + 40_000 },
@@ -149,20 +208,26 @@ const MODELS = {
   })(),
   "cold-start": (() => {
     const spawn = [{ id: "S", initial_message: "" }];
-    const tl = (claimT, spawns = spawn) => [snap(T0, { record: null, spawns, runs: [run("R", "queued")] }),
-      ...(claimT < T0 + 20_000 ? [snap(claimT + 200, { record: null, spawns, runs: [run("R", "completed", claimT)] })] : []),
-      snap(T0 + 20_000, { record: { busy: false, state: "unknown", lifetime: "L2" }, spawns,
-        runs: [claimT < T0 + 20_000 ? run("R", "completed", claimT) : run("R", "queued")] }),
-      ...(claimT >= T0 + 20_000 && claimT < Infinity ? [snap(claimT + 200, { record: { busy: false, state: "unknown", lifetime: "L2" },
-        applied: T0 + 20_000, spawns, runs: [run("R", "completed", claimT)] })] : [])];
-    const pass = { marks: { runId: "R" }, lifetime: "L2", timeline: tl(T0 + 22_000), standin: [] };
+    const hold = { from: T0 + 5000, to: T0 + 25_000 };
+    const withRecord = { record: { busy: false, state: "unknown", lifetime: "L2" }, applied: T0 + 30_000 };
+    const tl = (claimT, spawns = spawn) => [snap(T0, { record: null, spawns, runs: [run("R", "queued", null, steerable)] }),
+      ...(claimT < T0 + 30_000 ? [snap(claimT + 200, { record: null, spawns, runs: [run("R", "completed", claimT, steerable)] })] : []),
+      snap(T0 + 30_000, { ...withRecord, spawns, runs: [claimT < T0 + 30_000 ? run("R", "completed", claimT, steerable) : run("R", "queued", null, steerable)] }),
+      ...(claimT >= T0 + 30_000 && claimT < Infinity ? [snap(claimT + 200, { ...withRecord, spawns, runs: [run("R", "completed", claimT, steerable)] })] : [])];
+    const pass = { marks: { runId: "R", preRecords: [], window: hold }, lifetime: "L2", timeline: tl(T0 + 32_000),
+      standin: [...polling(hold.from, hold.to), delivered("R", T0 + 32_000)] };
     return [pass,
-      ["no spawn request", { ...pass, timeline: tl(T0 + 22_000, []) }],
-      ["an initial message", { ...pass, timeline: tl(T0 + 22_000, [{ id: "S", initial_message: "hello" }]) }],
+      ["review R3: an available row with no lifetime before the send", { ...pass, marks: { ...pass.marks,
+        preRecords: [{ instance: "default", lifetime: null, busy: false, state: "available" }] } }],
+      ["the population not read back", { ...pass, marks: { ...pass.marks, preRecords: undefined } }],
+      ["no spawn request", { ...pass, timeline: tl(T0 + 32_000, []) }],
+      ["an initial message", { ...pass, timeline: tl(T0 + 32_000, [{ id: "S", initial_message: "hello" }]) }],
       ["the stand-in never started", { ...pass, lifetime: null }],
-      ["claimed before the record", { ...pass, timeline: tl(T0 + 5000) }],
-      ["claimed late", { ...pass, timeline: tl(T0 + 40_000) }],
-      ["never claimed", { ...pass, timeline: tl(Infinity) }]];
+      ["claimed inside the hold", { ...pass, timeline: tl(T0 + 10_000) }],
+      ["claimed after the hold but before the record", { ...pass, timeline: tl(T0 + 28_000) }],
+      ["claimed late", { ...pass, timeline: tl(T0 + 50_000) }],
+      ["never claimed", { ...pass, timeline: tl(Infinity) }],
+      ["no claimer polling in the hold", { ...pass, standin: [delivered("R", T0 + 32_000)] }]];
   })(),
   "run-running-idle": (() => {
     const marks = { runStatus: "running", record: { busy: false, state: "idle" }, word: { status: "working" } };
@@ -173,16 +238,24 @@ const MODELS = {
       ["promotion skipped", { ...pass, marks: { ...marks, word: { status: "online" } } }]];
   })(),
   "stop-restart": (() => {
-    const marks = { wordStopped: { status: "stopped" }, sendStored: true, spawnsAfterSend: 0, deliveredWhileStopped: 0,
-      wordAfter: { status: "online" }, queuedAtStart: ["R"] };
-    const pass = { marks, timeline: [snap(T0 + 60_000, { runs: [run("R", "completed", T0 + 59_000)] })], standin: [] };
+    const marks = { seedRunId: "S", seedStatusAtStop: "queued", wordStopped: { status: "stopped" }, sendStored: true,
+      spawnsAfterSend: 0, deliveredWhileStopped: 0, restartAccepted: { at: T0 + 60_000, seenAt: T0 + 60_200 },
+      wordAtRestart: { status: "unknown" }, wordAfterFirstTurn: { status: "online" } };
+    const seedAt = (t) => [snap(T0 + 100, { runs: [run("S", "queued")] }), ...(t === null ? [] : [snap(t + 200, { runs: [run("S", "completed", t)] })])];
+    // Healthy (review R7's matched control): the named pre-stop run, delivered after the restart.
+    const pass = { marks, timeline: seedAt(T0 + 62_000), standin: [delivered("S", T0 + 62_000)] };
     return [pass,
+      ["review R7: no queued work seeded", { ...pass, marks: { ...marks, seedRunId: null } }],
+      ["the seed not queued at the stop", { ...pass, marks: { ...marks, seedStatusAtStop: "completed" } }],
+      ["review R7: the named seed never drained", { ...pass, timeline: seedAt(null) }],
+      ["the seed claimed before the restart", { ...pass, timeline: seedAt(T0 + 30_000) }],
       ["stop row skipped", { ...pass, marks: { ...marks, wordStopped: { status: "online" } } }],
       ["send not stored", { ...pass, marks: { ...marks, sendStored: false } }],
       ["the send started it", { ...pass, marks: { ...marks, spawnsAfterSend: 1 } }],
       ["delivered while stopped", { ...pass, marks: { ...marks, deliveredWhileStopped: 1 } }],
-      ["restart leaves unknown", { ...pass, marks: { ...marks, wordAfter: { status: "unknown" } } }],
-      ["queued work never drained", { ...pass, timeline: queued("R") }]];
+      ["the restart never accepted", { ...pass, marks: { ...marks, restartAccepted: null } }],
+      ["still stopped at the restart", { ...pass, marks: { ...marks, wordAtRestart: { status: "stopped" } } }],
+      ["restart leaves unknown after the first turn", { ...pass, marks: { ...marks, wordAfterFirstTurn: { status: "unknown" } } }]];
   })(),
 };
 
@@ -190,19 +263,37 @@ export function selfCheck() {
   const lines = [];
   const check = (name, ok) => lines.push(`${ok ? "PASS" : "FAIL"} ${name}`);
   const page = fs.readFileSync(PAGE_2, "utf8").replace(/\r\n/g, "\n");
-  check("thirteen cases, as page 2's table has thirteen rows", CASES.length === 13
-    && (page.match(/^\| [^|]+\| [^|]+\| [^|]+\|$/gm) ?? []).length - 1 === 13); // less the header row
+  const flat = (text) => text.replace(/\s+/g, " ");
+  // Each amendment's own section, its wrapped lines joined: a case's words must be in the entry it names.
+  const sections = Object.fromEntries(fs.readFileSync(AMENDMENTS, "utf8").replace(/\r\n/g, "\n").split(/^## /m).slice(1)
+    .map((s) => [s.slice(0, s.indexOf(".")), flat(s)]));
+  const rows = (page.match(/^\| [^|]+\| [^|]+\| [^|]+\|$/gm) ?? []).length - 1; // less the header row
+  const isNew = (c) => Boolean(c.amendment && sections[c.amendment]?.includes("**Page 2:** none"));
+  check(`page 2's ${rows} rows are thirteen, each a case, and every other case is an amendment's new one`,
+    rows === 13 && CASES.filter((c) => !isNew(c)).length === rows);
+  for (const c of [...CASES, ...OBSERVATIONS]) {
+    if (c.amendment) check(`${c.id}: amendment ${c.amendment} is recorded`, Boolean(sections[c.amendment]));
+  }
   for (const c of CASES) {
-    check(`${c.id}: its expected answer is page 2's words`, page.includes(c.expected));
-    check(`${c.id}: its RED is page 2's words`, page.includes(c.red));
+    const source = (words) => page.includes(words) || Boolean(c.amendment && sections[c.amendment]?.includes(flat(words)));
+    check(`${c.id}: its expected answer is page 2's or its amendment's words`, source(c.expected));
+    check(`${c.id}: its RED is page 2's or its amendment's words`, source(c.red));
     check(`${c.id}: has a scenario and a judge`, typeof SCENARIOS[c.scenario] === "function" && typeof JUDGES[c.id] === "function");
     const [model, ...counters] = MODELS[c.id] ?? [];
     if (!model) { check(`${c.id}: has models`, false); continue; }
     const passed = JUDGES[c.id](model);
     check(`${c.id}: control, the model passes${passed.pass ? "" : ` [${passed.failed.join("; ")}]`}`, passed.pass);
-    for (const [name, counter] of counters) check(`${c.id}: ${name} fails`, !JUDGES[c.id](counter).pass);
+    for (const [name, counter, shouldPass] of counters) {
+      // A named pair { lawful } is a second healthy model; a third element `true` marks one too.
+      const evidence = counter.lawful ?? counter;
+      const want = Boolean(counter.lawful) || shouldPass === true;
+      const got = JUDGES[c.id](evidence);
+      check(`${c.id}: ${name} ${want ? "passes" : "fails"}${got.pass === want ? "" : ` [${got.failed.join("; ")}]`}`, got.pass === want);
+    }
   }
   check("every judge is used by a case", Object.keys(JUDGES).every((id) => CASES.some((c) => c.id === id)));
+  check("every observation has a scenario", OBSERVATIONS.every((o) => typeof SCENARIOS[o.scenario] === "function"));
+  check("every start option names a scenario", Object.keys(START).every((s) => typeof SCENARIOS[s] === "function"));
   for (const line of lines) console.log(line);
   const failed = lines.filter((l) => l.startsWith("FAIL")).length;
   console.log(`${lines.length - failed}/${lines.length} self-check witnesses passed`);

@@ -1,5 +1,6 @@
-// One case's sandbox: a comms container and an aify-env container on an internal network of their own, built from the
-// attempt's two images, with the stand-in defined as the env's managed agent. Every resource is created through the
+// One case's sandbox: a comms container, a relay and an aify-env container on an internal network of their own, built
+// from the attempt's two images, with the stand-in defined as the env's managed agent. aify-env reaches comms only
+// through the relay (relay.mjs), which can silence its publications alone and records every report it carries. Every resource is created through the
 // runner's `create` (../env-against-comms.mjs), so it is owned, read back absent at cleanup, and never a live name.
 //
 // What a case may do to the pair and what it may read from it is all here; the cases (cases.mjs) are scenarios over
@@ -27,23 +28,29 @@ export class Pair {
     this.#probe = probePath;
     this.#key = key;
     const id = `${runId}-${caseId}`;
-    this.#names = { network: id, comms: `${id}-comms`, env: `${id}-env` };
+    this.#names = { network: id, comms: `${id}-comms`, relay: `${id}-relay`, env: `${id}-env` };
   }
 
   get names() { return { ...this.#names }; }
 
-  /** The network and comms, then aify-env with the stand-in defined. Resolves once comms answers /health. */
-  async start() {
-    const { network, comms, env } = this.#names;
+  /** The network, comms, the relay, then aify-env with the stand-in defined. `silenced` starts the relay refusing
+   *  aify-env's publications before aify-env exists, so comms has held no record from it at all (the cold start). */
+  async start({ silenced = false } = {}) {
+    const { network, comms, relay, env } = this.#names;
     const withKey = { ...process.env, API_KEY: this.#key, SANDBOX_COMMS_KEY: this.#key, SANDBOX_DEFINE: AGENT };
     create(this.#owned, "network", network, ["network", "create", "--internal", network]);
     // No tmpfs: comms' data must survive `docker restart`. The image's declared volumes are anonymous; each is owned.
     create(this.#owned, "container", comms, ["run", "-d", "--name", comms, "--network", network, "--network-alias",
-      "comms", "-e", "API_KEY", "-e", "DATA_DIR=/data", "-e", "TRUSTED_HOSTS=comms,comms:8800", this.#images.comms],
+      "comms-real", "-e", "API_KEY", "-e", "DATA_DIR=/data", "-e", "TRUSTED_HOSTS=comms,comms:8800", this.#images.comms],
     { env: withKey });
     this.#ownVolumes(comms);
     must(docker(["cp", this.#probe, `${comms}:/tmp/probe.py`]), "copy the probe");
     await this.#healthy();
+    // The relay answers as `comms`, the only name aify-env and the stand-in know; it forwards Host unchanged.
+    create(this.#owned, "container", relay, ["run", "-d", "--init", "--name", relay, "--network", network,
+      "--network-alias", "comms", "--entrypoint", "node", this.#images.env, "/opt/gate/relay.mjs"]);
+    await this.waitFor(() => this.contact().some((e) => e.event === "listening"), 60_000, "the relay to listen");
+    if (silenced) this.silence(true);
     create(this.#owned, "container", env, ["run", "-d", "--init", "--name", env, "--hostname", "sandbox-env",
       "--network", network, "-e", "SANDBOX_COMMS_KEY", "-e", "SANDBOX_DEFINE", this.#images.env], { env: withKey });
     this.#ownVolumes(env);
@@ -92,12 +99,13 @@ export class Pair {
   }
 
   timeline() {
-    const text = docker(["exec", this.#names.comms, "cat", "/tmp/timeline.jsonl"]).out;
+    // A read that fails is UNKNOWN, never an empty history: must() throws, and a scenario reports the error.
+    const text = must(docker(["exec", this.#names.comms, "cat", "/tmp/timeline.jsonl"]), "read the timeline").out;
     return text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
   }
 
   standin() {
-    const text = docker(["exec", this.#names.env, "cat", `/tmp/standin/${AGENT}.log`]).out;
+    const text = must(docker(["exec", this.#names.env, "cat", `/tmp/standin/${AGENT}.log`]), "read the stand-in log").out;
     return text.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
   }
 
@@ -164,7 +172,21 @@ export class Pair {
     return pids[0];
   }
 
-  /** aify-env stops publishing; the stand-in, its own process, keeps claiming. */
+  /** Publication-only silence (review R4): the relay refuses aify-env's agent-state bodies while every other request,
+   *  its claimer heartbeat included, still reaches comms. */
+  silence(on) {
+    must(docker(["exec", this.#names.relay, "sh", "-c", on ? "touch /tmp/relay/silence" : "rm -f /tmp/relay/silence"]),
+      on ? "silence publications" : "lift the silence");
+  }
+
+  /** The relay's record of every report aify-env sent: when, which, the interval it announced, and what became of it. */
+  contact() {
+    const text = must(docker(["exec", this.#names.relay, "cat", "/tmp/relay/log.jsonl"]), "read the relay log").out;
+    return text.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
+  }
+
+  /** The whole aify-env daemon stops (a separate fault history, not page 2's publication silence); the stand-in, its
+   *  own process, keeps claiming. */
   // `kill` is a shell builtin in node:24-slim, with no binary on PATH.
   pauseEnv() { must(docker(["exec", this.#names.env, "sh", "-c", `kill -STOP ${this.#daemonPid()}`]), "pause aify-env"); }
   resumeEnv() { must(docker(["exec", this.#names.env, "sh", "-c", `kill -CONT ${this.#daemonPid()}`]), "resume aify-env"); }
@@ -191,7 +213,7 @@ export class Pair {
 
   /** Everything a judge reads, gathered once at the end of the scenario. */
   evidence() {
-    return { timeline: this.timeline(), standin: this.standin(), lifetime: this.lifetime(),
+    return { timeline: this.timeline(), standin: this.standin(), contact: this.contact(), lifetime: this.lifetime(),
       envLog: docker(["logs", this.#names.env]).out.split("\n").slice(-40) };
   }
 
