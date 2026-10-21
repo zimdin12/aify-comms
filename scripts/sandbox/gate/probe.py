@@ -52,7 +52,7 @@ def snapshot(agent):
                         'claim_bridge_id, finished_at, summary, error_text from dispatch_runs where target_agent = ? '
                         'order by requested_at, id', agent)
         # Which writer ended a run: its events name it (agent_stopped, terminal_closed, ...), which status alone cannot.
-        events = rows(db, 'select e.run_id, e.event_type, e.body, e.created_at from dispatch_events e join dispatch_runs r '
+        events = rows(db, 'select e.id, e.run_id, e.event_type, e.body, e.created_at from dispatch_events e join dispatch_runs r '
                           'on r.id = e.run_id where r.target_agent = ? order by e.id', agent)
         controls = rows(db, 'select c.id, c.action, c.status, c.run_id, c.requested_at, c.claimed_at from '
                             'dispatch_controls c join dispatch_runs r on r.id = c.run_id where r.target_agent = ? '
