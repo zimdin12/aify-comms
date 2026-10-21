@@ -8,9 +8,12 @@ What happened to the seed run `run_1792598417783_01e4b167`, from `stop.evidence.
 
 - `queued` at 16:00:17Z;
 - `terminal_closed` at 16:00:27Z, with body "Terminal was KILLED by 1 before an explicit reply was recorded.
-  terminalId=term_…". The run ended `failed` with that text as its `summary` and `error_text`;
-- `handoff` at 16:00:44Z, "Auto-mirrored missing handoff to gate-sender": the sender was sent a fallback message about
-  the failed run.
+  terminalId=term_…". The run ended `failed`. Its `summary` and `error_text` hold the reason without the
+  `terminalId=` suffix, which only the event body carries;
+- two `handoff` events at 16:00:44Z. The first is "Auto-mirrored missing handoff to gate-sender". The second is
+  "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; …". The
+  fallback was STORED for the sender, not delivered live: this fixture sender has no bridge. A fallback handoff is not
+  the obligated reply, and how it is delivered depends on the sender.
 
 No `agent_stopped` event was captured. That is not proof of absence: no run here shows the probe capturing an
 `agent_stopped` event when one exists. That the cancel path never ran rests on source: `control_agent` delegates a
