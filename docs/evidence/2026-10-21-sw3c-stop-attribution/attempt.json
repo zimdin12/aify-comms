@@ -1,0 +1,23 @@
+{
+ "label": "stopattr",
+ "commsRef": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "commsSha": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "envRef": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "envSha": "f704bcdf5526d3fc4e325296b3cc49ffb5231d5c",
+ "imagesReused": false,
+ "results": [
+  {
+   "id": "stop-restart",
+   "scenario": "stop",
+   "expected": "`stopped` (a send is stored, not run), then `online`, with queued work drained",
+   "red": "the view's stop row skipped; restart leaves `unknown`",
+   "pass": false,
+   "verdict": "FAIL",
+   "failed": [
+    "the seeded run: run_1792598417783_01e4b167 was never claimed"
+   ],
+   "unknown": []
+  }
+ ],
+ "observations": {}
+}

@@ -1,0 +1,28 @@
++0.0s scripts\sandbox\gate\gate.mjs sha256 07da5a35f603dbbe3ca7c899e82c2988d0f8bb35dc19d042e88e952daab853f1
++0.0s scripts\sandbox\gate\pair.mjs sha256 195690ae543f682143c9dd6817aa0b1c46dc3aff4b4ac53e6f4b02a1b8a8ffa8
++0.0s scripts\sandbox\gate\cases.mjs sha256 d4eb89894ce25a95d09bb120c916adb50b107ca1d6278ee7d30cfc89c8df9bef
++0.0s scripts\sandbox\gate\case-judging.mjs sha256 c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92
++0.0s scripts\sandbox\gate\attempt-dir.mjs sha256 cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476
++0.0s scripts\sandbox\gate\judges.mjs sha256 587ca0f5fa86356941586993298305a6e8065a850da8b1f763e64fceb8174764
++0.0s scripts\sandbox\gate\self-check.mjs sha256 1e18d246c038176a3380904c13bc2b0da32b04ff6ffa8b879b47dd4c7b92bb39
++0.0s scripts\sandbox\gate\stand-in.mjs sha256 f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba
++0.0s scripts\sandbox\gate\claude-aify.sh sha256 ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0
++0.0s scripts\sandbox\gate\probe.py sha256 7f4d22794f444ba66371052983b59ed45d386ec3b2017dbc5dd5452f8d99385d
++0.0s scripts\sandbox\gate\relay.mjs sha256 dacf00e539cbc982f9c6f3b2d8ecf821f77dc73c89f48a8ba72a03b2a030d07d
++0.0s scripts\sandbox\gate\env.Dockerfile sha256 9b193a33f349e36957e3690fb8b9ca3e5de14c8a51072f9c9df8ec72f21c5a46
++0.0s scripts\sandbox\env-against-comms.mjs sha256 9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c
++0.0s scripts\sandbox\sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.0s attempt stopattr: comms 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0 = 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0; env f704bcdf5526d3fc4e325296b3cc49ffb5231d5c = f704bcdf5526d3fc4e325296b3cc49ffb5231d5c
++6.6s owned image aify-gate-427db675-6c6d-comms
++12.0s owned image aify-gate-427db675-6c6d-env
++12.0s scenario stop: starting
++12.2s owned network dc1476d82f83dba07bd0c60b0dc9b092667c12c39dc54a495a2d1eb1efa60a4c
++13.2s owned container 09a2f81d770c3a010aac12ef941b1a644f1aa9f30afa4fb3b5b1cd8f94562ccc
++13.3s owned volume eb99e9836c1cfbe89d7fb7ff3f6bea517b02ca04bccc9363a5360a15e214361e
++13.3s owned volume 12dbce5891e1c592a4e0ecf1acc982d4dfcc9fb5e149e8cb06bcc4636b6ea0b9
++15.0s owned container b24e8a1d9948582f023b3442541b66451a108108ef1f08b7f39ef81947ea8097
++15.5s owned container 76b8eca869ba24c44d4c1079a9c5011705e916f4b453d834a2b2d4238adeebfb
++255.1s case stop-restart: FAIL [the seeded run: run_1792598417783_01e4b167 was never claimed]
++256.8s primary: 0/1 cases passed
++256.8s cleanup: complete, every owned resource read back absent
++256.8s terminal: exit 1
