@@ -1,0 +1,47 @@
+{
+ "label": "retire3",
+ "commsRef": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "commsSha": "78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0",
+ "envRef": "770c2c2",
+ "envSha": "770c2c2dd28e727b0f8e3a37f50e28d45adb0e2c",
+ "imagesReused": false,
+ "results": [],
+ "observations": {
+  "shutdown-with-worker": {
+   "marks": {
+    "worker": true,
+    "exitCode": 0,
+    "stoppedAt": 1792594692185,
+    "publisherBefore": {
+     "instance": "default",
+     "generation": 1792594632757,
+     "publication": 3,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-21T14:58:10Z"
+    },
+    "rowsBefore": 1,
+    "publisherAfter": {
+     "instance": "default",
+     "generation": 1792594632757,
+     "publication": 4,
+     "kind": "retired",
+     "reason": "shutdown",
+     "data_publication": 4,
+     "data_applied_at": "2026-10-21T14:58:11Z"
+    },
+    "rowsAfter": 0,
+    "standinBefore": {
+     "deliveries": 1,
+     "last": {
+      "t": 1792594691155,
+      "lifetime": "c7e14dcd-ef5c-450a-be29-32916617c318",
+      "event": "polled"
+     }
+    }
+   },
+   "error": null
+  }
+ }
+}

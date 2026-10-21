@@ -7,11 +7,12 @@ Asked by aify-dashboard task #39. The pair is comms `78270d30` and aify-env `f70
 |---|---|---|---|---|
 | `shutdown-with-worker` | live stand-in, one delivery | 0 | `changes`, publication 3, unchanged | 1 |
 | `shutdown-no-worker` (control) | defined, never started | 0 | `retired`, reason `shutdown`, 1 s after the stop | 0 |
+| `shutdown-with-worker` on aify-env `770c2c2` (the fix) | live stand-in | 0 | `retired`, reason `shutdown`, publication 4 | 0 |
 
 With a worker, the env log reads `SIGTERM: stopping 1 managed process(es)` … `tree-kill`, then
 `agent state retirement: not-proven (1 lifetimes)` (`with-worker.evidence.json`, `envLog`).
 
-The cause, read from source and not yet proven by a fix: `Runner.stop` returns after `killTree` without waiting for the
+The cause, read from source and now proven by the fix (aify-env `770c2c2`, branch fix/stop-awaits-exit, whose log reads `retirement: confirmed`): `Runner.stop` returns after `killTree` without waiting for the
 child's observed exit. Only that exit (`finish` → `ManagedLifetimes.end` → `endManaged`) records the lifetime as ended.
 So when the shutdown asks for `retirementProof`, the lifetime is still unproven.
 

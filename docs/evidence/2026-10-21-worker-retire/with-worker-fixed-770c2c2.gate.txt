@@ -1,0 +1,27 @@
++0.0s scripts\sandbox\gate\gate.mjs sha256 bd0bfe33702246b843463057ada249ec118691c710e90c800fb7ec7a98e36818
++0.0s scripts\sandbox\gate\pair.mjs sha256 218934320d0bc8f5c89510a7a0d68f977326df97e370105b56844ec77346509a
++0.0s scripts\sandbox\gate\cases.mjs sha256 61b599d3a1a364d3bb5440da3e3802820d891a6be0c44ed195c45a5d34a55040
++0.0s scripts\sandbox\gate\case-judging.mjs sha256 c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92
++0.0s scripts\sandbox\gate\attempt-dir.mjs sha256 cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476
++0.0s scripts\sandbox\gate\judges.mjs sha256 587ca0f5fa86356941586993298305a6e8065a850da8b1f763e64fceb8174764
++0.0s scripts\sandbox\gate\self-check.mjs sha256 1e18d246c038176a3380904c13bc2b0da32b04ff6ffa8b879b47dd4c7b92bb39
++0.0s scripts\sandbox\gate\stand-in.mjs sha256 f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba
++0.0s scripts\sandbox\gate\claude-aify.sh sha256 ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0
++0.0s scripts\sandbox\gate\probe.py sha256 6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d
++0.0s scripts\sandbox\gate\relay.mjs sha256 dacf00e539cbc982f9c6f3b2d8ecf821f77dc73c89f48a8ba72a03b2a030d07d
++0.0s scripts\sandbox\gate\env.Dockerfile sha256 9b193a33f349e36957e3690fb8b9ca3e5de14c8a51072f9c9df8ec72f21c5a46
++0.0s scripts\sandbox\env-against-comms.mjs sha256 9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c
++0.0s scripts\sandbox\sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.1s attempt retire3: comms 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0 = 78270d30e2f9a7b92dd93d1d3fcb6bf5d42ac4d0; env 770c2c2 = 770c2c2dd28e727b0f8e3a37f50e28d45adb0e2c
++8.0s owned image aify-gate-fc3c75d3-36b3-comms
++29.3s owned image aify-gate-fc3c75d3-36b3-env
++29.3s scenario shutdown-with-worker: starting
++29.5s owned network e8cefe84fce4aba762803065849ecb9158ff2a3d18aa51051323d0c2584ca769
++30.3s owned container cd2868fe3d85dd59cdf0997ec96d227658ac54b6e51d97afd37c38d865ebdbb9
++30.4s owned volume 7c9bae32d2641b59694c7dda3358cc908967b92806707c8523438f3e1aae4864
++30.4s owned volume 5e8a915bf26847023fb3a81593075046c048712f4465a0f1fb716991617498e5
++32.4s owned container b959546dbd56516d62b891534b51a00ec19820fdf9ccd4b9f7ddf74070d34cd7
++33.0s owned container d9a75539af1a8bcdfb6372eed8efe2bdf68b7215a47b909c30f87dc9a98d2e7e
++96.8s primary: 0/0 cases passed
++96.8s cleanup: complete, every owned resource read back absent
++96.8s terminal: exit 1
