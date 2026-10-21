@@ -99,6 +99,9 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         cancelled_queued = await _apply_agent_stop_or_resume(
             db, agent_id, agent, req, action, now, cancelled_queued
         )
+        # The operator's stop of an undefined agent is a row the switched word reads (D8 row 1), so a cached word from
+        # before it is stale now, in both directions.
+        await _invalidate_agent_live_state(db, agent_id)
 
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()

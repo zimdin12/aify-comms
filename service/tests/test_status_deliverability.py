@@ -17,6 +17,9 @@ equivalent. See the shared deliverability branch in _compute_live_status_cache.
 
 claude + resident behavior is unchanged (regression guards below); codex/pi
 (no channel flag) are unaffected.
+
+AFTER THE 0.9.8 SWITCH the served word is aify-env's; this derivation is what a rollback serves, and these tests read
+its word (env_records.rollback_word) until SW7 deletes it.
 """
 
 import asyncio
@@ -44,6 +47,7 @@ def _iso(dt: datetime) -> str:
 
 
 from service.tests._base import FastApiTestCase
+from service.tests import env_records
 
 
 class StatusDeliverabilityTests(FastApiTestCase):
@@ -173,9 +177,8 @@ class StatusDeliverabilityTests(FastApiTestCase):
             conn.close()
 
     def _status(self, agent_id: str) -> str:
-        res = self.client.get(f"/api/v1/agents/{agent_id}")
-        self.assertEqual(res.status_code, 200, res.text)
-        return res.json()["agent"]["status"]
+        # The legacy derivation's word, which a rollback of the 0.9.8 switch serves (env_records.rollback_word).
+        return env_records.rollback_word(self, agent_id)
 
     def _insert_hermes_console_pty(self, agent_id: str) -> None:
         """A live hermes console PTY terminal_session — the visible-TUI console
@@ -608,9 +611,8 @@ class ManagedEnvBridgeGateTests(FastApiTestCase):
         self.assertEqual(res.status_code, 200, res.text)
 
     def _status(self, agent_id: str) -> str:
-        res = self.client.get(f"/api/v1/agents/{agent_id}")
-        self.assertEqual(res.status_code, 200, res.text)
-        return res.json()["agent"]["status"]
+        # The legacy derivation's word, which a rollback of the 0.9.8 switch serves (env_records.rollback_word).
+        return env_records.rollback_word(self, agent_id)
 
     def test_managed_with_dead_env_bridge_is_offline_despite_live_sidecar(self):
         # FIX B: kill the env bridge (stale last_seen). Even though the surviving

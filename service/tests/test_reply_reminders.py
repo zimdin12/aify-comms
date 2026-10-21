@@ -30,6 +30,7 @@ from service.routers.api_v2 import router
 from service.api_core.settings import DEFAULT_SETTINGS
 
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.dispatch_sweeps import _run_contract_reminders_once
@@ -67,6 +68,9 @@ class ReplyReminderTests(FastApiTestCase):
         }
         resp = self.client.post("/api/v1/agents", json=payload)
         self.assertEqual(resp.status_code, 200, resp.text)
+        # Live and idle, as aify-env says it after the 0.9.8 switch: a reminder waits while the target is busy or
+        # unknown (operator decision R3, witnessed in test_p7_witness_run_correlated.py).
+        env_records.report(self, agent_id)
         return resp.json()
 
     def _dispatch(self, **payload):

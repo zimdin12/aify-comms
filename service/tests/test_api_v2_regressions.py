@@ -86,6 +86,7 @@ from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.
 from service.routers.agents import console as agents_console
 from service.routers.api_v2 import router
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
 from service.tests.defined_agents import cold_start, define, publish, spawn_defined, undefine
 from service.api_core.events import _append_terminal_control
@@ -133,7 +134,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         return response.json()
 
     def _register_live_codex_resident(self, agent_id: str, *, session_handle: str, bridge_id: str, port: int, role: str = "coder"):
-        return self._register(
+        registered = self._register(
             agent_id,
             role=role,
             runtime="codex",
@@ -144,6 +145,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": f"ws://127.0.0.1:{port}"},
         )
+        env_records.report(self, agent_id)  # live, so its host's aify-env reports it idle (the 0.9.8 switch reads that)
+        return registered
 
     def _send_message(self, **payload):
         response = self.client.post("/api/v1/messages/send", json=payload)
@@ -1022,7 +1025,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["managed-coder"]
+        agent = env_records.rollback_agent(self, "managed-coder")
         self.assertEqual(agent["statusRaw"], "offline")
 
     def test_lost_resident_bridge_rests_offline_until_manual_switch(self):
@@ -1717,7 +1720,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
+        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
         # And once the console goes quiet (activity backdated past the console-active window,
         # cached status dropped so the read recomputes) it is still reachable and still `online`:
@@ -1729,7 +1732,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         status_cache._LIVE_STATE_CACHE.pop("console-agent", None)
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
+        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
@@ -1846,6 +1849,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.status_code, 200, running.text)
         if not defined:
             undefine(self, agent_id)
+        # Page 1 of the 0.9.8 switch, step 3: aify-env launched the lifetime and publishes its record, idle.
+        env_records.report(self, agent_id)
         return running.json()["spawnRequest"]["sessionId"]
 
     def _stamp_live_channel_sidecar(self, agent_id: str = "console-agent", runtime: str = "claude-code"):
@@ -2242,14 +2247,14 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Live `attached` console with a DEAD (registered-then-stale) channel-sidecar → not a
         # live claimer → available (NOT online).
         asyncio.run(self._async_invalidate("online-hermes"))
-        agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
+        agent = env_records.rollback_agent(self, "online-hermes")
         self.assertNotEqual(agent["status"], "online", agent)
         self.assertEqual(agent["status"], "available", agent)
 
         # Now add a fresh channel-sidecar heartbeat → live claimer → online.
         self._stamp_live_channel_sidecar("online-hermes", runtime="hermes")
         asyncio.run(self._async_invalidate("online-hermes"))
-        agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
+        agent = env_records.rollback_agent(self, "online-hermes")
         self.assertEqual(agent["status"], "online", agent)
 
     def test_managed_codex_online_from_fresh_wrapper_child_bridge(self):
@@ -2309,7 +2314,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         # No managed-wrapper-child bridge yet → no live claimer → available.
         asyncio.run(self._async_invalidate(agent_id))
-        agent = self.client.get(f"/api/v1/agents/{agent_id}").json()["agent"]
+        agent = env_records.rollback_agent(self, agent_id)
         self.assertEqual(agent["status"], "available", agent)
 
         # Fresh non-superseded managed-wrapper-child heartbeat → live claimer → online.
@@ -2327,7 +2332,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ),
         )
         asyncio.run(self._async_invalidate(agent_id))
-        agent = self.client.get(f"/api/v1/agents/{agent_id}").json()["agent"]
+        agent = env_records.rollback_agent(self, agent_id)
         self.assertNotEqual(agent["status"], "available", agent)
         self.assertEqual(agent["status"], "online", agent)
 
@@ -2438,7 +2443,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._stamp_live_channel_sidecar("online-claude")  # fresh sidecar
         # Live `attached` console + fresh sidecar → online.
         asyncio.run(self._async_invalidate("online-claude"))
-        agent = self.client.get("/api/v1/agents/online-claude").json()["agent"]
+        agent = env_records.rollback_agent(self, "online-claude")
         self.assertEqual(agent["status"], "online", agent)
 
         # Now stop the console terminal, leaving ONLY the fresh sidecar.
@@ -2447,7 +2452,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (terminal_id,),
         )
         asyncio.run(self._async_invalidate("online-claude"))
-        agent = self.client.get("/api/v1/agents/online-claude").json()["agent"]
+        agent = env_records.rollback_agent(self, "online-claude")
         self.assertNotEqual(agent["status"], "online", agent)
         self.assertEqual(agent["status"], "available", agent)
 
@@ -2736,7 +2741,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("turnend-hermes", "run-turnend-1", now, now),
         )
         asyncio.run(self._async_invalidate("turnend-hermes"))
-        agent = self.client.get("/api/v1/agents/turnend-hermes").json()["agent"]
+        agent = env_records.rollback_agent(self, "turnend-hermes")
         self.assertEqual(agent["status"], "working", f"precondition: mid-turn → working; got {agent}")
 
         # Turn-END event fires (gateway idle observed → /turn-end). turn_busy=0.
@@ -2748,7 +2753,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # IMMEDIATE flip off working — no timer wait. turn_updated_at is still
         # well within TURN_BUSY_STALE_SECONDS, so this can only pass if the EVENT
         # (turn_busy=0), not the staleness timer, drives the transition.
-        agent = self.client.get("/api/v1/agents/turnend-hermes").json()["agent"]
+        agent = env_records.rollback_agent(self, "turnend-hermes")
         self.assertNotEqual(agent["status"], "working", f"turn-end must flip OFF working immediately; got {agent}")
         self.assertEqual(agent["status"], "online", f"finished managed hermes → online (deliverable); got {agent}")
         tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("turnend-hermes",))
@@ -2843,6 +2848,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             """,
             (agent_id, run_id, bridge_id, runtime, _now()),
         )
+        # The 0.9.8 switch reads busy from aify-env's record; the legacy row above stays for the rollback's readers.
+        env_records.report(self, agent_id, busy=True)
 
     def _seed_queued_dispatch_run(self, run_id: str, target: str, *, execution_mode: str, require_reply: int = 0, from_agent: str = "sc-claude", queue_if_busy: int = 0, steer_if_busy: int = 0):
         self._execute(
@@ -3068,7 +3075,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ),
         )
         asyncio.run(self._async_invalidate("pending-live-claude"))
-        agent = self.client.get("/api/v1/agents/pending-live-claude").json()["agent"]
+        agent = env_records.rollback_agent(self, "pending-live-claude")
         self.assertEqual(agent["status"], "online", agent)
         self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
 
@@ -3100,7 +3107,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ),
         )
         asyncio.run(self._async_invalidate("pending-dead-claude"))
-        agent = self.client.get("/api/v1/agents/pending-dead-claude").json()["agent"]
+        agent = env_records.rollback_agent(self, "pending-dead-claude")
         self.assertNotEqual(agent["status"], "online", agent)
         self.assertIn(agent["status"], {"available", "stale", "offline"}, agent)
 
@@ -3304,6 +3311,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             "active_managed_run_wall_ceiling_minutes": 30,
         })
         self._register("aged-hermes", runtime="hermes", sessionMode="managed")
+        env_records.report(self, "aged-hermes")  # known idle: the reaper repairs only then, or offline (SW5 review R1)
         live_seen = _now()
         self._execute(
             """
@@ -4629,7 +4637,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 self.assertEqual(contract["require_reply"], 1)
                 listed = self.client.get("/api/v1/agents")
                 self.assertEqual(listed.status_code, 200, listed.text)
-                self.assertEqual(listed.json()["agents"][agent_id]["status"], "working")
+                self.assertEqual(env_records.rollback_word(self, agent_id), "working")
 
                 session = self._fetchone(
                     "SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?",
@@ -4922,7 +4930,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
                 self.assertEqual(run["status"], "running")
                 self.assertFalse(run["finished_at"])
-                self.assertEqual(listed.json()["agents"][agent_id]["status"], "working")
+                self.assertEqual(env_records.rollback_word(self, agent_id), "working")
 
 
     def test_terminal_end_closes_active_claude_terminal_run(self):
@@ -4959,7 +4967,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(run["status"], "cancelled")
         self.assertTrue(run["finished_at"])
-        agent = self.client.get("/api/v1/agents").json()["agents"]["console-agent"]
+        agent = env_records.rollback_agent(self, "console-agent")
         # Terminal ended → no live worker → status = available (was
         # "online" under the legacy active-only taxonomy; post-Phase-2
         # available is the precise label when no worker is running).
@@ -5079,7 +5087,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(repaired["status"], "failed")
         self.assertIn("no bridge owner", repaired["summary"])
         self.assertTrue(repaired["finished_at"])
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
+        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
     def test_message_send_to_managed_claude_replaces_legacy_raw_channel_terminal(self):
         session_id = self._create_running_session(
@@ -5311,7 +5319,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(delivered.status_code, 200, delivered.text)
         listed_active_after_delivery = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active_after_delivery.status_code, 200, listed_active_after_delivery.text)
-        self.assertEqual(listed_active_after_delivery.json()["agents"]["console-agent"]["status"], "online")
+        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
         reply = self.client.post(
             "/api/v1/messages/send",
@@ -5332,7 +5340,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(closed["finished_at"])
         listed_active = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active.status_code, 200, listed_active.text)
-        self.assertEqual(listed_active.json()["agents"]["console-agent"]["status"], "online")
+        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
     def test_terminal_control_claim_orders_start_before_input_with_same_timestamp(self):
         # Ordering is a PTY-path concern; exercise it on a runtime that still
@@ -5731,6 +5739,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # A newer environment bridge has replaced the one stored in the agent's
         # old runtime_state. The stale managed bridge must not claim new runs.
         self._heartbeat_environment(id="linux:test-host:default", bridgeId="bridge-new")
+        env_records.report(self, "managed-stale-bridge")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         stale_claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -5765,6 +5774,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             runtime="codex",
             sessionMode="managed",
             launchMode="managed",
+            machineId="win32:test-host",  # where its claims come from, so aify-env's record of it is read there
         )
         dispatched = self._dispatch(
             from_agent="manager",
@@ -5774,6 +5784,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             body="do work",
         )
         run_id = dispatched["runs"][0]["runId"]
+        env_records.report(self, "codex-worker")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         first_claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={"agentId": "codex-worker", "bridgeId": "bridge-old", "machineId": "win32:test-host", "executionModes": ["managed"]},
@@ -5997,6 +6008,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             mode="start_if_possible",
             createMessage=True,
         )
+        env_records.report(self, "session-coder")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         claim_run = self.client.post(
             "/api/v1/dispatch/claim",
             json={"agentId": "session-coder", "machineId": "linux:test-host", "bridgeId": "bridge-current", "executionModes": ["managed"]},
@@ -7439,6 +7451,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             createMessage=True,
         )
         active_run_id = first["runs"][0]["runId"]
+        env_records.report(self, "resident")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={"agentId": "resident", "bridgeId": "bridge-current", "executionModes": ["resident"]},
@@ -8287,6 +8300,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
         self._execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "coder"))
+        env_records.report(self, "coder", state="offline")  # after the 0.9.8 switch, aify-env says offline
 
         sent = self._send_message(
             from_agent="lead",
@@ -8407,6 +8421,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                                      terminal_runtimes=["codex"], session_handle="thread-healthy")
         self._register("away", runtime="codex", sessionMode="managed", role="crew")
         self._execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "away"))
+        env_records.report(self, "away", state="offline")  # after the 0.9.8 switch, aify-env says offline
         sent = self._send_message(from_agent="lead", toRole="crew", type="request", subject="both", body="x", trigger=True)
         assert_stored_unwoken(self, sent, "away")
         self.assertEqual([run["targetAgentId"] for run in sent["dispatchRuns"]], ["healthy"], "the healthy one still runs")
@@ -8416,6 +8431,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
         self._execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "coder"))
+        env_records.report(self, "coder", state="offline")  # after the 0.9.8 switch, aify-env says offline
         first = self._send_message(from_agent="lead", to="coder", type="request", subject="once", body="x", trigger=True, clientNonce="n-1")
         assert_stored_unwoken(self, first, "coder")
         again = self._send_message(from_agent="lead", to="coder", type="request", subject="once", body="x", trigger=True, clientNonce="n-1")
@@ -9023,6 +9039,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         second_message = self._fetchone("SELECT id FROM messages WHERE subject = ?", ("second",))
         self.assertIsNotNone(second_message)
 
+        env_records.report(self, "worker")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={"agentId": "worker", "machineId": "", "bridgeId": "bridge-1", "executionModes": ["managed"]},
@@ -9058,6 +9075,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         run_id = created["runs"][0]["runId"]
 
+        env_records.report(self, "worker")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         stale_claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={"agentId": "worker", "bridgeId": "bridge-old", "executionModes": ["managed"]},
@@ -9104,6 +9122,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         run_id = created["runs"][0]["runId"]
 
+        env_records.report(self, "worker")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={"agentId": "worker", "bridgeId": "channel-test-machine", "executionModes": ["resident"]},
@@ -10322,7 +10341,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
                 awaiting_response = self.client.get(f"/api/v1/agents/{agent_id}")
                 self.assertEqual(awaiting_response.status_code, 200, awaiting_response.text)
-                awaiting_payload = awaiting_response.json()["agent"]
+                awaiting_payload = env_records.rollback_agent(self, agent_id)
                 # online (idle, reachable) — NOT working — with the open-reply contract in the reason.
                 self.assertEqual(awaiting_payload["status"], "online", awaiting_payload)
                 self.assertIn("awaiting reply", (awaiting_payload.get("statusNote") or "").lower())
@@ -10809,6 +10828,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # (names the target's state + the no-progress/wall-clock reason).
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("orphan-hermes", runtime="hermes", sessionMode="managed")
+        env_records.report(self, "orphan-hermes")  # known idle: the reaper repairs only then, or offline (SW5 review R1)
         # Seed: dispatch_run started 10 minutes ago, no claim_bridge_id,
         # non-terminal dispatch_mode → orphan candidate.
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -11086,6 +11106,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # whether the column is empty or points at a dead bridge.
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("stale-hermes", runtime="hermes", sessionMode="managed")
+        env_records.report(self, "stale-hermes")  # known idle: the reaper repairs only then, or offline (SW5 review R1)
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         # bridge_instance with last_seen 10 min ago — well past 5-min window.
         self._execute(
@@ -11162,6 +11183,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             """,
             ("busy-target", "run_busy_target", live_seen, live_seen),
         )
+        env_records.report(self, "busy-target", busy=True)  # after the 0.9.8 switch `working` is aify-env's word
         # Aged past BOTH the no-progress window and the wall-clock ceiling.
         aged_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._execute(
@@ -11250,6 +11272,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # the reaper now filters it out of the progress check.
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("reminder-hermes", runtime="hermes", sessionMode="managed")
+        env_records.report(self, "reminder-hermes")  # known idle: the reaper repairs only then, or offline (SW5 review R1)
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         recent_at = _now()  # within the cutoff window
         self._execute(
@@ -11775,7 +11798,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (json.dumps({"virtualTerminal": True, "virtualTerminalId": "vterm_stop_1"}), "stop-pi"),
         )
         asyncio.run(self._async_invalidate("stop-pi"))
-        before = self.client.get("/api/v1/agents/stop-pi").json()["agent"]
+        before = env_records.rollback_agent(self, "stop-pi")
         self.assertEqual(before["status"], "online", before)
 
         # Stop the worker.
@@ -11810,7 +11833,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotIn("virtualTerminal", rs)
 
         # Derived status flips to available.
-        after = self.client.get("/api/v1/agents/stop-pi").json()["agent"]
+        after = env_records.rollback_agent(self, "stop-pi")
         self.assertEqual(after["status"], "available", after)
 
     def test_managed_wrapper_attached_terminal_counts_as_online_at_read_gate(self):
@@ -11907,7 +11930,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ),
         )
 
-        agent = self.client.get("/api/v1/agents/taxonomy-hermes-wrapper").json()["agent"]
+        agent = env_records.rollback_agent(self, "taxonomy-hermes-wrapper")
         self.assertEqual(agent["status"], "online", agent)
 
     def test_reply_landing_clears_turn_busy_for_channel_route(self):
@@ -12005,7 +12028,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("clearer-claude", "run_clearer_1", now, now),
         )
         asyncio.run(self._async_invalidate("clearer-claude"))
-        before = self.client.get("/api/v1/agents/clearer-claude").json()["agent"]
+        before = env_records.rollback_agent(self, "clearer-claude")
         self.assertEqual(before["status"], "working", before)
 
         # Reply lands.
@@ -12032,7 +12055,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # `working` until a real turn-end (bridge detector / Stop / heartbeat-false). Clearing it
         # here was the working→online→working flicker. in_turn stays set; only turn_busy (queue
         # gate) cleared above.
-        after = self.client.get("/api/v1/agents/clearer-claude").json()["agent"]
+        after = env_records.rollback_agent(self, "clearer-claude")
         self.assertEqual(after["status"], "working", after)
         st = self._fetchone("SELECT in_turn FROM agent_status_state WHERE agent_id = ?", ("clearer-claude",))
         self.assertEqual(int(st["in_turn"] or 0), 1, "reply-landed must NOT clear the status in_turn signal")

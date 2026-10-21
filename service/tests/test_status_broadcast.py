@@ -39,6 +39,7 @@ import aiosqlite
 
 from service.api_core import status_broadcast
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 AGENT = "sb-agent"
@@ -202,74 +203,63 @@ class ManualStatusTests(StatusBroadcastTestCase):
 
     def test_an_ORDINARY_status_is_not_treated_as_manual(self):
         """The guard is a membership test against one small set, not "the row has a status". If it
-        were the latter, every derived status would be frozen at whatever was last persisted."""
+        were the latter, every pushed status would be frozen at whatever was last persisted. After the
+        0.9.8 switch the word that must win is aify-env's."""
         self._write("UPDATE agents SET status = 'online' WHERE id = ?", (AGENT,))
-        with mock.patch.object(status_broadcast, "derive", return_value="working"):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
+        env_records.report(self, AGENT, busy=True)
+        payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
         self.assertEqual(payload["status"], "working")
 
 
 class PushPollParityTests(StatusBroadcastTestCase):
-    """The polled path re-derives, and the note has to follow the status."""
+    """The polled path serves the operational view's word (0.9.8 switch), and the note has to follow the status."""
 
-    def test_a_DISAGREEING_derivation_BLANKS_the_note(self):
+    async def _legacy_cache(self, db, row, settings=None):
+        return {"status": "offline", "reason": "no heartbeat for 4 minutes", "status_inputs": {}}
+
+    def test_a_DISAGREEING_view_BLANKS_the_note(self):
         """The 2026-07-10 review point, and the subtlest line in the module. The cached note
-        describes the cached status; if the derivation replaces the status, the note now explains a
-        status nobody is being shown. Sending it would produce a push whose own two fields
-        contradict each other."""
-        async def fake_cache(db, row, settings=None):
-            return {"status": "offline", "reason": "no heartbeat for 4 minutes",
-                    "status_inputs": {}}
-
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", fake_cache), \
-             mock.patch.object(status_broadcast, "derive", return_value="working"):
+        describes the legacy status; if aify-env's word replaces it, the note now explains a status
+        nobody is being shown. Sending it would produce a push whose own two fields contradict each
+        other."""
+        env_records.report(self, AGENT, busy=True)
+        with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache):
             payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
         self.assertEqual(payload["status"], "working")
         self.assertEqual(payload["statusNote"], "")
 
-    def test_an_AGREEING_derivation_KEEPS_the_note(self):
+    def test_an_AGREEING_view_KEEPS_the_note(self):
         """The other half. When the two agree the note still describes the status being pushed, and
         dropping it would lose the only explanation the dashboard gets."""
-        async def fake_cache(db, row, settings=None):
-            return {"status": "offline", "reason": "no heartbeat for 4 minutes",
-                    "status_inputs": {}}
-
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", fake_cache), \
-             mock.patch.object(status_broadcast, "derive", return_value="offline"):
+        env_records.report(self, AGENT, state="offline")
+        with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache):
             payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
         self.assertEqual(payload["status"], "offline")
         self.assertEqual(payload["statusNote"], "no heartbeat for 4 minutes")
 
-    def test_a_FAILING_derivation_falls_back_to_the_cached_answer(self):
-        """`derive` is wrapped in its own try. A push is better than no push: the cached status is
-        what the poll would have served a moment ago, and staying silent leaves the dashboard on
-        something older still."""
-        async def fake_cache(db, row, settings=None):
-            return {"status": "offline", "reason": "no heartbeat for 4 minutes",
-                    "status_inputs": {}}
+    def test_a_FAILING_view_pushes_unknown_never_the_legacy_word(self):
+        """A view that cannot be read pushes `unknown` with why, as the poll serves it. The legacy word
+        beside it is not aify-env's, so it is never pushed as if it were."""
+        env_records.report(self, AGENT, state="offline")
 
-        def boom(_inputs):
-            raise RuntimeError("bad inputs")
+        async def boom(*_args, **_kwargs):
+            raise RuntimeError("unreadable mirror")
 
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", fake_cache), \
-             mock.patch.object(status_broadcast, "derive", boom):
+        with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache), \
+             mock.patch.object(status_broadcast.switched_view, "word_into", boom):
             payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
-        self.assertEqual(payload["status"], "offline")
-        self.assertEqual(payload["statusNote"], "no heartbeat for 4 minutes",
-                         "the note was blanked for a derivation that never produced a status")
+        self.assertEqual(payload["status"], "unknown")
+        self.assertEqual(payload["statusNote"], "comms could not read aify-env's record of this agent")
 
 
 class EngineStatusPathTests(StatusBroadcastTestCase):
     def test_a_derived_engine_status_carries_NO_note(self):
-        """Only a manual status has an operator-written reason. The engine's answer is derived from
-        proof, and inventing prose for it here would put a note on the wire that no polled read
-        would ever produce."""
-        async def fake_engine(db, row, settings=None):
-            return "online"
-
+        """Only a manual status has an operator-written reason. aify-env's word carries none, and
+        inventing prose for it here would put a note on the wire that no polled read would ever
+        produce."""
         self._write("UPDATE agents SET status_note = ? WHERE id = ?", ("stale prose", AGENT))
-        with mock.patch.object(status_broadcast, "engine_status", fake_engine):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_engine_status))
+        env_records.report(self, AGENT)
+        payload = self._only_payload(self._push(status_broadcast._broadcast_engine_status))
         self.assertEqual(payload["status"], "online")
         self.assertEqual(payload["statusNote"], "")
 

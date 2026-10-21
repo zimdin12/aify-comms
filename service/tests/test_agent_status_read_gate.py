@@ -15,6 +15,10 @@ Plan 5 Tasks C1 + C2:
       wrapper-backed agent.
 - C2: that downgrade is written back to agent_live_state so the next
       poll sees the correct value without re-running the check.
+
+AFTER THE 0.9.8 SWITCH no route applies this gate: the served word is the operational view's, re-read when a fresh
+holder of it goes stale. The gate is a legacy reader a rollback restores, so these tests read the record a rollback
+would serve (env_records.rollback_agent), from a stale legacy word seeded beside the cached one.
 """
 
 import asyncio
@@ -35,6 +39,7 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 
@@ -96,6 +101,7 @@ class AgentStatusReadGateTests(FastApiTestCase):
 
         _LIVE_STATE_CACHE[agent_id] = {
             "status": status, "reason": f"stale-{status}-cache-for-test", "environment_id": "",
+            "legacy_status": status, "legacy_reason": f"stale-{status}-cache-for-test",
             "session_id": "sess-fake", "terminal_id": "", "active_run_id": "",
             "refresh_after": "2099-01-01T00:00:00Z", "updated_at": "2026-05-25T19:29:10Z",
         }
@@ -168,10 +174,7 @@ class AgentStatusReadGateTests(FastApiTestCase):
                 self._register_managed_agent(agent_id=agent_id, runtime=runtime)
                 stamp(agent_id)
 
-                res = self.client.get(f"/api/v1/agents/{agent_id}")
-                self.assertEqual(res.status_code, 200, res.text)
-                body = res.json()
-                agent = body["agent"]
+                agent = body = env_records.rollback_agent(self, agent_id)
                 self.assertEqual(
                     agent["status"], "available",
                     f"expected downgrade to 'available' because no live terminal_sessions row "
@@ -191,10 +194,9 @@ class AgentStatusReadGateTests(FastApiTestCase):
 
         res = self.client.get("/api/v1/agents")
         self.assertEqual(res.status_code, 200, res.text)
-        agents = res.json()["agents"]
-        self.assertIn("codex-stale-list", agents)
+        self.assertIn("codex-stale-list", res.json()["agents"])
         self.assertNotEqual(
-            agents["codex-stale-list"]["status"], "online",
+            env_records.rollback_word(self, "codex-stale-list"), "online",
             "list_agents must apply the same Plan 5 read-path gate as get_agent",
         )
 
@@ -217,9 +219,7 @@ class AgentStatusReadGateTests(FastApiTestCase):
         self._stamp_stale_online_cache("hermes-stale-synth")
         self._insert_stale_synth_terminal("hermes-stale-synth", runtime="hermes")
 
-        res = self.client.get("/api/v1/agents/hermes-stale-synth")
-        self.assertEqual(res.status_code, 200, res.text)
-        agent = res.json()["agent"]
+        agent = env_records.rollback_agent(self, "hermes-stale-synth")
         self.assertNotEqual(
             agent["status"], "online",
             f"Plan 5 follow-up: a stale vterm_* row must NOT keep "

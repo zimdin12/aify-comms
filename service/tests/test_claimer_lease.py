@@ -328,8 +328,10 @@ class DeafTargetAlwaysQueuesTests(unittest.TestCase):
         self._heartbeat_hermes_env()
         self._register_managed_hermes("cold-hermes")
 
+        # After the 0.9.8 switch a defined agent nothing has started has no record yet, so it reads unknown, and the
+        # send still cold-starts it (plan page 1, "A cold start creates backing").
         avail = self.client.get("/api/v1/agents/cold-hermes").json()["agent"]
-        self.assertEqual(avail["status"], "available", avail)
+        self.assertEqual(avail["status"], "unknown", avail)
 
         sent = self.client.post(
             "/api/v1/messages/send",

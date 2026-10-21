@@ -47,10 +47,8 @@ from service.api_core.claim_gating import (
     _has_claimable_steerable_run,
     _mark_dispatch_source_messages_read,
     _release_stale_console_owner_for_claim,
-    turn_busy_decision,
 )
-from service.api_core import busy_consumers, comms_view, stale_turn_ceiling
-from service.api_core.delivery_turns import NOT_KNOWN
+from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.events import _append_dispatch_event
 from service.api_core.claim_run_selection import _select_claimable_run
@@ -330,70 +328,24 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                     "run": None,
                     "blockedBy": blocked_by_console,
                 }
-        # Turn-busy claim gate: if the raw harness state says the agent is mid-turn
-        # (turn_busy=1),
-        # don't return queued runs. Operator-asked 2026-05-22:
-        # "queue should wait until agent stops working" — without this
-        # gate, the SENDER's queueIfBusy=true correctly held the run
-        # in 'queued' state, but the bridge's next claim cycle picked
-        # it up and delivered immediately because the claim endpoint
-        # didn't respect turn_busy. The turn-end event is the authoritative clear;
-        # once that fires, next claim
-        # picks up the queued run as designed.
-        #
-        # CHANNEL/RESIDENT STEER CARVE-OUT (2026-06-02, send-deadlock fix):
-        # a channel/resident-mode run to a STEER-capable target (a managed or
-        # channelEnabled Claude/Hermes — `steer` in _row_capabilities, the
-        # same signal used by the send-time steer path) is INJECTED into the
-        # agent's native mid-turn input path; these harnesses accept multiple injects
-        # in order. Deferring an ordinary send behind turn_busy was the deadlock, so when the
-        # target can steer AND a claimable channel/resident run is queued, do NOT
-        # defer — fall through and let it claim + inject immediately. The gate is
-        # PRESERVED for every other case (non-steer-capable runtimes, managed
-        # headless runs) so a genuinely-uninjectable target still waits for the
-        # turn to end.
+        # THE CLAIM GATE AFTER THE 0.9.8 SWITCH (plan 2026-10-20-s4-hard-switch, page 1): eligibility first, then
+        # aify-env's busy, and comms keeps no turn timer of its own. Unknown withholds every run, steer included: a
+        # restored, stale, unavailable or unreadable holder, or no record at all, cannot say the agent is free. A known
+        # busy holds non-steer work and lets one claimable steerable run through (`hold_explicit_queue` narrows the
+        # selection to it). Known idle proceeds. An unreadable view withholds: a guard fails closed.
         hold_explicit_queue = False
-        # Explicit queue means exactly "after this turn": key on the RAW harness signal,
-        # never on derived status (that reinterpretation is what let queued sends land
-        # mid-turn, #236). The ONE bound is the anti-strand ceiling — see
-        # _turn_busy_holds_delivery: an abandoned turn_busy=1 that the dead-bridge sweeper
-        # cannot reach (hook-owned turns, live bridge) would otherwise hold queued work
-        # FOREVER, and for a target without `steer` the early return below makes that agent
-        # permanently deaf while status already reports it idle.
         try:
-            decision = await turn_busy_decision(db, req.agentId)
+            view = switched_view.eligibility_view(agent)
+            steerable = (await _has_claimable_steerable_run(
+                db, agent_row=agent, supported_modes=supported_modes, agent_runtime=agent_runtime,
+            )) if view.eligibility == 'known' and view.busy else False
+            gate = operational_view.claim_decision(view, steerable)
         except Exception:
-            decision = None  # unreadable turn state: the normal claim flow proceeds, as below
-        # The status shadow's comparisons (S2c slices 3 and 4) never raise and never change the answer. The busy
-        # early-return gate is observed once: before its commit when it withholds, else after the gate.
-        busy = await comms_view.observe_busy(db, agent, decision, 'claim') if decision is not None else None
-        if decision is not None:
-            stale_turn_ceiling.observe_ceiling(decision, busy, 'claim')
-        steerable, gate_observed = None, False
-
-        def read_steerable():  # one question, asked by today's gate and, only when today did not, by the shadow
-            return _has_claimable_steerable_run(
-                db,
-                agent_row=agent,
-                supported_modes=supported_modes,
-                agent_runtime=agent_runtime,
-            )
-        try:
-            if decision is not None and decision.holds:
-                hold_explicit_queue = True
-                steerable = NOT_KNOWN  # asked: it stays unknown if the helper raises
-                steerable = await read_steerable()
-                if not steerable:
-                    gate_observed = True
-                    await busy_consumers.observe_claim(db, agent, True, steerable, decision, busy, read_steerable)
-                    await db.commit()
-                    return {"ok": True, "run": None}
-        except Exception:
-            # If turn state is unreadable, fall through and let the normal claim
-            # flow proceed — better to deliver than block.
-            pass
-        if not gate_observed:
-            await busy_consumers.observe_claim(db, agent, False, steerable, decision, busy, read_steerable)
+            gate = 'withhold'
+        if gate in ('withhold', 'hold'):
+            await db.commit()
+            return {"ok": True, "run": None}
+        hold_explicit_queue = gate == 'steer'
 
         run_cursor = await db.execute(
             """

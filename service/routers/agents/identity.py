@@ -18,7 +18,6 @@ import time
 from fastapi import HTTPException, Request
 from service.api_core.definition_records import definition_of, definition_rows, runs_with
 
-from service.api_core.live_process_probes import _agents_with_live_terminal_sessions
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.identity")
@@ -43,10 +42,6 @@ from service.reconcilers.status_cache import _live_state_get
 import sqlite3
 from service.api_core.tuning import LIST_AGENTS_REFRESH_LIMIT
 from service.routers.agents.shared import logger
-from service.api_core.registration_gates import (
-    _enforce_env_reachable_gate,
-    _enforce_live_worker_gate,
-)
 from service.api_core.agent_remove import remove_agent
 from service.api_core.definition_guard import defined_on
 from service.api_core.definition_requests import queued_for_its_host
@@ -55,6 +50,14 @@ from service.api_core.lifecycle_delegation import delegate
 from service.clock import now as _now
 
 router = domain_router()
+
+
+def served_word(entry):
+    """The word a roster or agent read serves: the operational view's, as the live-state refresh cached it (0.9.8
+    switch). Nothing corrects it afterwards: the read-boundary gates that re-derived a cached word from comms' own
+    probes (`_enforce_live_worker_gate`, `_enforce_env_reachable_gate`) are legacy readers, unreferenced until SW7. An
+    agent with no refreshed entry yet reads `unknown`, never the registry row's own status."""
+    return entry.get("status") or "unknown"
 
 
 @router.get("/agents")
@@ -106,25 +109,14 @@ async def list_agents(request: Request):
         dispatch_map = await _get_dispatch_state_map(db, agent_ids)
         # Roster: cheap half only — see include_runs.
         outbound_map = await _get_outbound_activity_map(db, agent_ids, include_runs=False)
-        live_terminal_agents = await _agents_with_live_terminal_sessions(db, agent_ids)
         definitions = await definition_rows(db, agent_ids)
         result = {}
         for row in agents:
             aid = row["id"]
             entry = _live_state_get(aid) or {}
-            payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(aid, 0), dispatch_map.get(aid), live_reason=entry.get("reason"), outbound=outbound_map.get(aid))
+            payload = _agent_record_to_dict(row, served_word(entry), unread_map.get(aid, 0), dispatch_map.get(aid), live_reason=entry.get("reason"), outbound=outbound_map.get(aid))
             payload["definition"] = definition_of(row, definitions.get(aid))
             payload["runsWith"] = runs_with(row, definitions.get(aid))
-            # Plan 5 Section C: read-path live-worker gate — see
-            # _enforce_live_worker_gate for full rationale. (In-memory correction
-            # only; the writeback was removed 2026-06-18 to cut read-path writes.)
-            payload = await _enforce_live_worker_gate(payload, db, settings, aid, live_terminal_agents=live_terminal_agents)
-            payload = await _enforce_env_reachable_gate(
-                payload, db, settings, aid, agent_row=row,
-                environments_by_machine=environments_by_machine,
-                session_environment_by_agent=session_environment_by_agent,
-                association_row=row,
-            )
             result[aid] = payload
         return {"agents": result}
     finally:
@@ -158,14 +150,10 @@ async def get_agent(agent_id: str, request: Request):
         dispatch_map = await _get_dispatch_state_map(db, [agent_id])
         outbound_map = await _get_outbound_activity_map(db, [agent_id])
         entry = _live_state_get(agent_id) or {}
-        payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id), live_reason=entry.get("reason"), outbound=outbound_map.get(agent_id))
+        payload = _agent_record_to_dict(row, served_word(entry), unread_map.get(agent_id, 0), dispatch_map.get(agent_id), live_reason=entry.get("reason"), outbound=outbound_map.get(agent_id))
         definition_row = (await definition_rows(db, [agent_id])).get(agent_id)
         payload["definition"] = definition_of(row, definition_row)
         payload["runsWith"] = runs_with(row, definition_row)
-        # Plan 5 Section C: read-path live-worker gate (in-memory correction only; the
-        # writeback was removed 2026-06-18 to cut read-path writes — see the gate bodies).
-        payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
-        payload = await _enforce_env_reachable_gate(payload, db, settings, agent_id, association_row=row)
         return {"ok": True, "agentId": agent_id, "agent": payload}
     finally:
         await db.close()

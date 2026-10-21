@@ -27,7 +27,7 @@ import json
 import logging
 import time
 
-from service.api_core import busy_consumers
+from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.authored_failures import NO_WORKER_LEFT_TO_REPLY, turn_interrupted
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
@@ -132,15 +132,12 @@ async def _fail_stranded_delivered_reply_runs(db, *, limit: int = 200) -> list[d
         target = str(row["target_agent"] or "").strip()
         if not run_id or not target:
             continue
-        # SAFETY: never fail a run the agent is actively working RIGHT NOW (live turn on
-        # this exact run). A flap can transiently show turn_busy=1; skipping (not failing)
-        # is the conservative side — the run is retried next pass.
-        turn = await (await db.execute(
-            "SELECT turn_busy, turn_run_id FROM agent_turn_state WHERE agent_id = ?",
-            (target,),
-        )).fetchone()
-        working = turn is not None and int(turn["turn_busy"] or 0) == 1 and str(turn["turn_run_id"] or "").strip() == run_id
-        await busy_consumers.observe_stranded(db, target, run_id, working)  # the status shadow's (S2c slice 4)
+        # OPERATOR DECISION R3 (DECISIONS 2026-10-21, adopted): after the 0.9.8 switch a run is never failed as
+        # stranded while aify-env says the agent is busy with anything, or comms cannot read whether it is. aify-env's
+        # turns carry no run id, so "working on THIS run" is no longer comms' question; a lost message is failed
+        # once the agent is known idle, later and never sooner. Skipping is the conservative side: retried next pass.
+        target_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (target,))).fetchone()
+        working = operational_view.stranded_protected(switched_view.eligibility_view(target_row))
         if working:
             continue
         # A CAUSE WE RECORDED IS NEVER A CAUSE WE COULD NOT DETERMINE. If this agent's turn was

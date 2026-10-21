@@ -22,6 +22,7 @@ from unittest.mock import patch
 from service.clock import now as _now
 from service.db import get_db
 from service.routers.agents import compaction as compaction_route
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 ENV = "linux:test-host:default"
@@ -137,16 +138,16 @@ class CompactionRouteTests(FastApiTestCase):
         self.assertEqual(self._controls(), [], "a refused compaction must not reach the terminal")
 
     def test_the_route_reads_the_status_the_service_derives(self):
-        """No patch, both directions. The fixture derives `online` and is compacted; its environment
-        then goes silent, the engine derives `offline`, and the same call is refused."""
-        from service.reconcilers.status_cache import _LIVE_STATE_CACHE
-
+        """No patch, both directions. aify-env reports the fixture idle (`online`) and it is compacted; its
+        host then reports it offline, and the same call is refused. After the 0.9.8 switch the word the
+        route reads is aify-env's."""
         self._seed("worker")
         self._register("manager")
+        env_records.report(self, "worker")
         self.assertEqual(self.client.get("/api/v1/agents/worker").json()["agent"]["status"], "online")
         self.assertTrue(self._native("worker").json()["ok"])
         self._q("UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = ?", (ENV,), write=True)
-        _LIVE_STATE_CACHE.clear()
+        env_records.report(self, "worker", state="offline")
         self.assertEqual(self.client.get("/api/v1/agents/worker").json()["agent"]["status"], "offline")
         data = self._native("worker").json()
         self.assertEqual((data["ok"], data["refused"], data["status"]), (False, "not-at-prompt", "offline"), data)

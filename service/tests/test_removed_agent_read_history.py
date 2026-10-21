@@ -13,6 +13,7 @@ from service.api_core.agent_remove import remove_agent
 from service.db import get_db
 from service.dispatch_claim import _claim_dispatch_once
 from service.models import DispatchClaimRequest
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 
@@ -92,6 +93,7 @@ class RemovedAgentReadHistoryTests(FastApiTestCase):
                  "VALUES (?, ?, 'sender', 'target', 'channel', '2026-10-05T00:00:00Z')", (run_id, message_id))
         self.sql("INSERT INTO read_receipts VALUES (?, 'target', '2026-10-05T00:00:00Z')", (message_id,))
         self.assertEqual(self.sql("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,)), [("queued",)])
+        env_records.report(self, "target")  # the 0.9.8 claim gate reads aify-env's record
         claimed = self.client.post("/api/v1/dispatch/claim", json={
             "agentId": "target", "bridgeId": "fixture-sidecar", "bridgeKind": "channel-sidecar",
             "executionModes": ["channel", "resident"],

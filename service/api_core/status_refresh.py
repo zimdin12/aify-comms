@@ -24,7 +24,7 @@ lookalike. Renaming it is a separate, operator-visible decision.
 
 from __future__ import annotations
 
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import partial_status_shadow as shadow, switched_view
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -106,7 +106,19 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
             cache["status"] = _derived
         except Exception:
             logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)
-    shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), cache["status"], "refresh")
+    # THE WORD AFTER THE 0.9.8 SWITCH is the operational view's (plan page 3, SW5): aify-env's record, unknown first,
+    # the D8 rows and row 5. The legacy derivation above still runs, so its inputs stay current for the rollback and
+    # the shadow; it no longer decides what is served. A view that cannot be read serves `unknown`, never the legacy
+    # word as if aify-env had said it. The legacy word and its note are kept beside it (`legacy_status`,
+    # `legacy_reason`): what a rollback of the switch would serve, which the shadow keeps comparing with aify-env's
+    # until SW7 retires both.
+    cache["legacy_status"], cache["legacy_reason"] = cache.get("status"), cache.get("reason")
+    try:
+        cache = await switched_view.word_into(db, row, cache)
+    except Exception:
+        logger.exception("switched view failed for agent=%s; serving unknown", agent_id)
+        cache.update(status="unknown", reason="comms could not read aify-env's record of this agent", last_known=None)
+    shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), cache["legacy_status"], "refresh")
     # Store in the in-memory cache — NOT the DB (was the write-storm source). No lock possible.
     _live_state_set(agent_id, cache)
     return cache
@@ -186,7 +198,9 @@ async def _compute_agent_status(
     # whether an agent is active/idle/offline. The db-less fallback below is
     # only the minimal heartbeat heuristic for callers without a connection.
     status = row["status"]
-    if status in _MANUAL_STATUSES:
+    # Without a connection the row's own stop is all there is. With one, the switched view decides, and an operator stop
+    # is its D8 row 1 for an undefined agent only: a defined agent's stop is aify-env's and arrives in its record.
+    if status in _MANUAL_STATUSES and db is None:
         return status
     if db is not None:
         # The CPU fix: the in-memory live-status entry is kept fresh by push events

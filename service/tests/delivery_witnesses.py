@@ -7,9 +7,9 @@ the one policy change the operator ruled on (P-1, ruling 1791194105933-54bcb728,
 turn holds delivery with NO wall-clock cap.
 
 So a specimen here is a set of FACTS about one turn, never a row. An adapter turns the facts into whatever
-the service reads. Today that is `LegacyTurnAdapter` (agent_turn_state plus the owning bridge row). After
-the switch it is a mirror adapter that publishes the same facts as the C1 record aify-env would send, and
-declares that it is judged under the P-1 law. The witnesses themselves do not change.
+the service reads. Before the 0.9.8 switch that was `LegacyTurnAdapter` (agent_turn_state plus the owning bridge
+row). After it, `MirrorTurnAdapter` publishes the record aify-env would send, judged under the P-1 law. The legacy
+adapter stays for the rollback test, which drives the legacy readers over the same specimens.
 
 THE P-1 DIFFERENCE IS NAMED, NOT HIDDEN. `HOLD_LAW` carries both answers for every specimen. Where today's
 code releases a turn (a timeout, or a future start it rejects) and P-1 would keep holding, the two columns
@@ -145,7 +145,7 @@ class TurnInputAdapter(Protocol):
 
     LAW: str
 
-    def apply(self, db_path, agent_id: str, spec: TurnSpecimen) -> None: ...
+    def apply(self, case, agent_id: str, spec: TurnSpecimen) -> None: ...
 
 
 def _stamp(age: Optional[float], stamps: str) -> str:
@@ -166,9 +166,10 @@ class LegacyTurnAdapter:
 
     LAW = "legacy"
 
-    def apply(self, db_path, agent_id: str, spec: TurnSpecimen) -> None:
+    def apply(self, case, agent_id: str, spec: TurnSpecimen) -> None:
         if not spec.recorded:
             return
+        db_path = case._db_path
         owner = {"hook": "user-prompt-submit", "live-bridge": f"turn-owner-{agent_id}",
                  "dead-bridge": f"turn-owner-{agent_id}"}[spec.owner]
         conn = sqlite3.connect(str(db_path))
@@ -188,7 +189,26 @@ class LegacyTurnAdapter:
             conn.close()
 
 
-# THE SEAM P7 FILLS. A mirror adapter publishes each specimen as the C1 record aify-env would send (through
-# the C5 receiver, with `verified` as `process.verified` and the run id as comms' own delivery turn), and
-# declares LAW = "p1". It replaces this one line; no witness changes.
-INPUT_ADAPTER: TurnInputAdapter = LegacyTurnAdapter()
+class MirrorTurnAdapter:
+    """The input path after the 0.9.8 switch: aify-env publishes the agent's record through the real
+    `/api/v1/agent-state` route, fresh, with the top-level `busy` its own law gives the specimen.
+
+    comms reads that `busy` and nothing else of the turn (DECISIONS 2026-10-20: "comms never times turns"). So the
+    P-1 law, which the `HOLD_LAW` column states, is aify-env's to apply; this adapter applies it the way the ruling
+    reads (`p1_holds`) and the witnesses prove what comms DOES with the answer, at every consumer, beside a closed
+    twin. aify-env's own suite owns whether it computes that answer. A specimen nothing was ever reported for is
+    still an agent aify-env holds, with no turn: an idle record, never a missing one (a missing record reads
+    unknown, which the witnesses of eligibility cover)."""
+
+    LAW = "p1"
+
+    def apply(self, case, agent_id: str, spec: TurnSpecimen) -> None:
+        from service.tests import env_records
+
+        env_records.report(case, agent_id, busy=p1_holds(spec))
+
+
+LEGACY_ADAPTER = LegacyTurnAdapter()
+
+# THE SEAM P7 FILLED, at the 0.9.8 switch (SW5): every witness reaches the service through aify-env's record.
+INPUT_ADAPTER: TurnInputAdapter = MirrorTurnAdapter()

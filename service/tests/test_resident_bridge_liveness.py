@@ -16,6 +16,7 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from stored_unwoken import assert_stored_unwoken
 
@@ -41,10 +42,8 @@ class ResidentBridgeLivenessTests(FastApiTestCase):
         self._register_resident_hermes("target")
         self._register_resident_hermes("sender", bridgeId="bridge-sender", machineId="win32:test-host")
 
-        info = self.client.get("/api/v1/agents/target")
-        self.assertEqual(info.status_code, 200, info.text)
         # Proof-based (2026-06-18): a resident with no live bridge is OFFLINE (was 'stale').
-        self.assertEqual(info.json()["agent"]["status"], "offline")
+        self.assertEqual(env_records.rollback_word(self, "target"), "offline")  # the legacy word, which a rollback of the 0.9.8 switch serves
 
         send = self.client.post(
             "/api/v1/messages/send",

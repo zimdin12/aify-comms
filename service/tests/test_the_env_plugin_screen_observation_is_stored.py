@@ -25,6 +25,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.test_status_follows_what_the_host_sees import seed_observed_managed_agent
 from service.tests.test_the_env_plugin_addresses_routes_this_service_serves import PLUGIN_DIR, env_repo
@@ -165,7 +166,6 @@ class TheEnvPluginScreenObservationIsStored(FastApiTestCase):
                 self.assertEqual(after["activity_state"], activity["state"])
                 self.assertEqual(after["activity_rule"], activity["rule"])
                 self.assertEqual(after["activity_observed_at"], activity["observedAt"])
-                agent = self.client.get(f"/api/v1/agents/{self.AGENT}").json()["agent"]
-                statuses.append(agent["status"])
+                statuses.append(env_records.rollback_word(self, self.AGENT))  # the legacy word, which a rollback of the 0.9.8 switch serves
         self.assertEqual(statuses, ["online", "working", "blocked", "blocked"],
                          "the status an API caller reads did not follow what the plugin sent")

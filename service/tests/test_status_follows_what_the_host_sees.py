@@ -28,6 +28,7 @@ from service.api_core.host_activity import HOST_ACTIVITY_FRESH_SECONDS
 from service.clock import now as _now
 from service.db import get_db
 from service.status_engine import StatusInputs, derive
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 
@@ -163,9 +164,7 @@ class AHostObservationReachesTheStatus(FastApiTestCase):
             conn.close()
 
     def _status(self) -> str:
-        answer = self.client.get(f"/api/v1/agents/{self.AGENT}")
-        self.assertEqual(answer.status_code, 200, answer.text)
-        return answer.json()["agent"]["status"]
+        return env_records.rollback_word(self, self.AGENT)  # the legacy word, which a rollback of the 0.9.8 switch serves
 
     def test_the_frame_records_the_observation_and_nothing_else_moves(self):
         before = self._row()

@@ -23,13 +23,9 @@ from __future__ import annotations
 from service.api_core.events import _append_dispatch_event
 from service.api_core.orphaned_runs_query import _select_orphaned_managed_runs
 from service.api_core.settings import _load_settings
-# NOT `derive`. There is a `derive` in `service.status_engine` AND an `engine_status`, and they
-# are not the same function: `derive` is the pure state machine, `engine_status` is the
-# DB-reading wrapper that gathers its inputs first. I imported the wrong one once; it compiled
-# and passed the cycle smoke test. Importing the wrong one here would quietly change how
-# orphaned managed runs are judged, which is why this warning travelled with the reaper rather
-# than staying in the file the reaper left.
-from service.api_core.status_inputs import engine_status
+# The reaper reads the operational view's typed facts (0.9.8 switch); the legacy `engine_status` derivation stays in the
+# tree for the rollback and is no longer what judges an orphaned run.
+from service.api_core import operational_view, switched_view
 from service.api_core.turn_state import _clear_status_state_in_turn
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -82,15 +78,13 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         started_at = str(row["started_at"] or "").strip()
         if not run_id:
             continue
-        # Phase F1 (folds in the false-failed-busy-run fix): under the event
-        # engine the reaper consults the TARGET'S real status before failing a
-        # no-progress run, instead of blindly attributing it to a crashed bridge.
-        #   - working/blocked  → the target is mid-turn; a long turn IS progress.
-        #                         Do NOT fail it — skip/defer to a later cycle.
-        #   - stale/offline/stopped → the target is genuinely gone; fail FAST with
-        #                         an HONEST reason naming the target's state.
-        #   - online/idle (genuinely orphaned past the window) → keep the existing
-        #                         ceiling, but with an honest reason.
+        # THE SAFETY CALL READS TYPED FACTS (0.9.8 switch, SW5 review R1), never the displayed word: row 5 promotes a
+        # fresh idle record to `working` BECAUSE of the run judged here, which protected the run from itself forever.
+        #   - busy, or eligibility unknown -> the target may be mid-turn; a long turn IS progress, and comms cannot
+        #                                     read otherwise. Leave it for a later cycle (decision R3's rule).
+        #   - offline / stopped            -> the target provably cannot work it; fail FAST, naming that.
+        #   - known idle                   -> aify-env says no turn is open, so the run made no progress on its own:
+        #                                     the existing window and ceiling apply, with an honest reason.
         honest_reason = None
         if target_agent:
             try:
@@ -101,31 +95,26 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
                 target_row = None
             if target_row is not None:
                 try:
-                    target_status = await engine_status(db, target_row, settings=settings)
+                    view = await switched_view.view_for(db, target_row)
+                    safety = operational_view.orphan_safety(view)
                 except Exception:
-                    target_status = ""
-                if target_status in {"working", "blocked"} and started_at:
-                    # Mid-turn = progress. Leave the run alone this cycle. BUT only when this
-                    # candidate actually STARTED (started_at set) — a claimed-never-started run
-                    # (Branch 3) is itself what drives the agent's false `working`/active-run
-                    # reading, so honoring that guard would shield the stuck run from reaping
-                    # forever (the #233 catch-22: false-busy → guard skips → never reaped → still
-                    # false-busy). An unstarted claim can't be a real turn, so reap it regardless.
+                    view, safety = None, 'protect'  # an unreadable view is not evidence the run is orphaned
+                if safety == 'protect':
                     continue
-                if target_status in {"stale", "offline", "stopped"}:
+                if safety == 'gone':
                     honest_reason = (
-                        f"target '{target_agent}' is {target_status}; "
+                        f"target '{target_agent}' is {view.status}; "
                         f"run cannot be delivered."
                     )
-                elif target_status and not started_at:
+                elif not started_at:
                     honest_reason = (
-                        f"target '{target_agent}' is {target_status} but the run was claimed "
+                        f"target '{target_agent}' is idle (aify-env reports no open turn) but the run was claimed "
                         f"without ever starting a turn for {stale_seconds}s (the claim succeeded "
                         f"but turn-start silently failed); run cannot be delivered."
                     )
-                elif target_status:
+                else:
                     honest_reason = (
-                        f"target '{target_agent}' is {target_status} but the claimed "
+                        f"target '{target_agent}' is idle (aify-env reports no open turn) but the claimed "
                         f"run made no progress for {stale_seconds}s and exceeded the "
                         f"{ceiling_seconds}s wall-clock ceiling; run cannot be delivered."
                     )

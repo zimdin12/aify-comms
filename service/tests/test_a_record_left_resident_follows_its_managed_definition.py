@@ -13,6 +13,7 @@ import sqlite3
 from unittest import mock
 
 from service.clock import now
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.defined_agents import STORE, _defined_on, definition_entry
 from service.tests.test_agent_definition_push import snapshot_digest
@@ -97,7 +98,7 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         return served, entry
 
     def served(self):
-        agent = self.client.get("/api/v1/agents").json()["agents"]["lead"]
+        agent = env_records.rollback_agent(self, "lead")  # the legacy word, which a rollback of the 0.9.8 switch serves
         return agent["status"], agent.get("statusNote")
 
     def test_the_followed_record_is_served_at_once_not_after_its_cache_times_out(self):

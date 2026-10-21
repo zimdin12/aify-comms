@@ -16,6 +16,7 @@ This is purely additive; the existing GET /analytics is untouched.
 
 import sqlite3
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 
@@ -301,6 +302,7 @@ class ChatAnalyticsTests(FastApiTestCase):
         window-scoped fleet view — message rate, working-utilization, open/overdue
         reply contracts, and a board of online agents with last-worked + in-window activity."""
         self._register("pulse-alpha", runtime="claude-code", sessionMode="resident")
+        env_records.report(self, "pulse-alpha")  # online, as aify-env reports it after the 0.9.8 switch
         conn = sqlite3.connect(str(self._db_path))
         try:
             from datetime import datetime, timezone, timedelta
@@ -364,6 +366,7 @@ class ChatAnalyticsTests(FastApiTestCase):
         """
         from datetime import datetime, timezone, timedelta
         self._register("pulse-online", runtime="claude-code", sessionMode="resident")
+        env_records.report(self, "pulse-online")  # online, as aify-env reports it after the 0.9.8 switch
         conn = sqlite3.connect(str(self._db_path))
         try:
             now = datetime.now(timezone.utc)

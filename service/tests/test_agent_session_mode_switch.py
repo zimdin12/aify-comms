@@ -385,7 +385,8 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
                 self.assertEqual(body.get("previousMode"), "resident")
                 self.assertTrue(body.get("changed"))
                 self.assertEqual((body.get("agent") or {}).get("sessionMode"), "managed")
-                self.assertIn((body.get("agent") or {}).get("status"), {"available", "working", "online"})
+                # After the 0.9.8 switch the word is aify-env's, and no host here has published this agent: unknown.
+                self.assertEqual((body.get("agent") or {}).get("status"), "unknown")
                 self.assertEqual(self._read_agent_mode(agent_id), "managed")
                 # 2026-06-03: resident->managed for a wrapper-backed runtime cold-starts a worker at
                 # switch time. Since D8 an agent no host defines is not started, so the switch still

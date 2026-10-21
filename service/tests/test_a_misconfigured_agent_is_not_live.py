@@ -106,8 +106,10 @@ class TheBoardActuallyUsesThePartition(unittest.TestCase):
     )
 
     def test_the_board_asks_the_predicate(self):
+        # After the 0.9.8 switch the board asks `operational_view.counts_live`, which is the declared partition with
+        # `unknown` excluded (it calls `is_live_agent_status`; test_the_switched_word_is_aify_envs.py drives it).
         self.assertIn(
-            "is_live_agent_status(status)", self.SOURCE,
+            "operational_view.counts_live(status)", self.SOURCE,
             "the online-agent board no longer classifies through the declared partition",
         )
 

@@ -1,8 +1,10 @@
 """C6's holdsDelivery beside today's busy gate (status-switch S2c slice 3).
 
 Four kinds of witness, kept apart: the pure three-valued OR on frames; the frame's capture from the mirror and the
-fold; the real observer (its one ownership read, reuse, the frozen frame, containment); and the two real sites, where
-today's answer and the queue/claim outcome must not move whatever the observer does.
+fold; the real observer (its one ownership read, reuse, the frozen frame, containment).
+
+THE TWO SITE WITNESSES RETIRED WITH THE 0.9.8 SWITCH (SW5): the queue and claim sites read the operational view and call
+no observer; this slice's timed disjuncts are withdrawn (plan page 4, item 10) and its module goes in SW7.
 """
 import asyncio
 from dataclasses import replace
@@ -13,8 +15,6 @@ import aiosqlite
 
 from service.api_core import comms_view as cv, delivery_turns as dt, partial_status_shadow as shadow
 from service.api_core.claim_gating import BusyDecision
-from service.tests import test_p7_witness_delivery_hold as p7
-from service.tests.delivery_witnesses import TurnSpecimen
 
 AT = 100_000.0
 NK = dt.NOT_KNOWN
@@ -279,131 +279,3 @@ class ObserverTest(unittest.TestCase):
         with mock.patch.object(cv, 'turn_lease_renewal', side_effect=cancelled), \
                 self.assertRaises(asyncio.CancelledError):
             self.observe()
-
-
-FRESH = TurnSpecimen('fresh-hook-turn')
-
-
-class _SiteObservation:
-    """At a real site: a fresh recorder and fold, and the SQL the observer itself issues, counted."""
-
-    def setUp(self):
-        super().setUp()
-        self.recorder, self.fold, self.observer_sql = shadow.Recorder(), dt.DeliveryTurns(), []
-        real = cv.observe_busy
-
-        async def counted(db, agent_row, decision, site):
-            class Counting:
-                def __getattr__(_, name):
-                    return getattr(db, name)
-
-                def execute(_, *args, **kw):
-                    self.observer_sql.append(args[0])
-                    return db.execute(*args, **kw)
-            return await real(Counting(), agent_row, decision, site)
-        for patcher in (mock.patch.object(shadow, 'recorder', self.recorder), mock.patch.object(dt, 'FOLD', self.fold),
-                        mock.patch.object(cv, 'observe_busy', new=counted)):
-            patcher.start(); self.addCleanup(patcher.stop)
-
-    def strict_records_p1_fails(self):
-        """The real recorder for strict; P-1's record and its fallback both raise."""
-        real = self.recorder.record_owner
-
-        def record(owner, variant, site, today, candidate, reason=None, **kwargs):
-            if variant == 'P-1':
-                raise RuntimeError('recorder broken for P-1')
-            return real(owner, variant, site, today, candidate, reason, **kwargs)
-        return mock.patch.object(self.recorder, 'record_owner', side_effect=record)
-
-    def assert_one_strict_and_no_p1(self, site):
-        busy = self.recorder.report()['byPurpose']['busy']['variants']
-        self.assertEqual(busy['strict']['bySite'][site]['observed'], 1, 'the successful prefix, counted once')
-        self.assertFalse(busy['P-1']['instrumented'])
-
-    def open_expired_turn(self, agent_id, owner):
-        from service.clock import iso_to_epoch, now
-        at = iso_to_epoch(now())
-        self.fold._turns[(p7.MACHINE, agent_id)] = dt.DeliveryTurn(True, 'r', at - 5000, at - 10, owner)
-
-
-class SendTimeSiteTest(_SiteObservation, p7.SendTimeQueueWitness):
-    """The real send-time site: today's answer and the queue outcome do not move, whatever the observer does."""
-
-    test_each_specimen_holds_or_releases_the_queue_as_its_law_says = None  # the witness's own matrix runs there
-    test_an_active_run_or_an_earlier_queued_run_also_holds_the_queue = None
-
-    def test_the_observer_adds_no_sql_unless_a_turn_needs_its_owner_asked(self):
-        self._queue_send('sql-none', FRESH)
-        self.assertEqual(self.observer_sql, [])
-        self.open_expired_turn('sql-one', 'bridge-elsewhere')
-        self._queue_send('sql-one', FRESH)
-        self.assertEqual(len(self.observer_sql), 1)
-        self.assertIn('FROM bridge_instances', self.observer_sql[0])
-
-    def busy(self):
-        return self.recorder.report()['byPurpose']['busy']['variants']
-
-    def test_a_held_send_is_observed_and_still_waits(self):
-        self._assert_waits('obs-held', self._queue_send('obs-held', FRESH))
-        self.assertEqual(self.busy()['strict']['bySite']['send-time']['observed'], 1)
-
-    def test_a_failing_observer_changes_nothing_and_records_the_failure(self):
-        with mock.patch.object(cv, 'capture', side_effect=RuntimeError('broken')):
-            self._assert_waits('obs-broken', self._queue_send('obs-broken', FRESH))
-        self.assertEqual(self.busy()['P-1']['unavailableByReason'], {'send-time': {'shadow-error': 1}})
-
-    def test_a_compute_failure_changes_nothing_and_records_the_failure(self):
-        with mock.patch.object(cv, 'holds_delivery', side_effect=RuntimeError('broken')):
-            self._assert_waits('obs-compute', self._queue_send('obs-compute', FRESH))
-        busy = self.busy()
-        self.assertEqual({v: busy[v]['unavailableByReason'] for v in cv.LAWS},
-                         {v: {'send-time': {'shadow-error': 1}} for v in cv.LAWS})
-
-    def test_a_failing_fallback_record_changes_nothing_and_never_replays(self):
-        with self.strict_records_p1_fails():
-            self._assert_waits('obs-record', self._queue_send('obs-record', FRESH))
-        self.assert_one_strict_and_no_p1('send-time')
-
-    def test_an_unexpected_acquisition_failure_releases_as_today_and_observes_nothing(self):
-        from service.api_core import dispatch_launch
-        with mock.patch.object(dispatch_launch, 'turn_busy_decision', side_effect=RuntimeError('unreadable')):
-            self._assert_woken('obs-unread', self._queue_send('obs-unread', FRESH))
-        self.assertFalse(self.recorder.report()['byPurpose']['busy']['instrumented'])
-
-
-class ClaimSiteTest(_SiteObservation, p7.ClaimHoldWitness):
-    test_each_specimen_holds_or_releases_the_claim_as_its_law_says = None  # the witness's own matrix runs there
-
-    def test_the_observer_adds_no_sql_unless_a_turn_needs_its_owner_asked(self):
-        self._claim('sql-none', FRESH)
-        self.assertEqual(self.observer_sql, [])
-        self.open_expired_turn('sql-one', 'bridge-elsewhere')
-        self._claim('sql-one', FRESH)
-        self.assertEqual(len(self.observer_sql), 1)
-
-    def test_a_held_claim_is_observed_and_still_held(self):
-        self._assert_held('obs-held', self._claim('obs-held', FRESH))
-        busy = self.recorder.report()['byPurpose']['busy']['variants']
-        self.assertEqual(busy['strict']['bySite']['claim']['observed'], 1)
-
-    def test_a_failing_observer_changes_nothing_and_records_the_failure(self):
-        with mock.patch.object(cv, 'capture', side_effect=RuntimeError('broken')):
-            self._assert_held('obs-broken', self._claim('obs-broken', FRESH))
-
-    def test_a_compute_failure_changes_nothing_and_records_the_failure(self):
-        with mock.patch.object(cv, 'holds_delivery', side_effect=RuntimeError('broken')):
-            self._assert_held('obs-compute', self._claim('obs-compute', FRESH))
-        busy = self.recorder.report()['byPurpose']['busy']['variants']
-        self.assertEqual({v: busy[v]['unavailableByReason'] for v in cv.LAWS},
-                         {v: {'claim': {'shadow-error': 1}} for v in cv.LAWS})
-
-    def test_a_failing_fallback_record_changes_nothing_and_never_replays(self):
-        with self.strict_records_p1_fails():
-            self._assert_held('obs-record', self._claim('obs-record', FRESH))
-        self.assert_one_strict_and_no_p1('claim')
-
-    def test_an_unexpected_acquisition_failure_continues_the_claim_as_today(self):
-        from service import dispatch_claim
-        with mock.patch.object(dispatch_claim, 'turn_busy_decision', side_effect=RuntimeError('unreadable')):
-            self._assert_claimed('obs-unread', self._claim('obs-unread', FRESH))
-        self.assertFalse(self.recorder.report()['byPurpose']['busy']['instrumented'])

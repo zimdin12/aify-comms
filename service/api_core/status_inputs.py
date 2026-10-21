@@ -782,7 +782,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         "session_id": session_id,
         "terminal_id": terminal_id,
         "active_run_id": str((active_run["id"] if active_run else "") or "").strip(),
-        "refresh_after": refresh_after,
-        "updated_at": now,
+        "active_run_status": str((active_run["status"] if active_run else "") or ""),  # row 5 of the switched view
+        "refresh_after": refresh_after, "updated_at": now,
         "status_inputs": status_inputs,
     }
