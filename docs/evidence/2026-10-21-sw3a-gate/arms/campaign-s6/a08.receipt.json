@@ -1,0 +1,16 @@
+{
+ "arm": "a08",
+ "file": "judges.mjs",
+ "guards": "R6",
+ "witness": "steered inside the window",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "d09bcc54cc98d087bbfce2f601e032041fe6b0cd13a970897ada3557101f5261",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: steered inside the window fails [PASS: ]",
+  "FAIL fresh-busy-beside-unknown: steered inside the window fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

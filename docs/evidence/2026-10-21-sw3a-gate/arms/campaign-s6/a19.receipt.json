@@ -1,0 +1,15 @@
+{
+ "arm": "a19",
+ "file": "judges.mjs",
+ "guards": "R6",
+ "witness": "the send not steerable",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "4e14bdeb1f393330ebaa7564e72d8c3b8364973a1cfdcf7a239f7162bc4f5615",
+ "exit": 1,
+ "named": [
+  "FAIL fresh-busy-beside-unknown: the send not steerable fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

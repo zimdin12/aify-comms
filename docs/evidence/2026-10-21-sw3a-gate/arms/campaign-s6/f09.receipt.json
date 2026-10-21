@@ -1,0 +1,15 @@
+{
+ "arm": "f09",
+ "file": "judges.mjs",
+ "guards": "F1 watcher order",
+ "witness": "review F1: released in the hold's last second, read queued after it ends",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "902e5d028d9979465b9c3b07914cb430f5e7eb641606f8c7a5ad5906e02c7fa2",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

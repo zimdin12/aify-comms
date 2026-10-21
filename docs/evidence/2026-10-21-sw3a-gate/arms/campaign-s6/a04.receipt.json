@@ -1,0 +1,19 @@
+{
+ "arm": "a04",
+ "file": "judges.mjs",
+ "guards": "claimer control",
+ "witness": "no claimer polling",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "ea4ff2ea846a13934ed439fc0a544632d1069414365388b0b4acd5d8c84a000c",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: no claimer polling fails [PASS: ]",
+  "FAIL stale-second-holder: no claimer polling fails [PASS: ]",
+  "FAIL default-send-unknown: no claimer polling fails [PASS: ]",
+  "FAIL cold-start: no claimer polling in the hold fails [PASS: ]",
+  "FAIL fresh-busy-beside-unknown: no claimer polling fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

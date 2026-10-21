@@ -1,0 +1,15 @@
+{
+ "arm": "a27",
+ "file": "cases.mjs",
+ "guards": "page 2 words",
+ "witness": "legacy-busy-env-idle: its expected answer is page 2's or its amendment's words",
+ "sha_original": "a25ce94d044b53c104a0aa4be4cf21eb07bde97106f4f27f908b778a9ac7d898",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "957986f4cb4572beb9cfd34f0e44b8482fd897b3055138040422a477ddc75b20",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-busy-env-idle: its expected answer is page 2's or its amendment's words"
+ ],
+ "sha_restored": "a25ce94d044b53c104a0aa4be4cf21eb07bde97106f4f27f908b778a9ac7d898"
+}

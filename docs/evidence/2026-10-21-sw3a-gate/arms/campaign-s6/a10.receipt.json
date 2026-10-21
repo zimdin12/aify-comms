@@ -1,0 +1,15 @@
+{
+ "arm": "a10",
+ "file": "judges.mjs",
+ "guards": "R2",
+ "witness": "no fresh publication after the resume",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "0758ab48aee18d3934d1b52e514becfd64dc4c9bb6766e9f64cfa1b02be2a672",
+ "exit": 1,
+ "named": [
+  "FAIL env-resumed: no fresh publication after the resume fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

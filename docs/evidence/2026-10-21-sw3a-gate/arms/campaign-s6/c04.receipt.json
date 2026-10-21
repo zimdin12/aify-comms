@@ -1,0 +1,18 @@
+{
+ "arm": "c04",
+ "file": "case-judging.mjs",
+ "guards": "6.1 a whole claim pass",
+ "witness": "test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused",
+ "sha_original": "acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "dc9a92604c7a60155121e8417023dc74d58ee6157c470430f153a7bd94f172ed",
+ "exit": 1,
+ "named": [
+  "_____________________ ResumePhaseFixtureTests.test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused ______________________",
+  "self = <test_gate_apparatus.ResumePhaseFixtureTests testMethod=test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused>",
+  "    def test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused(self):",
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused"
+ ],
+ "sha_restored": "acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3"
+}

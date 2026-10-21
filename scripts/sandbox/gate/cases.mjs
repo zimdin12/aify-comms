@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { sleep } from "../env-against-comms.mjs";
 import { AGENT, Pair } from "./pair.mjs";
-import { MISSED_REPORTS, announcedAt, applied, candidateWord, ms } from "./judges.mjs";
+import { FIRST_PASS_MS, MISSED_REPORTS, announcedAt, applied, candidateWord, ms } from "./judges.mjs";
 
 const WINDOW_MS = 20_000; // how long a withheld run is watched, against a claimer polling every ~2 s
 const MARGIN_MS = 5_000; // past the derived silence, so the send lands clearly beyond it
@@ -144,13 +144,22 @@ export const SCENARIOS = {
     const held = await window(pair);
     const resumedAt = pair.snapshot().t;
     pair.silence(false);
+    // The phase R2 discriminates (review section 6.1): comms accepts a fresh BUSY record, and the agent stays busy for
+    // a whole claim pass, in which the queueIfBusy send must stay queued. Only then is idle requested.
+    const freshBusy = (x) => ms(publisher(x)?.data_applied_at) >= resumedAt - 1000 && record(x)?.busy === true;
+    await pair.waitFor(() => freshBusy(pair.snapshot()), 180_000, "a fresh busy record after the resume").catch(() => null);
+    // The phase is measured on the watcher's frame clock, the clock the fixture check reads, with a second's margin.
+    const busyFrom = accepted(evidence().timeline, freshBusy, resumedAt)?.seenAt ?? pair.snapshot().t;
+    await pair.waitFor(() => pair.snapshot().t - busyFrom >= FIRST_PASS_MS + 1000, FIRST_PASS_MS + 60_000,
+      "a whole claim pass of fresh busy").catch(() => null);
+    const idleRequestedAt = pair.snapshot().t;
     pair.control({ turn: "idle" });
     await pair.waitRecord((r) => r.busy === false, 180_000, "aify-env's idle record after the resume").catch(() => null);
     await claimed(pair, q.runId, 30_000);
     await claimed(pair, d.runId, 30_000);
     const timeline = evidence().timeline;
     return { ...silence, prior, word, sentAt: Math.min(q.sentAt, d.sentAt), queueRunId: q.runId, defaultRunId: d.runId,
-      window: held, resumedAt,
+      window: held, resumedAt, idleRequestedAt, freshBusyAccepted: accepted(timeline, freshBusy, resumedAt),
       freshAccepted: accepted(timeline, (x) => ms(publisher(x)?.data_applied_at) >= resumedAt - 1000, resumedAt),
       idleAccepted: accepted(timeline, (x) => record(x)?.busy === false, resumedAt) };
   },

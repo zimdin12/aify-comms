@@ -1,0 +1,15 @@
+{
+ "arm": "g01",
+ "file": "judges.mjs",
+ "guards": "F1.a emission is not acquisition",
+ "witness": "review F1.a: a queued frame emitted after the end but read before it",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "7ceed1ad6b8d31101b85e667ce2850842a6cc7af56fe67e66f055b432dcf4d0b",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

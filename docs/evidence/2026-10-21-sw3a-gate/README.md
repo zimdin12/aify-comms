@@ -221,21 +221,40 @@ environment `offline` (`spawnClaim.canClaim: false`), and both sends are stored 
 5. **A pair without decision 2** fails the announcement fixtures by name rather than running the cases.
 6. **The runner** (a5c658ff) is still unaccepted, so nothing here qualifies a candidate.
 
-## Open before qualified use (review sw3a-successor-1792548943247, section 6)
+## Section 6: the qualification apparatus (review sw3a-successor-1792548943247)
 
-These are qualification obligations, outside this source repair, and are not closed here:
+Built after the F1 approval at f5191387; judges.mjs, self-check.mjs, AMENDMENTS.md and the CASES table are unchanged.
+Witnesses: `scripts/tests/test_gate_apparatus.py` (17 tests).
 
-1. **R2's native discriminator.** The silenced scenario lifts the silence and asks for idle at once, so in the receipt
-   the fresh and the idle acceptance are the same snapshot. A distinct fresh-busy phase, polled, before idle must be
-   constructed and retained for the SW3b candidate mutation. The pure judge and the replay do not substitute for it.
-2. **Exclusive attempt storage.** `gate.mjs` refuses a non-empty `--out`, but check-then-mkdir is not an exclusive
-   acquisition: two concurrent attempts can both claim an absent folder.
-3. **The mutation controller.** `arms/run_arms.py` observes and does not fail on a survivor, a missed anchor, a bad
-   control or a restore mismatch. It has no try/finally around its child runs, so a timeout or launch error could skip
-   the restore. Each campaign's rows are checked by hand; this must be bounded before another automatic campaign.
-4. **The runner and SW3b.** Runner a5c658ff must be accepted first. Then come three preregistered full attempts on one
-   accepted wired SW5/aify-env pair, every failure retained, with source-bound images and owned cleanup. The two cases
-   that pass on unwired main need their candidate mutations.
+1. **R2's native discriminator.** The silenced scenario now waits, after the resume, for comms to accept a fresh BUSY
+   record, holds busy for one claim pass (FIRST_PASS_MS + 1 s, on the watcher's frame clock), and only then asks for
+   idle. It records `freshBusyAccepted` and `idleRequestedAt`. A fixture check (`case-judging.mjs`) refuses env-resumed
+   by name, before its judge runs, when fresh and idle coincide, when no fresh busy record was accepted, or when the
+   busy phase was shorter than a claim pass. The retained receipt's marks coincide (both 1792546599000, seen
+   1792546599943) and are refused. `rejudge.mjs` stays judge-only.
+   - Development attempt 1 (`development-s6/1-phase-too-short`, comms 36028554 + env 7a855db0, silenced only):
+     fresh busy 29 000 ms before idle, but the phase was 9 349 ms on the frame clock. The fixture check refused it by
+     name. The scenario had slept on its own clock; it now waits on the frame clock.
+   - Development attempt 2 (`development-s6/2-separated`): fresh busy at 1792558068000 (seen ...068380), idle requested
+     12 049 ms later, idle accepted at 1792558097000 (seen ...097923). The fixture is admitted; env-resumed reaches its
+     judge and FAILs on unwired main, because main claims the queued send during the silence. The separated phase
+     discriminates R2 only on an SW5 candidate. Both are DEVELOPMENT attempts, not qualification.
+2. **Exclusive attempt storage.** `attempt-dir.mjs` claims `--out` with a non-recursive `mkdir`, which the operating
+   system grants to exactly one caller; any existing folder, empty or not, is refused. Witnesses: a second acquisition
+   of one name is refused, and of eight concurrent node processes exactly one wins.
+3. **The mutation controller.** `scripts/sandbox/gate/campaign.py` restores each arm's file in a `finally`, checks
+   its sha256, writes the arm's receipt before the next arm, and exits nonzero on a red baseline or after-control, a
+   missed anchor, a survivor, a checker that cannot start or times out, a controller exception, a restore mismatch or
+   an unreadable receipt. It reads `arms/run_arms.py`'s ARMS literal in place, together with `arms/section6_arms.py`.
+   - Campaign (`arms/campaign-s6/`): 67/67 killed (the 50 retained arms, then c01-c06, d01-d02, e01-e09), campaign
+     PASS, exit 0. c01 and d01 put back f5191387's behaviour (no fixture check; recursive mkdir) and are killed.
+   - Negative control: one arm that survives makes the campaign exit 1 and restores the file
+     (`campaign-s6/negative-control.txt`).
+   - Full per-arm stdout/stderr (2.4 MB) stayed in the session scratchpad; the receipts here carry exit, named lines
+     and the three hashes.
+4. **Still open: the runner and SW3b.** Runner a5c658ff must be accepted first. Then come three preregistered full
+   attempts on one accepted wired SW5/aify-env pair, every failure retained, with source-bound images and owned
+   cleanup. The two cases that pass on unwired main need their candidate mutations.
 
 ## What this does not show
 

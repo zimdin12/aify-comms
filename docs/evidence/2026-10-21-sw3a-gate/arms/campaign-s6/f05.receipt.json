@@ -1,0 +1,15 @@
+{
+ "arm": "f05",
+ "file": "judges.mjs",
+ "guards": "F1 unknown, not a breach",
+ "witness": "a claim straddling the hold's end with no millisecond evidence",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "c81fc4bcd57eea3fc92bb110bb792514628c6b17d27646ee38ad0f6688f1a1e0",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

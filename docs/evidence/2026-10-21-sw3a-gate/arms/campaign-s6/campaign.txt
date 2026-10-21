@@ -1,0 +1,68 @@
+a01 ordering KILLED | FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails [PASS: ]
+a02 ordering KILLED | FAIL legacy-idle-env-busy: seen claimed first in the same second fails [PASS: ]
+a03 first pass KILLED | FAIL legacy-idle-env-busy: claimed after the first pass fails [PASS: ]
+a04 claimer control KILLED | FAIL legacy-idle-env-busy: no claimer polling fails [PASS: ]
+a05 R1 KILLED | FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: the stand-in received R inside the window]
+a06 R1 KILLED | FAIL legacy-idle-env-busy: review R1: a hold, idle at 21 s, then a claim and receipt at 22 s passes passes [FAIL: held: R was claimed inside the window]
+a07 R1 KILLED | FAIL legacy-idle-env-busy: received inside the hold fails [PASS: ]
+a08 R6 KILLED | FAIL stale-second-holder: steered inside the window fails [PASS: ]
+a09 R2 KILLED | FAIL env-resumed: review R2: the queueIfBusy send claimed while busy, before idle fails [PASS: ]
+a10 R2 KILLED | FAIL env-resumed: no fresh publication after the resume fails [PASS: ]
+a11 R2 KILLED | FAIL env-resumed: the steerable send late fails [PASS: ]
+a12 R2 KILLED | FAIL env-resumed: the steerable send a second before the fresh publication, seen after it fails [PASS: ]
+a13 R3 KILLED | FAIL cold-start: review R3: an available row with no lifetime before the send fails [PASS: ]
+a14 R5 KILLED | PASS stale-second-holder: aify-env announced nothing fails
+a15 R5 KILLED | FAIL env-paused: three intervals not passed fails [PASS: ]
+a16 R4 KILLED | FAIL env-paused: a report reached comms during the silence fails [PASS: ]
+a17 R5 KILLED | FAIL stale-second-holder: aify-env out of contact fails [PASS: ]
+a18 R6 KILLED | FAIL fresh-busy-beside-unknown: aify-env not busy fails [PASS: ]
+a19 R6 KILLED | FAIL fresh-busy-beside-unknown: the send not steerable fails [PASS: ]
+a20 R7 KILLED | FAIL stop-restart: review R7: no queued work seeded fails [PASS: ]
+a21 R7 KILLED | FAIL stop-restart: review R7: the named seed never drained fails [PASS: ]
+a22 R7 KILLED | FAIL stop-restart: restart leaves unknown after the first turn fails [PASS: ]
+a23 R8 KILLED | FAIL env-paused: review R8: negative prose in statusNote fails [PASS: ]
+a24 R8 KILLED | FAIL env-paused: lastKnown names another word fails [PASS: ]
+a25 R8 KILLED | FAIL env-paused: lastKnown names another time fails [PASS: ]
+a26 amendment words KILLED | FAIL env-paused: its expected answer is page 2's or its amendment's words
+a27 page 2 words KILLED | FAIL legacy-busy-env-idle: its expected answer is page 2's or its amendment's words
+f01 F1 no blanket grace KILLED | FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [PASS: ]
+f02 F1 bucket wholly before KILLED | FAIL legacy-idle-env-busy: claimed in an earlier second, seen late, with no receipt fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+f03 F1 seen by the end KILLED | FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+f04 F1 absent after the end KILLED | FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+f05 F1 unknown, not a breach KILLED | FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [FAIL: held: R was claimed inside the window]
+f06 F1 unknown, not a pass KILLED | FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [PASS: ]
+f07 F1 unknown, not a pass KILLED | FAIL legacy-idle-env-busy: a claim straddling the hold's end with no millisecond evidence reads UNKNOWN [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+f08 F1 watcher sight KILLED | FAIL legacy-idle-env-busy: claimed in the hold's last second, seen claimed before it ends fails [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+f09 F1 watcher order KILLED | FAIL legacy-idle-env-busy: review F1: released in the hold's last second, read queued after it ends passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+f10 F1 controls KILLED | FAIL stale-second-holder: steered in the window's last second, seen before it ends fails [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]
+f11 F1 controls KILLED | FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]
+f12 F1 controls KILLED | FAIL stale-second-holder: a steer straddling the window's end with no millisecond evidence reads UNKNOWN [PASS: ]
+g01 F1.a emission is not acquisition KILLED | FAIL legacy-idle-env-busy: review F1.a: a queued frame emitted after the end but read before it reads UNKNOWN [PASS: ]
+g02 F1.b a failed read is not absence KILLED | FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]
+g03 F1.a the last read of a state KILLED | FAIL legacy-idle-env-busy: a read still queued after the end, recorded on the next frame passes [UNKNOWN: held: R's claim second straddles the window's end, and nothing finer orders them]
+g04 F1.a a frame's own acquisition KILLED | FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]
+h01 F1.b a failed read sees nothing KILLED | FAIL stale-second-holder: a steer only a failed read mentions stays unseen passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]
+h02 F1.b a failed tail erases nothing KILLED | FAIL stale-second-holder: review F1.b: a steer seen in the window, then a failed last read fails [PASS: ]
+h03 F1.b one control once KILLED | FAIL known controls: a steer seen in three successful frames counts once
+p01 F1.a stamped before the read KILLED | _________________________ WatchStampsTests.test_a_frame_is_acquired_before_its_read_and_emitted_after_it __________________________
+p02 F1.a the previous read KILLED | ________________________ WatchStampsTests.test_previous_seen_from_is_the_last_read_of_the_previous_content ________________________
+p03 F1.a the previous read KILLED | ________________________ WatchStampsTests.test_previous_seen_from_is_the_last_read_of_the_previous_content ________________________
+p04 F1.b an error has no inventory KILLED | _____________________________ WatchStampsTests.test_an_error_read_is_its_own_frame_with_no_inventory ______________________________
+c01 6.1 no fixture check: f5191387 judged the retained attempt directly KILLED | _______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________
+c02 6.1 coinciding phases KILLED | _______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________
+c03 6.1 strictly after KILLED | _______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________
+c04 6.1 a whole claim pass KILLED | _____________________ ResumePhaseFixtureTests.test_a_fresh_busy_phase_shorter_than_one_claim_pass_is_refused ______________________
+c05 6.1 a fresh busy record KILLED | ________________ ResumePhaseFixtureTests.test_the_retained_attempt_as_recorded_names_its_missing_fresh_busy_phase _________________
+c06 6.1 admitted evidence reaches its judge KILLED | _______________________ ResumePhaseFixtureTests.test_CONTROL_a_separated_resume_reaches_the_judge_unchanged _______________________
+d01 6.2 recursive mkdir is not a claim (f5191387) KILLED | ________________________________ AttemptDirTests.test_a_second_acquisition_of_one_name_is_refused _________________________________
+d02 6.2 a taken name is named KILLED | ________________________________ AttemptDirTests.test_a_second_acquisition_of_one_name_is_refused _________________________________
+e01 6.3 restored in finally KILLED | _____________________________ CampaignFailsClosedTests.test_CONTROL_a_killed_arm_passes_the_campaign ______________________________
+e02 6.3 a nonzero exit KILLED | ___________________________ CampaignFailsClosedTests.test_the_command_line_exits_nonzero_on_any_failure ___________________________
+e03 6.3 the named witness KILLED | __________________________ CampaignFailsClosedTests.test_an_arm_killed_by_another_witness_is_not_killed ___________________________
+e04 6.3 a survivor fails KILLED | ________________________________ CampaignFailsClosedTests.test_a_surviving_arm_fails_the_campaign _________________________________
+e05 6.3 a hung checker KILLED | ____________________________ CampaignFailsClosedTests.test_a_hung_checker_is_killed_and_fails_its_arm _____________________________
+e06 6.3 an exception mid-mutation KILLED | ____________ CampaignFailsClosedTests.test_an_arm_that_throws_mid_mutation_is_restored_recorded_and_fails_the_campaign ____________
+e07 6.3 an anchor miss KILLED | _____________________________ CampaignFailsClosedTests.test_an_anchor_that_misses_fails_the_campaign ______________________________
+e08 6.3 a red baseline KILLED | _______________________________ CampaignFailsClosedTests.test_a_red_baseline_runs_no_arm_and_fails ________________________________
+e09 6.3 the receipt persisted KILLED | _____________________________ CampaignFailsClosedTests.test_CONTROL_a_killed_arm_passes_the_campaign ______________________________
+67/67 killed; campaign PASS

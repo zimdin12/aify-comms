@@ -1,0 +1,15 @@
+{
+ "arm": "a18",
+ "file": "judges.mjs",
+ "guards": "R6",
+ "witness": "aify-env not busy",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "73ff594c1d5423c5315e544fb267229ad5ee00ee6b223096490e82983425578d",
+ "exit": 1,
+ "named": [
+  "FAIL fresh-busy-beside-unknown: aify-env not busy fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

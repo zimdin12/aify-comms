@@ -1,0 +1,1 @@
+ARMS = [('z01', 'judges.mjs', "// The gate's judges: PURE, over what a scenario gathered: `marks`, comms' change-only `timeline` (DATA, runs, words),", "// The gate's judges: PURE, over what a scenario gathered: `marks`, comms' change-only `timeline` (DATA, runs, words), ", 'never named', 'negative control: a comment edit survives')]

@@ -1,0 +1,16 @@
+{
+ "arm": "a23",
+ "file": "judges.mjs",
+ "guards": "R8",
+ "witness": "review R8: negative prose in statusNote",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "66236f55e98bfd6f818af27eb6ac3a817974a79211f09172e8ce7b232f12f6a5",
+ "exit": 1,
+ "named": [
+  "FAIL env-paused: review R8: negative prose in statusNote fails [PASS: ]",
+  "FAIL restart-mid-turn: review R8: negative prose in statusNote fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

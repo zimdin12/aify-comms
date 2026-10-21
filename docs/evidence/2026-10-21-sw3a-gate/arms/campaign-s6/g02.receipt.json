@@ -1,0 +1,16 @@
+{
+ "arm": "g02",
+ "file": "judges.mjs",
+ "guards": "F1.b a failed read is not absence",
+ "witness": "review F1.b: an error read after the end is not an empty inventory",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "a0acc580de986250f34e43e0722f1d0e271d5504f373de7c4beea53494f7116b",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]",
+  "FAIL fresh-busy-beside-unknown: review F1.b: an error read after the end is not an empty inventory reads UNKNOWN [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

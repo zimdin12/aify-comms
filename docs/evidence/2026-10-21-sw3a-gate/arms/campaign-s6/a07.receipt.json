@@ -1,0 +1,15 @@
+{
+ "arm": "a07",
+ "file": "judges.mjs",
+ "guards": "R1",
+ "witness": "received inside the hold",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "f73337d859f9adeb6b76cc081c4e78402edd554850dde453b8e0538014b193cc",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: received inside the hold fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

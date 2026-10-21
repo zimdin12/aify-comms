@@ -1,0 +1,18 @@
+{
+ "arm": "e03",
+ "file": "campaign.py",
+ "guards": "6.3 the named witness",
+ "witness": "test_an_arm_killed_by_another_witness_is_not_killed",
+ "sha_original": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "40366ee9c90255eafa27da9c8b7e493f76fc88d6504c9d14a28f2579cfa6ef8e",
+ "exit": 1,
+ "named": [
+  "__________________________ CampaignFailsClosedTests.test_an_arm_killed_by_another_witness_is_not_killed ___________________________",
+  "self = <test_gate_apparatus.CampaignFailsClosedTests testMethod=test_an_arm_killed_by_another_witness_is_not_killed>",
+  "    def test_an_arm_killed_by_another_witness_is_not_killed(self):",
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_arm_killed_by_another_witness_is_not_killed - Asse..."
+ ],
+ "sha_restored": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "a13",
+ "file": "judges.mjs",
+ "guards": "R3",
+ "witness": "review R3: an available row with no lifetime before the send",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "4821f5809e5d173cafda8a5478877e3cc69404901ae362c92a886a6cc320d580",
+ "exit": 1,
+ "named": [
+  "FAIL cold-start: review R3: an available row with no lifetime before the send fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

@@ -1,0 +1,16 @@
+{
+ "arm": "f11",
+ "file": "judges.mjs",
+ "guards": "F1 controls",
+ "witness": "steered in the window's last second, read absent after it ends",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "827fbced6cf16bcad8318bb0588d5d0fca58131cc48f387572c3f2acaba7c50f",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld: a control's second on R straddles the window's end, and nothing finer orders them]",
+  "FAIL fresh-busy-beside-unknown: steered in the window's last second, read absent after it ends passes [UNKNOWN: withheld, steer included: a control's second on R straddles the window's end, and nothing finer orders them]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

@@ -1,0 +1,15 @@
+{
+ "arm": "a01",
+ "file": "judges.mjs",
+ "guards": "ordering",
+ "witness": "claimed a second before the acceptance, seen after it",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "532fc3639d728505291b5411a67035fbe855f171d12eddb008e414c04ca2888b",
+ "exit": 1,
+ "named": [
+  "FAIL legacy-idle-env-busy: claimed a second before the acceptance, seen after it fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

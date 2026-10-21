@@ -1,0 +1,15 @@
+{
+ "arm": "a11",
+ "file": "judges.mjs",
+ "guards": "R2",
+ "witness": "the steerable send late",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "55822c29a1cf584ee714b07b074fa716843fd049e92f29d18df62c82fb5213d1",
+ "exit": 1,
+ "named": [
+  "FAIL env-resumed: the steerable send late fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

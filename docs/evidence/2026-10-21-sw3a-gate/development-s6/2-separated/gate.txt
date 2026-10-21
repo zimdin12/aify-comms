@@ -1,0 +1,30 @@
++0.0s scripts\sandbox\gate\gate.mjs sha256 98826e47fcaa3333c201b3642a8d52c0f2dfc04ceaf0a207ad63f22494f0e7a6
++0.0s scripts\sandbox\gate\pair.mjs sha256 3451f39569444972519f4b369f2c64543725304fb4df2ce68ca81b45bf64819d
++0.0s scripts\sandbox\gate\cases.mjs sha256 a25ce94d044b53c104a0aa4be4cf21eb07bde97106f4f27f908b778a9ac7d898
++0.0s scripts\sandbox\gate\case-judging.mjs sha256 acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3
++0.0s scripts\sandbox\gate\attempt-dir.mjs sha256 cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476
++0.0s scripts\sandbox\gate\judges.mjs sha256 fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a
++0.0s scripts\sandbox\gate\self-check.mjs sha256 008a7b0eb36b5afd111030e9933dec3eaf3943ab153fa47b411377ff4baa9684
++0.0s scripts\sandbox\gate\stand-in.mjs sha256 f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba
++0.0s scripts\sandbox\gate\claude-aify.sh sha256 ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0
++0.0s scripts\sandbox\gate\probe.py sha256 6448077d2e99362536bef71d9e5068e5041a44341448eaebd542d57beb459d2d
++0.0s scripts\sandbox\gate\relay.mjs sha256 dacf00e539cbc982f9c6f3b2d8ecf821f77dc73c89f48a8ba72a03b2a030d07d
++0.0s scripts\sandbox\gate\env.Dockerfile sha256 9b193a33f349e36957e3690fb8b9ca3e5de14c8a51072f9c9df8ec72f21c5a46
++0.0s scripts\sandbox\env-against-comms.mjs sha256 93efd2df63fcc06b3dd2c02502d5e5d583a33c794fd0e87a4782681d7475d7fb
++0.0s scripts\sandbox\sandbox-entry.sh sha256 fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc
++0.0s attempt development-s6-resume-2: comms 36028554f2b71b438de2a6805b3ae4dbea207d41 = 36028554f2b71b438de2a6805b3ae4dbea207d41; env 7a855db0d0e6449a1d7ebfb3c19344624bdd595b = 7a855db0d0e6449a1d7ebfb3c19344624bdd595b
++6.5s owned image aify-gate-8e312f14-bf53-comms
++10.5s owned image aify-gate-8e312f14-bf53-env
++10.5s scenario silenced: starting
++10.7s owned network e343705808d4004a0c355d71abad407275900f79c676f782e5c2e81ce976f7f2
++11.5s owned container 3f7b17a6755a6f56d28729a5c27d48fc5a14c268dfad0cb13c2ca3a5a137223d
++11.6s owned volume 872440479d64e23d6d86a8a018317db4164c3294dd3ade77b79b1e46bf185776
++11.6s owned volume b086e4df3c6e70bdf600ba8f7544a14dc9de2b22249b15fdbe9819ba5aac0fe3
++13.2s owned container e5ae64528b0445dd3ff597b386ffe3e07e5a123c5d6d31d6da5922939d44c0bb
++13.6s owned container 4f7c48fdb3cfa7d1e0259645e4984e593aa0c0cfe0e2d6253de4769325650c85
++370.3s case env-paused: FAIL [the word read online, not unknown; no lastKnown beside unknown; the queueIfBusy send: run_1792558021215_ff0b691e was claimed inside the window; the queueIfBusy send: the stand-in received run_1792558021215_ff0b691e inside the window; the steerable send: run_1792558022605_6362af57 was claimed inside the window; the steerable send: the stand-in received run_1792558022605_6362af57 inside the window]
++370.3s case env-resumed: FAIL [the queueIfBusy send: claimed before comms accepted the publication; the queueIfBusy send: the watcher saw the claim first; the steerable send drained before a fresh publication; the watcher saw the steerable claim first]
++370.3s case default-send-unknown: FAIL [the default send: run_1792558022605_6362af57 was claimed inside the window; the default send: the stand-in received run_1792558022605_6362af57 inside the window]
++372.0s primary: 0/3 cases passed
++372.0s cleanup: complete, every owned resource read back absent
++372.0s terminal: exit 1

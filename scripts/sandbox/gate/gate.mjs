@@ -15,6 +15,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { KEY, bytesSha, cleanup, create, log, must, outcome, redact, run, sha } from "../env-against-comms.mjs";
+import { AttemptDirTaken, acquireAttemptDir } from "./attempt-dir.mjs";
+import { judgeCase } from "./case-judging.mjs";
 import { CASES, OBSERVATIONS, SCENARIOS, START } from "./cases.mjs";
 import { JUDGES } from "./judges.mjs";
 import { Pair } from "./pair.mjs";
@@ -30,8 +32,8 @@ const BUILD_MS = 20 * 60_000;
 const ATTEMPT_MS = 120 * 60_000;
 const started = Date.now();
 const deadline = () => { if (Date.now() - started > ATTEMPT_MS) throw new Error("the attempt deadline passed"); };
-const SOURCES = ["gate.mjs", "pair.mjs", "cases.mjs", "judges.mjs", "self-check.mjs", "stand-in.mjs", "claude-aify.sh",
-  "probe.py", "relay.mjs", "env.Dockerfile"].map((name) => path.join(HERE, name))
+const SOURCES = ["gate.mjs", "pair.mjs", "cases.mjs", "case-judging.mjs", "attempt-dir.mjs", "judges.mjs",
+  "self-check.mjs", "stand-in.mjs", "claude-aify.sh", "probe.py", "relay.mjs", "env.Dockerfile"].map((name) => path.join(HERE, name))
   .concat([path.join(SANDBOX, "env-against-comms.mjs"), path.join(SANDBOX, "sandbox-entry.sh")]);
 
 /** The env build context: the archive, the gate's Dockerfile, the runner's entry script and the stand-in. */
@@ -95,8 +97,7 @@ async function attempt({ commsRef, envRef, label, only, outDir }) {
       owned.push(...caseOwned);
       for (const o of OBSERVATIONS.filter((x) => x.scenario === name)) observations[o.id] = { marks, error };
       for (const c of CASES.filter((x) => x.scenario === name)) {
-        const judged = error || !evidence ? { pass: false, failed: [`scenario error: ${error ?? "no evidence"}`] }
-          : JUDGES[c.id](evidence);
+        const judged = judgeCase({ id: c.id, error, evidence, judges: JUDGES });
         results.push({ id: c.id, scenario: name, expected: c.expected, red: c.red, ...judged });
         log(`case ${c.id}: ${judged.verdict ?? "FAIL"}${judged.pass ? "" : ` [${[...judged.failed, ...(judged.unknown ?? [])].join("; ")}]`}`);
       }
@@ -125,12 +126,14 @@ else {
     process.exit(2);
   }
   const outDir = path.resolve(arg("out") || path.join(os.tmpdir(), `aify-gate-${label}`));
-  // An attempt owns its output: an existing, non-empty folder is another attempt's record and is never overwritten.
-  if (fs.existsSync(outDir) && fs.readdirSync(outDir).length) {
-    console.error(`refusing: ${outDir} already holds an attempt; name a new --attempt or --out`);
+  // An attempt owns its output, acquired exclusively: an existing folder is another attempt's and is never reused.
+  try {
+    acquireAttemptDir(outDir);
+  } catch (error) {
+    if (!(error instanceof AttemptDirTaken)) throw error;
+    console.error(`refusing: ${error.message}; name a new --attempt or --out`);
     process.exit(2);
   }
-  fs.mkdirSync(outDir, { recursive: true });
   exit = await attempt({ commsRef, envRef, label, only: arg("scenarios") ? arg("scenarios").split(",") : null, outDir });
 }
 process.exit(exit);

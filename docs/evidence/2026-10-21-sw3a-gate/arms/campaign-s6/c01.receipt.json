@@ -1,0 +1,18 @@
+{
+ "arm": "c01",
+ "file": "case-judging.mjs",
+ "guards": "6.1 no fixture check: f5191387 judged the retained attempt directly",
+ "witness": "test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name",
+ "sha_original": "acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "b98fd363f2f9dbe7099481a2ff142517285684b13342cad32e0d7b111140e11c",
+ "exit": 1,
+ "named": [
+  "_______________ ResumePhaseFixtureTests.test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name ________________",
+  "self = <test_gate_apparatus.ResumePhaseFixtureTests testMethod=test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name>",
+  "    def test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name(self):",
+  "FAILED scripts/tests/test_gate_apparatus.py::ResumePhaseFixtureTests::test_the_retained_attempt_whose_fresh_and_idle_coincide_is_refused_by_name"
+ ],
+ "sha_restored": "acdc51a6cd197b9a48eb8839c19606992f75d894e1279cf559a7f7e3dad9b3d3"
+}

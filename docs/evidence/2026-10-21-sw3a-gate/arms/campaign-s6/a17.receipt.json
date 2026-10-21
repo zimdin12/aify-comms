@@ -1,0 +1,16 @@
+{
+ "arm": "a17",
+ "file": "judges.mjs",
+ "guards": "R5",
+ "witness": "aify-env out of contact",
+ "sha_original": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "84943cbc291d4537b3f74ae5129cadc2380a1baa445fecf0245ec6b58c6c48ab",
+ "exit": 1,
+ "named": [
+  "FAIL stale-second-holder: aify-env out of contact fails [PASS: ]",
+  "FAIL fresh-busy-beside-unknown: aify-env out of contact fails [PASS: ]"
+ ],
+ "sha_restored": "fd70fd292278c32e6b4c5b2a166360db4deec7bbcbe369e2ded39f28032d0c5a"
+}

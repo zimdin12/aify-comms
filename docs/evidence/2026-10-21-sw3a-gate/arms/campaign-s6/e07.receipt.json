@@ -1,0 +1,18 @@
+{
+ "arm": "e07",
+ "file": "campaign.py",
+ "guards": "6.3 an anchor miss",
+ "witness": "test_an_anchor_that_misses_fails_the_campaign",
+ "sha_original": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99",
+ "killed": true,
+ "problems": [],
+ "sha_mutated": "70e17e878d512952d639984674ba89cd0ef78d10f50922aed5a676bed10f0a4e",
+ "exit": 1,
+ "named": [
+  "_____________________________ CampaignFailsClosedTests.test_an_anchor_that_misses_fails_the_campaign ______________________________",
+  "self = <test_gate_apparatus.CampaignFailsClosedTests testMethod=test_an_anchor_that_misses_fails_the_campaign>",
+  "    def test_an_anchor_that_misses_fails_the_campaign(self):",
+  "FAILED scripts/tests/test_gate_apparatus.py::CampaignFailsClosedTests::test_an_anchor_that_misses_fails_the_campaign - AssertionE..."
+ ],
+ "sha_restored": "d19b21ba740a965893b99cdae0f29bfe548f865476a2594bec912517dac20f99"
+}

@@ -1,0 +1,56 @@
+{
+ "label": "development-s6-resume-2",
+ "commsRef": "36028554f2b71b438de2a6805b3ae4dbea207d41",
+ "commsSha": "36028554f2b71b438de2a6805b3ae4dbea207d41",
+ "envRef": "7a855db0d0e6449a1d7ebfb3c19344624bdd595b",
+ "envSha": "7a855db0d0e6449a1d7ebfb3c19344624bdd595b",
+ "imagesReused": false,
+ "results": [
+  {
+   "id": "env-paused",
+   "scenario": "silenced",
+   "expected": "after three announced intervals of publication silence: `unknown` with the prior record's word and application time; sends queue; claims withhold, steer included",
+   "red": "unknown read as false (a send is delivered during the silence)",
+   "pass": false,
+   "verdict": "FAIL",
+   "failed": [
+    "the word read online, not unknown",
+    "no lastKnown beside unknown",
+    "the queueIfBusy send: run_1792558021215_ff0b691e was claimed inside the window",
+    "the queueIfBusy send: the stand-in received run_1792558021215_ff0b691e inside the window",
+    "the steerable send: run_1792558022605_6362af57 was claimed inside the window",
+    "the steerable send: the stand-in received run_1792558022605_6362af57 inside the window"
+   ],
+   "unknown": []
+  },
+  {
+   "id": "env-resumed",
+   "scenario": "silenced",
+   "expected": "queued work drains on the first claim pass after comms accepts a fresh publication",
+   "red": "the queue never drains",
+   "pass": false,
+   "verdict": "FAIL",
+   "failed": [
+    "the queueIfBusy send: claimed before comms accepted the publication",
+    "the queueIfBusy send: the watcher saw the claim first",
+    "the steerable send drained before a fresh publication",
+    "the watcher saw the steerable claim first"
+   ],
+   "unknown": []
+  },
+  {
+   "id": "default-send-unknown",
+   "scenario": "silenced",
+   "expected": "queued, not claimed",
+   "red": "the claim gate withholds only `queueIfBusy` runs",
+   "pass": false,
+   "verdict": "FAIL",
+   "failed": [
+    "the default send: run_1792558022605_6362af57 was claimed inside the window",
+    "the default send: the stand-in received run_1792558022605_6362af57 inside the window"
+   ],
+   "unknown": []
+  }
+ ],
+ "observations": {}
+}
