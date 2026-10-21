@@ -89,7 +89,7 @@ async function shutdown(pair, { worker }) {
   if (worker) await pair.warm();
   else await pair.waitFor(() => pair.snapshot().records.length > 0, 120_000, "the defined agent's row");
   const before = pair.snapshot();
-  const standinBefore = pair.standin();
+  const standinBefore = worker ? pair.standin() : []; // no worker, no stand-in log
   const stoppedAt = Date.now();
   const exitCode = pair.stopEnv();
   const after = await pair.waitFor(() => {
