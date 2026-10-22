@@ -1919,18 +1919,18 @@ fi
 # host's credential store (it did, on every test run, until the 0.7.6 review).
 [ "$CLIENT" = "hermes" ] && [ "$PREBUILD_DRY_RUN" = true ] && { prebuild_hermes_web_dist || true; exit 0; }
 
-# Settled BEFORE the first config that carries it. NOT gated on `--with-api-key`: that flag asks for a
-# key to be GENERATED, and gating the carry left configured clients beside an aify-env holding no
-# credential, 401'ing while both reported healthy. See test_install_carries_the_key_to_the_env*.
-# ONE SCRIPT ANSWERS "what key does this install use", generate and resolve alike. It also DECIDES:
-# a bare `|| true` here read a conflict and an unparseable .env as "no key, carry on" (Round 8 H8).
+# Settled BEFORE the first config that carries it, and NOT gated on `--with-api-key` (that flag GENERATES
+# a key; gating the carry left clients 401'ing beside a keyless aify-env: test_install_carries_the_key_to_the_env*).
+# ONE SCRIPT answers and DECIDES "what key": a bare `|| true` read a conflict as "no key" (Round 8 H8).
+# Skipped in the chain's modes: the chain took the key and connect published it, which the bridge reads for its endpoint.
+case "$MODE" in acquire-only|assets-only) ;; *)
 [ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
 RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
   export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"
 fi
-
+;; esac
 # A plain run hands off once to aify-env's guided-install chain (S2); --standalone keeps this full path.
 if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then _h=0; bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh" || _h=$?; [ "$_h" = 3 ] || exit "$_h"; fi
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install

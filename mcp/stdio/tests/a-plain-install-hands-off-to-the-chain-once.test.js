@@ -88,6 +88,25 @@ test("with no aify-env at all it is installed from its source first, then the ch
   assert.match(lines[1], /^aify-env-install --connect aify-comms=/);
 });
 
+test("the chain's two modes neither ask for the key nor carry it again; a plain run does both", () => {
+  // The installer's own key block, executed with its two helpers stubbed to record that they ran.
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  const block = /^case "\$MODE" in acquire-only\|assets-only\) ;; \*\)\n[\s\S]*?^;; esac$/m.exec(install)?.[0];
+  assert.ok(block, "the key block must be found before it can be exercised");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-key-"));
+  fs.mkdirSync(path.join(root, "scripts"));
+  fs.writeFileSync(path.join(root, "scripts", "api-key-for-install.sh"), `echo asked >> "${toBash(root)}/ran"; printf k\n`);
+  fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> "${toBash(root)}/ran"\n`);
+  const ran = (mode) => {
+    fs.rmSync(path.join(root, "ran"), { force: true });
+    spawnSync(BASH, ["-c", block], { env: { ...process.env, MODE: mode, SCRIPT_DIR: toBash(root), WITH_API_KEY: "false" } });
+    return fs.existsSync(path.join(root, "ran")) ? fs.readFileSync(path.join(root, "ran"), "utf8").trim().split("\n") : [];
+  };
+  assert.deepEqual(ran(""), ["asked", "carried"], "CONTROL: a plain run resolves and carries its key");
+  assert.deepEqual(ran("acquire-only"), []);
+  assert.deepEqual(ran("assets-only"), []);
+});
+
 test("the quick-start lines are the installer's, per client", () => {
   for (const client of ["claude", "codex", "hermes"]) {
     const out = spawnSync("bash", [toBash(QUICKSTART), client], { encoding: "utf8" });
