@@ -1,8 +1,19 @@
 # The hermes host moves out of aify-comms (task #4, plan revision 1, 2026-10-22)
 
-The goal, from the dashboard task: no aify-comms code runs on an agent's host, hermes gateway hosting is aify-env's,
-and a second aify-env (on WSL) serves a managed agent end to end. The remap tags this 0.9.12. The operator answered
-Q5 on 2026-10-19: a WSL aify-env may run for the proof, and it is removed once 0.9 is done and deployed.
+The task's goal: no aify-comms code runs on an agent's host, hermes gateway hosting is aify-env's, and a second
+aify-env (on WSL) serves a managed agent end to end. The remap tags this 0.9.12. The operator answered Q5 on
+2026-10-19: a WSL aify-env may run for the proof, and it is removed once 0.9 is done and deployed.
+
+**What this plan delivers is a partial step toward that goal** (revision 2, after review):
+- the hermes gateway process moves to aify-env;
+- the hermes driver code moves to aify-wrapper;
+- hermes delivery moves to aify-wrapper's comms module;
+- the WSL proof runs on the environment side.
+
+**What it leaves on the host:** aify-comms' stdio MCP bridge, the `comms_*` tools that `server.js` serves inside
+every session. The launcher still imports `server.js` to warm it. Removing it is TARGET_ARCHITECTURE's gap 1, the
+stdio bridge against the SSE transport. That is its own item, owned by aify-comms, and the task is done only when
+both this plan and that item are.
 
 The owners follow the operator's statement of the repos' roles (DECISIONS, 2026-10-20):
 - **aify-comms is a service.** It holds messages, their information and the database.
@@ -40,6 +51,6 @@ Each slice is revertible on its own until H4: the old route stays installed and 
 
 ## Open questions for the operator
 
-One, on page 5: which harness the WSL proof runs, and whether he does the one login it needs for a real model turn.
-Nothing else here needs the operator. Every other choice follows the roles above, the one-go-live ruling and the
+None is asked now. The WSL proof runs on a stand-in harness. A real model turn in WSL needs one login by the operator;
+it stays pending and is recorded as not done (page 5). Nothing else here needs the operator. Every other choice follows the roles above, the one-go-live ruling and the
 no-forced-restart ruling.

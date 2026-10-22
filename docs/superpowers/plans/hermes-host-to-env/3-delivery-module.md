@@ -41,5 +41,5 @@ supervises.
 
 ## Revert
 
-The same capability check as H1. With it withdrawn, the launcher starts the old `hermes-managed-host.js run` loop
-from aify-comms' copy, which H4 has not yet deleted.
+The same capability check as H1, resolved per ask in the same way. With the value withdrawn, a launch that asks after
+the edit starts the old `hermes-managed-host.js run` loop from aify-comms' copy, which H4 has not yet deleted.

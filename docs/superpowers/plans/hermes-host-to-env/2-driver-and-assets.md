@@ -5,13 +5,46 @@
 The harness-knowledge doc asks for the classification at the symbol and import-edge level before anything moves. The
 four classes are PURE_DRIVER, SERVICE_ADAPTER, PROCESS_OWNER and COMPOSITION, and anything left unclassified fails.
 
-So the first commit is a test in aify-comms that:
-- reads every hermes-named module under `mcp/stdio`;
-- maps each exported symbol to a class from a table in the test;
-- fails on any export the table does not name.
+So the first commit is a census test in aify-comms (revision 2: an exported-name table alone stays green when a
+private closure or an import edge changes owner, so it is not enough).
 
-It goes red the day someone adds an export without deciding where it lives. The table is the move list for H1, H2
-and H3.
+**The population.** It is rooted at the entry points the host actually runs, not at filenames:
+- `hermes-managed-host.js` `runCli` (`ensure-host`, `run`, `resolve-session`);
+- `hermes-daemon-cli.js`;
+- the `hermes-endpoint.js` functions the launcher imports with `node -e`;
+- `server.js`'s hermes paths (`adapters/hermes.js`).
+
+From those roots, every module reached by static import edges is in, whatever its name.
+
+**The admitted grammar.** It is explicit and parsed with the repository's own parser, never a hand-rolled one.
+
+| node | counted as |
+|---|---|
+| static `import` and `import()` of a string literal | an edge |
+| `import()` of anything else | UNKNOWN, and fails |
+| `child_process` spawn, exec and fork calls | a process effect |
+| calls through `aify-http` or `fetch` | a service-HTTP effect |
+| `setInterval` and `setTimeout` | a timer |
+| heartbeat imports | a heartbeat |
+| WebSocket opens | a gateway connection |
+| writes under TEMP | a marker |
+| `process.on` handlers | a signal effect |
+| top-level `let` and mutable `Map` or `Set` | shared state |
+
+Each occurrence counts, including those inside private closures. One example is `spawnJoiningLease`, the closure
+inside `runEnsureHostCli` that attaches a new child to the lease.
+
+**The table.** Every occurrence maps to a class (PURE_DRIVER, SERVICE_ADAPTER, PROCESS_OWNER, COMPOSITION) and an
+owner, and an unmapped one fails.
+
+**The controls:**
+- **Positive:** the census finds `spawnJoiningLease` and at least one service-HTTP call in `hermes-delivery-loop.mjs`.
+- **Mutants, with the export list unchanged,** each of which must fail the test:
+  - a new private spawn in a non-exported closure;
+  - a new `aify-http` call;
+  - a new top-level `Map`.
+
+The table is the move list for H1, H2 and H3.
 
 ## What moves to aify-wrapper, as a library
 

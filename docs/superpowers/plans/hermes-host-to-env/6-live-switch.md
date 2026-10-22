@@ -17,8 +17,8 @@ The launcher takes the new route when two things are true:
 - aify-env advertises `agent-helper/hermes-gateway` (H1) or `agent-helper/hermes-delivery` (H3);
 - the rendered launcher holds the new route, from aify-wrapper's install.
 
-Otherwise it takes today's route, unchanged. The advertisement is a configuration value of aify-env, read at
-startup, never a constant.
+Otherwise it takes today's route, unchanged. The advertisement is a configuration value of aify-env, never a
+constant. It is resolved on each ask, never at startup (revision 2; H1 builds and tests that read).
 
 So the fleet may be mixed for a time: one agent on the old route, the next on the new. That is safe if two
 conditions hold.
@@ -39,7 +39,13 @@ conditions hold.
 
 ## Rollback
 
-- **H1 and H3:** the advertisement is withdrawn in aify-env's configuration. Every next launch takes the old route.
+- **H1 and H3:**
+  - **Withdrawal** is the value set to false in `~/.aify/config.json`. It is a rollback action under the go-live's
+    rollback authority, the same standing as SW6's revert.
+  - **Activation** is the next launch's ask to aify-env. That launch takes the old route, with no aify-env restart.
+  - **If H1 does not land a per-ask read** (its rollback test is not green), this activation event does not exist.
+    The rollback then waits for the operator's next ordinary aify-env restart, and this page is amended to say so
+    before go-live. No faster recovery is claimed, and no restart is forced.
 - **An agent already running on the new route** keeps it until its next launch. If its delivery is broken, its
   messages are kept, and the operator's ordinary relaunch of that agent puts it on the old route. This is the cost of
   not forcing relaunches, and it is stated rather than hidden.

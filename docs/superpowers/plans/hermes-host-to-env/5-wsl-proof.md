@@ -13,18 +13,43 @@ environments, which multi-environment support was designed for and never shown l
 - The live service has an environment record `wsl:StevenZ-L:default`: offline, never seen. The remap names it, and
   removing it is part of this task's done-when.
 
-## The hazards, and what each one requires
+## The hazards, and what each one requires (revision 2)
 
-- **Starting an aify-env supersedes the one already serving at its address, and kills its holder's process tree**
-  (`bin/aify-env.mjs`, the takeover branch). So the WSL aify-env:
-  - runs on a non-default `--port`;
-  - has `HOME` set to a fresh Linux temp directory, never under `/mnt/c`;
-  - is preceded by a check, inside WSL, that nothing answers at `127.0.0.1:<port>`;
-  - is never started on Windows.
-- **NAT is load-bearing.** In mirrored networking, WSL's `127.0.0.1` would be Windows' own, and a takeover probe could
-  reach the operator's aify-env. The run reads `wslinfo --networking-mode` (or the `.wslconfig`) first and stops if
-  it is not NAT.
-- **The operator's service is touched only in the second phase.** Q5 allows it, and the record is removed afterwards.
+**What aify-env does when its port is held.** At ad07615, `bin/aify-env.mjs` treats the holder by what it is:
+
+| holder | behaviour |
+|---|---|
+| does not identify as an aify-env | left alone; aify-env exits 69 |
+| an aify-env that is running processes | refused, unless `--force` is given |
+| an idle aify-env | superseded: its process tree is killed |
+
+A foreign idle aify-env that appears between any preflight and the `listen` would be killed. So the proof makes that
+branch unreachable at the launch itself:
+- **The WSL aify-env listens on `--port 0`.** The OS picks a free port, a `listen` on port 0 cannot fail for being in
+  use, and the takeover branch is never entered. The bound port is read from the daemon's own answer. Port 0 is
+  legal (`lib/port-argument.mjs`); it is what aify-env's own suite uses.
+- **`--force` is prohibited** in every command of the proof.
+- **Its `HOME` is a fresh Linux temp directory,** never under `/mnt/c`, and it is never started on Windows.
+
+**Controls before any authorised WSL run.** These are aify-env tests in a sealed home, via `npm test`. Each fake holder
+sits at a fixed port, and the launch under test uses `--port 0`.
+
+| case | what is checked |
+|---|---|
+| a foreign idle aify-env | untouched |
+| a foreign busy aify-env | untouched |
+| an unknown listener | untouched |
+| owned, empty endpoint (healthy) | the launch binds and answers |
+
+Each adverse case is checked by its process still running and its port still answering. Each must go red with
+`--port 0` replaced by the fake's port.
+
+**NAT is load-bearing, read at runtime.** In mirrored networking, WSL's `127.0.0.1` is Windows' own. The run reads
+the effective mode inside WSL with `wslinfo --networking-mode` at launch time. It answered `nat` on 2026-10-22, which
+is an observation of that day only. `.wslconfig` is a saved setting, not the running mode. If the command is absent
+or answers anything other than `nat`, the mode is UNKNOWN and the run stops.
+
+**The operator's service is touched only in the second phase.** Q5 allows it.
 
 ## Phase 1, in the sandbox
 
@@ -36,13 +61,28 @@ environments, which multi-environment support was designed for and never shown l
    stopped. Every step is read from the sandbox service's routes and the WSL aify-env's own answer.
 5. Negative control: the same agent defined on the other environment is refused by the WSL one (D9, one machine per
    defined agent).
-6. Cleanup: the WSL aify-env stopped, its home removed, every created resource read back absent. Docker absence is
-   asked in a way that fails closed when Docker does not answer (the S2 evidence-discriminator lesson).
+6. Cleanup is bound to exact created resources. Each is recorded when it is made, from the creating command's own
+   answer, and only those are removed:
+   - the temp `HOME` path;
+   - the WSL aify-env's pid and the bound port;
+   - the sandbox containers and network, by id;
+   - the environment id the WSL aify-env registered, read from its advertisement;
+   - the agent ids defined.
+
+   Each is read back absent. Docker absence is asked in a way that fails closed when Docker does not answer (the S2
+   evidence-discriminator lesson). The WSL home's existing `~/.aify` is of unknown origin and is never touched.
 
 ## Phase 2, against the live service
 
-The same, with the WSL aify-env registered against the operator's comms. It runs while no other test runs, and it
-removes `wsl:StevenZ-L:default` and anything it created once all of 0.9 is done and deployed (Q5).
+The same, with the WSL aify-env registered against the operator's comms. It runs while no other test runs.
+Afterwards, it removes what it created, by the exact ids recorded above.
+
+**The pre-existing offline record is a separate removal.** `wsl:StevenZ-L:default` is not something this proof
+created, so its removal has its own authority: Q5 and the remap, once all of 0.9 is done and deployed.
+- Its identity is bound before removal by reading the service's record for that exact id: its machine, its created
+  and last-seen fields, and its agents.
+- A display label or a missing heartbeat is not identity.
+- If the record cannot be bound, or it lists an agent, it is left in place and reported, not removed.
 
 ## The open question: which harness, with whose login
 
@@ -53,4 +93,5 @@ removes `wsl:StevenZ-L:default` and anything it created once all of 0.9 is done 
   interactive and uses the operator's account, so the login is his action (`! wsl ...`). It is removed with the
   home afterwards.
 
-Recommended: phase 1 with the stub, now; phase 2 with a real harness, if he does the one login.
+The default is phase 1 with the stub. It qualifies the environment side only, and nothing it proves is called a
+model turn. The real model turn stays pending, recorded as not done, and the operator is not asked for the login now.

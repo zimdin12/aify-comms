@@ -20,6 +20,10 @@ driver (page 2). So the host tier still learns no harness: it runs what the driv
 - aify-env answers with `{port, wsUrl, tokenRef}` on its local API. The token travels by reference, never in argv.
 - aify-env advertises a capability, `agent-helper/hermes-gateway`. The launcher takes the new route only when it is
   advertised (page 6).
+- **The advertisement is resolved on each ask, from aify-env's `~/.aify/config.json`.** It is never loaded once at
+  startup. That is what lets a withdrawal reach the next launch without an aify-env restart. aify-env already resolves
+  its service advertisement per ask (`currentAdvertisementBody`, "a registry edit must reach a running plugin
+  without a restart"), and this follows the same shape.
 - A gateway aify-env started is one aify-env stops: the agent's stop, kill and remove close it in the same lifecycle
   step as the TUI.
 
@@ -37,9 +41,15 @@ who starts the process, not who talks to it.
   existing budget, carried over with its test.
 - aify-wrapper: the launcher takes the aify-env route only when the capability is advertised, and the old route
   otherwise. A rendered launcher is tested with both answers.
+- aify-env, the rollback history (revision 2):
+  1. a daemon starts with the setting true;
+  2. the setting is changed to false in its config file, with no restart;
+  3. the next ask answers "not advertised".
+  The test is watched failing with the read moved to startup.
 - Cross-repo: comms' `test_the_env_plugin_addresses_routes_this_service_serves.py` pattern, for the new local route.
 
 ## Revert
 
-The launcher keeps the old route behind the capability check, so stopping the advertisement sends every next launch
-back to `hermes-managed-host.js ensure-host`. Nothing in aify-comms is deleted until H4.
+The launcher keeps the old route behind the capability check. Setting the config value to false sends every launch
+that asks after the edit back to `hermes-managed-host.js ensure-host`, with no aify-env restart (page 6 names the
+event). Nothing in aify-comms is deleted until H4.
