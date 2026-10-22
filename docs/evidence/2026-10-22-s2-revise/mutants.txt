@@ -1,0 +1,37 @@
+# S2 review-round mutants, 2026-10-22T18:26:42.864331Z
+ARM C2 a store before the handoff [install.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 9 - a run that hands off stores nothing, whatever the chain answers; a full-path run resolves once and stores; the chain's modes do neither
+ARM C2 a refused handoff falls back to storing [install.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 9 - a run that hands off stores nothing, whatever the chain answers; a full-path run resolves once and stores; the chain's modes do neither
+ARM C1 the chain's modes resolve a key value [install.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 10 - the chain's modes resolve no key value, so no registration can put one in argv
+ARM C1 the chain inherits the key variables [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 1 - with the chain installed it is entered once, as its module, with the key on stdin and nowhere else
+ARM C3 the key not on the chain's stdin [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 1 - with the chain installed it is entered once, as its module, with the key on stdin and nowhere else
+ARM C4 uncarried options run on [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 4 - options the chain does not carry are refused before anything is installed or run
+ARM C9 a linked checkout is replaced [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 5 - a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone
+ARM C9 an aify-env npm did not install is replaced [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 6 - an aify-env on PATH that npm did not install is not replaced
+ARM C1 assets inherit the key variables [lib/install-chain.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 3 - every assets installer starts without the key variables any connected service names
+ARM C1 an unreadable registry runs assets anyway [lib/install-chain.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 4 - a registry whose key variables cannot be read stops assets, never runs them with the key inherited
+ARM C3 a non-key field accepted on stdin [lib/install-chain.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 21 - arguments: keys never in argv, every name checked, usage names the flags
+ARM C5 the revision not bound [lib/install-chain-host.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 26 - a package's assets entry is the <service>-assets bin of the one package npm installed directly, beside its dependencies
+ARM C5 every physical package a candidate [lib/install-chain-host.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 26 - a package's assets entry is the <service>-assets bin of the one package npm installed directly, beside its dependencies
+ARM C6 relative paths kept [install.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 1 - relative --secret and --installer paths are made absolute against the caller's directory
+ARM C6 a drive-letter path taken for relative [install.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 2 - absolute paths, and values the chain will refuse, pass through unchanged
+ARM C7 a missing wrapper module thrown [lib/install-chain-host.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 6 - an installed aify-wrapper that lacks what the chain needs is a reported refusal with guidance, not a crash
+ARM C8 acquire without the url [lib/install-chain.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 1 - render comes after connect, and a selected client whose CLI is absent fails a --no-prompt run, named
+ARM C8 a quiet run keeps its terminal [lib/install-chain-host.mjs]: exit 1, KILLED; restored byte-equal True
+    not ok 5 - every installer the chain runs is told it may not ask: stdin closed and the no-prompt contract set

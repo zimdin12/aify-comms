@@ -1,0 +1,52 @@
+{
+ "run": "6fa5e7c1",
+ "envRef": "22ecc07",
+ "wrapperRef": "3a14911",
+ "results": [
+  {
+   "id": "missing-key",
+   "ok": true,
+   "detail": "exit 78; registry absent; launcher absent"
+  },
+  {
+   "id": "unapproved",
+   "ok": true,
+   "detail": "exit 78; digest 6d155c869306e7a79ecf25b1270c0468e425460a2d3a41f208f5b623a86efb52"
+  },
+  {
+   "id": "render-after",
+   "ok": false,
+   "detail": "exit 78; relative key file NOT read; launcher fingerprint NOT current"
+  },
+  {
+   "id": "key-from-store",
+   "ok": false,
+   "detail": "published key: httpCall refused: HTTP 401: {\"error\":\"Invalid or missing API key. Use X-API-Key header or ?api_key= param.\"}; registry away: httpCall refused: HTTP 401: {\"error\":\"Invalid or missing API key. Use X-API-Key header or ?api_key= param.\"}"
+  },
+  {
+   "id": "no-recursion",
+   "ok": true,
+   "detail": "exit 0; entered 1; registry 29fde465ee39936d3a1ae7b67609fa183107e2d7c58d56dadb70157f872b1f77 -> 29fde465ee39936d3a1ae7b67609fa183107e2d7c58d56dadb70157f872b1f77"
+  },
+  {
+   "id": "no-key-in-argv",
+   "ok": false,
+   "detail": "key in claude argv/env: PRESENT; control: grep finds the key in /tmp/key true, registration inspected true"
+  },
+  {
+   "id": "keyed-continuation",
+   "ok": true,
+   "detail": "httpCall ok"
+  },
+  {
+   "id": "path-not-selection",
+   "ok": true,
+   "detail": "codex unselected: nothing applied; claude skills present; control: codex skills after a by-hand codex assets run detected"
+  },
+  {
+   "id": "no-early-store",
+   "ok": false,
+   "detail": "exit 78; stored key under aify-comms-6b1e649c84bd.key: REPLACED by the new key"
+  }
+ ]
+}

@@ -1,0 +1,82 @@
+"""S2 review round (1792691451750-f4242401): one mutant per repaired defect, each run against its test, restored by
+byte copy and compared. Writes a receipt per arm to argv[1]."""
+import os, shutil, subprocess, sys, filecmp, datetime
+
+OUT = sys.argv[1]
+COMMS = "C:/Docker/aify-comms-wt-s2"
+ENV = "C:/Users/Administrator/projects/aify-env-wt-s2"
+BASH = "C:/Program Files/Git/usr/bin/bash.exe"
+handoff_test = (COMMS + "/mcp/stdio", ["node", "--test", "tests/a-plain-install-hands-off-to-the-chain-once.test.js"])
+chain_test = (ENV, [BASH, "-c", "npm test -- tests/the-install-chain-runs-its-phases-in-order.test.js"])
+entry_test = (ENV, [BASH, "-c", "npm test -- tests/the-install-entry-keeps-the-callers-paths.test.js"])
+
+ARMS = [
+    ("C2 a store before the handoff", COMMS, "install.sh",
+     'RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1\n',
+     'RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1\nprintf %s "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh"\n', handoff_test),
+    ("C2 a refused handoff falls back to storing", COMMS, "install.sh",
+     '"$SCRIPT_DIR/install.sh"; exit $?; fi', '"$SCRIPT_DIR/install.sh" || true; fi', handoff_test),
+    ("C1 the chain's modes resolve a key value", COMMS, "install.sh",
+     'aify_api_key() { case "$MODE" in acquire-only|assets-only) ;; *) bash "$SCRIPT_DIR/scripts/api-key.sh" ;; esac; }',
+     'aify_api_key() { bash "$SCRIPT_DIR/scripts/api-key.sh"; }', handoff_test),
+    ("C1 the chain inherits the key variables", COMMS, "scripts/chain-handoff.sh",
+     '  printf \'%s\' "$AIFY_API_KEY" | env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}"',
+     '  printf \'%s\' "$AIFY_API_KEY" | node "$CHAIN" "${args[@]}"', handoff_test),
+    ("C3 the key not on the chain's stdin", COMMS, "scripts/chain-handoff.sh",
+     '  printf \'%s\' "$AIFY_API_KEY" | env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}"',
+     '  env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}" </dev/null', handoff_test),
+    ("C4 uncarried options run on", COMMS, "scripts/chain-handoff.sh",
+     '  echo "  Rerun with --standalone to apply them on this installer\'s full path." >&2\n  exit 64\n',
+     '  echo "  Rerun with --standalone to apply them on this installer\'s full path." >&2\n', handoff_test),
+    ("C9 a linked checkout is replaced", COMMS, "scripts/chain-handoff.sh",
+     '    echo "  Update your checkout (git pull), or rerun with --standalone to use this installer\'s full path." >&2\n    exit 78\n',
+     '    echo "  Update your checkout (git pull), or rerun with --standalone to use this installer\'s full path." >&2\n', handoff_test),
+    ("C9 an aify-env npm did not install is replaced", COMMS, "scripts/chain-handoff.sh",
+     '    echo "  Update it where it came from, or rerun with --standalone to use this installer\'s full path." >&2\n    exit 78\n',
+     '    echo "  Update it where it came from, or rerun with --standalone to use this installer\'s full path." >&2\n', handoff_test),
+    ("C1 assets inherit the key variables", ENV, "lib/install-chain.mjs",
+     '{ without, quiet: true })) !== 0)', '{ quiet: true })) !== 0)', chain_test),
+    ("C1 an unreadable registry runs assets anyway", ENV, "lib/install-chain.mjs",
+     '      return this.#problem(`assets: the key variables to withhold could not be read: ${error.message}`);',
+     '      without = [];', chain_test),
+    ("C3 a non-key field accepted on stdin", ENV, "lib/install-chain.mjs",
+     '      if (key.field !== "credentialRef") return fail(', '      if (false) return fail(', chain_test),
+    ("C5 the revision not bound", ENV, "lib/install-chain-host.mjs",
+     '    if (installed.commit !== revision) return', '    if (false) return', chain_test),
+    ("C5 every physical package a candidate", ENV, "lib/install-chain-host.mjs",
+     '    const dir = path.join(prefix, "node_modules", installed.name);',
+     '    const all = fs.readdirSync(path.join(prefix, "node_modules")); if (all.length !== 1) return { problem: `holds ${all.length} packages` };\n    const dir = path.join(prefix, "node_modules", installed.name);', chain_test),
+    ("C6 relative paths kept", ENV, "install.sh",
+     '        --secret=*=*|--installer=*=*) value="${2%%=*}=$CALLER/${2#*=}" ;;', '        --secret=*=*|--installer=*=*) ;;', entry_test),
+    ("C6 a drive-letter path taken for relative", ENV, "install.sh",
+     '[A-Za-z]:[\\\\/]*|--installer=*=[A-Za-z]:[\\\\/]*) ;;', '[A-Za-z]:[\\/]*|--installer=*=[A-Za-z]:[\\/]*) ;;', entry_test),
+    ("C7 a missing wrapper module thrown", ENV, "lib/install-chain-host.mjs",
+     '    } catch (error) {\n      return { problem: `the installed aify-wrapper at', '    } catch (error) {\n      throw error; return { problem: `the installed aify-wrapper at', chain_test),
+    ("C8 acquire without the url", ENV, "lib/install-chain.mjs",
+     '["--acquire-only", url], { quiet: true }', '["--acquire-only"], { quiet: true }', chain_test),
+    ("C8 a quiet run keeps its terminal", ENV, "lib/install-chain-host.mjs",
+     '  const stdin = quiet ? "ignore" :', '  const stdin = false ? "ignore" :', chain_test),
+]
+
+env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_AGENT", "HERDR", "AIFY_HERDR"))}
+with open(OUT, "w", encoding="utf-8") as out:
+    out.write(f"# S2 review-round mutants, {datetime.datetime.utcnow().isoformat()}Z\n")
+    for name, repo, rel, old, new, (cwd, cmd) in ARMS:
+        path = os.path.join(repo, rel)
+        keep = path + ".mutant-keep"
+        shutil.copyfile(path, keep)
+        text = open(path, "rb").read().decode()
+        if text.count(old) != 1:
+            out.write(f"ARM {name}: NOT APPLIED (pattern count {text.count(old)})\n"); out.flush()
+            os.remove(keep); continue
+        open(path, "wb").write(text.replace(old, new).encode())
+        r = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        shutil.copyfile(keep, path)
+        same = filecmp.cmp(keep, path, shallow=False)
+        os.remove(keep)
+        fails = [l.strip() for l in (r.stdout + r.stderr).splitlines() if l.startswith("not ok")]
+        verdict = "KILLED" if r.returncode != 0 and fails else "SURVIVED"
+        out.write(f"ARM {name} [{rel}]: exit {r.returncode}, {verdict}; restored byte-equal {same}\n")
+        for f in fails[:4]:
+            out.write(f"    {f}\n")
+        out.flush()
