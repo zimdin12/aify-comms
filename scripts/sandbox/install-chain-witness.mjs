@@ -42,10 +42,12 @@ const owned = [];
 const lines = [];
 const log = (line) => { const text = String(line).replaceAll(KEY, "<key>"); lines.push(text); console.log(text); };
 const run = (cmd, args, opts = {}) => {
-  const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20, timeout: opts.timeout ?? 1_200_000, ...opts, env: { ...process.env, MSYS_NO_PATHCONV: "1", ...(opts.env ?? {}) } });
+  const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20, timeout: opts.timeout ?? 1_200_000, ...opts, env: { ...process.env, ...(opts.env ?? {}) } });
   return { status: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 };
-const docker = (args, opts) => run("docker", args, opts);
+// Only docker gets MSYS_NO_PATHCONV (its container paths must stay literal): stamp.sh under it handed node a /c/... path
+// that Node reads as C:\c\..., wrote no spec, and the fixture served 503.
+const docker = (args, opts = {}) => run("docker", args, { ...opts, env: { MSYS_NO_PATHCONV: "1", ...(opts.env ?? {}) } });
 const must = (what, r) => { if (r.status !== 0) throw new Error(`${what} failed (${r.status}): ${r.out.slice(-2000)}`); return r; };
 const own = (kind, name) => { owned.push({ kind, name }); log(`owned ${kind} ${name}`); };
 const sh = (container, script, opts = {}) => docker(["exec", "-i", container, "bash", "-lc", script], { input: opts.input ?? "", timeout: opts.timeout });
