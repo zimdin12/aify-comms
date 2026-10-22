@@ -61,7 +61,9 @@ The view reads a publisher that announces no reporting interval as not reporting
 So, in this order:
 1. The host's aify-env checkout is on main (at or after 7a855db). Nobody forces a restart for the switch: the
    operator's next ordinary restart brings the daemon onto it (operator, 2026-10-22: "wait for my next restart").
-2. Every live publisher key is read announcing `reportEveryMs`, both in comms' table and in the dashboard's receiver.
+2. The running daemon's own code identity is read (`aify-env doctor`'s `code-current`), not the checkout's. Every
+   live publisher key from that daemon is read announcing `reportEveryMs`, as accepted by comms' receiver and by the
+   dashboard's.
 3. Only then does SW5 deploy. Until then the switch waits.
 
 Found by dashboard-manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval. The checkout was
