@@ -32,6 +32,14 @@ It runs the index's five phases in order:
 - A service installer run with neither mode and with the chain present hands off. Its old full path stays for
   hosts that choose it, until S4.
 
+**Amendment, 2026-10-22 (plan owner's ruling on review C9).** "Missing or older" means an aify-env npm installed as a
+package: that one is acquired (installed or updated from its git form) and the chain entered. An aify-env that is a
+LINKED checkout (a symlink or a git tree, as `npm link` leaves it) is never modified: without the chain the handoff
+refuses (exit 78), telling the operator to update the checkout (`git pull`) or rerun with `--standalone`. An aify-env
+on PATH that npm did not install is refused the same way. Nothing falls back silently to a pre-chain path; the full
+path runs only when the operator chooses `--standalone`. Options the chain does not carry yet (`--with-hook`,
+`--mcp-transport`, `--env-endpoint`) are refused before anything is written, naming `--standalone`.
+
 ## Inputs, never invented
 
 - Selected clients come from flags or the guide's questions. PATH is inventory.
