@@ -18,6 +18,7 @@ import unittest
 from service.api_core.dispatch_run_state import WITHDRAWN_REPLY_SUMMARY
 from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff
 from service.db import get_db
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 NOW = "2026-10-20T00:00:00Z"
@@ -31,6 +32,7 @@ class UnsendWithdrawsADeliveredReplyContract(FastApiTestCase):
         for agent_id in ("lead", "manager"):
             r = self.client.post("/api/v1/agents", json={"agentId": agent_id, "role": "coder"})
             self.assertEqual(r.status_code, 200, r.text)
+        env_records.report(self, "lead", "manager")  # known idle, so the reminder CONTROL below is due (R3)
 
     def _sql(self, query: str, params=()):
         conn = sqlite3.connect(self._db_path)

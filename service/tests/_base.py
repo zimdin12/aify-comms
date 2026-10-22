@@ -196,6 +196,10 @@ class FastApiTestCase(unittest.TestCase):
         # nine exit markers and `outputSeq: 11` that its own test never wrote.
         from service.terminal_write_queue import discard_terminal_output_writes_for_tests
         discard_terminal_output_writes_for_tests()
+        # THE FOURTH: aify-env's records in the operational view's mirror (0.9.8 switch). Every reader asks the view
+        # now, so a record one test published must not make an agent known in the next test's fresh database.
+        from service.tests.env_records import reset_mirror
+        reset_mirror()
         # The production process has one database, but this unittest base points
         # the shared app at a fresh SQLite file for every test.  Do not let a
         # previous test class's LEGACY_SETTINGS snapshot bleed into this file.

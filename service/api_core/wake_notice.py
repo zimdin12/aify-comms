@@ -39,3 +39,14 @@ def wake_failed_notice(not_started: list[dict[str, Any]]) -> str:
             f"Wake failed for {who} ({reason}). The message is in {who}'s inbox; {who} can read it when it is online."
         )
     return " ".join(parts)
+
+
+def held_notice(held: list[dict[str, Any]]) -> str:
+    """One sentence per recipient whose run was queued with nothing that will start it, each with its own reason
+    (SW5 review R3). The run is kept, so this says the message is waiting, never that the wake failed."""
+    parts = []
+    for hint in held:
+        who = str(hint.get("targetAgentId") or "").strip()
+        if who:
+            parts.append(f"{who} was not woken and its message is held: {hint.get('reason')}.")
+    return " ".join(parts)

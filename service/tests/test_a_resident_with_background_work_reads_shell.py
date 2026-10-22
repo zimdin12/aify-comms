@@ -16,6 +16,7 @@ import unittest
 from service.api_core.background_work import BACKGROUND_WORK_LEASE_SECONDS, background_work_lease
 from service.clock import iso_to_epoch
 from service.status_engine import StatusInputs, derive
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 AGENT = "resident-with-a-shell"
@@ -66,10 +67,9 @@ class AResidentWithBackgroundWork(FastApiTestCase):
         self.assertEqual(beat.status_code, 200, beat.text)
 
     def _status(self) -> str:
-        response = self.client.get(f"/api/v1/agents/{AGENT}")
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        return (body.get("agent") or body)["status"]
+        # The legacy derivation's word, which a rollback serves: after the 0.9.8 switch `shell` is aify-env's word,
+        # from the background shells its host reports (B4).
+        return env_records.rollback_word(self, AGENT)
 
     def _report(self, count):
         return self.client.post(f"/api/v1/agents/{AGENT}/background-work", json={"count": count})

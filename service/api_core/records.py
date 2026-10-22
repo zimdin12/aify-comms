@@ -22,15 +22,14 @@ from service.api_core.capabilities import _row_capabilities
 from service.api_core.liveness import _agent_wake_mode
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
-from service.api_core.manual_status import _MANUAL_STATUSES
-from service.api_core import view_owners
+from service.api_core import operational_view, view_owners
+from service.reconcilers.status_cache import _live_state_get
 from service.usage_cache import derive_usage_source, usage_get
 from service.env_status import (
     BRIDGE_STAMP_FRESH as _BRIDGE_STAMP_FRESH,
     bridge_stamp_state as _bridge_stamp_state,
     environment_effective_status as _environment_effective_status,
 )
-from service.status_engine import NON_LIVE_AGENT_STATUSES
 import re
 
 from service.api_core.dispatch_text import (
@@ -322,41 +321,26 @@ def _row_status_note(row) -> str:
 
 
 def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]]) -> str:
-    # Only an actively-RUNNING dispatch run means the agent is 'working'. A merely
-    # 'claimed' run (a bridge claimed it to deliver, but the turn hasn't started — or
-    # the agent already finished and the run just isn't closed yet) does NOT: an idle
-    # agent with a stale claimed run must reflect the engine's turn_busy-based verdict
-    # (online), not a phantom 'working'. This was the root cause of agents showing
-    # 'working' while actually idle (2026-06-18). The running→working promotion is kept
-    # so a just-delivered turn reads 'working' before the bridge's turn-start event lands.
+    """Row 5 of the operational view on a path that holds a word and the dispatch state (0.9.8 switch, plan page 3:
+    "promotion, row 5, is applied inside the view, so it holds on every path").
+
+    Only an actively RUNNING run promotes, never a merely claimed one, and only a word the view's row 5 names
+    (`operational_view.PROMOTABLE_WORDS`: online, shell, starting, available). `unknown` is not among them: before the
+    switch a running run promoted an unknown word to `working`, which is reading a delivery as aify-env's word.
+    """
     if not dispatch_state:
         return status
     active = dispatch_state.get("activeRun") or {}
-    # THE GUARD IS THE DECLARED PARTITION PLUS `blocked`, not a hand-listed set.
-    #
-    # It read `status not in {"stale", "offline", "blocked"}`, which has the same two faults as
-    # the analytics count fixed in 22e471f7: it names `stale`, a status this engine stopped
-    # producing ("no time-decay states, no `idle`, no `stale`"), and it omits `misconfigured` --
-    # an agent the contract defines as one that can never start. A misconfigured agent carrying
-    # a stale `running` dispatch row was promoted to `working` on the chip an operator reads.
-    #
-    # `blocked` stays excluded explicitly and is NOT a partition question: it is a LIVE status,
-    # a turn awaiting operator input. Promoting it to `working` would hide the fact that the
-    # agent is waiting on the person reading the chip.
-    #
-    # THE SET, NOT `is_live_agent_status`, and the difference is the EMPTY status. That predicate
-    # fails closed on '' because it answers "should this agent count toward the live fleet", and
-    # an agent that reported nothing is no evidence of a live worker -- counting it would inflate
-    # the utilization denominator. This site asks a different question: may a running run promote
-    # an UNKNOWN status? Yes -- the run is then the best evidence available, which is what the
-    # promotion exists to use. `test_status_with_dispatch.py` had that pinned and caught the
-    # conflation when this first reused the predicate.
-    if (active.get("status") == "running"
-            and status not in _MANUAL_STATUSES
-            and status not in NON_LIVE_AGENT_STATUSES
-            and status != "blocked"):
-        return "working"
-    return status
+    return operational_view.promoted(status, active.get("status") == "running")
+
+
+def _cached_last_known(row, status: str):
+    if status != "unknown":
+        return None
+    try:
+        return (_live_state_get(str(row["id"])) or {}).get("last_known")
+    except Exception:
+        return None
 
 
 def herdr_space_of(row) -> bool:
@@ -398,6 +382,9 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "description": (row["description"] if "description" in row.keys() else "") or "",
         "instructions": row["instructions"],
         "status": effective_status,
+        # A7: beside `unknown`, the word comms showed for the last record it applied and that record's application time
+        # ({status, appliedAt}), as the switched view cached it; None for every other word.
+        "lastKnown": _cached_last_known(row, effective_status),
         "statusRaw": effective_status,
         "statusNote": status_note,
         "registeredAt": row["registered_at"],

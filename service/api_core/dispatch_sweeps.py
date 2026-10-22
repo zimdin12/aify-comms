@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from fastapi import Request
 
-from service.api_core import busy_consumers
+from service.api_core import operational_view, switched_view
 from service.api_core.send_preflight import _preflight_live_send_recipients
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
@@ -46,7 +46,6 @@ from service.api_core.reply_contract import (
 from service.api_core.serialization import _row_require_reply
 from service.api_core.settings import _load_settings
 from service.api_core.status_inputs import _compute_live_status_cache
-from service.api_core.turn_state import _turn_busy_state
 from service.api_core.ws import _get_ws
 
 
@@ -244,7 +243,7 @@ async def _run_contract_reminders_once(
             continue
 
         terminal_blocked_without_live_backing = False
-        agent_row = busy_consumers.UNREAD  # this iteration's row for the target, if the terminal check reads one
+        agent_row = None  # this iteration's row for the target, if the terminal check reads one
         if (
             str(row["dispatch_mode"] or "").strip().lower() == "terminal"
             and str(row["status"] or "").strip().lower() in {"claimed", "running"}
@@ -261,31 +260,23 @@ async def _run_contract_reminders_once(
                 if "no live terminal backing" in live_reason:
                     terminal_blocked_without_live_backing = True
 
+        # OPERATOR DECISION R3 (DECISIONS 2026-10-21, adopted): after the 0.9.8 switch a reply-overdue reminder waits
+        # while aify-env says the agent is busy with anything, or comms cannot read whether it is; it is sent once the
+        # agent is known idle. comms keeps no turn timer and no run attribution: aify-env's turns carry no run id, so
+        # "busy on other work" is no longer a question comms can answer. A claimed or running run of comms' own still
+        # pauses it, as today, except a terminal run with no live backing left, which can no longer occupy the agent:
+        # the legacy no-backing judgment only withdraws that occupancy, and never overrides busy or unknown (SW5
+        # review R4).
         active_state = await _get_dispatch_state_for_agent(db, row["target_agent"])
-        # Busy = a claimed/running dispatch run OR a fresh turn_busy (the same
-        # definition the status engine + claim-gate use). Without the turn_busy
-        # half, a mid-turn agent with no tracked run (resident claude on its own
-        # turn) was reminder-nagged while it was clearly working.
-        #
-        # BUT: a delivered require_reply run sets turn_busy with turn_run_id =
-        # THAT run on its own delivery re-pulse. If we treat that as "busy" we
-        # skip THIS run's own reminder — forever — and the handoff never gets
-        # nudged, so the agent never replies and the run closes stale (confirmed
-        # deadlock: ~24 consecutive reply_reminder_skipped "target is busy" then
-        # "Closed stale delivered run requiring a reply"). So turn_busy only
-        # counts as busy-for-skip when it is for OTHER work — a DIFFERENT run id
-        # than the one we are about to remind. A claimed/running dispatch run
-        # (hasActiveRun) always counts: the agent is genuinely executing.
-        turn_fresh, turn_run_id = await _turn_busy_state(db, row["target_agent"])
-        busy_for_other_work = turn_fresh and turn_run_id != row["id"]
-        target_busy = bool(active_state.get("hasActiveRun")) or busy_for_other_work
-        reminder_skipped = target_busy and not terminal_blocked_without_live_backing
-        await busy_consumers.observe_reminder(  # the status shadow's comparison (S2c slice 4); never raises
-            db, row["target_agent"], row["id"], reminder_skipped, blocked=terminal_blocked_without_live_backing,
-            occupied=bool(active_state.get("hasActiveRun")), agent_row=agent_row,
-        )
+        if agent_row is None:
+            agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
+        occupied = bool(active_state.get("hasActiveRun")) and not terminal_blocked_without_live_backing
+        view = switched_view.eligibility_view(agent_row, run_occupied=occupied)
+        reminder_skipped = operational_view.reminder_paused(view)
         if reminder_skipped:
-            reason = "target is busy; reminder will be retried when the agent is idle"
+            reason = ("target's state is unknown (aify-env has not reported it); reminder will be retried when the "
+                      "agent is known idle" if view.eligibility != 'known' and view.busy is not True else
+                      "target is busy; reminder will be retried when the agent is idle")
             skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
             await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
             continue

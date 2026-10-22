@@ -18,6 +18,7 @@ from service.api_core.external_keys import parse_external_keys
 from service.api_core.message_view import _sender_label
 from service.main import APIKeyMiddleware
 from service.sse.inbox_tools import _sender_of
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.test_a_message_from_a_sender_we_do_not_know_says_so import _seed_run, _steer_bodies
 
@@ -66,6 +67,7 @@ class _TwoMachinesAndOneLocalAgent(FastApiTestCase):
         return response.json()["messages"]
 
     def _claim(self) -> dict:
+        env_records.report(self, HOME, headers={"X-API-Key": SERVICE_KEY})  # the 0.9.8 claim gate reads aify-env's record
         return self._post("/api/v1/dispatch/claim", {
             "agentId": HOME, "bridgeId": "channel-linux:test-host-claimer", "bridgeKind": "channel-sidecar",
             "machineId": "linux:test-host", "executionModes": ["channel", "resident"],

@@ -20,6 +20,12 @@
 
 Every one of these fails silently: the wrong word appears on a dashboard, and a status-sorted list
 moves a row. Nothing raises.
+
+AFTER THE 0.9.8 SWITCH this is the operational view's row 5 on the record path (plan page 3: "promotion, row 5, is
+applied inside the view, so it holds on every path"). Row 5 names the words it promotes
+(`operational_view.PROMOTABLE_WORDS`: online, shell, starting, available); every other word passes through. So two
+answers changed on purpose: an empty or unknown word is no longer promoted (a delivered run is not aify-env's word),
+and neither is a word nobody recognises.
 """
 from __future__ import annotations
 
@@ -29,8 +35,11 @@ from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _status_with_dispatch
 from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
 
-# Statuses that describe an agent that CAN work, and so may be promoted.
-PROMOTABLE = ["online", "available", "idle", "working", ""]
+# Statuses that describe an agent that CAN work, and so may be promoted (`working` stays `working`).
+PROMOTABLE = ["online", "available", "shell", "starting", "working"]
+# Words row 5 never promotes: no evidence of a worker (the switch's `unknown`, an empty word, a raw `idle` that is
+# not a served word).
+NOT_EVIDENCE = ["unknown", "", "idle"]
 # Statuses that outrank a run: the agent cannot work, or an operator said so.
 # `stale` is NOT here any more. It is not a canonical status -- the vocabulary says "no time-decay
 # states, no `idle`, no `stale`" -- and protecting it contradicted this file's own rule that an
@@ -49,6 +58,13 @@ def state(status, **over):
 @pytest.mark.parametrize("base", PROMOTABLE)
 def test_a_running_run_promotes_a_workable_status_to_working(base):
     assert _status_with_dispatch(base, state("running")) == "working"
+
+
+@pytest.mark.parametrize("base", NOT_EVIDENCE)
+def test_a_running_run_never_promotes_a_word_that_is_no_evidence_of_a_worker(base):
+    """The 0.9.8 switch. Before it a running run promoted an unknown word to `working`, which reads a delivery as
+    aify-env's word for an agent comms cannot read."""
+    assert _status_with_dispatch(base, state("running")) == base
 
 
 @pytest.mark.parametrize("run_status", ["claimed", "queued", "delivered", "completed", "failed", "cancelled", ""])
@@ -165,8 +181,7 @@ def test_STARTING_is_still_promoted_and_that_half_is_still_OPEN():
 
 def test_an_unknown_base_status_is_passed_through_rather_than_normalised():
     """This function decides ONE thing. A status it does not recognise is somebody else's business
-    and must arrive at the caller intact rather than being coerced into a known word."""
+    and must arrive at the caller intact rather than being coerced into a known word, a running run
+    included: row 5 names the words it promotes."""
     assert _status_with_dispatch("some-future-status", state("claimed")) == "some-future-status"
-    assert _status_with_dispatch("some-future-status", state("running")) == "working", (
-        "though an unrecognised status is still promotable — only the protected list is exempt"
-    )
+    assert _status_with_dispatch("some-future-status", state("running")) == "some-future-status"

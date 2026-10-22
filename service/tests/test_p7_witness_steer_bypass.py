@@ -60,7 +60,7 @@ class _ClaimWorld(FastApiTestCase):
             "capabilities": ["resident-run", "resume", "interrupt"] + (["steer"] if steer else []),
             "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:9"}})
         self.assertEqual(answer.status_code, 200, answer.text)
-        INPUT_ADAPTER.apply(self._db_path, agent_id, spec)
+        INPUT_ADAPTER.apply(self, agent_id, spec)
         self._queue(f"r1-{agent_id}", agent_id, at="2001-01-01T00:00:00Z", **run)
         self._queue(f"canary-{agent_id}", agent_id, at="2002-01-01T00:00:00Z", execution_mode="managed")
 
@@ -111,7 +111,7 @@ class SteerBypassWitness(_ClaimWorld):
         self._world("arm-queue-twin")
         self._assert_r1_claimed("arm-queue-twin", self._claim("arm-queue-twin"))
 
-        INPUT_ADAPTER.apply(self._db_path, "arm-queue", BUSY.closed())     # the turn ends; the queue is untouched
+        INPUT_ADAPTER.apply(self, "arm-queue", BUSY.closed())     # the turn ends; the queue is untouched
         self._assert_r1_claimed("arm-queue", self._claim("arm-queue"))
         flag = self._rows("SELECT queue_if_busy FROM dispatch_runs WHERE id = 'r1-arm-queue'")[0]["queue_if_busy"]
         self.assertEqual(flag, 1, "the explicit-queue flag is kept on the run that was claimed")

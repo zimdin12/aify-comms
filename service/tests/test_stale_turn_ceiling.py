@@ -2,7 +2,10 @@
 
 Four kinds of witness: the named histories of the two pure sides; the parity of today's recomputed strict arm with the
 delivery decision wherever the renewal is not verified, over every hold-law specimen; the observer's counts, evidence
-and containment; and the two real sites, where a busy row is observed and a row that is not busy is not.
+and containment.
+
+THE TWO SITE WITNESSES RETIRED WITH THE 0.9.8 SWITCH (SW5): the queue and claim sites read the operational view and
+observe nothing, and this module is comparison-only, deleted in SW7 (plan page 4, item 5).
 """
 import asyncio
 import json
@@ -16,10 +19,8 @@ from service.api_core import claim_gating as cg
 from service.api_core.claim_gating import BusyDecision, turn_busy_decision
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS as CEILING_S
 from service.db import get_db
-from service.tests import test_p7_witness_delivery_hold as p7
 from service.tests._base import FastApiTestCase
-from service.tests.delivery_witnesses import HOLD_LAW, INPUT_ADAPTER
-from service.tests.test_busy_consumers import CLOSED, FRESH, _Sites
+from service.tests.delivery_witnesses import HOLD_LAW, LEGACY_ADAPTER
 from service.tests.test_shadow_evidence_e2 import decide_busy
 from service.tests import test_delivery_turns as tdt
 
@@ -167,7 +168,7 @@ class ParityTest(FastApiTestCase):
         for case in HOLD_LAW:
             agent = f'p-{case.spec.name}'.replace('/', '-')
             self.client.post('/api/v1/agents', json={'agentId': agent, 'role': 'coder'}).raise_for_status()
-            INPUT_ADAPTER.apply(self._db_path, agent, case.spec)
+            LEGACY_ADAPTER.apply(self, agent, case.spec)  # the legacy reader, over the legacy inputs
             decision = asyncio.run(decide(agent))
             today = stc.ceiling_population(decision.receipt)
             self.assertNotEqual(today, stc.UNKNOWN_ELIGIBILITY, f'{agent}: a real receipt was unreadable')
@@ -289,57 +290,3 @@ class ObserverTest(unittest.TestCase):
         with mock.patch.object(self.recorder, 'record_owner', side_effect=RuntimeError('recorder broken')):
             self.observe(receipt(100), frame(holder(NOW + 1)))
         self.assertEqual(self.owner()['unavailableByReason'], {'claim': {'shadow-error': 1}})
-
-
-def turn_state_reads(act):
-    """How many statements naming agent_turn_state the service runs while `act()` runs: the ceiling's read budget."""
-    import aiosqlite
-    seen = []
-    real = aiosqlite.Connection.execute
-
-    def execute(conn, sql, *args, **kwargs):
-        if 'agent_turn_state' in str(sql):
-            seen.append(sql)
-        return real(conn, sql, *args, **kwargs)
-    with mock.patch.object(aiosqlite.Connection, 'execute', execute):
-        act()
-    return len(seen)
-
-
-class SendTimeSiteTest(_Sites, p7.SendTimeQueueWitness):
-    test_each_specimen_holds_or_releases_the_queue_as_its_law_says = None
-    test_an_active_run_or_an_earlier_queued_run_also_holds_the_queue = None
-
-    def test_a_busy_row_is_observed_and_an_idle_one_is_not(self):
-        self._assert_waits('s-held', self._queue_send('s-held', FRESH))
-        self._assert_woken('s-open', self._queue_send('s-open', CLOSED))
-        self.assertEqual(self.owner(stc.CEILING)['bySite']['send-time']['observed'], 1)
-
-    def test_the_ceiling_reads_nothing_more_at_send_time(self):
-        reads = turn_state_reads(lambda: self._assert_waits('s-budget', self._queue_send('s-budget', FRESH)))
-        self.assertEqual(self.owner(stc.CEILING)['bySite']['send-time']['observed'], 1, 'CONTROL: it was evaluated')
-        self.assertEqual(reads, SEND_TIME_TURN_STATE_READS, 'the ceiling added a turn-state read')
-
-    def test_a_failing_observer_changes_nothing(self):
-        with mock.patch.object(stc, 'ceiling_candidate', side_effect=RuntimeError('broken')):
-            self._assert_waits('s-broken', self._queue_send('s-broken', FRESH))
-        self.assertEqual(self.owner(stc.CEILING)['unavailableByReason'], {'send-time': {'shadow-error': 1}})
-
-
-class ClaimSiteTest(_Sites, p7.ClaimHoldWitness):
-    test_each_specimen_holds_or_releases_the_claim_as_its_law_says = None
-
-    def test_a_busy_row_is_observed_and_an_idle_one_is_not(self):
-        self._assert_held('c-held', self._claim('c-held', FRESH))
-        self._assert_claimed('c-open', self._claim('c-open', CLOSED))
-        self.assertEqual(self.owner(stc.CEILING)['bySite']['claim']['observed'], 1)
-
-    def test_the_ceiling_reads_nothing_more_at_claim(self):
-        reads = turn_state_reads(lambda: self._assert_held('c-budget', self._claim('c-budget', FRESH)))
-        self.assertEqual(self.owner(stc.CEILING)['bySite']['claim']['observed'], 1, 'CONTROL: it was evaluated')
-        self.assertEqual(reads, CLAIM_TURN_STATE_READS, 'the ceiling added a turn-state read')
-
-    def test_a_failing_observer_changes_nothing(self):
-        with mock.patch.object(stc, 'ceiling_candidate', side_effect=RuntimeError('broken')):
-            self._assert_held('c-broken', self._claim('c-broken', FRESH))
-        self.assertEqual(self.owner(stc.CEILING)['unavailableByReason'], {'claim': {'shadow-error': 1}})

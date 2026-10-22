@@ -123,8 +123,12 @@ class _Shadow:
                   mock.patch.object(shadow, 'clock', return_value=NOW)):
             p.start(); self.addCleanup(p.stop)
 
-    def publish(self, *records, machine=MACHINE, applied=FRESH):
+    def publish(self, *records, machine=MACHINE, applied=FRESH, reporting=False):
+        """`reporting`: the publisher also announced its interval, as the ingest records it, so after the 0.9.8 switch
+        the operational view reads its records as fresh at NOW (decision 2); without it they read `unknown`."""
         self.mirror.feed(shadow.Projection((machine, 'i1'), 'snapshot', 1, applied, records, ()))
+        if reporting:
+            self.mirror.renew_report((machine, 'i1'), applied, 60_000)
 
     def owner(self, name):
         return self.recorder.report()['byPurpose'][name]['variants']['-']
@@ -440,8 +444,9 @@ class SitesTest(_Shadow, _Db):
         super().setUp()
         self._register('m-agent', runtime='claude-code', sessionMode='managed')
         self._register('r-agent', runtime='codex', sessionMode='resident', sessionHandle='thread-r')
-        self.publish(shadow.Record('m-agent', 'L', 'idle', (), None, None, ('running', 'yes')),
-                     shadow.Record('r-agent', 'L', 'idle', (), None, None, ('running', 'yes')))
+        self.publish(shadow.Record('m-agent', 'L', 'idle', (), None, None, ('running', 'yes'), busy=False),
+                     shadow.Record('r-agent', 'L', 'idle', (), None, None, ('running', 'yes'), busy=False),
+                     reporting=True)
 
     def sites(self, owner):
         report = self.recorder.report()['byPurpose'][owner]['variants']['-']
@@ -455,12 +460,9 @@ class SitesTest(_Shadow, _Db):
         self.assertEqual(answer.status_code, 200, answer.text)
         return {aid: (a['status'], a.get('statusNote')) for aid, a in answer.json()['agents'].items()}
 
-    def test_both_gate_callers_hand_over_their_row(self):
-        self.roster()
-        one = self.client.get('/api/v1/agents/m-agent')
-        self.assertEqual(one.status_code, 200, one.text)
-        self.assertGreaterEqual(self.sites(vo.LIVE_COUNTS).get('gate', 0), 3)
-        self.assertNotIn('association', self.reasons(vo.LIVE_COUNTS).get('gate', {}))
+    # `test_both_gate_callers_hand_over_their_row` RETIRED WITH THE 0.9.8 SWITCH (SW5): no route calls the
+    # read-boundary gate any more (the served word is the operational view's), so the roster and the agent read have no
+    # gate observation to hand a row to. The gate's own branches are still observed below, called directly.
 
     def test_every_gate_branch_is_observed_and_an_absent_association_is_unknown(self):
         from service.api_core.registration_gates import _enforce_env_reachable_gate
@@ -494,9 +496,9 @@ class SitesTest(_Shadow, _Db):
             for path in ('/api/v1/analytics', '/api/v1/analytics/pulse'):
                 answer = self.client.get(path)
                 self.assertEqual(answer.status_code, 200, answer.text)
-        from service.status_engine import is_live_agent_status
-        self.assertEqual(sorted((site, live, is_live_agent_status(held)) for _, live, site, held in calls),
-                         [('series', False, False), ('series', True, True), ('summary', False, False),
+        from service.api_core.operational_view import counts_live
+        self.assertEqual(sorted((site, live, counts_live(held)) for _, live, site, held in calls),
+                         [('series', True, True), ('series', True, True), ('summary', True, True),
                           ('summary', True, True)], 'each site hands over the status its own answer came from')
         self.assertEqual({s: n >= 2 for s, n in self.sites(vo.LIVE_COUNTS).items() if s != 'gate'},
                          {'summary': True, 'series': True})
@@ -564,7 +566,7 @@ class SitesTest(_Shadow, _Db):
             finally:
                 await db.close()
         self.assertEqual(asyncio.run(twin()), '')
-        self.assertIn('shadow-error', self.reasons(vo.LIVE_COUNTS).get('gate', {}))
+        self.assertIn('shadow-error', self.reasons(vo.LIVE_COUNTS).get('summary', {}))
         self.assertIn('shadow-error', self.reasons(vo.READINESS).get('twin', {}))
         with mock.patch.object(self.recorder, 'record_owner', side_effect=RuntimeError('recorder broken')):
             self.assertEqual(self.roster(), before)
@@ -600,8 +602,8 @@ class SiteOutcomeTest(_Shadow, _Db):
 
     def managed(self, agent_id, *, worker=False):
         self._register(agent_id, runtime='claude-code', sessionMode='managed')
-        self.publish(*[shadow.Record(a, 'L', 'idle', (), None, None, ('running', 'yes'))
-                       for a in self.published + [agent_id]])
+        self.publish(*[shadow.Record(a, 'L', 'idle', (), None, None, ('running', 'yes'), busy=False)
+                       for a in self.published + [agent_id]], reporting=True)
         self.published.append(agent_id)
         if worker:
             self._bridge(agent_id, 'channel-sidecar')
@@ -628,8 +630,9 @@ class SiteOutcomeTest(_Shadow, _Db):
         self._register('an-stop', runtime='codex', sessionMode='managed')
         self._exec("UPDATE agents SET status = 'stopped' WHERE id = 'an-stop'")
         self.assertEqual({a: s for a, (s, _) in self.roster().items()},
-                         {'an-avail': 'available', 'an-off': 'offline', 'an-stop': 'stopped'},
-                         'the fixture: one live status (available) beside two non-live ones')
+                         {'an-avail': 'online', 'an-off': 'unknown', 'an-stop': 'stopped'},
+                         'the fixture after the 0.9.8 switch: one live word (aify-env reports it idle) beside an '
+                         'unknown one (no record) and an operator stop of an undefined agent')
         for name in ARMS:
             with self.subTest(name):
                 with self.arm(name):
@@ -650,7 +653,7 @@ class SiteOutcomeTest(_Shadow, _Db):
                 decision = [(h['targetAgentId'], h['reason'].split(':')[0]) for h in body.get('notStarted') or []]
                 self.assertEqual((body['ok'], body['stored'], body['recipientStatus'][agent]['status'],
                                   body['recipientStatus'][agent]['unread'], decision, self._rows_of(agent)),
-                                 (True, True, 'available', 1,
+                                 (True, True, 'online', 1,
                                   [(agent, 'Cannot start managed claude-code for this agent')], []),
                                  'an undefined managed agent: stored in its inbox, the wake refused, no run')
 
@@ -684,7 +687,7 @@ class SiteOutcomeTest(_Shadow, _Db):
                 self.assertEqual(answer.status_code, 200, answer.text)
                 refused = [h for h in answer.json().get('notStarted') or [] if h.get('targetAgentId') == agent]
                 self.assertEqual([(h['reason'], h['recipientStatus'], h['hasActiveRun'], h['bufferedCount'])
-                                  for h in refused], [('buffer_full', 'available', False, 1)], answer.json())
+                                  for h in refused], [('buffer_full', 'online', False, 1)], answer.json())
                 self.assertEqual(self._rows_of(agent), [(f'run-{agent}', 'queued', 'first')],
                                  'the buffered run is kept unchanged and nothing new is stored')
 

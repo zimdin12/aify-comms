@@ -5,6 +5,10 @@ Each witness runs beside its twin: the same recipient with the hold off. A held 
 step as its twin (a cold start, a console start), and must never be put on a console, which is the only delivery this
 path makes. The run itself is created by the caller and waits for the claim gate in both cases; that is not decided
 here.
+
+After the 0.9.8 switch the hold reads the operational view: unknown eligibility holds whatever the queue choice, and
+with eligibility known an explicit queue waits for an occupied run or aify-env's busy. The view is replaced here by
+the one each case names (`env`), since this loop is driven with a stand-in database.
 """
 from __future__ import annotations
 
@@ -13,8 +17,7 @@ import types
 import unittest
 from unittest import mock
 
-from service.api_core import dispatch_launch
-from service.api_core.claim_gating import BusyDecision
+from service.api_core import dispatch_launch, operational_view, switched_view
 
 TERMINAL = {"terminal_id": "term-1", "environment_id": "env-1", "bridge_id": "bridge-1"}
 
@@ -37,7 +40,8 @@ class _Db:
 
 class AHeldSendStillEnsuresBacking(unittest.TestCase):
 
-    def _run(self, *, runtime, execution_mode, held, settings, live_terminal, turn_holds=None):
+    def _run(self, *, runtime, execution_mode, held, settings, live_terminal, env="idle"):
+        """`env`: what aify-env's record says, 'idle' or 'busy', or 'unknown' for eligibility comms cannot read."""
         calls = {"cold": [], "pty": []}
 
         async def cold(db, agent_id, **kw):
@@ -58,14 +62,14 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
             return row, None
 
         async def dispatch_state(db, agent_id):
-            # The hold's run terms. With turn_holds None the turn term is left out (decision None) so it cannot decide.
+            # The hold's run terms.
             return {"hasActiveRun": held, "queuedRuns": 0}
 
-        async def decision(db, agent_id):
-            return None if turn_holds is None else BusyDecision(holds=turn_holds)
-
-        async def no_observation(*_a, **_k):
-            return None
+        def view(_row, binding=None, run_occupied=False):
+            known = env != "unknown"
+            busy = {"idle": False, "busy": True}.get(env)
+            return operational_view.View("unknown" if not known else ("working" if busy else "online"), None, True,
+                                         "known" if known else "unknown", busy, busy if known else None, False)
 
         patches = {
             "_coldstart_spawn_request_for_dispatch": cold,
@@ -75,21 +79,14 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
             "_has_claimable_spawn_request": no,
             "_auto_return_resident_to_managed_if_possible": passthrough,
             "_get_dispatch_state_for_agent": dispatch_state,
-            "turn_busy_decision": decision,
         }
         for name, value in patches.items():
             patcher = mock.patch.object(dispatch_launch, name, new=value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        observe = mock.patch.object(dispatch_launch.busy_consumers, "observe_queue", new=lambda *a, **k: None)
-        observe.start()
-        self.addCleanup(observe.stop)
-        # The status shadow's observers run only beside a decision; they never change the answer.
-        for target, name, value in ((dispatch_launch.comms_view, "observe_busy", no_observation),
-                                    (dispatch_launch.stale_turn_ceiling, "observe_ceiling", lambda *a, **k: None)):
-            patcher = mock.patch.object(target, name, new=value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(switched_view, "eligibility_view", new=view)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         console, not_started, failed = {}, [], set()
         req = types.SimpleNamespace(queueIfBusy=True, from_agent="dashboard")
@@ -116,16 +113,32 @@ class AHeldSendStillEnsuresBacking(unittest.TestCase):
         self.assertEqual(twin, {"agent-1": TERMINAL}, "the control: the twin is delivered on its console")
         self.assertEqual(held, {}, "a held send must deliver nothing")
 
-    def test_a_recipient_held_only_by_its_turn_is_never_put_on_a_console(self):
-        """No active run and no queued run: the turn alone holds. Its twin carries an engaged decision that does not
-        hold, so both pass through the same branch and only the turn's answer differs."""
+    def test_a_recipient_held_only_by_aify_envs_busy_is_never_put_on_a_console(self):
+        """No active run and no queued run: aify-env's busy alone holds. Its twin is the same recipient known idle."""
         settings = {"insert_messages_via_console": True, "managed_terminal_backing_enabled": True}
         _, held = self._run(runtime="generic", execution_mode="", held=False, settings=settings, live_terminal=True,
-                            turn_holds=True)
-        _, twin = self._run(runtime="generic", execution_mode="", held=False, settings=settings, live_terminal=True,
-                            turn_holds=False)
+                            env="busy")
+        _, twin = self._run(runtime="generic", execution_mode="", held=False, settings=settings, live_terminal=True)
         self.assertEqual(twin, {"agent-1": TERMINAL}, "the control: the unheld twin is delivered on its console")
-        self.assertEqual(held, {}, "a send held only by the turn must deliver nothing")
+        self.assertEqual(held, {}, "a send held only by aify-env's busy must deliver nothing")
+
+    def test_an_unknown_recipient_is_never_put_on_a_console_and_is_still_cold_started(self):
+        """Page 1: every delivery route checks eligibility first, so unknown puts nothing on a console; and the
+        ordering rule: an unknown agent with no backing is still started, or its record would never come."""
+        console_settings = {"insert_messages_via_console": True, "managed_terminal_backing_enabled": True}
+        _, held = self._run(runtime="generic", execution_mode="", held=False, settings=console_settings,
+                            live_terminal=True, env="unknown")
+        _, twin = self._run(runtime="generic", execution_mode="", held=False, settings=console_settings,
+                            live_terminal=True)
+        self.assertEqual(twin, {"agent-1": TERMINAL}, "the control: the known idle twin is delivered on its console")
+        self.assertEqual(held, {}, "an unknown recipient must be put on no console")
+        channel_settings = {"insert_messages_via_console": False, "managed_terminal_backing_enabled": True}
+        unknown, _ = self._run(runtime="claude-code", execution_mode="channel", held=False, settings=channel_settings,
+                               live_terminal=False, env="unknown")
+        twin, _ = self._run(runtime="claude-code", execution_mode="channel", held=False, settings=channel_settings,
+                            live_terminal=False)
+        self.assertTrue(twin["cold"], "the control: the known idle twin with no backing is cold-started")
+        self.assertEqual(unknown, twin, "an unknown recipient with no backing is started exactly as its twin is")
 
 
 if __name__ == "__main__":

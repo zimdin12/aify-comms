@@ -32,6 +32,7 @@ from pathlib import Path
 
 from service.api_core.definition_snapshot import definition_digest, snapshot_digest
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.test_the_env_plugin_addresses_routes_this_service_serves import (
     PLUGIN_DIR, env_repo,
@@ -91,6 +92,9 @@ class TheEnvPluginReadsWhatThisServiceAnswers(FastApiTestCase):
     # ── the round trip ───────────────────────────────────────────────────────────────────────
 
     def _roster(self) -> dict:
+        # After the 0.9.8 switch the word on our row is aify-env's: the host that defines the agent and runs nothing
+        # for it publishes it `available` (env_records.startable), which is what its plugin reads back here.
+        env_records.report(self, AGENT_ID, records={AGENT_ID: env_records.startable(AGENT_ID)})
         roster = self.client.get("/api/v1/agents")
         self.assertEqual(roster.status_code, 200, roster.text)
         return roster.json()

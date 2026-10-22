@@ -1,4 +1,10 @@
-"""Partial shadow through accepted ingest and the actual status owners, offline only."""
+"""Partial shadow through accepted ingest and the actual status owners, offline only.
+
+AFTER THE 0.9.8 SWITCH the shadow observes the legacy word (what a rollback would serve) beside aify-env's, and the
+served word is the operational view's. These tests drive the owners with a stand-in database that answers every query
+with the agent row, which the view's own reads cannot use, so the view is replaced by one that agrees with the
+legacy word (`_view_agrees`): their subject is the observer, which must see each owner's legacy selection once and
+change nothing. The view itself is witnessed in test_the_switched_word_is_aify_envs.py."""
 import asyncio
 import json
 import sqlite3
@@ -30,6 +36,21 @@ class PartialShadowTest(FastApiTestCase):
         for p in self.patches:
             p.start(); self.addCleanup(p.stop)
         self.agent = {'id': 'alpha', 'machine_id': ' Host '}
+        self._view_agrees()
+
+    def _view_agrees(self):
+        """The served word equals the legacy one, with no last-known note (see the module docstring)."""
+        from service.api_core import operational_view, switched_view
+
+        async def word_into(db, agent_row, cache, dispatch_state=None):
+            cache['last_known'] = None
+            return cache
+
+        async def view_for(db, agent_row, dispatch_state=None, binding=None):
+            return operational_view.View(str(agent_row.get('status') or ''), None, True, 'known', False, False, False)
+
+        agrees = patch.multiple(switched_view, word_into=word_into, view_for=view_for)
+        agrees.start(); self.addCleanup(agrees.stop)
 
     def apply(self, value, at=AT, factory=None):
         from service.api_core.agent_state_shadow import AgentStateShadowStore
@@ -181,7 +202,7 @@ class PartialShadowTest(FastApiTestCase):
                     with patch.object(status_broadcast, '_compute_live_status_cache', AsyncMock(return_value=dict(cache))), \
                          patch.object(status_broadcast, '_load_settings', AsyncMock(return_value={'x': True})):
                         await status_broadcast._broadcast_agent_status(self.ws, DB(), 'alpha')
-                    self.assertEqual(self.ws.broadcasts[-1][0][1], {'agentId': 'alpha', 'status': 'working', 'statusNote': ''})
+                    self.assertEqual(self.ws.broadcasts[-1][0][1], {'agentId': 'alpha', 'status': 'working', 'statusNote': '', 'lastKnown': None})
                     with patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())) as get:
                         self.assertEqual(await status_inputs.engine_status(DB(), self.agent), 'working')
                         self.assertEqual(get.call_count, 1)
@@ -308,7 +329,7 @@ class PartialShadowTest(FastApiTestCase):
             with patch.object(status_broadcast, '_compute_live_status_cache', side_effect=cache), \
                  patch.object(status_broadcast, '_load_settings', AsyncMock(return_value={'x': True})):
                 await status_broadcast._broadcast_agent_status(self.ws, DB(), 'alpha')
-            self.assertEqual(self.ws.broadcasts[-1][0][1], {'agentId': 'alpha', 'status': 'working', 'statusNote': ''})
+            self.assertEqual(self.ws.broadcasts[-1][0][1], {'agentId': 'alpha', 'status': 'working', 'statusNote': '', 'lastKnown': None})
             self.apply_projection()
             with patch.object(status_inputs, '_gather_status_inputs', side_effect=gather) as get, \
                  patch.object(status_inputs, 'derive', wraps=status_inputs.derive) as derive:
@@ -412,7 +433,7 @@ class PartialShadowTest(FastApiTestCase):
                  patch.object(self.shadow, 'clock') as clock:
                 await status_broadcast._broadcast_engine_status(self.ws, DB(), 'alpha')
                 self.assertEqual(self.ws.broadcasts[-1][0][1],
-                                 {'agentId': 'alpha', 'status': 'stopped', 'statusNote': 'operator note'})
+                                 {'agentId': 'alpha', 'status': 'stopped', 'statusNote': 'operator note', 'lastKnown': None})
                 await status_broadcast._broadcast_engine_status(self.ws, Missing(), 'missing')
                 self.assertEqual(len(self.ws.broadcasts), 1)
                 engine.assert_not_called()

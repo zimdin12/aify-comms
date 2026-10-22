@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import time
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 HOME = "local-agent"
@@ -189,6 +190,7 @@ class EveryReaderSeesWhereAnExternalMessageCameFrom(FastApiTestCase):
         })
         self.assertEqual(response.status_code, 200, response.text)
         _seed_run(message_id=message["id"], from_agent=STRANGER, target="claimer")
+        env_records.report(self, "claimer")  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post("/api/v1/dispatch/claim", json={
             "agentId": "claimer", "bridgeId": "channel-linux:test-host-claimer",
             "bridgeKind": "channel-sidecar", "machineId": "linux:test-host",
@@ -236,6 +238,7 @@ class EveryReaderSeesWhereAnExternalMessageCameFrom(FastApiTestCase):
         }).raise_for_status()
         [busy] = [m for m in self._inbox_of("claimer") if m["subject"] == "keep it busy"]
         _seed_run(message_id=busy["id"], from_agent=HOME, target="claimer")
+        env_records.report(self, "claimer")  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post("/api/v1/dispatch/claim", json={
             "agentId": "claimer", "bridgeId": "channel-linux:test-host-claimer",
             "bridgeKind": "channel-sidecar", "machineId": "linux:test-host",

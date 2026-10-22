@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 
@@ -110,7 +111,7 @@ class ResidentHermesMissingHandleStatusTests(FastApiTestCase):
         self._register_resident_hermes(
             "hermes-live", runtime_config={"gatewayUrl": self.GATEWAY_URL}
         )
-        info = self._agent("hermes-live")
+        info = env_records.rollback_agent(self, "hermes-live")  # the legacy word, which a rollback serves
         self.assertEqual(
             info["wakeMode"], "hermes-live",
             f"precondition: gatewayUrl present → hermes-live; got {info['wakeMode']!r}",
@@ -131,7 +132,7 @@ class ResidentHermesMissingHandleStatusTests(FastApiTestCase):
             "hermes-livestale", runtime_config={"gatewayUrl": self.GATEWAY_URL}
         )
         self._age_resident_bridge("hermes-livestale", minutes=20)
-        info = self._agent("hermes-livestale")
+        info = env_records.rollback_agent(self, "hermes-livestale")  # the legacy word, which a rollback serves
         self.assertEqual(
             info["status"], "offline",
             f"a live-bound resident hermes with a silent bridge must be offline; got {info['status']!r}",

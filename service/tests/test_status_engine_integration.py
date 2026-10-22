@@ -1,4 +1,5 @@
 import sqlite3
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.api_core.routing import logger
 from service.api_core.settings import _load_settings
@@ -149,9 +150,8 @@ class StatusEventIngestTests(FastApiTestCase):
         self.client.post("/api/v1/agents/a3/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
         self.client.post("/api/v1/agents/a3/status-event", json={"kind": "turn_start", "runId": "r1"})
         self._set("status_engine", "new")
-        r = self.client.get("/api/v1/agents")
-        a = r.json()["agents"]["a3"]
-        self.assertEqual(a["status"], "working")
+        # The legacy engine's word, which a rollback serves; the served word is aify-env's after the 0.9.8 switch.
+        self.assertEqual(env_records.rollback_word(self, "a3"), "working")
 
     def _agent_status_events(self):
         return [
@@ -167,6 +167,7 @@ class StatusEventIngestTests(FastApiTestCase):
         self._register("d1", mode="resident")
         self.client.post("/api/v1/agents/d1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
         self._set("status_engine", "new")
+        env_records.report(self, "d1", busy=True)  # after the 0.9.8 switch the pushed word is aify-env's
         self.ws.broadcasts.clear()
         r = self.client.post("/api/v1/agents/d1/status-event", json={"kind": "turn_start", "runId": "r1"})
         self.assertEqual(r.status_code, 200, r.text)
@@ -286,15 +287,16 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         return asyncio.run(runner())
 
     def _refreshed_status(self, aid):
-        """Run _refresh_agent_live_state and read back the status from the
-        in-memory cache (refresh is in-memory now — no DB row to SELECT)."""
+        """Run _refresh_agent_live_state and read back the legacy status it derived from the
+        in-memory cache (refresh is in-memory now — no DB row to SELECT). After the 0.9.8 switch the
+        served word is aify-env's; the legacy one is kept beside it for the rollback."""
 
         async def factory(db):
             settings = await _load_settings(db)
             await _invalidate_agent_live_state(db, aid)
             await _refresh_agent_live_state(db, aid, settings=settings)
             entry = _live_state_get(aid)
-            return str(entry["status"]) if entry else None
+            return str(entry["legacy_status"]) if entry else None
 
         return self._run(factory)
 

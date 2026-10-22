@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import hashlib
 import asyncio
 
-from service.api_core import delivery_turns, partial_status_shadow as shadow
+from service.api_core import delivery_turns, partial_status_shadow as shadow, switched_view
 from service.api_core.shadow_provenance import is_build
 
 _INGEST_LOCK = asyncio.Lock()
@@ -211,6 +211,21 @@ def _retire(key):
         shadow.recorder.lost(lost)
 
 
+async def _expire_changed(db, before):
+    """The served word is the operational view's (0.9.8 switch). Every agent on a machine whose publishers this
+    publication changed re-reads it on the next poll, not only the agents the publication names: an unavailable, lost,
+    retired or recovered publisher changes what every agent on its machine can be known as (SW5 review R2). A failure
+    here leaves words to their own refresh times, never a committed apply undone."""
+    try:
+        try:
+            after = shadow.mirror.view()
+        except Exception:
+            after = None
+        await switched_view.expire_machines(db, switched_view.changed_machines(before, after))
+    except Exception:
+        pass
+
+
 def _json(value):
     return json.dumps(value, ensure_ascii=True, separators=(',', ':'))
 
@@ -253,8 +268,13 @@ class AgentStateShadowStore:
             except BaseException:
                 await db.rollback()
                 raise
+            try:
+                before = shadow.mirror.view()
+            except Exception:
+                before = None
             if body['kind'] == 'retired':
                 _retire(key)
+                await _expire_changed(db, before)
                 return ApplyResult(True)
             # Outside transaction rollback handling, before the next await including close.
             try:
@@ -280,6 +300,7 @@ class AgentStateShadowStore:
             except Exception:
                 view, projection = None, None
             delivery_turns.publish_applied(projection, view)
+            await _expire_changed(db, before)
             return ApplyResult(True)
         finally:
             await db.close()

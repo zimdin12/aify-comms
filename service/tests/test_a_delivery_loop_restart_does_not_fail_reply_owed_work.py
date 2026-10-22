@@ -23,6 +23,7 @@ import time
 from service.db import get_db
 from service.reconcilers.dispatch_lifecycle import _fail_stranded_delivered_reply_runs
 from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 AGENT = "hermes-restarting"
@@ -45,6 +46,9 @@ class ADeliveryLoopRestartDoesNotFailReplyOwedWorkTests(FastApiTestCase):
             "runtimeConfig": {"gatewayUrl": "ws://127.0.0.1:9119/api/ws?token=t"},
         })
         self.assertEqual(response.status_code, 200, response.text)
+        # Known idle, as aify-env reports it after the 0.9.8 switch: a busy or unknown agent protects every run
+        # (operator decision R3), which would make the restart grace below untestable.
+        env_records.report(self, AGENT)
 
     def _seed(self, *, lease_state: str, lease_changed_seconds_ago: int, run_status: str):
         with sqlite3.connect(self._db_path) as db:

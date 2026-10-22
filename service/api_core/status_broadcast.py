@@ -22,7 +22,7 @@ triggered it -- the state change already happened, and the next poll will show i
 """
 from __future__ import annotations
 
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import partial_status_shadow as shadow, switched_view
 
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _row_status_note
@@ -51,27 +51,30 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
         shadow_identity = shadow.association(row)
         settings = await _load_settings(db)
         cache = await _compute_live_status_cache(db, row, settings=settings)
-        status = cache.get("status") or ""
-        # PUSH/POLL PARITY: the WS push serves the SAME proof-engine value the polled read does
-        # (derive of the assembled inputs), so a push never overwrites a correct polled status.
-        note = cache.get("reason") or ""
-        if status not in _MANUAL_STATUSES:
+        # PUSH/POLL PARITY after the 0.9.8 switch: the push serves the operational view's word, exactly as the poll
+        # does (status_refresh), note and last-known included, over the same legacy word the poll derives first (its
+        # note blanked where the derivation disagrees). An unreadable view pushes `unknown`. The shadow keeps comparing
+        # the legacy word, the one a rollback would serve.
+        legacy = cache.get("status") or ""
+        if legacy not in _MANUAL_STATUSES:
             try:
-                _derived = derive(cache["status_inputs"])
-                # PUSH/POLL PARITY of the NOTE too (2026-07-10 review): the polled
-                # read blanks the legacy-cascade reason when derive() disagrees
-                # (the reason describes the superseded status). Mirror it here so the
-                # WS-pushed statusNote never contradicts the pushed status.
-                if _derived != status:
-                    note = ""
-                status = _derived
+                derived = derive(cache["status_inputs"])
+                if derived != legacy:
+                    cache["reason"] = ""
+                cache["status"] = legacy = derived
             except Exception:
                 pass
-        shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), status, "cache-broadcast")
+        try:
+            cache = await switched_view.word_into(db, row, cache)
+        except Exception:
+            cache.update(status="unknown", reason="comms could not read aify-env's record of this agent", last_known=None)
+        status, note = cache.get("status") or "", cache.get("reason") or ""
+        shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), legacy, "cache-broadcast")
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
             "status": status,
             "statusNote": note,
+            "lastKnown": cache.get("last_known"),
         })
     except Exception:
         pass
@@ -99,16 +102,28 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
         # identically — surface the persisted status, not an engine derivation.
         manual = str(row["status"] or "").strip().lower()
         if manual in _MANUAL_STATUSES:
-            status = manual
-            note = _row_status_note(row)
-            shadow.observe(None, None, None, status, "engine-status")
+            shadow.observe(None, None, None, manual, "engine-status")
         else:
-            status = await engine_status(db, row, settings=settings)
-            note = ""
+            await engine_status(db, row, settings=settings)  # the legacy derivation, for the shadow and the rollback
+        # THE PUSHED WORD AFTER THE 0.9.8 SWITCH is the operational view's, the same one the poll serves: aify-env's
+        # record, unknown first, the D8 rows (an undefined agent's operator stop among them) and row 5. An unreadable
+        # view pushes `unknown`, never the legacy word.
+        try:
+            view = await switched_view.view_for(db, row)
+            status, note, last_known = view.status, switched_view.note_of(view), switched_view.last_known_api(view)
+            # D8 row 1: the operator's stop, with the operator's own note, as the poll serves it. Only a real operator
+            # stop is that authority: a registration's raw word that happens to equal the view's word is not.
+            if status == manual and manual in _MANUAL_STATUSES:
+                note = _row_status_note(row)
+            elif status == "misconfigured":  # comms' own reason beside aify-env's word, as the poll serves it
+                note = await switched_view.misconfigured_note(db, row)
+        except Exception:
+            status, note, last_known = "unknown", "comms could not read aify-env's record of this agent", None
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
             "status": status or "",
             "statusNote": note or "",
+            "lastKnown": last_known,
         })
     except Exception:
         pass

@@ -3,9 +3,16 @@
 Steven, 2026-10-13: "should not be available if env does not allow running". aify-env starts work only below the
 folder it was started in and advertises that as `advertisedCwdRoots`; dashboard-manager's workspace was outside it,
 read `available`, and every start was refused.
+
+AFTER THE 0.9.8 SWITCH the served word is aify-env's. The rule is aify-env's to apply: an outside-roots definition
+publishes `misconfigured` (aify-env f704bcdf, the env-side correction SW5 review R5 asked for), with no reason on the
+wire. comms serves that word, never `available`, and keeps its own note beside it, since it holds both facts (the
+definition's workspace and the environment's advertised roots). The legacy derivation a rollback serves keeps its own
+witnesses below (env_records.rollback_agent).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import sqlite3
@@ -14,6 +21,7 @@ import subprocess
 import pytest
 
 from service.api_core.workspace import workspace_within_roots
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_definition_push import ENV_REPOS
 
@@ -69,8 +77,44 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             db.close()
 
     def status(self, agent_id):
-        agent = self.client.get("/api/v1/agents").json()["agents"][agent_id]
+        agent = env_records.rollback_agent(self, agent_id)  # the legacy word and note, which a rollback serves
         return agent["status"], agent.get("statusNote") or ""
+
+    def _env_says(self, agent_id, state):
+        """What its host's aify-env publishes for this defined agent with no process: `available` (startable) or, for
+        an outside-roots definition (aify-env f704bcdf), `misconfigured` (config), with no reason on the wire."""
+        record = dict(env_records.startable(agent_id), state=state,
+                      stateCause="config" if state == "misconfigured" else "startable")
+        env_records.report(self, agent_id, records={agent_id: record})
+        agent = self.client.get(f"/api/v1/agents/{agent_id}").json()["agent"]
+        return agent["status"], agent.get("statusNote") or ""
+
+    def test_the_switched_word_serves_aify_envs_misconfigured_with_comms_own_note(self):
+        """The served word once its host's aify-env publishes it misconfigured, and comms' reason beside it."""
+        status, note = self._env_says("outside", "misconfigured")
+        self.assertEqual(status, "misconfigured")
+        self.assertIn("Cannot be started:", note)
+        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+
+    def test_the_note_is_kept_when_the_legacy_derivation_never_reached_misconfigured(self):
+        """The legacy inputs judge the defect only for an agent whose environment answers; with its heartbeat gone they
+        say `offline` and carry no defect, while aify-env still knows the definition is outside its roots. The note
+        must come from comms' own facts then too, not from the legacy word happening to agree."""
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute("UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = 'win32:host:default'")
+            db.commit()
+        finally:
+            db.close()
+        self.assertNotEqual(self.status("outside")[0], "misconfigured", "CONTROL: the legacy word is not misconfigured")
+        status, note = self._env_says("outside", "misconfigured")
+        self.assertEqual(status, "misconfigured")
+        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+
+    def test_CONTROL_inside_the_roots_serves_aify_envs_word_with_no_such_note(self):
+        status, note = self._env_says("inside", "available")
+        self.assertEqual(status, "available")
+        self.assertNotIn("Cannot be started", note)
 
     def test_a_workspace_outside_the_advertised_folders_is_not_available_and_says_why(self):
         # `misconfigured` is the engine's word for an identity no start can reach until a human fixes it.
@@ -161,7 +205,7 @@ class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
         finally:
             db.close()
         self.assertNotIn("environmentId", json.loads(state or "{}"), "the fixture is no longer an unbound agent")
-        agent = self.client.get("/api/v1/agents").json()["agents"]["lead"]
+        agent = env_records.rollback_agent(self, "lead")  # the legacy word and note, which a rollback serves
         return agent["status"], agent.get("statusNote") or ""
 
     def test_outside_the_folder_it_reads_misconfigured(self):
@@ -171,3 +215,73 @@ class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
 
     def test_inside_the_folder_it_stays_available(self):
         self.assertEqual(self.status_of("C:/allowed/work")[0], "available")
+
+
+class TheEnginePushKeepsTheReasonWhateverTheRegistrationSaid(FastApiTestCase):
+    """SW5 successor review (REVISE_SOURCE_SW5_324966EF_R5_ENGINE_NOTE). The engine push swapped the composed reason for
+    the registry's own note whenever the registry's raw word equalled the view's word, treating a registration's
+    `status: misconfigured` as an operator override. Only an operator stop is that (`_MANUAL_STATUSES`).
+
+    Everything goes through the real handlers: registration (with the raw word), the environment heartbeat with its
+    launch roots, the host's definition snapshot (outside them), and aify-env's record. The idle-registration twin
+    differs only in the raw word; the stop-precedence control is an undefined agent the operator stopped."""
+
+    MACHINE, ENV, BRIDGE = "win32:host", "win32:host:default", "bridge-host"
+
+    def setUp(self):
+        super().setUp()
+        self.client.post("/api/v1/environments/heartbeat", json={
+            "id": self.ENV, "machineId": self.MACHINE, "os": "win32", "kind": "win32", "bridgeId": self.BRIDGE,
+            "runtimes": [], "metadata": {"launchRoots": ["C:/Docker/aify-comms"]}}).raise_for_status()
+
+    def _registered_outside(self, agent_id, raw_status):
+        from service.tests.defined_agents import define
+
+        self.client.post("/api/v1/agents", json={
+            "agentId": agent_id, "role": "coder", "runtime": "claude-code", "sessionMode": "managed",
+            "machineId": self.MACHINE, "status": raw_status}).raise_for_status()
+        define(self, agent_id, environment_id=self.ENV, machine_id=self.MACHINE, bridge_id=self.BRIDGE,
+               workspace="C:/Docker/aify-dashboard")
+        record = dict(env_records.startable(agent_id), state="misconfigured", stateCause="config")
+        env_records.report(self, agent_id, records={agent_id: record})
+
+    def _engine_push(self, agent_id):
+        from service.api_core.status_broadcast import _broadcast_engine_status
+        from service.db import get_db
+
+        async def push():
+            db = await get_db()
+            try:
+                await _broadcast_engine_status(self.ws, db, agent_id)
+            finally:
+                await db.close()
+        self.ws.broadcasts.clear()
+        asyncio.run(push())
+        [payload] = [args[1] for args, _ in self.ws.broadcasts if args and args[0] == "agent_status"]
+        return payload["status"], payload["statusNote"]
+
+    def test_a_registration_saying_misconfigured_does_not_blank_the_pushed_reason(self):
+        self._registered_outside("raw-misconfigured", "misconfigured")
+        polled = self.client.get("/api/v1/agents/raw-misconfigured").json()["agent"]
+        self.assertEqual(polled["status"], "misconfigured", "CONTROL: the poll")
+        self.assertIn("Cannot be started:", polled["statusNote"], "CONTROL: the poll keeps the reason")
+        status, note = self._engine_push("raw-misconfigured")
+        self.assertEqual(status, "misconfigured")
+        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+
+    def test_TWIN_a_registration_saying_idle_keeps_the_pushed_reason(self):
+        self._registered_outside("raw-idle", "idle")
+        status, note = self._engine_push("raw-idle")
+        self.assertEqual(status, "misconfigured")
+        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+
+    def test_CONTROL_an_operator_stop_still_pushes_stopped_with_the_operators_note(self):
+        self.client.post("/api/v1/agents", json={
+            "agentId": "stopped-here", "role": "coder", "runtime": "codex", "sessionMode": "managed",
+            "machineId": self.MACHINE}).raise_for_status()
+        env_records.report(self, "stopped-here")
+        self.client.post("/api/v1/agents/stopped-here/control",
+                         json={"action": "stop", "from_agent": "dashboard"}).raise_for_status()
+        status, note = self._engine_push("stopped-here")
+        self.assertEqual(status, "stopped")
+        self.assertEqual(note, "Stopped from dashboard. Resume to allow wake/dispatch again.")

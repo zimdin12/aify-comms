@@ -33,7 +33,8 @@ from service.api_core.reply_expectation import (
 from service.api_core.reply_threading import _thread_reply_onto_dispatch_runs
 from service.api_core.send_refusal import _refuse_send_to_unstartable_recipients
 from service.api_core.dispatch_hint import unresolved_new_destinations
-from service.api_core.wake_notice import REPLAY_NOTICE, wake_failed_notice
+from service.api_core.wake_notice import REPLAY_NOTICE, held_notice, wake_failed_notice
+from service.api_core import switched_view
 from service.api_core.console_input_queue import _queue_console_dispatch_inputs
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -239,6 +240,7 @@ async def send_message(req: MessageSend, request: Request):
                 "recipientStatus": {},
                 "dispatchRuns": [],
                 "notStarted": [],
+                "held": [],
                 "consoleDeliveries": [],
                 "warnings": [],
             }
@@ -248,6 +250,7 @@ async def send_message(req: MessageSend, request: Request):
         )
 
         dispatch_runs = []
+        held = []
         if req.trigger:
             require_reply = _dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))
             source_message_ids = {
@@ -274,6 +277,12 @@ async def send_message(req: MessageSend, request: Request):
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
             await _apply_channel_routing_to_claude_runs(db, dispatch_runs, settings)
+            # A run queued with nothing that will start it is kept, and the answer says it is held and why (SW5
+            # review R3): it is not in notStarted, which would mean no run.
+            reasons = await switched_view.held_reasons(db, [r for r, _ in launchable_recipients])
+            held = [{"targetAgentId": run.get("targetAgentId"), "runId": run.get("runId"),
+                     "reason": reasons[run.get("targetAgentId")]}
+                    for run in dispatch_runs if run.get("targetAgentId") in reasons]
 
         console_deliveries = []
         await _queue_console_dispatch_inputs(
@@ -317,11 +326,12 @@ async def send_message(req: MessageSend, request: Request):
             "ok": True,
             "messageId": msg_id,
             "stored": inserted_rows > 0,
-            "notice": "" if is_reply else wake_failed_notice(not_started),
+            "notice": "" if is_reply else " ".join(t for t in (wake_failed_notice(not_started), held_notice(held)) if t),
             "recipients": recipients,
             "recipientStatus": recipient_info,
             "dispatchRuns": dispatch_runs,
             "notStarted": not_started,
+            "held": held,
             "consoleDeliveries": console_deliveries,
             "warnings": warnings,
         }

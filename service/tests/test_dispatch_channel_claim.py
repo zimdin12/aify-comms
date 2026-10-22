@@ -23,6 +23,7 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.defined_agents import define
 
@@ -181,6 +182,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def _assert_environment_claim_blocked(self, *, agent_id: str, runtime: str) -> None:
+        env_records.report(self, agent_id)  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -198,6 +200,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
     def _assert_wrapper_child_channel_claim_succeeds(self, *, agent_id: str, run_id: str, runtime: str) -> None:
         bridge_id = f"{agent_id}-wrapper-child"
         self._register_wrapper_child_bridge(agent_id=agent_id, runtime=runtime, bridge_id=bridge_id)
+        env_records.report(self, agent_id)  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -221,6 +224,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         )
 
     def _assert_wrapper_child_channel_claim_blocked(self, *, agent_id: str, runtime: str, bridge_id: str, reason: str) -> None:
+        env_records.report(self, agent_id)  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -354,6 +358,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         self._heartbeat_environment("hermes")
         self._register_managed_agent(agent_id="hermes-sidecar", runtime="hermes")
         run_id = self._dispatch_to("hermes-sidecar")
+        env_records.report(self, "hermes-sidecar")  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -401,6 +406,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self._define("claude-sidecar", "claude-code")
         run_id = self._dispatch_to("claude-sidecar")
+        env_records.report(self, "claude-sidecar")  # the 0.9.8 claim gate reads aify-env's record
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -447,6 +453,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         sidecar_bridge = "channel-linux:test-host"
         # First claim creates the channel-sidecar bridge row.
         run_id1 = self._dispatch_to("claude-heal")
+        env_records.report(self, "claude-heal")  # the 0.9.8 claim gate reads aify-env's record
         claim1 = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -472,6 +479,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
             conn.close()
         # A new run is queued; the still-live sidecar must self-heal and claim it.
         run_id2 = self._dispatch_to("claude-heal")
+        env_records.report(self, "claude-heal")  # the 0.9.8 claim gate reads aify-env's record
         claim2 = self.client.post(
             "/api/v1/dispatch/claim",
             json={

@@ -148,11 +148,59 @@ def claim_decision(view, steerable_run):
     return 'proceed'
 
 
+def send_time_hold(view, queue_if_busy, occupied):
+    """The send-time path's console hold. Unknown puts nothing on a console whatever the queue choice; with eligibility
+    known an explicit queue waits for a run already occupied or queued, or for aify-env's busy. Backing is never
+    skipped by it (SW4's ordering rule)."""
+    if view.eligibility != 'known':
+        return True
+    return bool(queue_if_busy) and bool(occupied or view.busy)
+
+
 def reminder_paused(view):
-    """Operator decision R3 (proposed): a reply-overdue reminder waits while the agent is busy or unknown."""
-    return view.busy is not False or view.eligibility != 'known'
+    """Operator decision R3 (adopted 2026-10-21): a reply-overdue reminder waits while the agent is busy or unknown,
+    and while a run comms delivered is still claimed or running (the run is comms' own fact, as row 5 reads it)."""
+    return view.busy is not False or view.eligibility != 'known' or view.run_occupied
 
 
 def stranded_protected(view):
-    """Operator decision R3 (proposed): a run is not failed as stranded while the agent is busy or unknown."""
+    """Operator decision R3 (adopted 2026-10-21): a run is not failed as stranded while the agent is busy or unknown."""
     return view.busy is not False or view.eligibility != 'known'
+
+
+#: Words that prove the target cannot work the run, whatever aify-env last said: an operator stop of an undefined agent
+#: (D8 row 1) or a proven-absent wake handle (Q3), or aify-env's own record saying so. Row 5 never promotes either.
+GONE_WORDS = frozenset({'offline', 'stopped'})
+
+
+def orphan_safety(view):
+    """The orphaned-run reaper's safety call (SW5 review R1), from the typed facts and never from the displayed word:
+    row 5 promotes a fresh idle record to `working` because of the very run the reaper is judging, so the word would
+    protect that run from itself forever.
+
+    'protect' while aify-env says busy or comms cannot read whether it is; 'gone' when the target provably cannot work
+    it; 'idle' when aify-env knows it idle, the only state in which a run with no progress is the run's own fault."""
+    if view.busy is True:
+        return 'protect'
+    if view.status in GONE_WORDS:
+        return 'gone'
+    if view.eligibility != 'known':
+        return 'protect'
+    return 'idle'
+
+
+#: The words row 5 promotes, derived from the states it names (idle reads `online`). `unknown` is never among them.
+PROMOTABLE_WORDS = frozenset(w for w in (shadow.candidate_word(s) for s in PROMOTABLE) if w)
+
+
+def promoted(word, run_running):
+    """Row 5 on a path that holds a word and the run, not the record: a running run makes a promotable word
+    `working`; every other word, `unknown` included, stays as it is."""
+    return 'working' if run_running and word in PROMOTABLE_WORDS else word
+
+
+def counts_live(word):
+    """Whether a word counts toward the live fleet: a known live word only. `unknown` is no evidence of a live worker."""
+    from service.status_engine import is_live_agent_status
+
+    return word != 'unknown' and is_live_agent_status(word)

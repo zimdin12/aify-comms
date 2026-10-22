@@ -18,6 +18,7 @@ from __future__ import annotations
 import sqlite3
 
 from service.routers.api_v2 import router  # noqa: F401 -- the base builds the app from it
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 AGENT = "lost-resident"
@@ -57,9 +58,7 @@ class ALostResidentRestsOfflineUnlessAlreadyStopped(FastApiTestCase):
             db.close()
 
     def _served(self) -> str:
-        response = self.client.get(f"/api/v1/agents/{AGENT}")
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()["agent"]["status"]
+        return env_records.rollback_word(self, AGENT)  # the legacy word, which a rollback of the 0.9.8 switch serves
 
     def _send(self) -> dict:
         response = self.client.post("/api/v1/messages/send", json={

@@ -78,7 +78,9 @@ class ASendToAnUnstartableAgentIsRefused(FastApiTestCase):
         launchable, not_started = self._preflight("pf-broken")
         self.assertEqual(launchable, [], "a send to an unstartable agent was accepted")
         self.assertEqual(len(not_started), 1, not_started)
-        self.assertEqual(not_started[0].get("recipientStatus"), "misconfigured")
+        # After the 0.9.8 switch the word is aify-env's, and it holds no record of an agent nothing can start:
+        # unknown. The refusal stands on its own reason, the runtime nothing can run.
+        self.assertEqual(not_started[0].get("recipientStatus"), "unknown")
 
     def test_a_HEALTHY_recipient_is_still_launchable(self):
         """ANTI-VACUITY. A preflight that refused everything would satisfy every assertion above and

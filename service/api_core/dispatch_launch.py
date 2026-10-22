@@ -14,8 +14,7 @@ from __future__ import annotations
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
-from service.api_core import busy_consumers, comms_view, stale_turn_ceiling
-from service.api_core.claim_gating import turn_busy_decision
+from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
@@ -66,39 +65,18 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
         # publishes the record that would release its hold. Backing is idempotent: a live claimer or a pending
         # spawn request short-circuits it, so a held send to a live agent starts nothing.
         deliver_to = console_recipients
-        if bool(req.queueIfBusy):
+        # AFTER THE 0.9.8 SWITCH (plan page 1) every delivery route reads eligibility first: unknown puts nothing on a
+        # console, whatever the queue choice, because a holder comms cannot read could be mid-turn. With eligibility
+        # known, an explicit queue waits for a run already occupied or queued, or for aify-env's busy. comms keeps no
+        # turn timer: aify-env alone decides busy. The run stays queued for the claim gate either way, and backing
+        # below is never skipped by the hold.
+        view = switched_view.eligibility_view(row)
+        occupied = False
+        if view.eligibility == 'known' and bool(req.queueIfBusy):
             dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-            # Three signals of "currently busy":
-            # 1. hasActiveRun: tracked dispatch_run in claimed/running
-            # 2. queuedRuns > 0: prior queue already pending
-            # 3. raw turn_busy=1: the agent is mid-turn even if
-            #    no tracked dispatch_run is in flight. Operator-
-            #    reported 2026-05-22: queue button sent immediately
-            #    because require_reply=0 info messages auto-complete
-            #    their dispatch_run on delivery → hasActiveRun goes
-            #    false → queue fires the next message immediately
-            #    while the assistant is still working. turn_busy
-            #    is the harness-level signal that survives the
-            #    auto-completion.
-            # Raw signal, bounded ONLY by the anti-strand ceiling that also bounds the
-            # claim gate — otherwise an abandoned turn_busy=1 makes every later send to
-            # this agent queue behind a turn that already ended (and the claim gate then
-            # never releases it). See _turn_busy_holds_delivery.
-            try:
-                decision = await turn_busy_decision(db, recipient_id)
-            except Exception:
-                decision = None
-            is_turn_busy = decision.holds if decision is not None else False
-            # The status shadow's comparisons (S2c slices 3 and 4); neither raises nor changes the answer.
-            busy = await comms_view.observe_busy(db, row, decision, 'send-time') if decision is not None else None
-            if decision is not None:
-                stale_turn_ceiling.observe_ceiling(decision, busy, 'send-time')
             occupied = bool(dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0)
-            queue_held = occupied or is_turn_busy
-            busy_consumers.observe_queue(occupied, queue_held, decision, busy,
-                                         (dispatch_state.get("hasActiveRun"), dispatch_state.get("queuedRuns")))
-            if queue_held:
-                deliver_to = {}
+        if operational_view.send_time_hold(view, bool(req.queueIfBusy), occupied):
+            deliver_to = {}
         execution_mode = str(_execution_mode or "").strip().lower()
         # Native-managed runtimes (codex/pi/opencode/hermes) — only
         # route through PTY-input when the operator opted into

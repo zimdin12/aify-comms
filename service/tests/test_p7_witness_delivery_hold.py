@@ -1,7 +1,7 @@
 """P7 witnesses: the send-time queue (ledger B9) and the claim hold (B17), over every turn specimen.
 
-Both consumers ask one question today, `_turn_busy_holds_delivery`; after P7 they ask C6 `holdsDelivery`.
-These drive the shipping consumers, not the helper: `POST /messages/send` with `queueIfBusy` (whose launch loop
+Both consumers asked `_turn_busy_holds_delivery` before the 0.9.8 switch; after it they read the operational view
+(eligibility first, then aify-env's `busy`). These drive the shipping consumers, not the helper: `POST /messages/send` with `queueIfBusy` (whose launch loop
 is `dispatch_launch._launch_recipients_for_dispatch`) and `POST /dispatch/claim`. The helper's own law is
 unit-tested in `test_turn_busy_delivery_ceiling.py`; what is pinned here is what each consumer DOES with it.
 
@@ -18,7 +18,7 @@ import sqlite3
 import unittest
 from unittest import mock
 
-from service.api_core import dispatch_launch
+from service.api_core import dispatch_launch, operational_view
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
 from service.tests._base import FastApiTestCase
 from service.tests.defined_agents import define
@@ -88,8 +88,9 @@ class SendTimeQueueWitness(_World):
     SW4 (the hard-switch plan's ordering rule): a hold withholds delivery and never skips backing, because a
     recipient with no worker never publishes the record that would release its hold. So held and released
     sends here both cold-start and both leave the run queued; the claim (B17) delivers. The hold's decision is
-    read from the queue observation the launch loop reports, and its one send-time consequence, no console
-    delivery, is witnessed in test_a_held_send_still_ensures_backing.py, where a console exists.
+    read from the answer the launch loop got from `operational_view.send_time_hold`, and its one send-time
+    consequence, no console delivery, is witnessed in test_a_held_send_still_ensures_backing.py, where a console
+    exists.
     """
 
     def setUp(self):
@@ -103,13 +104,14 @@ class SendTimeQueueWitness(_World):
         self.cold_starts: list[str] = []
         self.pty_ensures: list[str] = []
         self.queue_holds: list[bool] = []
-        real_observe = dispatch_launch.busy_consumers.observe_queue
+        real_hold = operational_view.send_time_hold
 
-        def observe(occupied, today, *rest, **kw):
-            self.queue_holds.append(bool(today))
-            return real_observe(occupied, today, *rest, **kw)
+        def observe(view, queue_if_busy, occupied):
+            held = real_hold(view, queue_if_busy, occupied)
+            self.queue_holds.append(held)
+            return held
 
-        observer = mock.patch.object(dispatch_launch.busy_consumers, "observe_queue", new=observe)
+        observer = mock.patch.object(operational_view, "send_time_hold", new=observe)
         observer.start()
         self.addCleanup(observer.stop)
         real_cold, real_pty = (dispatch_launch._coldstart_spawn_request_for_dispatch,
@@ -142,7 +144,7 @@ class SendTimeQueueWitness(_World):
 
     def _queue_send(self, agent_id: str, spec: TurnSpecimen) -> dict:
         self._dead_managed_claude(agent_id)
-        INPUT_ADAPTER.apply(self._db_path, agent_id, spec)
+        INPUT_ADAPTER.apply(self, agent_id, spec)
         self.assertEqual(self._rows("SELECT id FROM dispatch_runs WHERE target_agent = ?", (agent_id,)), [],
                          "precondition: no active and no earlier queued run, so only the turn can hold")
         observed = len(self.queue_holds)
@@ -193,7 +195,7 @@ class SendTimeQueueWitness(_World):
             with self.subTest(status):
                 agent, twin = f"w-occupied-{status}", f"w-occupied-{status}-twin"
                 self._dead_managed_claude(agent)
-                INPUT_ADAPTER.apply(self._db_path, agent, closed)
+                INPUT_ADAPTER.apply(self, agent, closed)
                 self._exec(
                     "INSERT INTO dispatch_runs (id, from_agent, target_agent, dispatch_mode, execution_mode, "
                     "message_type, subject, body, priority, status, requested_at, started_at) "
@@ -242,7 +244,7 @@ class ClaimHoldWitness(_World):
 
     def _claim(self, agent_id: str, spec: TurnSpecimen) -> dict:
         self._resident_codex(agent_id)
-        INPUT_ADAPTER.apply(self._db_path, agent_id, spec)
+        INPUT_ADAPTER.apply(self, agent_id, spec)
         answer = self.client.post("/api/v1/dispatch/claim", json={
             "agentId": agent_id, "bridgeId": f"bridge-{agent_id}", "machineId": MACHINE,
             "executionModes": ["resident", "managed"]})

@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import aiosqlite
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 
@@ -60,6 +61,7 @@ class TheTwoAnalyticsEndpointsAgree(FastApiTestCase):
         }
         response = self.client.post("/api/v1/agents", json=body)
         self.assertEqual(response.status_code, 200, response.text)
+        env_records.report(self, agent_id)  # live: after the 0.9.8 switch aify-env's idle record is what counts
 
     def _stop(self, agent_id):
         """The operator's stop, through its route: the only writer of the stop markers since B2."""

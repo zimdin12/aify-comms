@@ -12,6 +12,7 @@ import asyncio
 import aiosqlite
 
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 FINISHED_AT = "2026-10-13T10:00:00Z"
@@ -35,6 +36,7 @@ class LastWorkedIsARecordedFinish(FastApiTestCase):
                 "machineId": "linux:test-host", "bridgeId": "bridge-a", "capabilities": ["managed-run"],
             })
             self.assertEqual(registered.status_code, 200, registered.text)
+        env_records.report(self, "finisher", "stale-only")  # on the board: aify-env reports both idle (0.9.8 switch)
 
         async def seed():
             async with aiosqlite.connect(self._db_path) as db:

@@ -4,12 +4,17 @@ doesn't strand as 'delivered' forever, and the sender is told (via _sweep_unmirr
 STATE, NOT TIME (v0.7.4): it used to fail any such run 45 minutes after it was requested, which failed
 real long work. Now only a run whose agent has no live claimer, or whose turn was interrupted, is failed,
 however long the work takes.
+
+AFTER THE 0.9.8 SWITCH (operator decision R3) no run is failed while aify-env says its agent is busy or comms cannot
+read whether it is, so each case that fails a run first has aify-env report the agent idle (env_records.report);
+test_p7_witness_run_correlated.py witnesses the busy and unknown pauses themselves.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
 
 from service.db import get_db
 
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.clock import now as _now
 from service.reconcilers.dispatch_lifecycle import _fail_stranded_delivered_reply_runs
@@ -88,6 +93,7 @@ class StrandedReplyFailTests(FastApiTestCase):
 
     def test_a_run_nothing_alive_can_answer_is_failed_with_the_observed_cause(self):
         self._seed_run("run_dead", target="sc-architect", requested_at=_minutes_ago(10))
+        env_records.report(self, "sc-architect")
         out = self._run_reaper()
         self.assertEqual(len(out), 1, f"a run with no live claimer should be failed: {out}")
         r = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id='run_dead'")
@@ -109,6 +115,7 @@ class StrandedReplyFailTests(FastApiTestCase):
         self._seed_run("run_long", target="sc-live", requested_at=_minutes_ago(600))
         self._execute("UPDATE bridge_instances SET last_seen = '2026-01-01T00:00:00Z' WHERE agent_id = 'sc-live'")
         self._execute("UPDATE agents SET last_seen = '2026-01-01T00:00:00Z' WHERE id = 'sc-live'")
+        env_records.report(self, "sc-live")
         self.assertEqual(len(self._run_reaper()), 1)
 
     def test_an_interrupted_run_is_failed_even_with_a_live_agent(self):
@@ -117,6 +124,7 @@ class StrandedReplyFailTests(FastApiTestCase):
                        machineId="win32:test-host", capabilities=["resident-run"])
         self._seed_run("run_stopped", target="sc-live", requested_at=_minutes_ago(10))
         self._seed_interrupt("run_stopped")
+        env_records.report(self, "sc-live")
         self.assertEqual(len(self._run_reaper()), 1)
         self.assertIn("interrupt", self._fetchone("SELECT summary FROM dispatch_runs WHERE id='run_stopped'")["summary"].lower())
 

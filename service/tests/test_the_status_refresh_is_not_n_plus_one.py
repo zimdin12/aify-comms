@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import aiosqlite
 
 from service.clock import now as clock_now
+from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.frozen_clock import frozen_service_clock
 
@@ -488,6 +489,7 @@ class TheAnalyticsBoardGetsThePrefetchToo(FastApiTestCase):
                 "capabilities": ["managed-run"],
             })
             self.assertEqual(response.status_code, 200, response.text)
+        env_records.report(self, "live-0", "live-1")  # live: after the 0.9.8 switch aify-env's record is what counts
 
         from service.reconcilers import status_cache
         status_cache._LIVE_STATE_CACHE.clear()
