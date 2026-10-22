@@ -62,6 +62,13 @@ test("the chain's own status is the answer, and no key means no --secret", () =>
   const out = handoff(bins, { FAKE_EXIT: "78" });
   assert.equal(out.status, 78);
   assert.ok(!out.calls.includes("--secret"));
+  assert.ok(!out.calls.includes("--approve"), "CONTROL: nothing is approved unless the operator says so");
+});
+
+test("an operator's approvals reach the chain one by one", () => {
+  const bins = fakeBins(["aify-env-install"]);
+  const out = handoff(bins, { AIFY_INSTALL_APPROVE: "d1 d2" });
+  assert.match(out.calls, /--approve d1 --approve d2/);
 });
 
 test("an aify-env without the chain is not replaced: the full path continues (exit 3)", () => {

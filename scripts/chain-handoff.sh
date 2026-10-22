@@ -11,6 +11,9 @@
 # that is most often a developer's `npm link` of a checkout, and swapping it for a package would change what the
 # host runs. The full install continues instead, and the line below says so.
 #
+# APPROVAL is the operator's: an artifact tuple the catalogue does not hold needs `--approve <digest>`, which an
+# unattended run passes as AIFY_INSTALL_APPROVE (digests separated by spaces), exactly as the refusal printed them.
+#
 # THE KEY never travels in argv: install.sh resolved it into AIFY_API_KEY, and it reaches the chain through a
 # private file that is removed when the chain returns.
 #
@@ -35,6 +38,7 @@ fi
 
 args=(--connect "aify-comms=$URL" --client "$CLIENT" --installer "aify-comms=$INSTALLER")
 [ -t 0 ] || args+=(--no-prompt)
+for digest in ${AIFY_INSTALL_APPROVE:-}; do args+=(--approve "$digest"); done
 keydir=""
 if [ -n "${AIFY_API_KEY:-}" ]; then
   keydir="$(mktemp -d)"
