@@ -1,0 +1,1155 @@
+{
+ "_about": "Class and owner for every occurrence the hermes census finds (tests/hermes-census.mjs), and the pinned occurrence counts. A new or moved effect fails tests/hermes-census.test.js until it is classified here. Owners follow DECISIONS 2026-10-20 (fec451cf); classes follow docs/HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md.",
+ "files": {
+  "adapters/base.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "adapters/claude.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "adapters/codex.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "adapters/hermes.js": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "the in-session MCP child's hermes adapter"
+  },
+  "adapters/index.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "adapters/opencode.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "adapters/pi.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "agent-lease-attach.mjs": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env",
+   "note": "attaches a pid to the agent lease"
+  },
+  "aify-console-markers.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "aify-http.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "aify-service-endpoint.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "binding-file.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "bridge-build.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "claude-channel-content.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "claude-session-store.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "codex-errors.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "codex-session.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/base-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/claude-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/codex-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/codex-legacy-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/codex-legacy-helpers.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/codex-managed-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/hermes-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper"
+  },
+  "controllers/hermes-managed-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper"
+  },
+  "controllers/opencode-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "controllers/pi-controller.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "credential-custody.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "credential-ref.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "gateway-orphan-check.mjs": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env",
+   "note": "doctor row -> aify-env doctor (D11)"
+  },
+  "hermes-acp-protocol.js": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper"
+  },
+  "hermes-active-session.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper",
+   "note": "session finding; the marker sync talks to the service; ensureStableSession spawns (opt-in, dead by default)",
+   "symbols": {
+    "startResumeMarkerSync": {
+     "class": "SERVICE_ADAPTER",
+     "owner": "aify-wrapper"
+    },
+    "runResolveSessionCli": {
+     "class": "COMPOSITION",
+     "owner": "aify-wrapper"
+    },
+    "ensureStableSession": {
+     "class": "PROCESS_OWNER",
+     "owner": "aify-env"
+    }
+   }
+  },
+  "hermes-daemon-cli.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env"
+  },
+  "hermes-daemon.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env"
+  },
+  "hermes-delivery-loop.mjs": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "claim/deliver loop -> aify-wrapper's hermes comms module (page 3)"
+  },
+  "hermes-delivery-run.mjs": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper"
+  },
+  "hermes-endpoint.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env",
+   "note": "gateway port and TEMP markers"
+  },
+  "hermes-env.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper",
+   "note": "hermes env construction"
+  },
+  "hermes-gateway-liveness.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env"
+  },
+  "hermes-gateway-protocol.js": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper"
+  },
+  "hermes-gateway-turn-detector.js": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "status edges retire with S4; delivery gating moves"
+  },
+  "hermes-gateway.mjs": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env",
+   "note": "gateway start/prove/teardown; the index-page token scrape and the ws client are driver",
+   "symbols": {
+    "scrapeToken": {
+     "class": "PURE_DRIVER",
+     "owner": "aify-wrapper"
+    },
+    "openGatewayWsClient": {
+     "class": "PURE_DRIVER",
+     "owner": "aify-wrapper"
+    }
+   }
+  },
+  "hermes-inflight.mjs": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "status edges retire with S4; delivery gating moves"
+  },
+  "hermes-loop-ready.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env",
+   "note": "the loop-ready TEMP marker the launcher waits on"
+  },
+  "hermes-managed-gateway-session.js": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper",
+   "note": "gateway session; ensureStarted spawns",
+   "symbols": {
+    "ensureStarted": {
+     "class": "PROCESS_OWNER",
+     "owner": "aify-env"
+    }
+   }
+  },
+  "hermes-managed-host.js": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "CLI composition root; ensure-host is the gateway process owner",
+   "symbols": {
+    "runEnsureHostCli": {
+     "class": "PROCESS_OWNER",
+     "owner": "aify-env"
+    }
+   }
+  },
+  "hermes-prior-reap.mjs": {
+   "class": "PROCESS_OWNER",
+   "owner": "aify-env"
+  },
+  "hermes-run-reporting.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "aify-wrapper"
+  },
+  "hermes-session-effort.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper"
+  },
+  "hermes-session-id.js": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper"
+  },
+  "hermes-session.js": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper",
+   "note": "ACP session; ensureStarted spawns the hermes ACP child",
+   "symbols": {
+    "ensureStarted": {
+     "class": "PROCESS_OWNER",
+     "owner": "aify-env"
+    }
+   }
+  },
+  "hermes-turn-detector-callbacks.mjs": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "status edges retire with S4; delivery gating moves"
+  },
+  "hermes-turn-repulse.js": {
+   "class": "COMPOSITION",
+   "owner": "aify-wrapper",
+   "note": "status edges retire with S4; delivery gating moves"
+  },
+  "listening-ports.mjs": {
+   "class": "PROCESS_OWNER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "liveness-heartbeat.js": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "load-env.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "machine-id.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "pi-session-pool.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "pi-session-registry.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "pi-session-timeouts.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "pi-session.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "pi-terminal-frame.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "proc-probes.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "quote-subject.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "registry-credential.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtime-markers.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-claude.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-codex.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-exec.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-helpers.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-hermes.js": {
+   "class": "PURE_DRIVER",
+   "owner": "aify-wrapper",
+   "note": "hermes command and probe paths"
+  },
+  "runtimes-opencode.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-pi.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-process.js": {
+   "class": "PROCESS_OWNER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-prompts.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes-rpc.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "runtimes.js": {
+   "class": "COMPOSITION",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "service-name.mjs": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "session-timing.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "tool-response-format.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "turn-event-stamp.mjs": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "version.js": {
+   "class": "SERVICE_ADAPTER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  },
+  "win32-text.js": {
+   "class": "PURE_DRIVER",
+   "owner": "comms",
+   "note": "shared stdio-bridge module; stays with aify-comms until the stdio bridge is replaced (gap 1)"
+  }
+ },
+ "counts": {
+  "adapters/base.js": {
+   "env-read|[computed]|diagnosticEnv": 1,
+   "env-read|[computed]|getCurrentSessionId": 1,
+   "shared-state|Set|<module>": 2
+  },
+  "adapters/claude.js": {
+   "import|../claude-session-store.js|<module>": 1,
+   "import|../controllers/claude-controller.js|<module>": 1,
+   "import|./base.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1,
+   "shared-state|Set|<module>": 1
+  },
+  "adapters/codex.js": {
+   "env-read|AIFY_CODEX_APP_SERVER_URL|diagnosticEnv": 1,
+   "import|../controllers/codex-controller.js|<module>": 1,
+   "import|./base.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1,
+   "shared-state|Set|<module>": 2
+  },
+  "adapters/hermes.js": {
+   "env-read|AIFY_HERMES_GATEWAY_URL|diagnosticEnv": 1,
+   "import|../controllers/hermes-controller.js|<module>": 1,
+   "import|../hermes-endpoint.js|<module>": 1,
+   "import|./base.js|<module>": 1,
+   "import|node:fs|<module>": 1
+  },
+  "adapters/index.js": {
+   "import|./claude.js|<module>": 1,
+   "import|./codex.js|<module>": 1,
+   "import|./hermes.js|<module>": 1,
+   "import|./opencode.js|<module>": 1,
+   "import|./pi.js|<module>": 1,
+   "shared-state|let _REGISTRY|<module>": 1,
+   "shared-state|Map|<module>": 1
+  },
+  "adapters/opencode.js": {
+   "import|../controllers/opencode-controller.js|<module>": 1,
+   "import|./base.js|<module>": 1
+  },
+  "adapters/pi.js": {
+   "import|../controllers/pi-controller.js|<module>": 1,
+   "import|./base.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1
+  },
+  "agent-lease-attach.mjs": {
+   "import|node:child_process|<module>": 1,
+   "import|node:url|<module>": 1,
+   "process|spawn|attachToAgentLease": 1
+  },
+  "aify-console-markers.js": {},
+  "aify-http.mjs": {
+   "env-read|AIFY_HTTP_TIMEOUT_MS|<module>": 1,
+   "env-read|AIFY_SERVER_URL|<module>": 1,
+   "env-read|CLAUDE_MCP_SERVER_URL|<module>": 1,
+   "http-fetch|fetch|makeAifyHttpCall/httpCall": 1,
+   "import|./aify-service-endpoint.mjs|<module>": 2,
+   "timer|setTimeout|makeAifyHttpCall/httpCall": 1
+  },
+  "aify-service-endpoint.mjs": {
+   "env-read|[computed]|<anon>": 1,
+   "env-read|AIFY_HTTP_TIMEOUT_MS|<module>": 1,
+   "env-read|AIFY_SERVER_FALLBACK_URLS|<module>": 1,
+   "env-read|CLAUDE_MCP_FALLBACK_URLS|<module>": 1,
+   "http-fetch|fetch|httpCall": 1,
+   "import|./registry-credential.mjs|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:os|<module>": 1,
+   "import|node:path|<module>": 1,
+   "shared-state|let ACTIVE_SERVER_URL|<module>": 1,
+   "shared-state|let API_KEY|<module>": 1,
+   "shared-state|Set|<module>": 1,
+   "timer|setTimeout|httpCall": 1,
+   "timer|setTimeout|httpCall/<anon>": 1
+  },
+  "binding-file.js": {
+   "env-read|TEMP|bindingBaseDir": 1,
+   "env-read|TMP|bindingBaseDir": 1,
+   "file-write|unlinkSync|removeAgentBindingFile": 1,
+   "file-write|writeFileSync|writeAgentBindingFile": 1,
+   "import|fs|<module>": 1,
+   "import|path|<module>": 1
+  },
+  "bridge-build.mjs": {
+   "import|fs|<module>": 1,
+   "import|path|<module>": 1,
+   "import|url|<module>": 1
+  },
+  "claude-channel-content.js": {
+   "import|./aify-console-markers.js|<module>": 1,
+   "import|./quote-subject.mjs|<module>": 1,
+   "import|./tool-response-format.mjs|<module>": 1
+  },
+  "claude-session-store.js": {
+   "env-read|TEMP|storeBaseDir": 1,
+   "env-read|TMP|storeBaseDir": 1,
+   "file-write|mkdirSync|writeCapturedClaudeSessionIdForPid": 1,
+   "file-write|mkdirSync|writeClaudeSessionId": 1,
+   "file-write|writeFileSync|writeCapturedClaudeSessionIdForPid": 1,
+   "file-write|writeFileSync|writeClaudeSessionId": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1
+  },
+  "codex-errors.js": {},
+  "codex-session.js": {
+   "env-read|AIFY_CODEX_IDLE_TIMEOUT_MS|idleTimeoutFor": 1,
+   "env-read|AIFY_CODEX_STARTUP_TIMEOUT_MS|startupTimeoutFor": 1,
+   "import|./aify-console-markers.js|<module>": 1,
+   "import|./codex-errors.js|<module>": 1,
+   "import|./runtimes-rpc.js|<module>": 1,
+   "import|./runtimes.js|<module>": 1,
+   "import|./session-timing.mjs|<module>": 1,
+   "import|./version.js|<module>": 1,
+   "shared-state|Map|<module>": 1,
+   "timer|setInterval|_runTurnInner": 3,
+   "timer|setTimeout|_armIdleTimer": 1,
+   "timer|setTimeout|_runTurnInner": 1,
+   "timer|setTimeout|cancelActiveTurn": 1,
+   "timer|setTimeout|ensureStarted/<anon>": 1
+  },
+  "controllers/base-controller.js": {},
+  "controllers/claude-controller.js": {
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1
+  },
+  "controllers/codex-controller.js": {
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1,
+   "import|./codex-legacy-controller.js|<module>": 1,
+   "import|./codex-managed-controller.js|<module>": 1
+  },
+  "controllers/codex-legacy-controller.js": {
+   "env-read|[computed]|start": 1,
+   "import|../aify-console-markers.js|<module>": 1,
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|../runtimes-rpc.js|<module>": 1,
+   "import|../version.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1,
+   "import|./codex-legacy-helpers.js|<module>": 1,
+   "timer|setInterval|start/<anon>": 1
+  },
+  "controllers/codex-legacy-helpers.js": {
+   "import|../codex-errors.js|<module>": 1,
+   "import|../runtimes-helpers.js|<module>": 1,
+   "timer|setInterval|createCodexLegacyTimers": 2,
+   "timer|setTimeout|createCodexLegacyTimers": 1
+  },
+  "controllers/codex-managed-controller.js": {
+   "import|../codex-session.js|<module>": 1,
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1
+  },
+  "controllers/hermes-controller.js": {
+   "import|./base-controller.js|<module>": 1,
+   "import|./hermes-managed-controller.js|<module>": 1
+  },
+  "controllers/hermes-managed-controller.js": {
+   "import|../hermes-managed-gateway-session.js|<module>": 1,
+   "import|../hermes-session.js|<module>": 1,
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1
+  },
+  "controllers/opencode-controller.js": {
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1,
+   "import|@opencode-ai/sdk|<module>": 1,
+   "timer|setTimeout|start/<anon>": 1
+  },
+  "controllers/pi-controller.js": {
+   "import|../pi-session-pool.mjs|<module>": 1,
+   "import|../runtimes-helpers.js|<module>": 1,
+   "import|./base-controller.js|<module>": 1
+  },
+  "credential-custody.mjs": {
+   "import|node:child_process|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "process|run (passed)|custodyProblemFor": 1,
+   "process|run|readAclSync": 1,
+   "shared-state|Set|<module>": 2
+  },
+  "credential-ref.mjs": {
+   "shared-state|Set|<module>": 1
+  },
+  "gateway-orphan-check.mjs": {
+   "env-read|TEMP|readGatewaySessionCount": 1,
+   "env-read|TMP|readGatewaySessionCount": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:path|<module>": 1
+  },
+  "hermes-acp-protocol.js": {},
+  "hermes-active-session.mjs": {
+   "env-read|AIFY_HERMES_ACTIVE_SESSION_FILE|runResolveSessionCli": 1,
+   "env-read|AIFY_HERMES_ATTACH_FRESH_GRACE_FRACTION|<anon>": 1,
+   "env-read|AIFY_HERMES_ATTACH_POLL_MS|<module>": 1,
+   "env-read|AIFY_HERMES_ATTACH_WAIT_MS|<module>": 1,
+   "env-read|AIFY_HERMES_FRESH_CONTEXT|runResolveSessionCli": 1,
+   "env-read|AIFY_HERMES_GATEWAY_URL|runResolveSessionCli": 1,
+   "env-read|HERMES_TUI_GATEWAY_URL|runResolveSessionCli": 1,
+   "file-write|mkdirSync|defaultWriteActiveSessionFile": 1,
+   "file-write|writeFileSync|defaultWriteActiveSessionFile": 1,
+   "import|./aify-http.mjs|<module>": 1,
+   "import|./hermes-endpoint.js|<module>": 1,
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "import|./hermes-session-id.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|node:child_process|<module>": 1,
+   "import|node:timers/promises|<module>": 1,
+   "import|path|<module>": 1,
+   "process|runner|ensureStableSession": 1,
+   "service-http|AIFY_SERVER_URL (passed)|startResumeMarkerSync": 1,
+   "service-http|httpCall|startResumeMarkerSync/tick": 1,
+   "service-http|makeAifyHttpCall|startResumeMarkerSync": 1,
+   "timer|setInterval|startResumeMarkerSync": 1
+  },
+  "hermes-daemon-cli.js": {
+   "import|./hermes-daemon.js|<module>": 1,
+   "import|node:path|<module>": 1,
+   "import|node:url|<module>": 1
+  },
+  "hermes-daemon.js": {
+   "file-write|rmSync|clearDaemonPid": 1,
+   "file-write|unlinkSync|clearDaemonPid": 1,
+   "file-write|writeFileSync|writeDaemonPid": 1,
+   "import|./hermes-endpoint.js|<module>": 2,
+   "import|./hermes-prior-reap.mjs|<module>": 1,
+   "import|./proc-probes.js|<module>": 1,
+   "import|./win32-text.js|<module>": 1,
+   "import|node:child_process|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:os|<module>": 1,
+   "import|node:path|<module>": 1,
+   "import|node:util|<module>": 1,
+   "kill|process.kill|defaultIsAlive": 1,
+   "kill|process.kill|defaultKillOnePid": 1,
+   "process|execFile|defaultKillOnePid": 1,
+   "process|execFile|defaultResolveListenerPids": 2,
+   "process|nodeExecFile (passed)|<module>": 1,
+   "process|spawnSync|defaultGetCmdline": 2
+  },
+  "hermes-delivery-loop.mjs": {
+   "env-read|AIFY_COMMS_CHANNEL_POLL_MS|<module>": 1,
+   "env-read|AIFY_HERMES_CHANNEL_POLL_MS|<module>": 1,
+   "env-read|AIFY_HERMES_GATEWAY_PROBE_MS|<module>": 1,
+   "env-read|AIFY_HERMES_GATEWAY_PROBE_THRESHOLD|<module>": 1,
+   "env-read|AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE|<module>": 1,
+   "env-read|AIFY_HERMES_GATEWAY_TURN_POLL_MS|<module>": 1,
+   "env-read|AIFY_HERMES_NO_TUI_GRACE_MS|<module>": 1,
+   "env-read|AIFY_HERMES_NO_TUI_TEARDOWN_CYCLES|<module>": 1,
+   "env-read|AIFY_HERMES_SESSION_EFFORT|runDeliveryLoop": 1,
+   "heartbeat|./liveness-heartbeat.js|<module>": 1,
+   "import|./aify-http.mjs|<module>": 1,
+   "import|./bridge-build.mjs|<module>": 1,
+   "import|./hermes-active-session.mjs|<module>": 1,
+   "import|./hermes-daemon.js|<module>": 1,
+   "import|./hermes-delivery-run.mjs|<module>": 1,
+   "import|./hermes-endpoint.js|<module>": 1,
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./hermes-gateway-liveness.js|<module>": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./hermes-gateway-turn-detector.js|<module>": 1,
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "import|./hermes-inflight.mjs|<module>": 1,
+   "import|./hermes-loop-ready.js|<module>": 1,
+   "import|./hermes-run-reporting.mjs|<module>": 1,
+   "import|./hermes-session-effort.mjs|<module>": 1,
+   "import|./hermes-turn-detector-callbacks.mjs|<module>": 1,
+   "import|./hermes-turn-repulse.js|<module>": 1,
+   "import|./liveness-heartbeat.js|<module>": 1,
+   "import|node:child_process|runDeliveryLoop": 1,
+   "import|node:timers/promises|<module>": 1,
+   "process|spawn (passed)|runDeliveryLoop": 1,
+   "process|spawn (passed)|runDeliveryLoop/ensureHost": 1,
+   "service-http|AIFY_SERVER_URL (passed)|runDeliveryLoop": 1,
+   "service-http|httpCall (passed)|runDeliveryLoop": 4,
+   "service-http|httpCall (passed)|runDeliveryLoop/clearTurnImpl": 1,
+   "service-http|httpCall (passed)|runDeliveryLoop/failRunImpl": 1,
+   "service-http|httpCall (passed)|runDeliveryLoop/reportGatewayDeadOnce": 1,
+   "service-http|httpCall|runDeliveryLoop/beat": 1,
+   "service-http|httpCall|runDeliveryLoop/postClaimerLease": 1,
+   "service-http|makeAifyHttpCall|runDeliveryLoop": 1,
+   "service-http|serverUrl (passed)|runDeliveryLoop": 1
+  },
+  "hermes-delivery-run.mjs": {
+   "env-read|AIFY_HERMES_CLAIM_404_GRACE|<module>": 1,
+   "env-read|AIFY_HERMES_EMPTY_ATTACH_FAIL_THRESHOLD|<module>": 1,
+   "import|./claude-channel-content.js|<module>": 1,
+   "import|./hermes-active-session.mjs|<module>": 1,
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "import|./hermes-run-reporting.mjs|<module>": 1,
+   "import|node:timers/promises|<module>": 1,
+   "shared-state|Set|<module>": 1
+  },
+  "hermes-endpoint.js": {
+   "env-read|TEMP|defaultMarkerTmpDir": 1,
+   "env-read|TMP|defaultMarkerTmpDir": 1,
+   "file-write|chmodSync|loadOrCreateKey": 1,
+   "file-write|rmSync|clearGatewayMarkers": 1,
+   "file-write|rmSync|clearSessionMarker": 1,
+   "file-write|writeFileSync|loadOrCreateKey": 1,
+   "file-write|writeFileSync|resolveGatewayPort": 1,
+   "file-write|writeFileSync|writeGatewayUrlMarker": 1,
+   "file-write|writeFileSync|writeSessionIdMarker": 1,
+   "import|node:crypto|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:net|<module>": 1,
+   "import|node:os|<module>": 1,
+   "import|node:path|<module>": 1,
+   "shared-state|Set|<module>": 1
+  },
+  "hermes-env.mjs": {
+   "env-read|AIFY_HERMES_COMMAND|<module>": 1,
+   "env-read|TEMP|<module>": 1,
+   "env-read|TMP|<module>": 1,
+   "import|./machine-id.mjs|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1
+  },
+  "hermes-gateway-liveness.js": {
+   "timer|setInterval|startGatewayLivenessProbe": 1
+  },
+  "hermes-gateway-protocol.js": {
+   "shared-state|Set|<module>": 1
+  },
+  "hermes-gateway-turn-detector.js": {
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "timer|setInterval|startHermesGatewayTurnDetector": 1
+  },
+  "hermes-gateway.mjs": {
+   "env-read|AIFY_HERMES_GATEWAY_PROBE_TIMEOUT_MS|<module>": 1,
+   "env-read|AIFY_HERMES_GATEWAY_READY_MS|<module>": 2,
+   "env-read|AIFY_HERMES_RPC_TIMEOUT_MS|<module>": 1,
+   "env-read|AIFY_HERMES_VERIFY_WS|ensureGatewayHost": 1,
+   "file-write|mkdirSync|ensureGatewayHost": 1,
+   "file-write|openSync|ensureGatewayHost": 1,
+   "http-fetch|fetchImpl|makeGatewayReachabilityProbe/probe": 1,
+   "http-fetch|fetchImpl|scrapeToken": 1,
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./hermes-gateway-liveness.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|node:timers/promises|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1,
+   "import|ws|openGatewayWsClient": 1,
+   "kill|child.kill|teardownGatewayHost": 1,
+   "kill|gatewayChild.kill|makeTeardown/teardown": 1,
+   "process|spawn|ensureGatewayHost": 1,
+   "timer|setTimeout|ensureGatewayHost": 1,
+   "timer|setTimeout|makeGatewayReachabilityProbe/probe": 1,
+   "timer|setTimeout|openGatewayWsClient/<anon>": 1,
+   "timer|setTimeout|openGatewayWsClient/request/<anon>": 1,
+   "timer|sleep|waitForIndexToken": 1
+  },
+  "hermes-inflight.mjs": {
+   "env-read|AIFY_HERMES_TURN_REPULSE_MS|<module>": 1,
+   "env-read|AIFY_HERMES_TURN_REPULSE_WINDOW_MS|<module>": 1,
+   "env-read|AIFY_HERMES_TURN_START_TIMEOUT_MS|<module>": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./hermes-gateway-turn-detector.js|<module>": 1,
+   "import|./hermes-run-reporting.mjs|<module>": 1,
+   "import|./hermes-turn-repulse.js|<module>": 1
+  },
+  "hermes-loop-ready.js": {
+   "file-write|rmSync|clearLoopReady": 1,
+   "file-write|unlinkSync|clearLoopReady": 1,
+   "file-write|writeFileSync|writeLoopReady": 1,
+   "import|./hermes-endpoint.js|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:os|<module>": 1,
+   "import|node:path|<module>": 1
+  },
+  "hermes-managed-gateway-session.js": {
+   "env-read|AIFY_HERMES_COMMAND|ensureStarted": 1,
+   "env-read|AIFY_HERMES_IDLE_TIMEOUT_MS|_armIdleTimer": 1,
+   "env-read|AIFY_HERMES_MANAGED_USE_GATEWAY|managedHermesUsesGateway": 1,
+   "import|./hermes-gateway-liveness.js|<module>": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./runtimes.js|<module>": 1,
+   "import|./session-timing.mjs|<module>": 1,
+   "import|node:child_process|<module>": 1,
+   "import|node:http|<module>": 1,
+   "import|node:net|<module>": 1,
+   "import|node:timers/promises|<module>": 1,
+   "import|ws|<module>": 1,
+   "process|spawn|ensureStarted": 1,
+   "shared-state|Map|<module>": 1,
+   "timer|setTimeout|_armIdleTimer": 1,
+   "timer|setTimeout|_sendRpc/<anon>": 1,
+   "timer|setTimeout|waitForReady/<anon>/tryOnce/<anon>": 1,
+   "timer|sleep|_runTurnInner": 1,
+   "ws-open|WebSocket|_openSocket/<anon>": 1
+  },
+  "hermes-managed-host.js": {
+   "env-read|AIFY_AGENT_ID|readBoundAgentId": 1,
+   "env-read|AIFY_HERMES_GATEWAY_TOKEN_ENV|runEnsureHostCli": 1,
+   "import|./agent-lease-attach.mjs|<module>": 1,
+   "import|./binding-file.js|<module>": 1,
+   "import|./hermes-active-session.mjs|<module>": 1,
+   "import|./hermes-delivery-loop.mjs|<module>": 1,
+   "import|./hermes-endpoint.js|<module>": 1,
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "import|./load-env.js|<module>": 1,
+   "import|node:child_process|runEnsureHostCli": 1,
+   "import|path|<module>": 1,
+   "import|url|<module>": 1,
+   "process|spawn|runEnsureHostCli/spawnJoiningLease": 1
+  },
+  "hermes-prior-reap.mjs": {
+   "import|./gateway-orphan-check.mjs|<module>": 1,
+   "import|./hermes-endpoint.js|<module>": 1,
+   "import|./listening-ports.mjs|<module>": 1,
+   "import|./proc-probes.js|<module>": 1,
+   "import|aify-wrapper/lib/process-identity.mjs|<module>": 1,
+   "import|node:child_process|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:os|<module>": 1,
+   "import|node:path|<module>": 1,
+   "process|spawnSync (passed)|reapPriorHermes/listeners": 1,
+   "process|spawnSync (passed)|reapPriorHermes/listProcesses": 1
+  },
+  "hermes-run-reporting.mjs": {
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./turn-event-stamp.mjs|<module>": 1
+  },
+  "hermes-session-effort.mjs": {
+   "import|./hermes-endpoint.js|<module>": 1,
+   "import|./hermes-env.mjs|<module>": 1,
+   "import|./hermes-gateway-protocol.js|<module>": 1,
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "timer|setInterval|startSessionEffort": 1
+  },
+  "hermes-session-id.js": {},
+  "hermes-session.js": {
+   "env-read|AIFY_HERMES_ACP_COMMAND|defaultHermesAcpLauncher": 1,
+   "env-read|AIFY_HERMES_FS_UNSAFE|_resolveSafePath": 1,
+   "env-read|AIFY_HERMES_IDLE_TIMEOUT_MS|idleTimeoutFor": 1,
+   "env-read|AIFY_HERMES_STARTUP_TIMEOUT_MS|startupTimeoutFor": 1,
+   "env-read|HERMES_ACP_COMMAND|defaultHermesAcpLauncher": 1,
+   "file-write|writeFile|_handleClientRequest": 1,
+   "import|./hermes-acp-protocol.js|<module>": 1,
+   "import|./runtimes.js|<module>": 2,
+   "import|./session-timing.mjs|<module>": 1,
+   "import|./version.js|<module>": 1,
+   "import|node:child_process|<module>": 1,
+   "import|node:fs/promises|_handleClientRequest": 2,
+   "import|node:fs/promises|_resolveSafePath": 1,
+   "import|node:path|<module>": 1,
+   "process|spawn|ensureStarted": 1,
+   "shared-state|Map|<module>": 1,
+   "timer|setTimeout|_armIdleTimer": 1,
+   "timer|setTimeout|_request/<anon>": 1,
+   "timer|setTimeout|ensureStarted/<anon>": 1
+  },
+  "hermes-turn-detector-callbacks.mjs": {
+   "import|./hermes-gateway.mjs|<module>": 1,
+   "import|./hermes-run-reporting.mjs|<module>": 1
+  },
+  "hermes-turn-repulse.js": {
+   "shared-state|Set|<module>": 1,
+   "timer|setInterval|setInterval": 1
+  },
+  "listening-ports.mjs": {
+   "import|node:child_process|<module>": 1,
+   "import|node:process|<module>": 1,
+   "process|run|imageName": 2,
+   "process|run|listListeners": 1
+  },
+  "liveness-heartbeat.js": {
+   "timer|setInterval|startLivenessHeartbeat": 1
+  },
+  "load-env.js": {
+   "env-read|[computed]|loadSettingsEnv": 2,
+   "env-read|CLAUDE_PROJECT_DIR|loadSettingsEnv": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1
+  },
+  "machine-id.mjs": {
+   "env-read|AIFY_MACHINE_ID|defaultMachineId": 1,
+   "env-read|COMPUTERNAME|defaultMachineId": 1,
+   "env-read|HOSTNAME|defaultMachineId": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1
+  },
+  "pi-session-pool.mjs": {
+   "import|./pi-session-registry.mjs|<module>": 1,
+   "import|./pi-session.js|<module>": 1,
+   "import|./runtimes.js|<module>": 1
+  },
+  "pi-session-registry.mjs": {
+   "shared-state|Map|<module>": 1
+  },
+  "pi-session-timeouts.mjs": {
+   "env-read|AIFY_PI_IDLE_TIMEOUT_MS|idleTimeoutFor": 1,
+   "env-read|AIFY_PI_STARTUP_TIMEOUT_MS|startupTimeoutFor": 1,
+   "import|./runtimes.js|<module>": 1,
+   "import|./session-timing.mjs|<module>": 1
+  },
+  "pi-session.js": {
+   "env-read|AIFY_PI_COMMAND|_onChildError": 1,
+   "env-read|PI_COMMAND|_onChildError": 1,
+   "import|./pi-session-registry.mjs|<module>": 1,
+   "import|./pi-session-timeouts.mjs|<module>": 1,
+   "import|./pi-terminal-frame.mjs|<module>": 1,
+   "import|./runtimes.js|<module>": 1,
+   "import|./session-timing.mjs|<module>": 1,
+   "import|readline|<module>": 1,
+   "timer|setTimeout|_armStartupTimer": 1,
+   "timer|setTimeout|_interruptTurn": 1,
+   "timer|setTimeout|_runTurnImpl": 1,
+   "timer|setTimeout|_sendCommandWithAck/<anon>": 1,
+   "timer|setTimeout|_startIdleTimer": 1,
+   "timer|setTimeout|stop/<anon>": 1
+  },
+  "pi-terminal-frame.mjs": {
+   "import|./runtimes.js|<module>": 1
+  },
+  "proc-probes.js": {
+   "import|./runtimes.js|<module>": 1,
+   "import|./win32-text.js|<module>": 1,
+   "import|node:child_process|<module>": 1,
+   "process|res (passed)|defaultListProcesses": 1,
+   "process|spawnSync|defaultListProcesses": 2
+  },
+  "quote-subject.mjs": {},
+  "registry-credential.mjs": {
+   "import|./credential-custody.mjs|<module>": 1,
+   "import|./credential-ref.mjs|<module>": 1,
+   "import|./service-name.mjs|<module>": 1,
+   "import|node:fs|<module>": 1,
+   "import|node:path|<module>": 1
+  },
+  "runtime-markers.js": {
+   "env-read|XDG_STATE_HOME|stateRoot": 1,
+   "file-write|mkdirSync|writeRuntimeMarker": 1,
+   "file-write|unlinkSync|listRuntimeMarkers": 1,
+   "file-write|unlinkSync|removeRuntimeMarker": 2,
+   "file-write|writeFileSync|writeRuntimeMarker": 1,
+   "import|crypto|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1,
+   "import|url|<module>": 1,
+   "kill|process.kill|isProcessAlive": 1
+  },
+  "runtimes-claude.js": {
+   "import|./runtimes-process.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|path|<module>": 1
+  },
+  "runtimes-codex.js": {
+   "env-read|[computed]|inspectCodexLiveMarker": 1,
+   "env-read|AIFY_CODEX_COMMAND|defaultCodexCommand": 1,
+   "env-read|AIFY_SERVER_URL|managedCodexConfigText": 2,
+   "env-read|AIFY_SERVER_URL|prepareManagedCodexHome": 1,
+   "env-read|CLAUDE_MCP_SERVER_URL|managedCodexConfigText": 2,
+   "env-read|CLAUDE_MCP_SERVER_URL|prepareManagedCodexHome": 1,
+   "env-read|CODEX_HOME|codexSourceHomes": 1,
+   "env-read|CODEX_HOME|prepareManagedCodexHome": 1,
+   "env-read|HOMEDRIVE|codexSpawnCwd": 2,
+   "env-read|HOMEPATH|codexSpawnCwd": 2,
+   "env-read|SystemDrive|codexSpawnCwd": 2,
+   "env-read|SystemRoot|defaultCodexCommand": 1,
+   "env-read|USERPROFILE|codexSpawnCwd": 2,
+   "env-read|windir|defaultCodexCommand": 1,
+   "file-write|copyFileSync|copyIfExists": 1,
+   "file-write|copyFileSync|copyPreservingCodexRelativePath": 1,
+   "file-write|cpSync|copyDirectoryFreshIfExists": 1,
+   "file-write|mkdirSync|copyPreservingCodexRelativePath": 1,
+   "file-write|mkdirSync|importCodexThreadRollout": 1,
+   "file-write|mkdirSync|prepareManagedCodexHome": 1,
+   "file-write|rmSync|copyDirectoryFreshIfExists": 1,
+   "file-write|writeFileSync|prepareManagedCodexHome": 1,
+   "import|./codex-errors.js|<module>": 1,
+   "import|./runtime-markers.js|<module>": 1,
+   "import|./runtimes-exec.js|<module>": 1,
+   "import|./runtimes-process.js|<module>": 1,
+   "import|./runtimes-rpc.js|<module>": 1,
+   "import|./version.js|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|path|<module>": 1,
+   "import|url|<module>": 1
+  },
+  "runtimes-exec.js": {
+   "env-read|ComSpec|resolveExecutable": 1,
+   "env-read|COMSPEC|resolveExecutable": 1,
+   "env-read|PATH|findOnProcessPath": 1,
+   "env-read|PATH|pathSummary": 1,
+   "env-read|PATH|resolveOnWindowsPath": 1,
+   "env-read|PATHEXT|findOnProcessPath": 1,
+   "env-read|PATHEXT|resolveExecutable": 1,
+   "env-read|PATHEXT|resolveOnWindowsPath": 1,
+   "file-write|openSync|inspectShebang": 1,
+   "import|./bridge-build.mjs|<module>": 1,
+   "import|child_process|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|path|<module>": 1,
+   "import|url|<module>": 1,
+   "process|spawnSync|resolveExecutable": 4,
+   "shared-state|Map|<module>": 2
+  },
+  "runtimes-helpers.js": {
+   "import|./runtimes.js|<module>": 1
+  },
+  "runtimes-hermes.js": {
+   "env-read|AIFY_HERMES_COMMAND|defaultHermesCommand": 1,
+   "env-read|HERMES_COMMAND|defaultHermesCommand": 1,
+   "env-read|HOME|hermesProbePaths": 1,
+   "env-read|USERPROFILE|hermesProbePaths": 1,
+   "import|./runtimes-exec.js|<module>": 1,
+   "import|fs|<module>": 1
+  },
+  "runtimes-opencode.js": {},
+  "runtimes-pi.js": {
+   "env-read|AIFY_PI_COMMAND|defaultPiCommand": 1,
+   "env-read|PI_COMMAND|defaultPiCommand": 1,
+   "import|./runtimes-exec.js|<module>": 1,
+   "shared-state|Set|<module>": 1
+  },
+  "runtimes-process.js": {
+   "env-read|AIFY_ENVIRONMENT_ID|assertLaunchCwd": 1,
+   "env-read|HOME|userHomeDir": 1,
+   "import|child_process|<module>": 1,
+   "import|fs|<module>": 1,
+   "import|os|<module>": 1,
+   "import|path|<module>": 1,
+   "kill|proc.kill|terminateProcessTree": 1,
+   "kill|process.kill|killPid": 1,
+   "kill|process.kill|pidIsAlive": 1,
+   "process|spawn|spawnRawProcess": 1,
+   "process|spawnSync|descendantPids": 1,
+   "process|spawnSync|terminateProcessTree": 1,
+   "timer|setTimeout|terminateProcessTree": 1
+  },
+  "runtimes-prompts.js": {
+   "import|./quote-subject.mjs|<module>": 1,
+   "import|./tool-response-format.mjs|<module>": 1
+  },
+  "runtimes-rpc.js": {
+   "import|readline|<module>": 1,
+   "import|ws|<module>": 1,
+   "timer|setTimeout|codexAppServerReachable/<anon>": 1,
+   "timer|setTimeout|createRpcClient/request/<anon>": 1,
+   "timer|setTimeout|createWebSocketRpcClient/<anon>/<anon>/request/<anon>": 1,
+   "ws-open|WebSocket|codexAppServerReachable/<anon>": 1,
+   "ws-open|WebSocket|createWebSocketRpcClient/<anon>": 1
+  },
+  "runtimes.js": {
+   "env-read|[computed]|defaultSessionHandleForRuntime": 1,
+   "env-read|AIFY_AGENT_RUNTIME|detectRuntime": 2,
+   "env-read|AIFY_CLAUDE_COMMAND|runtimeLaunchAvailability": 1,
+   "env-read|AIFY_CODEX_AIFY_COMMAND|runtimeLaunchAvailability": 1,
+   "env-read|AIFY_HERMES_AIFY_COMMAND|runtimeLaunchAvailability": 1,
+   "env-read|AIFY_OPENCODE_AIFY_COMMAND|runtimeLaunchAvailability": 1,
+   "env-read|AIFY_PI_AIFY_COMMAND|runtimeLaunchAvailability": 1,
+   "env-read|AIFY_PI_SESSION_ID|detectRuntime": 1,
+   "env-read|AIFY_RUNTIME|detectRuntime": 2,
+   "env-read|AIFY_SESSION_HANDLE|launcherSessionHandle": 1,
+   "env-read|CLAUDE_PROJECT_DIR|detectRuntime": 1,
+   "env-read|CLAUDECODE|detectRuntime": 1,
+   "env-read|CODEX_HOME|detectRuntime": 1,
+   "env-read|CODEX_SANDBOX|detectRuntime": 1,
+   "env-read|HERMES_HOME|detectRuntime": 1,
+   "env-read|HERMES_SESSION_ID|detectRuntime": 1,
+   "env-read|OMP_SESSION_ID|detectRuntime": 1,
+   "env-read|OPENCODE_CLIENT|detectRuntime": 1,
+   "env-read|OPENCODE_CONFIG_DIR|detectRuntime": 1,
+   "env-read|PI_SESSION_ID|detectRuntime": 1,
+   "import|./adapters/index.js|<module>": 1,
+   "import|./runtimes-claude.js|<module>": 2,
+   "import|./runtimes-codex.js|<module>": 1,
+   "import|./runtimes-exec.js|<module>": 2,
+   "import|./runtimes-hermes.js|<module>": 1,
+   "import|./runtimes-opencode.js|<module>": 1,
+   "import|./runtimes-pi.js|<module>": 2,
+   "import|./runtimes-process.js|<module>": 1,
+   "import|./runtimes-prompts.js|<module>": 1,
+   "import|./runtimes-rpc.js|<module>": 1,
+   "shared-state|Map|<module>": 1
+  },
+  "service-name.mjs": {},
+  "session-timing.mjs": {},
+  "tool-response-format.mjs": {
+   "import|./quote-subject.mjs|<module>": 1
+  },
+  "turn-event-stamp.mjs": {
+   "import|./machine-id.mjs|<module>": 1
+  },
+  "version.js": {},
+  "win32-text.js": {}
+ }
+}
