@@ -51,6 +51,20 @@ root="$(npm root -g 2>/dev/null)" && [ -n "$root" ] || {
   echo "  Check that npm runs here, or rerun with --standalone to use this installer's full path." >&2
   exit 78
 }
+# ONE OWNER. An aify-env on PATH must be npm's global one (its bin directory is the global prefix, or prefix/bin), or
+# which installation this updates and which one the operator runs are different things: refused, before anything is
+# chosen or installed. npm's prefix unknown beside an aify-env on PATH is the same ambiguity.
+unix_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1"; fi; }
+if on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then
+  prefix="$(npm prefix -g 2>/dev/null)" && [ -n "$prefix" ] || prefix=""
+  dir="$(unix_path "$(dirname "$on_path")")"
+  if [ -z "$prefix" ] || { [ "$dir" != "$(unix_path "$prefix")" ] && [ "$dir" != "$(unix_path "$prefix")/bin" ]; }; then
+    [ -n "$prefix" ] || prefix="its prefix unknown"
+    echo "The aify-env on PATH ($on_path) is not npm's global one ($prefix), so which installation to use is ambiguous; nothing was installed." >&2
+    echo "  Remove one of them, or rerun with --standalone to use this installer's full path." >&2
+    exit 78
+  fi
+fi
 chain_module() { [ -f "$root/aify-env/bin/aify-env-install.mjs" ] && printf '%s' "$root/aify-env/bin/aify-env-install.mjs"; }
 CHAIN="$(chain_module)"
 if [ -z "$CHAIN" ]; then

@@ -11,8 +11,11 @@
 // reads each one back. A read-back is "absent" only when Docker answers that it does not exist; any other failure
 // (Docker unavailable, a timeout) is UNKNOWN, and an unknown cleanup fails the run, naming what it could not confirm.
 //
-// Rows (plan guided-install/S2-chain.md, "Witnesses"). Each positive row runs on a host of its own that nothing ran
-// on before (review E1), so a first-invocation defect cannot hide behind prerequisites an earlier row installed.
+// Rows (plan guided-install/S2-chain.md, "Witnesses"). Each ENTRY run (render-after; no-recursion) starts on a host
+// nothing ran on before (review E1), so a first-invocation defect cannot hide behind prerequisites an earlier row
+// installed. The rows after an entry (key-from-store, no-key-in-argv, keyed-continuation, path-not-selection) read the
+// state that entry left on the same host, and no-early-store's host is prepared on purpose (aify-env installed, an
+// OLD key stored) before its entry runs.
 //   missing-key       no key supplied or stored: exit non-zero naming aify-comms.credentialRef; no registry, no launcher
 //   unapproved        the artifact tuple is not approved: refused naming its --approve digest; nothing connected
 //   render-after      cold host, aify-env's entry run from another directory with a RELATIVE key file (C6): acquires,
@@ -35,6 +38,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { classifyReadBack, inspectArgs } from "./docker-readback.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i === -1 ? "" : process.argv[i + 1]; };
@@ -64,22 +69,25 @@ const own = (kind, name) => { owned.push({ kind, name }); log(`owned ${kind} ${n
 const sh = (container, script, opts = {}) => docker(["exec", "-i", container, "bash", "-lc", script], { input: opts.input ?? "", timeout: opts.timeout });
 const save = (file, text) => fs.writeFileSync(path.join(OUT, file), String(text).replaceAll(KEY, "<key>").replaceAll(OLD, "<old-key>"));
 
-/** One owned resource read back: "absent" only on Docker's own not-found answer; anything else is unknown. */
-function readBack({ kind, name }) {
-  const r = docker(kind === "image" ? ["image", "inspect", name] : kind === "network" ? ["network", "inspect", name] : ["container", "inspect", name]);
-  if (r.status === 0) return "present";
-  return /no such (object|image|network|container)|not found/i.test(r.out) ? "absent" : `unknown (exit ${r.status}: ${r.out.trim().split("\n").pop()})`;
-}
-
+/**
+ * Remove every owned resource, then read each back by its exact name (scripts/sandbox/docker-readback.mjs): absent only
+ * on Docker's own not-found for that name. Every command, exit, output and classification goes to cleanup.json.
+ */
 function cleanup() {
+  const receipts = [];
   for (const { kind, name } of [...owned].reverse()) {
-    const rm = kind === "image" ? ["rmi", "-f", name] : kind === "network" ? ["network", "rm", name] : ["rm", "-f", "-v", name];
-    const r = docker(rm);
-    log(`remove ${kind} ${name}: exit ${r.status}`);
+    const argv = kind === "image" ? ["rmi", "-f", name] : kind === "network" ? ["network", "rm", name] : ["rm", "-f", "-v", name];
+    const r = docker(argv);
+    receipts.push({ step: "remove", kind, name, argv, exit: r.status, out: r.out.trim() });
   }
-  const states = owned.map((o) => ({ ...o, state: readBack(o) }));
-  const open = states.filter((s) => s.state !== "absent");
-  log(open.length ? `cleanup: NOT CONFIRMED, ${open.map((s) => `${s.kind} ${s.name} ${s.state}`).join("; ")}` : "cleanup: complete, every owned resource read back absent");
+  for (const target of owned) {
+    const argv = inspectArgs(target);
+    const r = docker(argv);
+    receipts.push({ step: "read-back", kind: target.kind, name: target.name, argv, exit: r.status, out: r.out.trim().slice(-400), classification: classifyReadBack(target, r) });
+  }
+  fs.writeFileSync(path.join(OUT, "cleanup.json"), `${JSON.stringify(receipts, null, 1)}\n`);
+  const open = receipts.filter((x) => x.step === "read-back" && x.classification !== "absent");
+  log(open.length ? `cleanup: NOT CONFIRMED, ${open.map((x) => `${x.kind} ${x.name} ${x.classification}`).join("; ")}` : "cleanup: complete, every owned resource read back absent by Docker's not-found for its name");
   return open.length === 0;
 }
 

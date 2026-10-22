@@ -39,7 +39,7 @@ function fakeBins(names, { env = "" } = {}) {
   if (env === "linked") fs.mkdirSync(path.join(root, "aify-env", ".git"));
   for (const name of names) {
     const body = name === "npm"
-      ? `if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "${toBash(root)}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
+      ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; echo "\${NPM_PREFIX:-${toBash(dir)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "${toBash(root)}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
       : `echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; [ -t 0 ] || echo "${name}-stdin $(cat)" >> "${toBash(log)}"; exit \${FAKE_EXIT:-0}`;
     fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
   }
@@ -103,6 +103,22 @@ test("npm's global root unknown is a refusal, never a global install over what m
     assert.match(out.stderr, /--standalone/);
     assert.deepEqual(out.lines, [], `${JSON.stringify(failure)}: something ran or was written: ${out.calls}`);
   }
+});
+
+test("an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated", () => {
+  const elsewhere = toBash(fs.mkdtempSync(path.join(os.tmpdir(), "handoff-prefix-")));
+  for (const env of ["chain", "older"]) {
+    const out = handoff(fakeBins(["aify-env", "npm", "node"], { env }), { NPM_PREFIX: elsewhere });
+    assert.equal(out.status, 78, `${env}: ${out.stderr}`);
+    assert.match(out.stderr, /aify-env on PATH .* is not npm's global one/);
+    assert.match(out.stderr, /--standalone/);
+    assert.deepEqual(out.lines, [], `${env}: something ran or was written: ${out.calls}`);
+  }
+  const unknown = handoff(fakeBins(["aify-env", "npm", "node"], { env: "chain" }), { NPM_PREFIX_FAIL: "1" });
+  assert.equal(unknown.status, 78, "npm's global prefix unknown beside an aify-env on PATH is ambiguous");
+  assert.deepEqual(unknown.lines, []);
+  const same = handoff(fakeBins(["aify-env", "npm", "node"], { env: "chain" }));
+  assert.equal(same.status, 0, `CONTROL: the aify-env on PATH is npm's own: ${same.stderr}`);
 });
 
 test("options the chain does not carry are refused before anything is installed or run", () => {
@@ -180,6 +196,56 @@ test("a plain run hands off before the installer resolves, generates or stores a
   assert.deepEqual(ran("standalone"), ["asked", "carried"], "CONTROL: --standalone is the old path");
   assert.deepEqual(ran("acquire-only"), []);
   assert.deepEqual(ran("assets-only"), []);
+});
+
+test("through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists", () => {
+  // The installer's main body, with the REAL resolver (api-key-for-install.sh, api-key.sh) and the real handoff
+  // copied beside it, writing to an owned .env (AIFY_ENV_FILE). Only the credential store and the chain are stubs.
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  const block = /^echo "=== aify-comms installer ==="\n[\s\S]*?^;; esac$/m.exec(install)?.[0];
+  assert.ok(block, "the installer's main body must be found before it can be exercised");
+  const bins = fakeBins(["npm", "node"], { env: "chain" });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-persist-"));
+  fs.mkdirSync(path.join(root, "scripts"));
+  for (const real of ["api-key-for-install.sh", "api-key.sh", "chain-handoff.sh"]) fs.copyFileSync(path.join(REPO, "scripts", real), path.join(root, "scripts", real));
+  fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> "${toBash(bins.log)}"\n`);
+  const envFile = path.join(root, "owned.env");
+  const run = (mode, extra = {}) => {
+    fs.rmSync(bins.log, { force: true });
+    const r = spawnSync(BASH, ["-c", block], {
+      encoding: "utf8", input: "",
+      env: sealedChildEnv({
+        PATH: `${toBash(bins.dir)}:/usr/bin:/bin`, MODE: mode, SCRIPT_DIR: toBash(root), AIFY_ENV_FILE: toBash(envFile),
+        WITH_API_KEY: "true", WITH_HOOK: "false", ENV_ENDPOINT_GIVEN: "false", MCP_TRANSPORT: undefined,
+        API_KEY: undefined, AIFY_API_KEY: undefined, CLAUDE_MCP_API_KEY: undefined, AIFY_INSTALL_CHAIN: undefined,
+        CLIENT: "claude", SERVER_URL: "http://c.test:8800", EMIT_WRAPPERS_DIR: "", PREBUILD_DRY_RUN: "false", ...extra,
+      }),
+    });
+    const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
+    return { status: r.status, stderr: r.stderr, calls, env: fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf8") : null };
+  };
+  for (const [variable, value] of [["WITH_HOOK", "true"], ["MCP_TRANSPORT", "sse"], ["ENV_ENDPOINT_GIVEN", "true"]]) {
+    fs.rmSync(envFile, { force: true });
+    const absent = run("", { [variable]: value });
+    assert.equal(absent.status, 64, `${variable}: ${absent.stderr}`);
+    assert.equal(absent.env, null, `${variable}: .env was written before the refusal: ${absent.env}`);
+    assert.ok(!/carried|node /.test(absent.calls), `${variable}: the store or the chain ran: ${absent.calls}`);
+    fs.writeFileSync(envFile, "OTHER=1\n");
+    const seeded = run("", { [variable]: value });
+    assert.equal(seeded.status, 64);
+    assert.equal(seeded.env, "OTHER=1\n", `${variable}: an existing .env was rewritten before the refusal`);
+  }
+  fs.rmSync(envFile, { force: true });
+  const standalone = run("standalone");
+  assert.equal(standalone.status, 0, standalone.stderr);
+  assert.match(standalone.env ?? "", /^API_KEY=[0-9a-f]{64}$/m, "CONTROL: --standalone generates and persists the key");
+  assert.match(standalone.calls, /carried/, "CONTROL: --standalone stores it");
+  fs.rmSync(envFile, { force: true });
+  const handedOff = run("");
+  assert.equal(handedOff.status, 0, handedOff.stderr);
+  assert.match(handedOff.env ?? "", /^API_KEY=[0-9a-f]{64}$/m, "CONTROL: with nothing refused, the generated key is persisted");
+  assert.match(handedOff.calls, /--secret-stdin aify-comms\.credentialRef/);
+  assert.ok(!/carried/.test(handedOff.calls), "the handed-off path stored the key itself");
 });
 
 test("the chain's modes resolve no key value, so no registration can put one in argv", () => {
