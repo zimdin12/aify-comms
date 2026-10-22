@@ -1,0 +1,56 @@
+
+> aify-env@0.9.4 test
+> node tests/run-in-a-temp-root.mjs tests/one-command-with-subcommands.test.js
+
+TAP version 13
+# Subtest: exactly one command is published
+ok 1 - exactly one command is published
+  ---
+  duration_ms: 1.1356
+  type: 'test'
+  ...
+# Subtest: `aify-env doctor` runs the doctor
+ok 2 - `aify-env doctor` runs the doctor
+  ---
+  duration_ms: 1518.4366
+  type: 'test'
+  ...
+# Subtest: `aify-env install` is the guided-install chain, not a second command
+ok 3 - `aify-env install` is the guided-install chain, not a second command
+  ---
+  duration_ms: 158.5192
+  type: 'test'
+  ...
+# Subtest: `aify-env doctor --strict` still acts on the answer
+ok 4 - `aify-env doctor --strict` still acts on the answer
+  ---
+  duration_ms: 159.1222
+  type: 'test'
+  ...
+# Subtest: `aify-env doctor --json` is still machine-readable
+ok 5 - `aify-env doctor --json` is still machine-readable
+  ---
+  duration_ms: 167.7092
+  type: 'test'
+  ...
+# Subtest: an unknown subcommand says so instead of silently starting a daemon
+ok 6 - an unknown subcommand says so instead of silently starting a daemon
+  ---
+  duration_ms: 347.2575
+  type: 'test'
+  ...
+# Subtest: the old binaries are gone from the package
+ok 7 - the old binaries are gone from the package
+  ---
+  duration_ms: 0.4584
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2454.5036

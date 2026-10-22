@@ -1,0 +1,76 @@
+TAP version 13
+# Subtest: with no key configured, the entry carries no key line at all
+ok 1 - with no key configured, the entry carries no key line at all
+  ---
+  duration_ms: 0.8375
+  type: 'test'
+  ...
+# Subtest: with a key configured, every key env name is emitted with that exact value
+ok 2 - with a key configured, every key env name is emitted with that exact value
+  ---
+  duration_ms: 0.1114
+  type: 'test'
+  ...
+# Subtest: the key is a LITERAL, never a ${VAR} hermes would resolve to nothing
+ok 3 - the key is a LITERAL, never a ${VAR} hermes would resolve to nothing
+  ---
+  duration_ms: 0.2397
+  type: 'test'
+  ...
+# Subtest: the URL keeps its ${VAR} fallback when no URL was given, because the wrapper exports it
+ok 4 - the URL keeps its ${VAR} fallback when no URL was given, because the wrapper exports it
+  ---
+  duration_ms: 0.1598
+  type: 'test'
+  ...
+# Subtest: every forwarded env name reaches the entry
+ok 5 - every forwarded env name reaches the entry
+  ---
+  duration_ms: 0.2446
+  type: 'test'
+  ...
+# Subtest: an existing aify-comms entry is REPLACED, never duplicated, and neighbours survive
+ok 6 - an existing aify-comms entry is REPLACED, never duplicated, and neighbours survive
+  ---
+  duration_ms: 0.4618
+  type: 'test'
+  ...
+# Subtest: patching twice is idempotent
+ok 7 - patching twice is idempotent
+  ---
+  duration_ms: 14.5599
+  type: 'test'
+  ...
+# Subtest: the entry is written under mcp_servers only, and hermes' own plugin setting survives
+ok 8 - the entry is written under mcp_servers only, and hermes' own plugin setting survives
+  ---
+  duration_ms: 0.411
+  type: 'test'
+  ...
+# Subtest: with only the plugin setting present, the entry is inserted under mcp_servers, not over it
+ok 9 - with only the plugin setting present, the entry is inserted under mcp_servers, not over it
+  ---
+  duration_ms: 0.3337
+  type: 'test'
+  ...
+# Subtest: THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module
+ok 10 - THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module
+  ---
+  duration_ms: 2.1341
+  type: 'test'
+  ...
+# Subtest: the config module's own path is CONVERTED for a native-Windows node
+ok 11 - the config module's own path is CONVERTED for a native-Windows node
+  ---
+  duration_ms: 1.2004
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 105.3702

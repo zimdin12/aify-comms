@@ -1,0 +1,38 @@
+
+> aify-env@0.9.4 test
+> node tests/run-in-a-temp-root.mjs tests/no-command-substitution-in-installer-strings.test.js
+
+TAP version 13
+# Subtest: CONTROL: the stripper keeps code and drops comments
+ok 1 - CONTROL: the stripper keeps code and drops comments
+  ---
+  duration_ms: 0.8632
+  type: 'test'
+  ...
+# Subtest: CONTROL: the stripper can still SEE a backtick in real code
+ok 2 - CONTROL: the stripper can still SEE a backtick in real code
+  ---
+  duration_ms: 0.1035
+  type: 'test'
+  ...
+# Subtest: no shell script here contains command substitution by backtick
+ok 3 - no shell script here contains command substitution by backtick
+  ---
+  duration_ms: 1.0513
+  type: 'test'
+  ...
+# Subtest: the scan looked at a real population
+ok 4 - the scan looked at a real population
+  ---
+  duration_ms: 0.3458
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 93.9338

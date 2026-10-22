@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: the scan actually reaches these file types — it found install.sh
+ok 1 - the scan actually reaches these file types — it found install.sh
+  ---
+  duration_ms: 193.6065
+  type: 'test'
+  ...
+# Subtest: no UNWATCHED source file exceeds the limit without a recorded ceiling
+ok 2 - no UNWATCHED source file exceeds the limit without a recorded ceiling
+  ---
+  duration_ms: 114.8651
+  type: 'test'
+  ...
+# Subtest: each recorded file is at or below its ceiling — the number may only go DOWN
+ok 3 - each recorded file is at or below its ceiling — the number may only go DOWN
+  ---
+  duration_ms: 1.3932
+  type: 'test'
+  ...
+# Subtest: a ceiling that has been paid down must be TIGHTENED, not left slack
+ok 4 - a ceiling that has been paid down must be TIGHTENED, not left slack
+  ---
+  duration_ms: 1.1306
+  type: 'test'
+  ...
+# Subtest: the pending decision is recorded where someone will find it
+ok 5 - the pending decision is recorded where someone will find it
+  ---
+  duration_ms: 1.7772
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 395.9083
