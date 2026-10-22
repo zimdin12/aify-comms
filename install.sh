@@ -1925,9 +1925,9 @@ fi
 case "$MODE" in acquire-only|assets-only) ;; *)
 [ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
 RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
-# A plain run hands off once to aify-env's chain (S2), BEFORE anything is stored: connect publishes the key, or refuses
-# with the host's credential untouched. Exit 3 is "no chain here": the full path below stores it. --standalone skips this.
-if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then _h=0; AIFY_API_KEY="$RESOLVED_API_KEY" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh" || _h=$?; [ "$_h" = 3 ] || exit "$_h"; fi
+# A plain run hands off once to aify-env's chain (S2) and ends with its status, BEFORE anything is stored: connect
+# publishes the key or refuses with the host's credential untouched. --standalone is this full path, storing below.
+if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then AIFY_API_KEY="$RESOLVED_API_KEY" WITH_HOOK="$WITH_HOOK" MCP_TRANSPORT="${MCP_TRANSPORT:-}" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
   export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"

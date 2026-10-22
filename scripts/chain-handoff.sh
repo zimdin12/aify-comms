@@ -6,51 +6,68 @@
 # THE CHAIN IS ENTERED ONCE. install.sh calls this only with neither `--acquire-only` nor `--assets-only` and with no
 # AIFY_INSTALL_CHAIN mark, and the chain calls install.sh back only in those two modes. So the chain runs once.
 #
+# OPTIONS THE CHAIN DOES NOT CARRY ARE REFUSED FIRST, before anything is written: `--with-hook`, `--mcp-transport` and
+# `--env-endpoint` (install.sh passes what it was given as WITH_HOOK, MCP_TRANSPORT and ENV_ENDPOINT_GIVEN). An install
+# that dropped them would report success for a choice it ignored; `--standalone` applies them on the full path.
+#
 # WHERE THE CHAIN COMES FROM. `aify-env install`, run as its module in npm's global aify-env, never through the
 # `aify-env` command: an aify-env too old to know `install` must not be handed an argument it could misread as a
-# start, which supersedes the running environment. When aify-env is not installed at all, it is installed in its git
-# form first (phase 1 only). An aify-env that is installed but has no chain is NOT replaced:
-# that is most often a developer's `npm link` of a checkout, and swapping it for a package would change what the
-# host runs. The full install continues instead, and the line below says so.
+# start, which supersedes the running environment. A missing or older packaged aify-env is installed in its git form
+# first (phase 1 only). A LINKED one (a symlink or a git checkout, a developer's `npm link`) is never modified, and an
+# aify-env on PATH that npm did not install is not ours to replace: both refuse, saying what to do. Nothing falls back
+# to a pre-chain path without the operator choosing `--standalone`.
 #
 # APPROVAL is the operator's: an artifact tuple the catalogue does not hold needs `--approve <digest>`, which an
 # unattended run passes as AIFY_INSTALL_APPROVE (digests separated by spaces), exactly as the refusal printed them.
 #
-# THE KEY never travels in argv or in the chain's environment: install.sh hands it over as AIFY_API_KEY, and it
-# reaches the chain only through a private file, removed when the chain returns. The chain and every installer it runs
-# start without this service's key variables, so a later registration can only name the published reference.
+# THE KEY never touches a file, argv or the chain's environment: install.sh hands it over as AIFY_API_KEY, and it
+# reaches the chain on stdin (`--secret-stdin`). The chain and every installer it runs start without this service's
+# key variables, so a later registration can only name the published reference.
 #
-# Exit: the chain's status; 3 when nothing was handed off and install.sh should continue its own full path.
+# Exit: the chain's status; 64 for options the chain does not carry; 78 when aify-env here may not be replaced.
 set -uo pipefail
 
 CLIENT="${1:?client}"
 URL="${2:?server url}"
 INSTALLER="${3:?installer path}"
-CONTINUE=3
+SOURCE="${AIFY_INSTALL_ENV_SOURCE:-github:zimdin12/aify-env}"
 
-chain_module() { local root; root="$(npm root -g 2>/dev/null)" && [ -f "$root/aify-env/bin/aify-env-install.mjs" ] && printf '%s' "$root/aify-env/bin/aify-env-install.mjs"; }
+uncarried=""
+[ "${WITH_HOOK:-false}" = true ] && uncarried="$uncarried --with-hook"
+[ -n "${MCP_TRANSPORT:-}" ] && uncarried="$uncarried --mcp-transport"
+[ "${ENV_ENDPOINT_GIVEN:-false}" = true ] && uncarried="$uncarried --env-endpoint"
+if [ -n "$uncarried" ]; then
+  echo "install.sh:$uncarried: not carried by the guided-install chain yet, so nothing was written." >&2
+  echo "  Rerun with --standalone to apply them on this installer's full path." >&2
+  exit 64
+fi
+
+root="$(npm root -g 2>/dev/null)" || root=""
+chain_module() { [ -n "$root" ] && [ -f "$root/aify-env/bin/aify-env-install.mjs" ] && printf '%s' "$root/aify-env/bin/aify-env-install.mjs"; }
 CHAIN="$(chain_module)"
 if [ -z "$CHAIN" ]; then
-  if command -v aify-env >/dev/null 2>&1; then
-    echo "aify-env is installed without the guided-install chain (aify-env install); continuing this installer's full path." >&2
-    echo "  Update aify-env to use the chain, or pass --standalone to say this path is meant." >&2
-    exit "$CONTINUE"
+  if [ -n "$root" ] && { [ -L "$root/aify-env" ] || [ -e "$root/aify-env/.git" ]; }; then
+    echo "aify-env here is a linked checkout ($root/aify-env) without the guided-install chain, and it is never modified." >&2
+    echo "  Update your checkout (git pull), or rerun with --standalone to use this installer's full path." >&2
+    exit 78
   fi
-  echo "Installing aify-env (${AIFY_INSTALL_ENV_SOURCE:-github:zimdin12/aify-env}) to run the guided-install chain..." >&2
-  npm install -g --no-audit --no-fund "${AIFY_INSTALL_ENV_SOURCE:-github:zimdin12/aify-env}" || exit 1
+  if { [ -z "$root" ] || [ ! -e "$root/aify-env" ]; } && command -v aify-env >/dev/null 2>&1; then
+    echo "aify-env is on PATH ($(command -v aify-env)) but npm did not install it, so it is not replaced." >&2
+    echo "  Update it where it came from, or rerun with --standalone to use this installer's full path." >&2
+    exit 78
+  fi
+  echo "Installing aify-env ($SOURCE) to run the guided-install chain..." >&2
+  npm install -g --no-audit --no-fund "$SOURCE" || exit 1
+  root="$(npm root -g 2>/dev/null)" || root=""
   CHAIN="$(chain_module)" || { echo "aify-env was installed, but it holds no guided-install chain." >&2; exit 1; }
 fi
 
 args=(--connect "aify-comms=$URL" --client "$CLIENT" --installer "aify-comms=$INSTALLER")
 [ -t 0 ] || args+=(--no-prompt)
 for digest in ${AIFY_INSTALL_APPROVE:-}; do args+=(--approve "$digest"); done
-keydir=""
 if [ -n "${AIFY_API_KEY:-}" ]; then
-  keydir="$(mktemp -d)"
-  ( umask 077; printf '%s' "$AIFY_API_KEY" > "$keydir/credentialRef" )
-  args+=(--secret "aify-comms.credentialRef=$keydir/credentialRef")
+  args+=(--secret-stdin aify-comms.credentialRef)
+  printf '%s' "$AIFY_API_KEY" | env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}"
+else
+  env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}"
 fi
-status=0
-env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}" || status=$?
-[ -z "$keydir" ] || rm -rf -- "${keydir:?}"
-exit "$status"
