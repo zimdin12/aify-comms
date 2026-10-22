@@ -301,3 +301,28 @@ test("after a 200 the button shows the acknowledged value and works again, with 
     assert.deepEqual(JSON.parse(calls[1].body), { show: true });
   });
 });
+
+test("resumeAgent POSTs the resume control for the agent named on the button", async () => {
+  const { resumeAgent } = await import("./agent-click-handlers.mjs");
+  return withFetch({}, async (calls) => {
+    const btn = { disabled: false, dataset: { agentResume: "team/coder 1" } };
+    let refreshed = 0;
+    resumeAgent(btn, () => { refreshed += 1; });
+    assert.equal(btn.disabled, true, "disabled before the request returns");
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/agents\/team%2Fcoder(%20|\+)1\/control$/);
+    assert.deepEqual(JSON.parse(calls[0].body), { action: "resume", from_agent: "dashboard" });
+    assert.equal(refreshed, 1);
+  });
+});
+
+test("a failed resume gives the button back", async () => {
+  const { resumeAgent } = await import("./agent-click-handlers.mjs");
+  return withFetch({ reject: true }, async () => {
+    const btn = { disabled: false, dataset: { agentResume: "coder" } };
+    resumeAgent(btn, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(btn.disabled, false);
+  });
+});

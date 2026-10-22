@@ -63,6 +63,12 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         agent = await cursor.fetchone()
         if not agent:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
+        # A START IS THE OPERATOR'S "RUN THIS AGAIN" (the 2026-09-14 rule), so it clears a stop the way Resume does,
+        # before the host is asked. Left in place, the started agent's claim answers `stopped` and its delivery loop
+        # exits seconds after launch (operator report, 2026-10-22).
+        if action == "start" and str(agent["status"] or "") == "stopped":
+            await _apply_agent_stop_or_resume(db, agent_id, agent, req, "resume", _now(), 0)
+            await db.commit()
         # A DEFINED agent's start and stop go to its host through the D9 lifecycle queue (D9c).
         if action in {"start", "stop"}:
             delegated = await delegate(db, agent_id, action, actor, request)

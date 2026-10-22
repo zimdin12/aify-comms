@@ -655,3 +655,17 @@ test("OPEN IN SESSIONS IS OFFERED ONLY WHEN THERE IS A SESSION TO OPEN", () => {
     assert.match(els["inspector-content"].innerHTML, /data-agent-open-sessions="s1"/, "CONTROL: with a session it is offered");
   });
 });
+
+test("the drawer offers Resume exactly for a stopped agent, resident or managed (2026-10-22)", () => {
+  for (const [mode, status, expected] of [["resident", "stopped", true], ["managed", "stopped", true],
+                                          ["resident", "online", false], ["managed", "available", false],
+                                          ["resident", "offline", false]]) {
+    seed({ agents: [{ id: "coder", status, sessionMode: mode }], inspector: {} });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("coder");
+      const html = els["inspector-content"].innerHTML;
+      assert.equal(html.includes('data-agent-resume="coder"'), expected,
+        `${mode} ${status} must ${expected ? "offer" : "withhold"} Resume`);
+    });
+  }
+});
