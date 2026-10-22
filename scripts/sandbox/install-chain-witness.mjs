@@ -16,6 +16,7 @@
 //   render-after     acquires, connects, renders; claude absent so it exits non-zero naming `claude: pending (CLI absent)`;
 //                    the launcher's fingerprint is current (aify-wrapper-check), so it was rendered after connect
 //   no-recursion     comms' installer as the entry: the chain is entered once, the registry is unchanged across assets
+//   key-from-store   the installed bridge, with no key in its environment, authenticates with the key connect published
 //   path-not-selection  codex on PATH, not selected: codex is never run and no codex launcher is written
 
 import { spawnSync } from "node:child_process";
@@ -120,6 +121,15 @@ try {
   try { const c = JSON.parse(check.out); current = c.current?.length > 0 && !c.stale?.length && !c.unknown?.length; } catch { /* stays false */ }
   row("render-after", full.status !== 0 && /claude: pending \(CLI absent\)/.test(full.out) && /chain: entered/.test(full.out) && current,
     `exit ${full.status}; launcher fingerprint ${current ? "current" : "NOT current"}`);
+  // The installer's modes take no key (7174c339): the installed bridge must find the one connect published, with no
+  // key in its environment. Control: the same call with no key is refused, so a 200 is the key's doing.
+  const probe = sh(a, `cd ~/.aify-comms && env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node --input-type=module -e '
+    const m = await import(process.cwd() + "/aify-service-endpoint.mjs");
+    const key = m.destinationKeyResolver("http://comms:8800", { env: {} })("http://comms:8800");
+    const call = (h) => fetch("http://comms:8800/api/v1/agents", { headers: h }).then((r) => r.status);
+    console.log("store-key", key ? "found" : "none", "with", await call({ "X-API-Key": key }), "without", await call({}));' 2>&1`);
+  fs.writeFileSync(path.join(OUT, "key-from-store.txt"), probe.out);
+  row("key-from-store", /store-key found with 200 without 401/.test(probe.out), probe.out.trim().split("\n").pop());
 
   // Rows: no recursion and PATH is not selection, with comms' own installer as the entry on a fresh host.
   const b = host("b");
