@@ -36,6 +36,9 @@ export const LIVE_ENV_CARRIERS = Object.freeze([
   "AIFY_AGENT_LEASE", "AIFY_START_INTENT",
   // G5 hooks can now report to the environment independently of the service.
   "AIFY_ENV_URL", "AIFY_ENV_INSTANCE", "AIFY_LIFETIME",
+  // The channel route claude-aify exports: a channel entry inheriting it decides from the live session's route
+  // whether it claims (channel-producer.mjs).
+  "AIFY_CHANNEL_ROUTE",
 ]);
 
 /**
