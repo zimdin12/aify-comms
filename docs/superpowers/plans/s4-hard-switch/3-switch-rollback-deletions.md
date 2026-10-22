@@ -54,6 +54,12 @@ insertion off. A default and a skipped install attest nothing about the live fle
 
 The reads go with the SW6 receipt. Nothing outside the population is called qualified.
 
+## No live comms rebuild from main before SW6
+
+SW5 landed on main as merge 679da366 on 2026-10-22, source only. From then on, rebuilding the live comms container
+from main deploys SW5, so nobody does that until SW6. A fix that needs a live deploy before go-live is built from
+the pre-merge base (b8190a66) as its own reviewed object.
+
 ## aify-env goes first (SW6, before deploy)
 
 The view reads a publisher that announces no reporting interval as not reporting, so every agent it lists reads
