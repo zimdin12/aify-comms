@@ -288,8 +288,10 @@ const MODELS = {
     const marks = { seedRunId: "S", seedStatusAtStop: "queued", seedInInbox: true, wordStopped: { status: "stopped" }, sendStored: true,
       spawnsAfterSend: 0, deliveredWhileStopped: 0, restartAccepted: { at: T0 + 60_000, seenAt: T0 + 60_200 },
       wordAtRestart: { status: "unknown" }, wordAfterFirstTurn: { status: "online" } };
-    const seedEnds = (status, claimedT = null) => [snap(T0 + 100, { runs: [run("S", "queued")] }),
-      snap(T0 + 10_200, { runs: [run("S", status, claimedT)] })];
+    const notice = (runId = "S", body = "Mirrored handoff stored for gate-sender; live delivery not queued") =>
+      ({ id: 9, run_id: runId, event_type: "handoff", body, created_at: iso(T0 + 27_000) });
+    const seedEnds = (status, claimedT = null, events = [notice()]) => [snap(T0 + 100, { runs: [run("S", "queued")] }),
+      { ...snap(T0 + 10_200, { runs: [run("S", status, claimedT)] }), events }];
     // Healthy (amendment A9, the operator's ruling): the named pre-stop run failed by the stop, never delivered, its
     // message still unread in the inbox.
     const pass = { marks, timeline: seedEnds("failed"), standin: [] };
@@ -299,6 +301,14 @@ const MODELS = {
       ["A9: the seed delivered after the restart", { ...pass, timeline: seedEnds("completed", T0 + 62_000), standin: [delivered("S", T0 + 62_000)] }],
       ["A9: the seed claimed", { ...pass, timeline: seedEnds("completed", T0 + 62_000) }],
       ["A9: the seed claimed after the restart, then failed", { ...pass, timeline: seedEnds("failed", T0 + 62_000) }],
+      ["A9 review: failed at the stop, claimed after the restart, failed again", { ...pass, timeline: [
+        ...seedEnds("failed"),
+        { ...snap(T0 + 62_200, { runs: [run("S", "running", T0 + 62_000)] }), events: [notice()] },
+        { ...snap(T0 + 70_200, { runs: [run("S", "failed", T0 + 62_000)] }), events: [notice()] }] }],
+      ["A9: no notice stored for the sender", { ...pass, timeline: seedEnds("failed", null, []) }],
+      ["A9: the notice is for another run", { ...pass, timeline: seedEnds("failed", null, [notice("X")]) }],
+      ["A9: the notice names another sender", { ...pass, timeline: seedEnds("failed", null,
+        [notice("S", "Mirrored handoff stored for gate-sender-2; live delivery not queued")]) }],
       ["A9: the stand-in received the seed", { ...pass, standin: [delivered("S", T0 + 62_000)] }],
       ["A9: the seed cancelled, not failed", { ...pass, timeline: seedEnds("cancelled") }],
       ["A9: the seed still queued", { ...pass, timeline: seedEnds("queued") }],

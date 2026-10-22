@@ -313,12 +313,17 @@ export const JUDGES = {
     if (!m.wordAtRestart || m.wordAtRestart.status === "stopped") failed.push(`at the restart the word read ${m.wordAtRestart?.status}`);
     if (m.wordAfterFirstTurn?.status !== "online") failed.push(`after the first turn the word read ${m.wordAfterFirstTurn?.status}`);
     if (m.seedRunId) {
-      if (claimOf(ev.timeline, m.seedRunId).claimedAt !== null) failed.push("the seeded run was claimed after the stop");
+      // Every successful frame, not claimOf's first non-queued one: a seed already failed at the stop must not hide a
+      // claim after the restart (review of 536a8d0a).
+      if (ev.timeline.some((s) => !s.error && runOf(s, m.seedRunId)?.claimed_at)) failed.push("the seeded run was claimed after the stop");
       if (ev.standin.some((e) => e.event === "delivered" && e.runId === m.seedRunId)) failed.push("the stand-in received the seeded run");
       const end = runOf(ev.timeline.findLast((s) => runOf(s, m.seedRunId)), m.seedRunId)?.status;
       if (end !== "failed") failed.push(`the seeded run ended ${end}, not failed`);
       if (m.seedInInbox === null || m.seedInInbox === undefined) failed.push("fixture: the agent's inbox was not read");
       else if (m.seedInInbox !== true) failed.push("the seeded message is not unread in the agent's inbox");
+      const notice = ev.timeline.some((s) => (s.events ?? []).some((e) => e.run_id === m.seedRunId
+        && e.event_type === "handoff" && /gate-sender(?![\w-])/.test(e.body ?? "")));
+      if (!notice) failed.push("no notice was stored for the seed's sender");
     }
     return verdict(failed, unknown);
   },

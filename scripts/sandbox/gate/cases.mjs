@@ -323,7 +323,7 @@ export const CASES = [
     red: "the send-time hold skips the backing step (no spawn request; the run waits forever)" },
   { id: "run-running-idle", scenario: "running", expected: "the word reads `working`", red: "promotion skipped at the view" },
   { id: "stop-restart", scenario: "stop", amendment: "A9",
-    expected: "`stopped` (a send is stored, not run), then `online`; queued work failed by the stop, never delivered, and still unread in the agent's inbox",
+    expected: "`stopped` (a send is stored, not run), then `online`; queued work failed by the stop, never delivered, still unread in the agent's inbox, and a notice stored for its sender",
     red: "the view's stop row skipped; restart leaves `unknown`" },
   { id: "fresh-busy-beside-unknown", scenario: "busy-beside-unknown", amendment: "A5",
     expected: "eligibility unknown beside a fresh busy holder: withheld, steer included",

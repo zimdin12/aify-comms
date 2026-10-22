@@ -130,13 +130,18 @@ entry (`amendment` in `scripts/sandbox/gate/cases.mjs`), and the self-check find
 - **Page 2:** "stop, then restart, through aify-env" → "`stopped` (a send is stored, not run), then `online`, with
   queued work drained". RED: "the view's stop row skipped; restart leaves `unknown`".
 - **The gate:** "`stopped` (a send is stored, not run), then `online`; queued work failed by the stop, never delivered,
-  and still unread in the agent's inbox". This replaces A6's drained seed. A6's checkpoints and its stored send stay.
+  still unread in the agent's inbox, and a notice stored for its sender". This replaces A6's drained seed. A6's checkpoints and its stored send stay.
   - The seed is the named `queueIfBusy` run from A6, read back `queued` before the stop.
   - After the restart and a whole claim pass after the first turn, the seed must never be claimed and the stand-in must
-    never receive it. Its last status must be `failed`, and its message must still be unread in the agent's inbox,
-    read with `peek` so that reading it marks nothing read.
+    never receive it: no successful frame may show it with a `claimed_at`, including after an earlier `failed`
+    frame. Its last status must be `failed`. Its message must still be unread in the agent's inbox, read with `peek`
+    so that reading it marks nothing read.
+  - A `handoff` event on the seed names its sender: the stored notice. Live delivery of that notice, and the sender's
+    reply obligation, are outside this case. They depend on the sender, and the fixture's sender has no bridge.
 - **Why:** A6 rested on "comms' delegated stop leaves queued runs alone, so the seed survives the stop". SW3b showed
   that is false. A defined agent's stop is delegated, the terminal-close path then fails the queued run
   (`terminal_closed`, docs/evidence/2026-10-21-sw3c-stop-attribution), and nothing delivers it after the restart. The
   operator chose to keep that behaviour: "it should get failed status or whatever we add to messages that do not go
-  through, but visible in inbox". They confirmed it as "failed + inbox" on 2026-10-22.
+  through, but visible in inbox". They then confirmed this restatement on 2026-10-22: "marked FAILED and isn't
+  delivered after a restart. It stays in that agent's inbox, and its sender gets a stored 'not delivered' notice. That's
+  how comms works today; only the switch test changes", answering "Yes, failed + inbox".
