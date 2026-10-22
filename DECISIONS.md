@@ -6,6 +6,17 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## The aify channel ships as an aify-wrapper plugin, allowed by a per-user Claude Code policy (Steven, 2026-10-22)
+
+- Agents start with the aify channel and no development-channels warning. The channel is a Claude Code plugin owned
+  by aify-wrapper. A managed policy allows exactly that plugin (`channelsEnabled`, `allowedChannelPlugins`), and
+  launchers pass `--channels plugin:aify-channel@aify-local`. This was proven in a throwaway container on 2026-10-22.
+- On Windows the guided install writes that policy at go-live to the per-user value
+  `HKCU\SOFTWARE\Policies\ClaudeCode` → `Settings`. That needs no admin and is removed by deleting one value. The
+  machine-wide `managed-settings.json` and keeping the prompt were offered and not chosen.
+- The policy replaces Claude Code's default channel allowlist, so the writer merges: it keeps every existing key and
+  entry, adds only aify's, and writes nothing where an admin-level policy exists.
+
 ## A stop fails queued work and keeps it in the inbox; dead aify-env keys are cleaned up now and handled automatically later (Steven, 2026-10-22)
 
 - **Stop.** A message still queued for an agent when it is stopped is marked `failed`. It is not delivered after a
