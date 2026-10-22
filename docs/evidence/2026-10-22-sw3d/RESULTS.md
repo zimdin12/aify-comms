@@ -38,3 +38,16 @@ left out.
 - `runs/q1.gate.txt`, `runs/q2.gate.txt`, `runs/q3.gate.txt`: each attempt's console. `runs/exits.txt` holds the
   start and exit times.
 - `q1/`, `q2/` and `q3/`: each attempt's out dir, with `attempt.json` and one `evidence.json` per scenario.
+
+## The gate owner's disposition of the deviation (2026-10-22)
+
+The preregistration's quiet-host condition was not kept (above). Its effect on these results is not established: all
+three passing does not show that the extra load changed nothing, and the Docker overlap's time is unknown.
+
+As the gate's owner, I accept these results for one purpose only: landing the qualified source on comms main (SW5L).
+That merge deploys nothing and is undone by reverting one merge commit.
+
+They are not accepted as the deploy qualification. Before SW6 deploys SW5, one more set of three attempts runs on a
+quiet host, under its own preregistration, on the same pair and apparatus (or on the merged main's exact tree if it is
+identical), and it must be green under the same rule. The operator's time is not involved: the set runs in the
+sandbox while the rest of 0.9.8 is built.
