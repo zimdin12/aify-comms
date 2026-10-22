@@ -1,0 +1,14 @@
+comms e1f72e485451c650bb49250a7249fd6ae7d3e141, aify-env 22ecc07, aify-wrapper 3a14911, run fb4a48af
+owned image s2w-fb4a48af-comms
+owned network s2w-fb4a48af
+owned container s2w-fb4a48af-comms
+served artifact revision e1f72e485451c650bb49250a7249fd6ae7d3e141
+owned container s2w-fb4a48af-a
+row missing-key: PASS -- exit 78; registry absent; launcher absent
+row unapproved: PASS -- exit 78; digest 26074f8380ce802f828498c052301436400f8bc3df77adf2f5a938e8aebd4d57
+row render-after: PASS -- exit 78; launcher fingerprint current
+row key-from-store: PASS -- store-key found with 200 without 401
+owned container s2w-fb4a48af-b
+row no-recursion: PASS -- exit 0; entered 1; registry 5ac17c718ce0d71a8a95a37a2c991817af9fd719db0b466a27f763c6d34950e3 -> 5ac17c718ce0d71a8a95a37a2c991817af9fd719db0b466a27f763c6d34950e3; claude assets applied
+row path-not-selection: PASS -- codex never run; codex-aify absent
+cleanup: complete, every owned resource read back absent
