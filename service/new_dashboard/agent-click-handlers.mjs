@@ -103,6 +103,21 @@ export function startColdAgent(agentAction, refreshSoon) {
     });
 }
 
+/** Clear an agent's stop through the service's resume control; the button stays disabled until the refresh. */
+export function resumeAgent(button, refreshSoon) {
+  const id = button.dataset.agentResume;
+  button.disabled = true;
+  api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'resume', from_agent: 'dashboard' }) })
+    .then(() => {
+      toast(`${id}: comms' stop cleared. Relaunch it, or start it, to run it again`, 'ok');
+      refreshSoon();
+    })
+    .catch((err) => {
+      toast(`Resume failed: ${err?.message || err}`, 'error');
+      button.disabled = false;
+    });
+}
+
 export function switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode) {
   event.preventDefault();
   event.stopPropagation();
