@@ -124,3 +124,19 @@ entry (`amendment` in `scripts/sandbox/gate/cases.mjs`), and the self-check find
   aify-env.
 - The receipt attempt in this folder runs comms 36028554 against aify-env 7a855db0. Their readers are still unwired,
   so every case's RED there is the unwired readers'.
+
+## A9. Stop, then restart: queued work is failed by the stop and kept in the inbox (owner ruling 2026-10-22)
+
+- **Page 2:** "stop, then restart, through aify-env" → "`stopped` (a send is stored, not run), then `online`, with
+  queued work drained". RED: "the view's stop row skipped; restart leaves `unknown`".
+- **The gate:** "`stopped` (a send is stored, not run), then `online`; queued work failed by the stop, never delivered,
+  and still unread in the agent's inbox". This replaces A6's drained seed. A6's checkpoints and its stored send stay.
+  - The seed is the named `queueIfBusy` run from A6, read back `queued` before the stop.
+  - After the restart and a whole claim pass after the first turn, the seed must never be claimed and the stand-in must
+    never receive it. Its last status must be `failed`, and its message must still be unread in the agent's inbox,
+    read with `peek` so that reading it marks nothing read.
+- **Why:** A6 rested on "comms' delegated stop leaves queued runs alone, so the seed survives the stop". SW3b showed
+  that is false. A defined agent's stop is delegated, the terminal-close path then fails the queued run
+  (`terminal_closed`, docs/evidence/2026-10-21-sw3c-stop-attribution), and nothing delivers it after the restart. The
+  operator chose to keep that behaviour: "it should get failed status or whatever we add to messages that do not go
+  through, but visible in inbox". They confirmed it as "failed + inbox" on 2026-10-22.

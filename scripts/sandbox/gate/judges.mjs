@@ -300,7 +300,8 @@ export const JUDGES = {
   },
   "stop-restart"(ev) {
     const { marks: m } = ev, failed = [], unknown = [];
-    // A named run, seeded and queued before the stop, is the queued work that must drain (R7).
+    // A named run, seeded and queued before the stop (R7). The stop fails it: never claimed or delivered after the
+    // restart, and its message left unread in the inbox (amendment A9).
     if (!m.seedRunId) failed.push("fixture: no queued work was seeded before the stop");
     else if (m.seedStatusAtStop !== "queued") failed.push(`fixture: the seeded run was ${m.seedStatusAtStop} at the stop`);
     if (m.wordStopped?.status !== "stopped") failed.push(`after the stop the word read ${m.wordStopped?.status}`);
@@ -311,7 +312,14 @@ export const JUDGES = {
     if (!m.restartAccepted?.at) failed.push("fixture: the new lifetime's record was never accepted");
     if (!m.wordAtRestart || m.wordAtRestart.status === "stopped") failed.push(`at the restart the word read ${m.wordAtRestart?.status}`);
     if (m.wordAfterFirstTurn?.status !== "online") failed.push(`after the first turn the word read ${m.wordAfterFirstTurn?.status}`);
-    if (m.seedRunId) claimedOnFirstPassAfter(ev.timeline, m.seedRunId, m.restartAccepted, failed, "the seeded run");
+    if (m.seedRunId) {
+      if (claimOf(ev.timeline, m.seedRunId).claimedAt !== null) failed.push("the seeded run was claimed after the stop");
+      if (ev.standin.some((e) => e.event === "delivered" && e.runId === m.seedRunId)) failed.push("the stand-in received the seeded run");
+      const end = runOf(ev.timeline.findLast((s) => runOf(s, m.seedRunId)), m.seedRunId)?.status;
+      if (end !== "failed") failed.push(`the seeded run ended ${end}, not failed`);
+      if (m.seedInInbox === null || m.seedInInbox === undefined) failed.push("fixture: the agent's inbox was not read");
+      else if (m.seedInInbox !== true) failed.push("the seeded message is not unread in the agent's inbox");
+    }
     return verdict(failed, unknown);
   },
 };

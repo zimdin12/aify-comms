@@ -229,7 +229,8 @@ export const SCENARIOS = {
   async stop(pair, evidence) {
     await pair.warm();
     const before = pair.lifetime();
-    // The queued work the restart must drain: a named non-steerable run, held by both readers' busy (review R7).
+    // Queued work at the stop: a named non-steerable run, held by both readers' busy (review R7). The stop fails it and
+    // the restart must not deliver it; its message stays unread in the inbox (amendment A9, the operator's ruling).
     legacyTurn(pair);
     await busy(pair);
     const seed = sent(pair, "C13 seeded before the stop", { queueIfBusy: true, steer: false });
@@ -258,9 +259,13 @@ export const SCENARIOS = {
     await busy(pair);
     pair.control({ turn: "idle" });
     await pair.waitRecord((r) => r.busy === false && r.state === "idle", 60_000, "the new lifetime idle");
-    await claimed(pair, seed.runId, 30_000);
-    await sleep(3000);
-    return { seedRunId: seed.runId, seedStatusAtStop, wordStopped, sendStored: s.answer.json?.stored === true,
+    await sleep(FIRST_PASS_MS + 3000); // a whole claim pass after the first turn, in which a surviving seed would be claimed
+    const seedMessageId = seed.answer.json?.messageId ?? null;
+    const unread = pair.api("GET", `/messages/inbox/${AGENT}?filter=unread&peek=true&mode=headers`);
+    return { seedRunId: seed.runId, seedStatusAtStop, seedMessageId,
+      seedInInbox: unread.ok && Array.isArray(unread.json?.messages) && seedMessageId
+        ? unread.json.messages.some((x) => x.id === seedMessageId) : null,
+      wordStopped, sendStored: s.answer.json?.stored === true,
       sendRunId: s.runId, spawnsAfterSend, deliveredWhileStopped, wordAtRestart: atRestart?.word ?? null,
       restartAccepted: accepted(evidence().timeline, (x) => record(x)?.lifetime === after, startT),
       wordAfterFirstTurn: pair.snapshot().word };
@@ -317,8 +322,8 @@ export const CASES = [
     expected: "a spawn request with an empty initial message; the run stays queued; the claim withholds until comms accepts the new lifetime's record, then the run is claimed",
     red: "the send-time hold skips the backing step (no spawn request; the run waits forever)" },
   { id: "run-running-idle", scenario: "running", expected: "the word reads `working`", red: "promotion skipped at the view" },
-  { id: "stop-restart", scenario: "stop", amendment: "A6",
-    expected: "`stopped` (a send is stored, not run), then `online`, with queued work drained",
+  { id: "stop-restart", scenario: "stop", amendment: "A9",
+    expected: "`stopped` (a send is stored, not run), then `online`; queued work failed by the stop, never delivered, and still unread in the agent's inbox",
     red: "the view's stop row skipped; restart leaves `unknown`" },
   { id: "fresh-busy-beside-unknown", scenario: "busy-beside-unknown", amendment: "A5",
     expected: "eligibility unknown beside a fresh busy holder: withheld, steer included",

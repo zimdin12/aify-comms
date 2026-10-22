@@ -285,17 +285,25 @@ const MODELS = {
       ["promotion skipped", { ...pass, marks: { ...marks, word: { status: "online" } } }]];
   })(),
   "stop-restart": (() => {
-    const marks = { seedRunId: "S", seedStatusAtStop: "queued", wordStopped: { status: "stopped" }, sendStored: true,
+    const marks = { seedRunId: "S", seedStatusAtStop: "queued", seedInInbox: true, wordStopped: { status: "stopped" }, sendStored: true,
       spawnsAfterSend: 0, deliveredWhileStopped: 0, restartAccepted: { at: T0 + 60_000, seenAt: T0 + 60_200 },
       wordAtRestart: { status: "unknown" }, wordAfterFirstTurn: { status: "online" } };
-    const seedAt = (t) => [snap(T0 + 100, { runs: [run("S", "queued")] }), ...(t === null ? [] : [snap(t + 200, { runs: [run("S", "completed", t)] })])];
-    // Healthy (review R7's matched control): the named pre-stop run, delivered after the restart.
-    const pass = { marks, timeline: seedAt(T0 + 62_000), standin: [delivered("S", T0 + 62_000)] };
+    const seedEnds = (status, claimedT = null) => [snap(T0 + 100, { runs: [run("S", "queued")] }),
+      snap(T0 + 10_200, { runs: [run("S", status, claimedT)] })];
+    // Healthy (amendment A9, the operator's ruling): the named pre-stop run failed by the stop, never delivered, its
+    // message still unread in the inbox.
+    const pass = { marks, timeline: seedEnds("failed"), standin: [] };
     return [pass,
       ["review R7: no queued work seeded", { ...pass, marks: { ...marks, seedRunId: null } }],
       ["the seed not queued at the stop", { ...pass, marks: { ...marks, seedStatusAtStop: "completed" } }],
-      ["review R7: the named seed never drained", { ...pass, timeline: seedAt(null) }],
-      ["the seed claimed before the restart", { ...pass, timeline: seedAt(T0 + 30_000) }],
+      ["A9: the seed delivered after the restart", { ...pass, timeline: seedEnds("completed", T0 + 62_000), standin: [delivered("S", T0 + 62_000)] }],
+      ["A9: the seed claimed", { ...pass, timeline: seedEnds("completed", T0 + 62_000) }],
+      ["A9: the seed claimed after the restart, then failed", { ...pass, timeline: seedEnds("failed", T0 + 62_000) }],
+      ["A9: the stand-in received the seed", { ...pass, standin: [delivered("S", T0 + 62_000)] }],
+      ["A9: the seed cancelled, not failed", { ...pass, timeline: seedEnds("cancelled") }],
+      ["A9: the seed still queued", { ...pass, timeline: seedEnds("queued") }],
+      ["A9: the seeded message gone from the inbox", { ...pass, marks: { ...marks, seedInInbox: false } }],
+      ["A9: the inbox never read", { ...pass, marks: { ...marks, seedInInbox: null } }],
       ["stop row skipped", { ...pass, marks: { ...marks, wordStopped: { status: "online" } } }],
       ["send not stored", { ...pass, marks: { ...marks, sendStored: false } }],
       ["the send started it", { ...pass, marks: { ...marks, spawnsAfterSend: 1 } }],
