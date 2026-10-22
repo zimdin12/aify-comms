@@ -54,6 +54,17 @@ insertion off. A default and a skipped install attest nothing about the live fle
 
 The reads go with the SW6 receipt. Nothing outside the population is called qualified.
 
+## aify-env goes first (SW6, before deploy)
+
+The view reads a publisher that announces no reporting interval as not reporting, so every agent it lists reads
+`unknown` and every send to them queues. An aify-env older than the report-interval commit (7a855db) announces none.
+So, in this order:
+1. The operator restarts aify-env onto a build at or after 7a855db.
+2. Every live publisher key is read announcing `reportEveryMs`, both in comms' table and in the dashboard's receiver.
+3. Only then does SW5 deploy.
+
+Found by dashboard-manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval.
+
 ## The rollback (SW6)
 
 - **What reverts:** the SW5 commit, followed by a stamp and rebuild. That takes minutes, and nobody relaunches.

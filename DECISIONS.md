@@ -6,6 +6,22 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## A stop fails queued work and keeps it in the inbox; dead aify-env keys are cleaned up now and handled automatically later (Steven, 2026-10-22)
+
+- **Stop.** A message still queued for an agent when it is stopped is marked `failed`. It is not delivered after a
+  restart, it stays unread in that agent's inbox, and a notice is stored for its sender. That is how comms already
+  behaves: a defined agent's stop is delegated to aify-env, and the terminal-close path fails the queued run. Only
+  the switch's test changed (amendment A9 of the sandbox gate). "Cancelled" and "deliver after restart" were offered
+  and not chosen.
+- **Dead aify-env publisher keys.** The 10 keys left by dead daemons were removed once, by hand, after a backup, from
+  comms and from the dashboard. Steven asked whether this needs a command at all: "if it never happens again then no
+  command is needed. if it is going to be common then we need a solution". It will recur, rarely: a crash, a forced
+  kill or a power loss still leaves a key. Each one would make every agent it lists read unknown after the switch. So
+  the solution is automatic, not a command: a key that has missed three of its own announced intervals yields to a
+  live key listing the same agent. It is built after the switch, as its own change.
+- **Why:** both rulings are recorded with their question and answer in
+  `docs/evidence/2026-10-22-owner-rulings` on branch 098/sw3c.
+
 ## aify-env announces its reporting interval; comms derives "not reporting" from it (Steven, 2026-10-21)
 
 - **The silence limit is aify-env's setting, not a comms constant** (dashboard question 01M5D9WR, answered "mb make
