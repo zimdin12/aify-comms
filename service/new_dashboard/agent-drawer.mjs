@@ -62,9 +62,10 @@ export function openAgentDrawer(agentId) {
   // none it switched pages onto whatever session was selected before, often another agent's.
   const actions = [
     canStart ? `<button class="primary" data-agent-action="start" data-agent-id="${esc(id)}">Start</button>` : '',
-    // RESUME CLEARS A STOP (operator report, 2026-10-22). A stopped agent's claim answers `stopped` and its delivery
-    // loop exits, so a resident relaunched by hand quit seconds later; the service's resume control was never wired.
-    agentStatus === 'stopped' ? `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear the stop, so a relaunch or a message can run this agent again">Resume</button>` : '',
+    // RESUME CLEARS COMMS' STOP (operator report, 2026-10-22). A stopped row makes the agent's claim answer `stopped`
+    // and its delivery loop exit; the service's resume control existed and nothing called it. It starts nothing, and
+    // it does not clear a stop the agent's aify-env holds for a defined agent.
+    agentStatus === 'stopped' ? `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear comms' stop on this agent, so a relaunch or a message is not refused. Starts nothing.">Resume</button>` : '',
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}"${startRefusedAttrs(agent)}>Restart</button>` : '',
     sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}"${startRefusedAttrs(agent, 'Restart with a FRESH context (discards native session)')}>Reset</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
