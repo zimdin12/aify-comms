@@ -105,7 +105,7 @@ const stubs = (container, names) => must("stubs", sh(container, names.map((c) =>
 /** The installed bridge's own httpCall, no key in its environment: "ok <status>" or the error it raised. */
 const bridgeCall = (container, extraEnv = "") => sh(container, `cd ~/.aify-comms/mcp/stdio && env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY CLAUDE_MCP_SERVER_URL=http://comms:8800 AIFY_SERVER_URL=http://comms:8800 ${extraEnv} node --input-type=module -e '
   const m = await import(process.cwd() + "/aify-service-endpoint.mjs");
-  try { await m.httpCall("GET", "/api/v1/agents"); console.log("httpCall ok"); } catch (e) { console.log("httpCall refused:", String(e.message).slice(0, 120)); }' 2>&1`);
+  try { await m.httpCall("GET", "/agents"); console.log("httpCall ok"); } catch (e) { console.log("httpCall refused:", String(e.message).slice(0, 120)); }' 2>&1`);
 
 const results = [];
 function row(id, ok, detail) { results.push({ id, ok, detail }); log(`row ${id}: ${ok ? "PASS" : "FAIL"} -- ${detail}`); }
@@ -191,7 +191,7 @@ try {
   const ref = must("old key stored", sh(e, "aify-env credential set --service aify-comms --stdin", { input: OLD })).out.trim().split("\n").pop();
   const refused = sh(e, `cd /src/aify-comms && AIFY_API_KEY=$(cat /tmp/key) ${COMMS_ENTRY}`);
   save("no-early-store.txt", refused.out);
-  const now = sh(e, `cat ~/.aify/credentials/${ref}`).out;
+  const now = sh(e, `cat ~/.aify/credentials/${ref}`).out.replace(/\n$/, ""); // the store writes the value and one newline
   row("no-early-store", refused.status !== 0 && /--approve [0-9a-f]{64}/.test(refused.out) && now === OLD,
     `exit ${refused.status}; stored key under ${ref}: ${now === OLD ? "still OLD" : now === KEY ? "REPLACED by the new key" : "unreadable or other"}`);
   ok = results.every((r) => r.ok);
