@@ -321,8 +321,9 @@ export const JUDGES = {
       if (end !== "failed") failed.push(`the seeded run ended ${end}, not failed`);
       if (m.seedInInbox === null || m.seedInInbox === undefined) failed.push("fixture: the agent's inbox was not read");
       else if (m.seedInInbox !== true) failed.push("the seeded message is not unread in the agent's inbox");
-      const notice = ev.timeline.some((s) => (s.events ?? []).some((e) => e.run_id === m.seedRunId
-        && e.event_type === "handoff" && /gate-sender(?![\w-])/.test(e.body ?? "")));
+      // Successful frames only (F1), and the sender's whole name: `other-gate-sender` and `gate-sender-2` are not it.
+      const notice = ev.timeline.some((s) => !s.error && (s.events ?? []).some((e) => e.run_id === m.seedRunId
+        && e.event_type === "handoff" && /(?<![\w-])gate-sender(?![\w-])/.test(e.body ?? "")));
       if (!notice) failed.push("no notice was stored for the seed's sender");
     }
     return verdict(failed, unknown);
