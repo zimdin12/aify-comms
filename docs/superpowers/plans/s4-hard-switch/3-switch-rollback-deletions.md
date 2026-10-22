@@ -61,10 +61,17 @@ The view reads a publisher that announces no reporting interval as not reporting
 So, in this order:
 1. The host's aify-env checkout is on main (at or after 7a855db). Nobody forces a restart for the switch: the
    operator's next ordinary restart brings the daemon onto it (operator, 2026-10-22: "wait for my next restart").
-2. The running daemon's own code identity is read (`aify-env doctor`'s `code-current`), not the checkout's. Every
-   live publisher key from that daemon is read announcing `reportEveryMs`, as accepted by comms' receiver and by the
-   dashboard's.
-3. Only then does SW5 deploy. Until then the switch waits.
+2. The running daemon's loaded build is read and mapped to the qualified artifact. A green `code-current`, main, the
+   checkout's HEAD or ancestry is not that reading:
+   - the daemon's own `build` token, from its /health answer, is recorded raw;
+   - the same token is computed the same way (aify-env's `PackageBuild`) over an extract of the qualified aify-env
+     commit (`git archive <sha>`), and recorded raw beside it. They must be equal;
+   - the installation's provenance goes with them: which directory the global install links to, and that
+     directory's commit.
+3. Every live publisher key from that daemon is read announcing `reportEveryMs`, as accepted by comms' receiver AND
+   by the dashboard's. The raw rows are kept.
+4. Only then does SW5 deploy, and only with the one-go-live gates still met: every 0.9.8 item done and every
+   qualification green. Until then the switch waits.
 
 Found by dashboard-manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval. The checkout was
 fast-forwarded to main (ed9ebe5) the same day. The running daemons stay on what they loaded until that restart.
