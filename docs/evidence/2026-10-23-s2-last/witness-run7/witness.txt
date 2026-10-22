@@ -1,0 +1,20 @@
+comms e72dd7c31ad50ef7bea64f5ecab3cf66d196f3c5, aify-env 6a2e8fa, aify-wrapper 3a14911, run 104293f2
+owned image s2w-104293f2-comms
+owned network s2w-104293f2
+owned container s2w-104293f2-comms
+served artifact revision e72dd7c31ad50ef7bea64f5ecab3cf66d196f3c5
+owned container s2w-104293f2-a
+row missing-key: PASS -- exit 78; registry absent; launcher absent
+row unapproved: PASS -- exit 78; digest 4518d8216ee4e13778a7ff9fd6189f116f7be5609fa3f00947f89708ddc8ab71
+owned container s2w-104293f2-c
+row render-after: PASS -- exit 78; relative key file read; launcher fingerprint current
+row key-from-store: PASS -- published key: httpCall ok; registry away: httpCall refused: HTTP 401: {"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}
+owned container s2w-104293f2-b
+row no-recursion: PASS -- exit 0; entered 1; registry d1cfcc48ccd32542818253aba47974308ac6a454891926ab01b1192235bcc95b -> d1cfcc48ccd32542818253aba47974308ac6a454891926ab01b1192235bcc95b
+row no-key-in-argv: PASS -- key in claude argv/env: absent; control: grep finds the key in /tmp/key true, registration inspected true
+row keyed-continuation: PASS -- httpCall ok
+row path-not-selection: PASS -- codex unselected: nothing applied; claude skills present; control: codex skills after a by-hand codex assets run detected
+owned container s2w-104293f2-e
+row no-early-store: PASS -- exit 78; stored key under aify-comms-6b1e649c84bd.key: still OLD
+cleanup: complete, every owned resource read back absent by Docker's not-found for its name
+terminal: exit 0

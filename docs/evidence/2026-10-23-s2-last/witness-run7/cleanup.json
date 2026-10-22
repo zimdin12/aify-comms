@@ -1,0 +1,182 @@
+[
+ {
+  "step": "remove",
+  "kind": "container",
+  "name": "s2w-104293f2-e",
+  "argv": [
+   "rm",
+   "-f",
+   "-v",
+   "s2w-104293f2-e"
+  ],
+  "exit": 0,
+  "out": "s2w-104293f2-e"
+ },
+ {
+  "step": "remove",
+  "kind": "container",
+  "name": "s2w-104293f2-b",
+  "argv": [
+   "rm",
+   "-f",
+   "-v",
+   "s2w-104293f2-b"
+  ],
+  "exit": 0,
+  "out": "s2w-104293f2-b"
+ },
+ {
+  "step": "remove",
+  "kind": "container",
+  "name": "s2w-104293f2-c",
+  "argv": [
+   "rm",
+   "-f",
+   "-v",
+   "s2w-104293f2-c"
+  ],
+  "exit": 0,
+  "out": "s2w-104293f2-c"
+ },
+ {
+  "step": "remove",
+  "kind": "container",
+  "name": "s2w-104293f2-a",
+  "argv": [
+   "rm",
+   "-f",
+   "-v",
+   "s2w-104293f2-a"
+  ],
+  "exit": 0,
+  "out": "s2w-104293f2-a"
+ },
+ {
+  "step": "remove",
+  "kind": "container",
+  "name": "s2w-104293f2-comms",
+  "argv": [
+   "rm",
+   "-f",
+   "-v",
+   "s2w-104293f2-comms"
+  ],
+  "exit": 0,
+  "out": "s2w-104293f2-comms"
+ },
+ {
+  "step": "remove",
+  "kind": "network",
+  "name": "s2w-104293f2",
+  "argv": [
+   "network",
+   "rm",
+   "s2w-104293f2"
+  ],
+  "exit": 0,
+  "out": "s2w-104293f2"
+ },
+ {
+  "step": "remove",
+  "kind": "image",
+  "name": "s2w-104293f2-comms",
+  "argv": [
+   "rmi",
+   "-f",
+   "s2w-104293f2-comms"
+  ],
+  "exit": 0,
+  "out": "Untagged: s2w-104293f2-comms:latest\nDeleted: sha256:e8bedc98d863eeacca25737fab52937564da14c9e78c81b12f027d2ea7c1ef14"
+ },
+ {
+  "step": "read-back",
+  "kind": "image",
+  "name": "s2w-104293f2-comms",
+  "argv": [
+   "image",
+   "inspect",
+   "s2w-104293f2-comms"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: No such image: s2w-104293f2-comms:latest",
+  "classification": "absent"
+ },
+ {
+  "step": "read-back",
+  "kind": "network",
+  "name": "s2w-104293f2",
+  "argv": [
+   "network",
+   "inspect",
+   "s2w-104293f2"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: network s2w-104293f2 not found",
+  "classification": "absent"
+ },
+ {
+  "step": "read-back",
+  "kind": "container",
+  "name": "s2w-104293f2-comms",
+  "argv": [
+   "container",
+   "inspect",
+   "s2w-104293f2-comms"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: No such container: s2w-104293f2-comms",
+  "classification": "absent"
+ },
+ {
+  "step": "read-back",
+  "kind": "container",
+  "name": "s2w-104293f2-a",
+  "argv": [
+   "container",
+   "inspect",
+   "s2w-104293f2-a"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: No such container: s2w-104293f2-a",
+  "classification": "absent"
+ },
+ {
+  "step": "read-back",
+  "kind": "container",
+  "name": "s2w-104293f2-c",
+  "argv": [
+   "container",
+   "inspect",
+   "s2w-104293f2-c"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: No such container: s2w-104293f2-c",
+  "classification": "absent"
+ },
+ {
+  "step": "read-back",
+  "kind": "container",
+  "name": "s2w-104293f2-b",
+  "argv": [
+   "container",
+   "inspect",
+   "s2w-104293f2-b"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: No such container: s2w-104293f2-b",
+  "classification": "absent"
+ },
+ {
+  "step": "read-back",
+  "kind": "container",
+  "name": "s2w-104293f2-e",
+  "argv": [
+   "container",
+   "inspect",
+   "s2w-104293f2-e"
+  ],
+  "exit": 1,
+  "out": "[]\nError response from daemon: No such container: s2w-104293f2-e",
+  "classification": "absent"
+ }
+]
