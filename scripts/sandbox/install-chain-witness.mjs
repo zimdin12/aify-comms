@@ -125,7 +125,7 @@ try {
     `exit ${full.status}; launcher fingerprint ${current ? "current" : "NOT current"}`);
   // The installer's modes take no key (7174c339): the installed bridge must find the one connect published, with no
   // key in its environment. Control: the same call with no key is refused, so a 200 is the key's doing.
-  const probe = sh(a, `cd ~/.aify-comms && env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node --input-type=module -e '
+  const probe = sh(a, `cd ~/.aify-comms/mcp/stdio && env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node --input-type=module -e '
     const m = await import(process.cwd() + "/aify-service-endpoint.mjs");
     const key = m.destinationKeyResolver("http://comms:8800", { env: {} })("http://comms:8800");
     const call = (h) => fetch("http://comms:8800/api/v1/agents", { headers: h }).then((r) => r.status);

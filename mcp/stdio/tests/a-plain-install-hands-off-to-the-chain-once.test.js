@@ -16,17 +16,25 @@ const toBash = (p) => p.replace(/\\/g, "/");
 // The bash this suite already runs under, by its own path: the fake PATH below is all the child may search.
 const BASH = spawnSync("bash", ["-c", 'p="$(command -v bash)"; cygpath -w "$p" 2>/dev/null || echo "$p"'], { encoding: "utf8" }).stdout.trim();
 
-/** A bin dir holding the named fake commands; each records its argv and, for a key file, the file's text. */
-function fakeBins(names) {
+/**
+ * A bin dir holding the named fake commands, each recording its argv. `npm root -g` answers a global root whose
+ * aify-env holds the chain module when `chain` is set, and `npm install -g` puts it there. The fake `node` records
+ * the module it runs and, for a key file, the file's text.
+ */
+function fakeBins(names, { chain = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-bin-"));
   const log = path.join(dir, "calls.log");
+  const root = path.join(dir, "global");
+  const module = path.join(root, "aify-env", "bin", "aify-env-install.mjs");
+  const plant = `mkdir -p "${toBash(path.dirname(module))}" && : > "${toBash(module)}"`;
+  if (chain) { fs.mkdirSync(path.dirname(module), { recursive: true }); fs.writeFileSync(module, ""); }
   for (const name of names) {
     const body = name === "npm"
-      ? `echo "npm $*" >> "${toBash(log)}"; printf '#!/usr/bin/env bash\\necho "aify-env-install $*" >> "${toBash(log)}"\\n' > "${toBash(dir)}/aify-env-install"; chmod +x "${toBash(dir)}/aify-env-install"`
+      ? `if [ "$1" = root ]; then echo "${toBash(root)}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
       : `echo "${name} $*" >> "${toBash(log)}"; for a in "$@"; do case "$a" in aify-comms.credentialRef=*) f="\${a#*=}"; echo "keyfile $(cat "$f")" >> "${toBash(log)}"; echo "$f" > "${toBash(dir)}/keypath";; esac; done; exit \${FAKE_EXIT:-0}`;
     fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
   }
-  return { dir, log };
+  return { dir, log, module: toBash(module) };
 }
 
 function handoff(bins, env = {}) {
@@ -38,13 +46,13 @@ function handoff(bins, env = {}) {
   return { status: run.status, stderr: run.stderr, calls };
 }
 
-test("with the chain on PATH it is entered once, with the installer named and the key in a private file", () => {
-  const bins = fakeBins(["aify-env-install"]);
+test("with the chain installed it is entered once, as its module, with the installer named and the key in a private file", () => {
+  const bins = fakeBins(["npm", "node"], { chain: true });
   const out = handoff(bins, { AIFY_API_KEY: "s3cret-key" });
   assert.equal(out.status, 0);
   const lines = out.calls.trim().split("\n");
-  const entries = lines.filter((l) => l.startsWith("aify-env-install "));
-  assert.equal(entries.length, 1);
+  const entries = lines.filter((l) => l.startsWith(`node ${bins.module} `));
+  assert.equal(entries.length, 1, out.calls);
   assert.match(entries[0], /--connect aify-comms=http:\/\/comms\.test:8800 --client claude --installer aify-comms=\/src\/install\.sh/);
   assert.match(entries[0], /--no-prompt/, "a run with no terminal must not ask");
   assert.ok(!entries[0].includes("s3cret-key"), "the key was in argv");
@@ -58,7 +66,7 @@ test("with the chain on PATH it is entered once, with the installer named and th
 });
 
 test("the chain's own status is the answer, and no key means no --secret", () => {
-  const bins = fakeBins(["aify-env-install"]);
+  const bins = fakeBins(["npm", "node"], { chain: true });
   const out = handoff(bins, { FAKE_EXIT: "78" });
   assert.equal(out.status, 78);
   assert.ok(!out.calls.includes("--secret"));
@@ -66,26 +74,27 @@ test("the chain's own status is the answer, and no key means no --secret", () =>
 });
 
 test("an operator's approvals reach the chain one by one", () => {
-  const bins = fakeBins(["aify-env-install"]);
+  const bins = fakeBins(["npm", "node"], { chain: true });
   const out = handoff(bins, { AIFY_INSTALL_APPROVE: "d1 d2" });
   assert.match(out.calls, /--approve d1 --approve d2/);
 });
 
 test("an aify-env without the chain is not replaced: the full path continues (exit 3)", () => {
-  const bins = fakeBins(["aify-env", "npm"]);
+  const bins = fakeBins(["aify-env", "npm", "node"]);
   const out = handoff(bins);
   assert.equal(out.status, 3);
   assert.match(out.stderr, /without the guided-install chain/);
   assert.ok(!out.calls.includes("npm "), "aify-env was reinstalled over what the host has");
+  assert.ok(!out.calls.includes("aify-env "), "the aify-env command was run; an old one could read an argument as a start");
 });
 
 test("with no aify-env at all it is installed from its source first, then the chain runs", () => {
-  const bins = fakeBins(["npm"]);
+  const bins = fakeBins(["npm", "node"]);
   const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
   assert.equal(out.status, 0);
   const lines = out.calls.trim().split("\n");
   assert.match(lines[0], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
-  assert.match(lines[1], /^aify-env-install --connect aify-comms=/);
+  assert.ok(lines[1].startsWith(`node ${bins.module} --connect aify-comms=`), lines[1]);
 });
 
 test("the chain's two modes neither ask for the key nor carry it again; a plain run does both", () => {
