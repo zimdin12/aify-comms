@@ -1004,9 +1004,8 @@ hermes_runtime_is_native_windows() {
 
 # One reader for the key: this shell, then the service's own `.env`. scripts/api-key.sh says why.
 # No `|| true`: it made ERROR read as ABSENT. "HOW THE CALLERS MUST READ THIS" there covers both.
-aify_api_key() {
-  bash "$SCRIPT_DIR/scripts/api-key.sh"
-}
+# The chain's modes register by REFERENCE: connect published the key, and the bridge reads it for its endpoint.
+aify_api_key() { case "$MODE" in acquire-only|assets-only) ;; *) bash "$SCRIPT_DIR/scripts/api-key.sh" ;; esac; }
 
 path_for_node() {
   local value="$1"
@@ -1926,13 +1925,14 @@ fi
 case "$MODE" in acquire-only|assets-only) ;; *)
 [ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
 RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
+# A plain run hands off once to aify-env's chain (S2), BEFORE anything is stored: connect publishes the key, or refuses
+# with the host's credential untouched. Exit 3 is "no chain here": the full path below stores it. --standalone skips this.
+if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then _h=0; AIFY_API_KEY="$RESOLVED_API_KEY" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh" || _h=$?; [ "$_h" = 3 ] || exit "$_h"; fi
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
   export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"
 fi
 ;; esac
-# A plain run hands off once to aify-env's guided-install chain (S2); --standalone keeps this full path.
-if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then _h=0; bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh" || _h=$?; [ "$_h" = 3 ] || exit "$_h"; fi
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
 # steps so a fresh hermes install doesn't fall through to plain `hermes`
 # (which leaves AIFY_HERMES_GATEWAY_URL unexported and every resident

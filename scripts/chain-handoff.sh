@@ -16,8 +16,9 @@
 # APPROVAL is the operator's: an artifact tuple the catalogue does not hold needs `--approve <digest>`, which an
 # unattended run passes as AIFY_INSTALL_APPROVE (digests separated by spaces), exactly as the refusal printed them.
 #
-# THE KEY never travels in argv: install.sh resolved it into AIFY_API_KEY, and it reaches the chain through a
-# private file that is removed when the chain returns.
+# THE KEY never travels in argv or in the chain's environment: install.sh hands it over as AIFY_API_KEY, and it
+# reaches the chain only through a private file, removed when the chain returns. The chain and every installer it runs
+# start without this service's key variables, so a later registration can only name the published reference.
 #
 # Exit: the chain's status; 3 when nothing was handed off and install.sh should continue its own full path.
 set -uo pipefail
@@ -50,6 +51,6 @@ if [ -n "${AIFY_API_KEY:-}" ]; then
   args+=(--secret "aify-comms.credentialRef=$keydir/credentialRef")
 fi
 status=0
-node "$CHAIN" "${args[@]}" || status=$?
+env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" "${args[@]}" || status=$?
 [ -z "$keydir" ] || rm -rf -- "${keydir:?}"
 exit "$status"

@@ -32,7 +32,7 @@ function fakeBins(names, { chain = false } = {}) {
   for (const name of names) {
     const body = name === "npm"
       ? `if [ "$1" = root ]; then echo "${toBash(root)}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
-      : `echo "${name} $*" >> "${toBash(log)}"; for a in "$@"; do case "$a" in aify-comms.credentialRef=*) f="\${a#*=}"; echo "keyfile $(cat "$f")" >> "${toBash(log)}"; echo "$f" > "${toBash(dir)}/keypath";; esac; done; exit \${FAKE_EXIT:-0}`;
+      : `echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; for a in "$@"; do case "$a" in aify-comms.credentialRef=*) f="\${a#*=}"; echo "keyfile $(cat "$f")" >> "${toBash(log)}"; echo "$f" > "${toBash(dir)}/keypath";; esac; done; exit \${FAKE_EXIT:-0}`;
     fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
   }
   return { dir, log, module: toBash(module) };
@@ -49,7 +49,7 @@ function handoff(bins, env = {}) {
 
 test("with the chain installed it is entered once, as its module, with the installer named and the key in a private file", () => {
   const bins = fakeBins(["npm", "node"], { chain: true });
-  const out = handoff(bins, { AIFY_API_KEY: "s3cret-key" });
+  const out = handoff(bins, { AIFY_API_KEY: "s3cret-key", CLAUDE_MCP_API_KEY: "s3cret-key" });
   assert.equal(out.status, 0);
   const lines = out.calls.trim().split("\n");
   const entries = lines.filter((l) => l.startsWith(`node ${bins.module} `));
@@ -57,6 +57,7 @@ test("with the chain installed it is entered once, as its module, with the insta
   assert.match(entries[0], /--connect aify-comms=http:\/\/comms\.test:8800 --client claude --installer aify-comms=\/src\/install\.sh/);
   assert.match(entries[0], /--no-prompt/, "a run with no terminal must not ask");
   assert.ok(!entries[0].includes("s3cret-key"), "the key was in argv");
+  assert.ok(lines.includes("node-env AIFY_API_KEY= CLAUDE_MCP_API_KEY="), `the chain inherited the key in its environment: ${out.calls}`);
   assert.ok(lines.includes("keyfile s3cret-key"), "the key file did not hold the key");
   // Asked of bash, which wrote the path: Node on Windows reads an MSYS `/tmp/...` as `C:\tmp\...` and would answer
   // "absent" for any path at all.
@@ -98,23 +99,44 @@ test("with no aify-env at all it is installed from its source first, then the ch
   assert.ok(lines[1].startsWith(`node ${bins.module} --connect aify-comms=`), lines[1]);
 });
 
-test("the chain's two modes neither ask for the key nor carry it again; a plain run does both", () => {
-  // The installer's own key block, executed with its two helpers stubbed to record that they ran.
+test("a run that hands off stores nothing first; a full-path run resolves once and stores; the chain's modes do neither", () => {
+  // The installer's own key block and handoff, executed with their helpers stubbed to record that they ran. A
+  // store before the handoff replaced the host's credential under the default reference, then the chain could refuse.
   const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
   const block = /^case "\$MODE" in acquire-only\|assets-only\) ;; \*\)\n[\s\S]*?^;; esac$/m.exec(install)?.[0];
   assert.ok(block, "the key block must be found before it can be exercised");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-key-"));
+  const log = `"${toBash(root)}/ran"`;
   fs.mkdirSync(path.join(root, "scripts"));
-  fs.writeFileSync(path.join(root, "scripts", "api-key-for-install.sh"), `echo asked >> "${toBash(root)}/ran"; printf k\n`);
-  fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> "${toBash(root)}/ran"\n`);
-  const ran = (mode) => {
+  fs.writeFileSync(path.join(root, "scripts", "api-key-for-install.sh"), `echo asked >> ${log}; printf k\n`);
+  fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> ${log}\n`);
+  fs.writeFileSync(path.join(root, "scripts", "chain-handoff.sh"), `echo "handed-off key=$AIFY_API_KEY" >> ${log}; exit \${HANDOFF_EXIT:-0}\n`);
+  const ran = (mode, env = {}) => {
     fs.rmSync(path.join(root, "ran"), { force: true });
-    spawnSync(BASH, ["-c", block], { env: sealedChildEnv({ MODE: mode, SCRIPT_DIR: toBash(root), WITH_API_KEY: "false" }) });
+    spawnSync(BASH, ["-c", block], { env: sealedChildEnv({ MODE: mode, SCRIPT_DIR: toBash(root), WITH_API_KEY: "false", AIFY_INSTALL_CHAIN: undefined, ...env }) });
     return fs.existsSync(path.join(root, "ran")) ? fs.readFileSync(path.join(root, "ran"), "utf8").trim().split("\n") : [];
   };
-  assert.deepEqual(ran(""), ["asked", "carried"], "CONTROL: a plain run resolves and carries its key");
+  assert.deepEqual(ran(""), ["asked", "handed-off key=k"], "a run that hands off stored the key before the chain could refuse");
+  assert.deepEqual(ran("", { HANDOFF_EXIT: "3" }), ["asked", "handed-off key=k", "carried"], "CONTROL: the full path, after no handoff, stores once");
+  assert.deepEqual(ran("standalone"), ["asked", "carried"], "CONTROL: --standalone is the old path");
   assert.deepEqual(ran("acquire-only"), []);
   assert.deepEqual(ran("assets-only"), []);
+});
+
+test("the chain's modes resolve no key value, so no registration can put one in argv", () => {
+  // The installer's own key lookup, which every registration (claude/codex `--env`, hermes' node argument) calls.
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  const lookup = /^aify_api_key\(\) \{[\s\S]*?^\}$|^aify_api_key\(\) \{.*\}$/m.exec(install)?.[0];
+  assert.ok(lookup, "the key lookup must be found before it can be exercised");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-lookup-"));
+  fs.mkdirSync(path.join(root, "scripts"));
+  fs.writeFileSync(path.join(root, "scripts", "api-key.sh"), "printf from-env-or-dotenv\n");
+  const key = (mode) => spawnSync(BASH, ["-c", `${lookup}\naify_api_key`], {
+    encoding: "utf8", env: sealedChildEnv({ MODE: mode, SCRIPT_DIR: toBash(root), AIFY_API_KEY: "inherited" }),
+  }).stdout;
+  assert.equal(key(""), "from-env-or-dotenv", "CONTROL: a full install resolves its key");
+  assert.equal(key("assets-only"), "");
+  assert.equal(key("acquire-only"), "");
 });
 
 test("the quick-start lines are the installer's, per client", () => {
