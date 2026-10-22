@@ -113,5 +113,53 @@
     "content": "Your questions have been answered: \"You asked what I think about the dead keys. They will come back, but rarely. A clean stop clears its key, but a crash, a forced kill or a power loss still leaves one, and that has happened on this PC before. Each one is costly after the switch: a dead key makes every agent it lists read 'unknown', even when a live key lists them too. dashboard-manager measured that today all 35 of your agents would read unknown. So my recommendation is no manual command. Instead, comms automatically ignores a key that has missed three of its own announced reporting intervals whenever a live key lists the same agent. Do the one-time cleanup of today's 10 keys now so the switch isn't blocked, and build the automatic rule right after the switch. The cleanup deletes data (backed up first), so it needs your yes. OK?\"=\"Cleanup now, auto-rule after (Recommended)\". You can now continue with these answers in mind."
    }
   ]
+ },
+ {
+  "transcript_line": 642399,
+  "sha256_of_line": "c229cff444c970b0f60d3a6ec13c311d6c30e3b5bb54faf8d267549a47c24d50",
+  "type": "assistant",
+  "timestamp": "2026-10-22T13:57:06.194Z",
+  "uuid": "c562b306-166a-4cb0-87f3-6ba2461ff0e0",
+  "session": "651b895f-a564-4d3a-8e0b-27f8429b1dd0",
+  "parts": [
+   {
+    "tool_use": "toolu_01Bh6GBtd9MLMx2QzBmfNJT4",
+    "questions": [
+     {
+      "question": "You objected to restarting aify-env for the switch. It isn't an extra restart: the switch always needed your aify-env running current main. All testing happens in my sandboxes, not on your setup. The new part is only the order: aify-env must be on current code before comms switches. Your installed aify-env (2ae603d) doesn't report how often it reports. Under the switch, comms reads that as 'stopped reporting', so every agent would show 'unknown'. Which way do you want it?",
+      "header": "Switch order",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "Wait for my next restart (Recommended)",
+        "description": "No forced restart. Whenever you next restart aify-env for your own reasons, it comes up on current main, and I switch comms right after. No extra code and no requalification; the switch date is just whenever that happens."
+       },
+       {
+        "label": "Restart once at switch time",
+        "description": "You pick a moment, restart aify-env once (this restarts the managed agents), and I switch comms minutes later. No extra code, and the fastest switch."
+       },
+       {
+        "label": "Assume a 60 s default",
+        "description": "comms assumes an old aify-env reports every 60 s, so no restart is needed for the switch. This reverses your 10-21 ruling that comms guesses no number, and the switch then has to be retested against your installed aify-env. Roughly a day's delay."
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "transcript_line": 642407,
+  "sha256_of_line": "8e03c8f471e172a4da77719d55dee500a45d7c468ac9c7fee80226d0982793f7",
+  "type": "user",
+  "timestamp": "2026-10-22T13:58:00.939Z",
+  "uuid": "67081257-7ca4-4a24-a866-31604f0f0028",
+  "session": "651b895f-a564-4d3a-8e0b-27f8429b1dd0",
+  "parts": [
+   {
+    "tool_result_for": "toolu_01Bh6GBtd9MLMx2QzBmfNJT4",
+    "content": "Your questions have been answered: \"You objected to restarting aify-env for the switch. It isn't an extra restart: the switch always needed your aify-env running current main. All testing happens in my sandboxes, not on your setup. The new part is only the order: aify-env must be on current code before comms switches. Your installed aify-env (2ae603d) doesn't report how often it reports. Under the switch, comms reads that as 'stopped reporting', so every agent would show 'unknown'. Which way do you want it?\"=\"Wait for my next restart (Recommended)\". You can now continue with these answers in mind."
+   }
+  ]
  }
 ]

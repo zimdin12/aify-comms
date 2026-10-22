@@ -14,5 +14,10 @@ extract can be checked against the transcript.
   cleanup of the 10 dead keys (backed up first), with an automatic "a key that stopped reporting yields to a live one"
   rule after the switch.
 
-The operator's first words on both reached this session relayed by dashboard-manager. The rulings themselves are the
+- **No forced aify-env restart for the switch.** Asked 2026-10-22T13:57:06Z (line 642399), answered 13:58:00Z (line
+  642407): "Wait for my next restart (Recommended)". SW5 deploys only after the operator's next ordinary restart, once
+  the live keys announce `reportEveryMs`. "Restart once at switch time" and "Assume a 60 s default" were offered and
+  not chosen.
+
+The operator's first words on the first two reached this session relayed by dashboard-manager. The rulings themselves are the
 answers above, given in this session.
