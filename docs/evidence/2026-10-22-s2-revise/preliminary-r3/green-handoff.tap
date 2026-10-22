@@ -1,0 +1,88 @@
+TAP version 13
+# Subtest: with the chain installed it is entered once, as its module, with the key on stdin and nowhere else
+ok 1 - with the chain installed it is entered once, as its module, with the key on stdin and nowhere else
+  ---
+  duration_ms: 256.3983
+  type: 'test'
+  ...
+# Subtest: the chain's own status is the answer, and no key means no --secret
+ok 2 - the chain's own status is the answer, and no key means no --secret
+  ---
+  duration_ms: 538.4253
+  type: 'test'
+  ...
+# Subtest: an operator's approvals reach the chain one by one
+ok 3 - an operator's approvals reach the chain one by one
+  ---
+  duration_ms: 236.4301
+  type: 'test'
+  ...
+# Subtest: the key is resolved after every refusal and discovery, generating one only when asked
+ok 4 - the key is resolved after every refusal and discovery, generating one only when asked
+  ---
+  duration_ms: 485.1331
+  type: 'test'
+  ...
+# Subtest: npm's global root unknown is a refusal, never a global install over what may be a protected link
+ok 5 - npm's global root unknown is a refusal, never a global install over what may be a protected link
+  ---
+  duration_ms: 514.7539
+  type: 'test'
+  ...
+# Subtest: options the chain does not carry are refused before anything is installed or run
+ok 6 - options the chain does not carry are refused before anything is installed or run
+  ---
+  duration_ms: 394.0874
+  type: 'test'
+  ...
+# Subtest: a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone
+ok 7 - a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone
+  ---
+  duration_ms: 129.2514
+  type: 'test'
+  ...
+# Subtest: an aify-env on PATH that npm did not install is not replaced
+ok 8 - an aify-env on PATH that npm did not install is not replaced
+  ---
+  duration_ms: 138.0156
+  type: 'test'
+  ...
+# Subtest: an older packaged aify-env is updated from its source, then the chain runs
+ok 9 - an older packaged aify-env is updated from its source, then the chain runs
+  ---
+  duration_ms: 277.7483
+  type: 'test'
+  ...
+# Subtest: with no aify-env at all it is installed from its source first, then the chain runs
+ok 10 - with no aify-env at all it is installed from its source first, then the chain runs
+  ---
+  duration_ms: 568.6946
+  type: 'test'
+  ...
+# Subtest: a plain run hands off before the installer resolves, generates or stores any key; the full path does both
+ok 11 - a plain run hands off before the installer resolves, generates or stores any key; the full path does both
+  ---
+  duration_ms: 362.319
+  type: 'test'
+  ...
+# Subtest: the chain's modes resolve no key value, so no registration can put one in argv
+ok 12 - the chain's modes resolve no key value, so no registration can put one in argv
+  ---
+  duration_ms: 84.1523
+  type: 'test'
+  ...
+# Subtest: the quick-start lines are the installer's, per client
+ok 13 - the quick-start lines are the installer's, per client
+  ---
+  duration_ms: 65.343
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4204.8816

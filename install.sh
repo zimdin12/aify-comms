@@ -1918,16 +1918,15 @@ fi
 # host's credential store (it did, on every test run, until the 0.7.6 review).
 [ "$CLIENT" = "hermes" ] && [ "$PREBUILD_DRY_RUN" = true ] && { prebuild_hermes_web_dist || true; exit 0; }
 
-# Settled BEFORE the first config that carries it, and NOT gated on `--with-api-key` (that flag GENERATES
-# a key; gating the carry left clients 401'ing beside a keyless aify-env: test_install_carries_the_key_to_the_env*).
-# ONE SCRIPT answers and DECIDES "what key": a bare `|| true` read a conflict as "no key" (Round 8 H8).
+# A plain run hands off once to aify-env's chain (S2) and ends with its status, BEFORE this installer resolves, makes
+# or stores any key: the handoff refuses what it cannot carry first, then resolves the key itself. --standalone stays.
+if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY="$WITH_API_KEY" WITH_HOOK="$WITH_HOOK" MCP_TRANSPORT="${MCP_TRANSPORT:-}" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
+# The full path's key: settled BEFORE the first config that carries it, NOT gated on `--with-api-key` (it GENERATES one;
+# gating the carry left clients 401'ing: test_install_carries_the_key_to_the_env*). ONE SCRIPT decides "what key" (H8).
 # Skipped in the chain's modes: the chain took the key and connect published it, which the bridge reads for its endpoint.
 case "$MODE" in acquire-only|assets-only) ;; *)
 [ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
 RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
-# A plain run hands off once to aify-env's chain (S2) and ends with its status, BEFORE anything is stored: connect
-# publishes the key or refuses with the host's credential untouched. --standalone is this full path, storing below.
-if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then AIFY_API_KEY="$RESOLVED_API_KEY" WITH_HOOK="$WITH_HOOK" MCP_TRANSPORT="${MCP_TRANSPORT:-}" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
   export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"

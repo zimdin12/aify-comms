@@ -1,0 +1,38 @@
+"""S2 preliminary REVISE (1792696220707-f01c8931): mutants for the two confirmed comms defects."""
+import os, shutil, subprocess, sys, filecmp, datetime
+
+OUT = sys.argv[1]
+COMMS = "C:/Docker/aify-comms-wt-s2"
+test = (COMMS + "/mcp/stdio", ["node", "--test", "tests/a-plain-install-hands-off-to-the-chain-once.test.js"])
+RESOLVE = 'KEY="$(bash "$HERE/api-key-for-install.sh" $KEY_MODE)" || exit 1\n'
+ARMS = [
+    ("1a the installer resolves (and may generate) the key before the handoff", "install.sh",
+     'if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY=',
+     'RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1\nif [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY='),
+    ("1b the handoff resolves the key before its refusals", "scripts/chain-handoff.sh",
+     'HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n',
+     'HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n[ "${WITH_API_KEY:-false}" = true ] && KEY_MODE=--generate || KEY_MODE=\n' + RESOLVE),
+    ("2 an unknown npm root normalized to absent", "scripts/chain-handoff.sh",
+     'root="$(npm root -g 2>/dev/null)" && [ -n "$root" ] || {',
+     'root="$(npm root -g 2>/dev/null)" || root=""; true || {'),
+]
+env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_AGENT", "HERDR", "AIFY_HERDR"))}
+with open(OUT, "w", encoding="utf-8") as out:
+    out.write(f"# S2 preliminary-revise mutants, {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n")
+    for name, rel, old, new in ARMS:
+        path = os.path.join(COMMS, rel)
+        keep = path + ".mutant-keep"
+        shutil.copyfile(path, keep)
+        text = open(path, "rb").read().decode()
+        if text.count(old) != 1:
+            out.write(f"ARM {name}: NOT APPLIED (pattern count {text.count(old)})\n"); os.remove(keep); continue
+        open(path, "wb").write(text.replace(old, new).encode())
+        r = subprocess.run(test[1], cwd=test[0], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        shutil.copyfile(keep, path)
+        same = filecmp.cmp(keep, path, shallow=False)
+        os.remove(keep)
+        fails = [l.strip() for l in (r.stdout + r.stderr).splitlines() if l.startswith("not ok")]
+        out.write(f"ARM {name} [{rel}]: exit {r.returncode}, {'KILLED' if r.returncode and fails else 'SURVIVED'}; restored byte-equal {same}\n")
+        for f in fails[:5]:
+            out.write(f"    {f}\n")
+        out.flush()
