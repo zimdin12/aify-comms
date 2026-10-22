@@ -24,6 +24,9 @@ driver (page 2). So the host tier still learns no harness: it runs what the driv
   startup. That is what lets a withdrawal reach the next launch without an aify-env restart. aify-env already resolves
   its service advertisement per ask (`currentAdvertisementBody`, "a registry edit must reach a running plugin
   without a restart"), and this follows the same shape.
+- **That shape is not yet this behaviour** (revision 3). `currentAdvertisementBody` recomputes facts per ask, but
+  nothing rereads a config flag per ask today, and the proposed helper flags do not exist. H1 builds the per-ask
+  reread, and its history test below is what proves it.
 - A gateway aify-env started is one aify-env stops: the agent's stop, kill and remove close it in the same lifecycle
   step as the TUI.
 

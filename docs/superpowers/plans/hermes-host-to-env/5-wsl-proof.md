@@ -30,6 +30,17 @@ branch unreachable at the launch itself:
   legal (`lib/port-argument.mjs`); it is what aify-env's own suite uses.
 - **`--force` is prohibited** in every command of the proof.
 - **Its `HOME` is a fresh Linux temp directory,** never under `/mnt/c`, and it is never started on Windows.
+- **Every root it reads or writes is sealed to that directory, not only `HOME`** (revision 3):
+  - `USERPROFILE`, which `lib/host-config.mjs` prefers over `HOME`;
+  - `AIFY_ENV_PROCESS_RECORD`, because ordinary startup rewrites the owned-process record even after a private
+    port-0 bind. Before `a-port-zero-start-is-not-a-takeover.test.js`, an unsealed record let a port-0 daemon reap a
+    live fleet (2026-08-26);
+  - `AIFY_SERVICE_REGISTRY`, set to a real file inside the temp home and never to an empty string. An empty value
+    selects the real registry (`tests/_sealed-daemon-env.mjs`).
+
+  The launch uses aify-env's existing isolation path, the sealed daemon environment its own suite starts daemons
+  with, and no new framework. Sentinels are placed outside the temp root, at the paths each variable would resolve to
+  unsealed, and are read back byte-identical after the run.
 
 **Controls before any authorised WSL run.** These are aify-env tests in a sealed home, via `npm test`. Each fake holder
 sits at a fixed port, and the launch under test uses `--port 0`.
@@ -41,8 +52,20 @@ sits at a fixed port, and the launch under test uses `--port 0`.
 | an unknown listener | untouched |
 | owned, empty endpoint (healthy) | the launch binds and answers |
 
-Each adverse case is checked by its process still running and its port still answering. Each must go red with
-`--port 0` replaced by the fake's port.
+Each adverse case asserts two things (revision 3):
+- **The foreign holder survives:** its process is still running and its port still answers.
+- **The new launch bound and answered on its own endpoint.** It is identified by its own answer, carrying the pid
+  and instance the test started, at a port different from the fake's.
+
+Survival alone stays green when a wrong fixed port lands the launch in the busy or unknown refusal branches, because
+those leave the holder alone too.
+
+**The wrong-port mutant:** `--port 0` replaced by the fake's port. Its first failing assertion is kept with the
+evidence:
+- in the idle case, the survival check fails, because the holder is superseded;
+- in the busy and unknown cases, the new-endpoint check fails, because the launch exited 69 without binding.
+
+The sentinel read-back above runs in all four cases.
 
 **NAT is load-bearing, read at runtime.** In mirrored networking, WSL's `127.0.0.1` is Windows' own. The run reads
 the effective mode inside WSL with `wslinfo --networking-mode` at launch time. It answered `nat` on 2026-10-22, which
