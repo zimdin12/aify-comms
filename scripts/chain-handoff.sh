@@ -51,31 +51,38 @@ root="$(npm root -g 2>/dev/null)" && [ -n "$root" ] || {
   echo "  Check that npm runs here, or rerun with --standalone to use this installer's full path." >&2
   exit 78
 }
-# ONE OWNER. An aify-env on PATH must be npm's global one (its bin directory is the global prefix, or prefix/bin), or
-# which installation this updates and which one the operator runs are different things: refused, before anything is
-# chosen or installed. npm's prefix unknown beside an aify-env on PATH is the same ambiguity.
-unix_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1"; fi; }
-if on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then
-  prefix="$(npm prefix -g 2>/dev/null)" && [ -n "$prefix" ] || prefix=""
-  dir="$(unix_path "$(dirname "$on_path")")"
-  if [ -z "$prefix" ] || { [ "$dir" != "$(unix_path "$prefix")" ] && [ "$dir" != "$(unix_path "$prefix")/bin" ]; }; then
-    [ -n "$prefix" ] || prefix="its prefix unknown"
-    echo "The aify-env on PATH ($on_path) is not npm's global one ($prefix), so which installation to use is ambiguous; nothing was installed." >&2
-    echo "  Remove one of them, or rerun with --standalone to use this installer's full path." >&2
-    exit 78
-  fi
-fi
 chain_module() { [ -f "$root/aify-env/bin/aify-env-install.mjs" ] && printf '%s' "$root/aify-env/bin/aify-env-install.mjs"; }
 CHAIN="$(chain_module)"
-if [ -z "$CHAIN" ]; then
-  if [ -L "$root/aify-env" ] || [ -e "$root/aify-env/.git" ]; then
-    echo "aify-env here is a linked checkout ($root/aify-env) without the guided-install chain, and it is never modified." >&2
-    echo "  Update your checkout (git pull), or rerun with --standalone to use this installer's full path." >&2
+if [ -z "$CHAIN" ] && { [ -L "$root/aify-env" ] || [ -e "$root/aify-env/.git" ]; }; then
+  echo "aify-env here is a linked checkout ($root/aify-env) without the guided-install chain, and it is never modified." >&2
+  echo "  Update your checkout (git pull), or rerun with --standalone to use this installer's full path." >&2
+  exit 78
+fi
+
+# ONE OWNER. An aify-env on PATH must be npm's own bin for the global package this would use or update, or which
+# installation runs and which one is updated are different things. Its bin is recognised in npm's two layouts, never
+# by running it (an old one could read an argument as a start): a link resolving to the package's
+# bin/aify-env.mjs (Unix), or npm's cmd-shim in the prefix, beside the root, that execs exactly that file (Windows).
+# Anything else, including an unknown prefix, is refused before a module is chosen or anything installed.
+unix_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1"; fi; }
+npm_owns() {
+  local on_path="$1" target pkg_bin prefix
+  target="$(realpath "$on_path" 2>/dev/null)" && pkg_bin="$(realpath "$root/aify-env/bin/aify-env.mjs" 2>/dev/null)" \
+    && [ -n "$target" ] && [ "$target" = "$pkg_bin" ] && return 0
+  prefix="$(npm prefix -g 2>/dev/null)" && [ -n "$prefix" ] || return 1
+  [ "$(unix_path "$(dirname "$on_path")")" = "$(unix_path "$prefix")" ] || return 1
+  [ "$(unix_path "$root")" = "$(unix_path "$prefix")/node_modules" ] || return 1
+  grep -qF '"$basedir/node_modules/aify-env/bin/aify-env.mjs"' "$on_path" 2>/dev/null
+}
+if on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then
+  if [ ! -e "$root/aify-env" ]; then
+    echo "aify-env is on PATH ($on_path) but npm did not install it, so it is not replaced." >&2
+    echo "  Update it where it came from, or rerun with --standalone to use this installer's full path." >&2
     exit 78
   fi
-  if [ ! -e "$root/aify-env" ] && command -v aify-env >/dev/null 2>&1; then
-    echo "aify-env is on PATH ($(command -v aify-env)) but npm did not install it, so it is not replaced." >&2
-    echo "  Update it where it came from, or rerun with --standalone to use this installer's full path." >&2
+  if ! npm_owns "$on_path"; then
+    echo "The aify-env on PATH ($on_path) is not npm's own bin for $root/aify-env, so which installation runs is unknown; nothing was installed." >&2
+    echo "  Remove the one that should not be there, or rerun with --standalone to use this installer's full path." >&2
     exit 78
   fi
 fi

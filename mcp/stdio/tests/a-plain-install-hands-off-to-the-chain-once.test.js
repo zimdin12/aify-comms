@@ -19,35 +19,52 @@ const toBash = (p) => p.replace(/\\/g, "/");
 const BASH = spawnSync("bash", ["-c", 'p="$(command -v bash)"; cygpath -w "$p" 2>/dev/null || echo "$p"'], { encoding: "utf8" }).stdout.trim();
 
 /**
- * A bin dir holding the named fake commands, each recording its argv. `npm root -g` answers a global root whose
- * aify-env is `env`: "chain" (holds the chain module), "older" (a packaged one without it), "linked" (a git
- * checkout without it), or absent. `npm install -g` plants the module. The fake `node` also records the key
- * variables it inherited and what arrived on its stdin.
+ * A fake npm prefix (`dir`) holding the named fake commands, each recording its argv, laid out as npm lays one out:
+ * the global root is `<prefix>/node_modules`, and npm's own bin for aify-env is either a cmd-shim in the prefix that
+ * runs `$basedir/node_modules/aify-env/bin/aify-env.mjs` (Windows) or `<prefix>/bin/aify-env`, a link to that file
+ * (Unix). This Windows host cannot create symlinks, so the Unix link is a fake `realpath` mapping that one path to the
+ * package's bin; the container witness runs real npm links on Linux.
+ *
+ * `env` is the global aify-env: "chain" (holds the chain module), "older" (a packaged one without it), "linked" (a git
+ * checkout without it), or absent; `npm install -g` plants the module. `aify` is what `aify-env` on PATH is: "shim" or
+ * "link" (npm's own), "foreign" (a script of somebody else's in the prefix), or "foreign+link" (that script, earlier
+ * on PATH, beside npm's genuine linked bin). The fake `node` records the key variables it inherited and its stdin.
  */
-function fakeBins(names, { env = "" } = {}) {
+function fakeBins(names, { env = "", aify = "" } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-bin-"));
   const log = path.join(dir, "calls.log");
   fs.mkdirSync(path.join(dir, "scripts"));
+  fs.mkdirSync(path.join(dir, "bin"));
   fs.copyFileSync(HANDOFF, path.join(dir, "scripts", "chain-handoff.sh"));
   // The key resolver beside the handoff: records that it ran (and how), prints FAKE_KEY, exits RESOLVE_EXIT.
   fs.writeFileSync(path.join(dir, "scripts", "api-key-for-install.sh"), `echo "resolved $*" >> "${toBash(log)}"; printf '%s' "\${FAKE_KEY:-}"; exit \${RESOLVE_EXIT:-0}\n`);
-  const root = path.join(dir, "global");
+  const root = path.join(dir, "node_modules");
+  const pkgBin = path.join(root, "aify-env", "bin", "aify-env.mjs");
   const module = path.join(root, "aify-env", "bin", "aify-env-install.mjs");
-  const plant = `mkdir -p "${toBash(path.dirname(module))}" && : > "${toBash(module)}"`;
-  if (env) fs.mkdirSync(path.dirname(module), { recursive: true });
+  const plant = `mkdir -p "${toBash(path.dirname(module))}" && : > "${toBash(module)}" && : > "${toBash(pkgBin)}"`;
+  if (env) { fs.mkdirSync(path.dirname(module), { recursive: true }); fs.writeFileSync(pkgBin, ""); }
   if (env === "chain") fs.writeFileSync(module, "");
   if (env === "linked") fs.mkdirSync(path.join(root, "aify-env", ".git"));
+  const script = (file, body) => fs.writeFileSync(file, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  const foreign = `echo "aify-env $*" >> "${toBash(log)}"`;
+  if (aify === "shim") script(path.join(dir, "aify-env"), `basedir=$(dirname "$(echo "$0" | sed -e 's,\\\\,/,g')")\nexec node  "$basedir/node_modules/aify-env/bin/aify-env.mjs" "$@"`);
+  if (aify === "foreign" || aify === "foreign+link") script(path.join(dir, "aify-env"), foreign);
+  if (aify === "link" || aify === "foreign+link") {
+    script(path.join(dir, "bin", "aify-env"), foreign);
+    // npm's link, as realpath answers for it: <prefix>/bin/aify-env resolves to the package's own bin.
+    script(path.join(dir, "realpath"), `case "$1" in "${toBash(path.join(dir, "bin", "aify-env"))}"|*/bin/aify-env) echo "${toBash(pkgBin)}" ;; *) exec /usr/bin/realpath "$@" ;; esac`);
+  }
   for (const name of names) {
     const body = name === "npm"
-      ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; echo "\${NPM_PREFIX:-${toBash(dir)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "${toBash(root)}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
+      ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; echo "\${NPM_PREFIX:-${toBash(dir)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "\${NPM_ROOT:-${toBash(root)}}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
       : `echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; [ -t 0 ] || echo "${name}-stdin $(cat)" >> "${toBash(log)}"; exit \${FAKE_EXIT:-0}`;
-    fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+    script(path.join(dir, name), body);
   }
   return { dir, log, module: toBash(module) };
 }
 
 function handoff(bins, env = {}) {
-  const PATH = `${toBash(bins.dir)}:/usr/bin:/bin`;
+  const PATH = `${toBash(bins.dir)}:${toBash(bins.dir)}/bin:/usr/bin:/bin`;
   const run = spawnSync(BASH, [toBash(path.join(bins.dir, "scripts", "chain-handoff.sh")), "claude", "http://comms.test:8800", "/src/install.sh"], {
     encoding: "utf8", input: "",
     env: sealedChildEnv({ PATH, AIFY_API_KEY: "", WITH_API_KEY: undefined, WITH_HOOK: undefined, MCP_TRANSPORT: undefined, ENV_ENDPOINT_GIVEN: undefined, ...env }),
@@ -105,20 +122,38 @@ test("npm's global root unknown is a refusal, never a global install over what m
   }
 });
 
-test("an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated", () => {
-  const elsewhere = toBash(fs.mkdtempSync(path.join(os.tmpdir(), "handoff-prefix-")));
+/** A global root somewhere else, holding a package of the given kind: npm's answer when it is not <prefix>/node_modules. */
+function otherRoot(env) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-root-"));
+  fs.mkdirSync(path.join(root, "aify-env", "bin"), { recursive: true });
+  fs.writeFileSync(path.join(root, "aify-env", "bin", "aify-env.mjs"), "");
+  if (env === "chain") fs.writeFileSync(path.join(root, "aify-env", "bin", "aify-env-install.mjs"), "");
+  return toBash(root);
+}
+
+test("an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated", () => {
   for (const env of ["chain", "older"]) {
-    const out = handoff(fakeBins(["aify-env", "npm", "node"], { env }), { NPM_PREFIX: elsewhere });
-    assert.equal(out.status, 78, `${env}: ${out.stderr}`);
-    assert.match(out.stderr, /aify-env on PATH .* is not npm's global one/);
-    assert.match(out.stderr, /--standalone/);
-    assert.deepEqual(out.lines, [], `${env}: something ran or was written: ${out.calls}`);
+    for (const [aify, extra, why] of [
+      ["foreign", {}, "a script of somebody else's in the prefix"],
+      ["foreign+link", {}, "a foreign script earlier on PATH, beside npm's genuine linked bin"],
+      ["shim", { NPM_PREFIX: toBash(fs.mkdtempSync(path.join(os.tmpdir(), "handoff-prefix-"))) }, "a shim outside npm's prefix"],
+      ["shim", { NPM_PREFIX_FAIL: "1" }, "a shim with npm's prefix unknown"],
+      ["shim", { NPM_ROOT: otherRoot(env) }, "a shim in the prefix whose node_modules is not npm's root"],
+    ]) {
+      const out = handoff(fakeBins(["npm", "node"], { env, aify }), extra);
+      assert.equal(out.status, 78, `${env}, ${why}: ${out.stderr}`);
+      assert.match(out.stderr, /is not npm's own bin for .*aify-env/, `${env}, ${why}`);
+      assert.match(out.stderr, /--standalone/);
+      assert.deepEqual(out.lines, [], `${env}, ${why}: something ran or was written: ${out.calls}`);
+    }
   }
-  const unknown = handoff(fakeBins(["aify-env", "npm", "node"], { env: "chain" }), { NPM_PREFIX_FAIL: "1" });
-  assert.equal(unknown.status, 78, "npm's global prefix unknown beside an aify-env on PATH is ambiguous");
-  assert.deepEqual(unknown.lines, []);
-  const same = handoff(fakeBins(["aify-env", "npm", "node"], { env: "chain" }));
-  assert.equal(same.status, 0, `CONTROL: the aify-env on PATH is npm's own: ${same.stderr}`);
+  for (const aify of ["shim", "link"]) {
+    const chain = handoff(fakeBins(["npm", "node"], { env: "chain", aify }));
+    assert.equal(chain.status, 0, `CONTROL: npm's own ${aify} beside the chain: ${chain.stderr}`);
+    const older = handoff(fakeBins(["npm", "node"], { env: "older", aify }), { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
+    assert.equal(older.status, 0, `CONTROL: npm's own ${aify} beside an older package: ${older.stderr}`);
+    assert.match(older.lines[1] ?? "", /^npm install -g .*\/pkg\/aify-env\.tgz$/, `CONTROL: ${aify}: the older package is updated`);
+  }
 });
 
 test("options the chain does not carry are refused before anything is installed or run", () => {
@@ -135,7 +170,7 @@ test("options the chain does not carry are refused before anything is installed 
 });
 
 test("a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone", () => {
-  const bins = fakeBins(["aify-env", "npm", "node"], { env: "linked" });
+  const bins = fakeBins(["npm", "node"], { env: "linked", aify: "foreign" });
   const out = handoff(bins);
   assert.equal(out.status, 78);
   assert.match(out.stderr, /linked checkout .* never modified/);
@@ -144,7 +179,7 @@ test("a linked aify-env checkout without the chain is never modified: refused, n
 });
 
 test("an aify-env on PATH that npm did not install is not replaced", () => {
-  const bins = fakeBins(["aify-env", "npm", "node"]);
+  const bins = fakeBins(["npm", "node"], { aify: "foreign" });
   const out = handoff(bins);
   assert.equal(out.status, 78);
   assert.match(out.stderr, /npm did not install it, so it is not replaced/);
@@ -152,7 +187,7 @@ test("an aify-env on PATH that npm did not install is not replaced", () => {
 });
 
 test("an older packaged aify-env is updated from its source, then the chain runs", () => {
-  const bins = fakeBins(["aify-env", "npm", "node"], { env: "older" });
+  const bins = fakeBins(["npm", "node"], { env: "older", aify: "shim" });
   const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
   assert.equal(out.status, 0, out.stderr);
   assert.deepEqual(out.lines[0], "resolved ", "the key is resolved before anything is installed");
