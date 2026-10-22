@@ -19,8 +19,12 @@ instruction.
   kill or a power loss still leaves a key. Each one would make every agent it lists read unknown after the switch. So
   the solution is automatic, not a command: a key that has missed three of its own announced intervals yields to a
   live key listing the same agent. It is built after the switch, as its own change.
-- **Why:** both rulings are recorded with their question and answer in
-  `docs/evidence/2026-10-22-owner-rulings` on branch 098/sw3c.
+- **No forced aify-env restart for the switch.** comms reads an aify-env that announces no interval as not reporting
+  (the 2026-10-21 ruling below), and this host's daemons (2ae603d) announce none. So SW5 deploys only once the live
+  keys announce `reportEveryMs`, after the operator's next ordinary restart onto main. "Assume a 60 s default" was
+  offered and not chosen: it would reverse that ruling and requalify the switch against the old aify-env.
+- **Why:** these rulings are recorded with their question and answer in `docs/evidence/2026-10-22-owner-rulings` on
+  branch 098/sw3c.
 
 ## aify-env announces its reporting interval; comms derives "not reporting" from it (Steven, 2026-10-21)
 

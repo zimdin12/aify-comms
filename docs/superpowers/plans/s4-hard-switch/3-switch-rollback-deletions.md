@@ -59,11 +59,13 @@ The reads go with the SW6 receipt. Nothing outside the population is called qual
 The view reads a publisher that announces no reporting interval as not reporting, so every agent it lists reads
 `unknown` and every send to them queues. An aify-env older than the report-interval commit (7a855db) announces none.
 So, in this order:
-1. The operator restarts aify-env onto a build at or after 7a855db.
+1. The host's aify-env checkout is on main (at or after 7a855db). Nobody forces a restart for the switch: the
+   operator's next ordinary restart brings the daemon onto it (operator, 2026-10-22: "wait for my next restart").
 2. Every live publisher key is read announcing `reportEveryMs`, both in comms' table and in the dashboard's receiver.
-3. Only then does SW5 deploy.
+3. Only then does SW5 deploy. Until then the switch waits.
 
-Found by dashboard-manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval.
+Found by dashboard-manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval. The checkout was
+fast-forwarded to main (ed9ebe5) the same day. The running daemons stay on what they loaded until that restart.
 
 ## The rollback (SW6)
 
