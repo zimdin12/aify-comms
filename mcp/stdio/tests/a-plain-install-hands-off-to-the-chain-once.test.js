@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const HANDOFF = path.join(REPO, "scripts", "chain-handoff.sh");
@@ -40,7 +41,7 @@ function fakeBins(names, { chain = false } = {}) {
 function handoff(bins, env = {}) {
   const PATH = `${toBash(bins.dir)}:/usr/bin:/bin`;
   const run = spawnSync(BASH, [toBash(HANDOFF), "claude", "http://comms.test:8800", "/src/install.sh"], {
-    encoding: "utf8", input: "", env: { ...process.env, PATH, AIFY_API_KEY: "", ...env },
+    encoding: "utf8", input: "", env: sealedChildEnv({ PATH, AIFY_API_KEY: "", ...env }),
   });
   const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
   return { status: run.status, stderr: run.stderr, calls };
@@ -108,7 +109,7 @@ test("the chain's two modes neither ask for the key nor carry it again; a plain 
   fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> "${toBash(root)}/ran"\n`);
   const ran = (mode) => {
     fs.rmSync(path.join(root, "ran"), { force: true });
-    spawnSync(BASH, ["-c", block], { env: { ...process.env, MODE: mode, SCRIPT_DIR: toBash(root), WITH_API_KEY: "false" } });
+    spawnSync(BASH, ["-c", block], { env: sealedChildEnv({ MODE: mode, SCRIPT_DIR: toBash(root), WITH_API_KEY: "false" }) });
     return fs.existsSync(path.join(root, "ran")) ? fs.readFileSync(path.join(root, "ran"), "utf8").trim().split("\n") : [];
   };
   assert.deepEqual(ran(""), ["asked", "carried"], "CONTROL: a plain run resolves and carries its key");
