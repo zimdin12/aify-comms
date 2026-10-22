@@ -1,0 +1,8 @@
+{
+  "name": "aify-channel",
+  "version": "0.0.1",
+  "description": "A minimal channel that pushes one event",
+  "mcpServers": {
+    "aify-channel": { "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/channel.mjs"] }
+  }
+}

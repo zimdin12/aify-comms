@@ -1,0 +1,2 @@
+Adding marketplace…✔ Marketplace 'aify-local' already on disk — declared in user settings
+Installing plugin "aify-channel@aify-local"...✔ Plugin "aify-channel@aify-local" is already installed (scope: user) — it loads in place from /fixture/aify-local/plugins/aify-channel, so edits there take effect at the next session start or /reload-plugins

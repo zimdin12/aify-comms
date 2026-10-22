@@ -1,0 +1,2 @@
+Adding marketplace…✔ Successfully added marketplace: aify-local (declared in user settings)
+Installing plugin "aify-channel@aify-local"...✔ Successfully installed plugin: aify-channel@aify-local (scope: user)

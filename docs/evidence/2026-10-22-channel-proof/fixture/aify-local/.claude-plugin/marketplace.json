@@ -1,0 +1,8 @@
+{
+  "name": "aify-local",
+  "description": "Throwaway marketplace for the channel proof",
+  "owner": { "name": "aify" },
+  "plugins": [
+    { "name": "aify-channel", "source": "./plugins/aify-channel", "description": "A minimal channel that pushes one event" }
+  ]
+}
