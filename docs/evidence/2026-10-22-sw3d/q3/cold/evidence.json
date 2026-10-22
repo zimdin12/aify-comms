@@ -1,0 +1,406 @@
+{
+ "timeline": [
+  {
+   "t": 1792684492823,
+   "acquiredFrom": 1792684492807,
+   "previousSeenFrom": null,
+   "publishers": [],
+   "records": [],
+   "runs": [],
+   "events": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env has no current record of this agent",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792684493839,
+   "acquiredFrom": 1792684493828,
+   "previousSeenFrom": 1792684493323,
+   "publishers": [],
+   "records": [],
+   "runs": [
+    {
+     "id": "run_1792684493412_54311807",
+     "subject": "C11 cold start",
+     "status": "queued",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-22T15:54:53Z",
+     "claimed_at": null,
+     "claim_bridge_id": "",
+     "finished_at": null,
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "queued",
+     "body": "request: C11 cold start",
+     "created_at": "2026-10-22T15:54:53Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792684493411_b624b05f",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-22T15:54:53Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env has no current record of this agent",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792684521606,
+   "acquiredFrom": 1792684521598,
+   "previousSeenFrom": 1792684521093,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792684491270,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-22T15:55:21Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792684491291,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-22T15:55:21Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+     "busy": false,
+     "state": "unknown",
+     "stateCause": "turn-unknown",
+     "appliedAt": "2026-10-22T15:55:21Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792684493412_54311807",
+     "subject": "C11 cold start",
+     "status": "queued",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-22T15:54:53Z",
+     "claimed_at": null,
+     "claim_bridge_id": "",
+     "finished_at": null,
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "queued",
+     "body": "request: C11 cold start",
+     "created_at": "2026-10-22T15:54:53Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792684493411_b624b05f",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-22T15:54:53Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env has no current record of this agent",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792684522115,
+   "acquiredFrom": 1792684522107,
+   "previousSeenFrom": 1792684521598,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792684491270,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-22T15:55:21Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792684491291,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-22T15:55:21Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+     "busy": false,
+     "state": "unknown",
+     "stateCause": "turn-unknown",
+     "appliedAt": "2026-10-22T15:55:21Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792684493412_54311807",
+     "subject": "C11 cold start",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-22T15:54:53Z",
+     "claimed_at": "2026-10-22T15:55:21Z",
+     "claim_bridge_id": "stand-in-6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+     "finished_at": "2026-10-22T15:55:21Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "queued",
+     "body": "request: C11 cold start",
+     "created_at": "2026-10-22T15:54:53Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-22T15:55:21Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-22T15:55:21Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-22T15:55:21Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792684493412_54311807",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-22T15:55:21Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792684493411_b624b05f",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-22T15:54:53Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "unknown",
+    "statusNote": "aify-env has no current record of this agent",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792684493533,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792684495557,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684497553,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684499560,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684501566,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684503572,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684505579,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684507586,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684509592,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684511598,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684513604,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684515611,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684517617,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684519622,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "polled"
+  },
+  {
+   "t": 1792684521632,
+   "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+   "event": "delivered",
+   "runId": "run_1792684493412_54311807",
+   "messageId": "1792684493406-99105bc6",
+   "subject": "C11 cold start",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792684490195,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792684491315,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792684491270,
+   "reportEveryMs": 60000,
+   "forwarded": false,
+   "status": 503
+  },
+  {
+   "t": 1792684491316,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792684491291,
+   "reportEveryMs": 60000,
+   "forwarded": false,
+   "status": 503
+  },
+  {
+   "t": 1792684521258,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792684491270,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792684521280,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 2,
+   "generation": 1792684491291,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "6034b1ca-348d-4ecb-8ac7-d9e42604f084",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792684491291, publishing as residents-fda01c99a296",
+  "[aify-env] agent state \"aify-comms\": not-applied",
+  "[aify-env] agent state \"aify-comms\": not-applied",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792684493411_b624b05f",
+  "[aify-env] started terminal term_1792684493434_b528df00 for \"gate-agent\" as ac74af71-0801-41db-b32d-ca69918a09e2-p1",
+  ""
+ ],
+ "marks": {
+  "runId": "run_1792684493412_54311807",
+  "sentAt": 1792684493000,
+  "preRecords": [],
+  "window": {
+   "from": 1792684493842,
+   "to": 1792684514000
+  }
+ },
+ "error": null
+}
