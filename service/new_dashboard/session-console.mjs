@@ -265,7 +265,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // disabled stayed disabled after the agent was defined. Keyed only with no terminal mounted, so a
   // definition change never rebuilds a live one; the actions bar beside a live one is repainted below.
   const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource, isVirtualTerminal,
-    hasTerminal ? '' : undefinedStartRefusal(agent)]);
+    hasTerminal ? '' : undefinedStartRefusal(agent), hasTerminal ? '' : residentConsoleNote]);
   const xtermStillMounted = hasTerminal && state.activeXterm
     && state.activeXterm.terminalId === terminalId
     && host.contains(state.activeXterm.container);

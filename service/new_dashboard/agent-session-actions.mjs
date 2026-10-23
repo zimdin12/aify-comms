@@ -70,7 +70,9 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
   }
   const requested = requestedInAifyEnv(body, agentId);
   if (requested) {
-    toast(requested, 'ok');
+    const next = body?.request?.patch?.mode || targetMode;
+    const launch = next === 'managed' ? 'After it stops, Start launches managed.' : 'Launch the next resident session in its terminal.';
+    toast(`${requested}. This changes its definition. A running session keeps its current mode until it stops. ${launch}`, 'ok');
     refreshSoon();
     return body;
   }

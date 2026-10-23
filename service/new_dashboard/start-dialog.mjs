@@ -26,8 +26,8 @@ export function initStartDialog(deps) {
 }
 
 /** The action for one agent: `start`, `console` for a live one, or `none` with the reason. */
-function actionFor(agent) {
-  const offer = startOffer(agent);
+function actionFor(agent, sessions) {
+  const offer = startOffer(agent, sessions);
   if (offer.start) return { action: 'start', why: '' };
   const kind = resolveStatus(agent?.status).kind;
   if (ACTIVE_AGENT_STATUSES.includes(kind)) return { action: 'console', why: '' };
@@ -35,14 +35,14 @@ function actionFor(agent) {
 }
 
 /** The dialog's rows for `query`, by id; a Create row when nothing matches a non-empty query. */
-export function startDialogRows(agents, query) {
+export function startDialogRows(agents, query, sessions = []) {
   const needle = String(query ?? '').trim();
   const lower = needle.toLowerCase();
   const rows = (agents || [])
     .filter((agent) => agent?.id && agent.id !== 'dashboard')
     .filter((agent) => !lower || [agent.id, agent.role, agent.runtime, resolveStatus(agent.status).label]
       .join(' ').toLowerCase().includes(lower))
-    .map((agent) => ({ id: String(agent.id), status: agent.status || 'unknown', ...actionFor(agent) }))
+    .map((agent) => ({ id: String(agent.id), status: agent.status || 'unknown', ...actionFor(agent, sessions) }))
     .sort((a, b) => a.id.localeCompare(b.id));
   if (!rows.length && needle) rows.push({ id: needle, status: '', action: 'create', why: '' });
   return rows;
@@ -124,7 +124,7 @@ export function openStartDialog() {
   let rows = [];
   let active = 0;
   const draw = () => {
-    rows = startDialogRows(state.agents, input.value);
+    rows = startDialogRows(state.agents, input.value, state.sessions);
     active = Math.min(active, Math.max(0, rows.length - 1));
     list.innerHTML = rows.map((row, at) => rowHtml(row, at, active)).join('');
   };

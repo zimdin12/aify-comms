@@ -26,6 +26,7 @@ import { byId } from './ui.js';
 import { paintIfChanged } from './drawer-paint.mjs';
 import { shouldLoadForPage } from './files-page.mjs';
 import { esc } from './util.js';
+import { agentModes } from './agent-mode.mjs';
 
 export function agentForSession(session) {
   const agentId = sessionAgentId(session);
@@ -223,16 +224,16 @@ export function agentForTerminal(terminalId) {
 
 // The ` · resident` / ` · managed` suffix on a session line, moved out of app.js in v0.5.4.
 export function renderSessionModeLabel(agent) {
-  const mode = String(agent?.sessionMode || '').toLowerCase();
+  const { displayMode: mode, pendingMode } = agentModes(agent, state.sessions);
   if (mode !== 'resident' && mode !== 'managed') return '';
-  return ` · ${esc(mode)}`;
+  return ` · ${esc(mode)}${pendingMode ? ` · next start: ${esc(pendingMode)}` : ''}`;
 }
 
 // The resident<->managed switch chip, moved out of app.js in v0.5.4. It renders beside
 // `renderSessionModeLabel` above and carries the data attributes the delegated click handler reads.
 export function renderModeSwitchChip(agent) {
   if (!agent || typeof agent !== 'object') return '';
-  const current = String(agent.sessionMode || '').toLowerCase();
+  const current = agentModes(agent, state.sessions).configuredMode;
   if (current !== 'resident' && current !== 'managed') return '';
   const target = current === 'resident' ? 'managed' : 'resident';
   return `<button class="ghost mode-switch-chip" data-mode-switch="${esc(agent.id)}" data-target-mode="${target}" title="Flip ${esc(agent.id)} to ${target} mode">Switch to ${target}</button>`;

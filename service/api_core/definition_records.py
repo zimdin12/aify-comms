@@ -10,6 +10,7 @@ from typing import Any, Optional
 from service.api_core.model_effort import record_effort, record_model
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
+from service.api_core.vocabulary import SESSION_MODES
 
 
 async def definition_rows(db, agent_ids: list[str]) -> dict[str, Any]:
@@ -30,9 +31,12 @@ def definition_of(agent_row, definition_row: Optional[Any]) -> dict[str, Any]:
     state = str((agent_row["definition_state"] if "definition_state" in agent_row.keys() else "") or "")
     if definition_row is None:
         return {"state": state, "ownerMachineId": None, "storeId": None, "incarnation": None, "revision": None,
-                "hostState": None, "hostProblems": [], "available": None, "unavailableReason": ""}
+                "hostState": None, "hostProblems": [], "available": None, "unavailableReason": "", "mode": None}
+    body = _json_loads_or(definition_row["body"], {})
+    mode = body.get("mode") if isinstance(body, dict) else None
     return {
         "state": state,
+        "mode": mode if isinstance(mode, str) and mode in SESSION_MODES else None,
         "ownerMachineId": definition_row["machine_id"],
         "storeId": definition_row["store_id"],
         "incarnation": definition_row["incarnation"],
