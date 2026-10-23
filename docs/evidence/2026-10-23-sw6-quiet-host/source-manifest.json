@@ -1,0 +1,129 @@
+{
+  "apparatus": "b70699c437105788302652bc34d2482b1f10693f",
+  "carrier_before_freeze": "343a77d05a4c0bc65541192284940d94413723d0",
+  "comms": "8c4788f620fa6075a9b580246532c52872ec992e",
+  "env": "34c31d02e9af81a6e128a2051d3856431828e614",
+  "wrapper": "e103f3d6dbfe0173352671eb76642a575b05cdd8",
+  "wrapper_lock_entry": {
+    "version": "0.9.3",
+    "resolved": "git+ssh://git@github.com/zimdin12/aify-wrapper.git#e103f3d6dbfe0173352671eb76642a575b05cdd8",
+    "integrity": "sha512-4XGB105xYhCr2/fijgaaX1fKzNJnpB8AZxTtf7DduHSt0vjW8daJGAeu7rLRvN2lokwUzQi9VIwOxiUqMGHZ+w==",
+    "license": "MIT",
+    "bin": {
+      "aify-herdr-pane": "bin/aify-herdr-pane.mjs",
+      "aify-wrapper-check": "bin/aify-wrapper-check.mjs",
+      "aify-wrapper-connect": "bin/aify-wrapper-connect.mjs",
+      "aify-wrapper-install": "install.sh",
+      "herdr-aify": "bin/herdr-aify.mjs"
+    }
+  },
+  "env_repo": "C:/Users/Administrator/projects/aify-env",
+  "node": "C:\\nvm4w\\nodejs\\node.EXE",
+  "docker": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.EXE",
+  "powershell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  "python": "C:\\Users\\Administrator\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+  "docker_context": "desktop-linux",
+  "scratch": "C:/Users/Administrator/AppData/Local/hermes/cache/scratch/sw6-final-20261023",
+  "sample_seconds": 60,
+  "attempts": [
+    "q1",
+    "q2",
+    "q3"
+  ],
+  "case_ids": [
+    "legacy-busy-env-idle",
+    "legacy-idle-env-busy",
+    "busy-steerable",
+    "stale-second-holder",
+    "env-paused",
+    "env-resumed",
+    "default-send-unknown",
+    "restart-idle",
+    "restart-mid-turn",
+    "restored-then-changes",
+    "cold-start",
+    "run-running-idle",
+    "stop-restart",
+    "fresh-busy-beside-unknown"
+  ],
+  "own_lane_commitment": {
+    "executor": "comms-senior-dev",
+    "gate_owner": "comms-tech-lead",
+    "authority_message": "1792766778695-3af2ed3a",
+    "scope": "No unrelated tests, builds or Docker by executor, gate owner or gate-owner builders from q1 start through q3 cleanup; no other worker paused; final readback owed"
+  },
+  "sources": [
+    {
+      "path": "scripts/sandbox/gate/gate.mjs",
+      "sha256": "07da5a35f603dbbe3ca7c899e82c2988d0f8bb35dc19d042e88e952daab853f1"
+    },
+    {
+      "path": "scripts/sandbox/gate/pair.mjs",
+      "sha256": "195690ae543f682143c9dd6817aa0b1c46dc3aff4b4ac53e6f4b02a1b8a8ffa8"
+    },
+    {
+      "path": "scripts/sandbox/gate/cases.mjs",
+      "sha256": "bb83b2ac60fa2abbe878c8695094789ebda9794ab0f4967b78bf3fb0b8071c6c"
+    },
+    {
+      "path": "scripts/sandbox/gate/case-judging.mjs",
+      "sha256": "c5761c96f217a7f30eba4d07c4c07ba43dbd3bb75ff714bfd308ec7b91c8ac92"
+    },
+    {
+      "path": "scripts/sandbox/gate/attempt-dir.mjs",
+      "sha256": "cef357f8572833e064740eebe7b57d749a7e386e5e9ab328b8e0b2c2c02f1476"
+    },
+    {
+      "path": "scripts/sandbox/gate/judges.mjs",
+      "sha256": "412eb5192c52518b912a0ad156b0784ebcb52aabe43ca35d1ed41e876ede7cd2"
+    },
+    {
+      "path": "scripts/sandbox/gate/self-check.mjs",
+      "sha256": "b389e73db32d6bbc50970f3df85d4fde93a9ec5c33f9c407db5bc185118966bd"
+    },
+    {
+      "path": "scripts/sandbox/gate/stand-in.mjs",
+      "sha256": "f3962f9314b755cc66b7c45b3953f98219d9963d2d06608a553c14322ada04ba"
+    },
+    {
+      "path": "scripts/sandbox/gate/claude-aify.sh",
+      "sha256": "ac425b9b1dbcf90837a32fc7b2ce2c3876843d3b393693c6edb609112d75a2e0"
+    },
+    {
+      "path": "scripts/sandbox/gate/probe.py",
+      "sha256": "4270f8b5d7a5699d5a21143917e7c628e02847654b3edd962a7fb2d242584551"
+    },
+    {
+      "path": "scripts/sandbox/gate/relay.mjs",
+      "sha256": "dacf00e539cbc982f9c6f3b2d8ecf821f77dc73c89f48a8ba72a03b2a030d07d"
+    },
+    {
+      "path": "scripts/sandbox/gate/env.Dockerfile",
+      "sha256": "9b193a33f349e36957e3690fb8b9ca3e5de14c8a51072f9c9df8ec72f21c5a46"
+    },
+    {
+      "path": "scripts/sandbox/env-against-comms.mjs",
+      "sha256": "9456fe838158e0a7d097d35fc8ad894fcf61779c324179f608eee1e802280e2c"
+    },
+    {
+      "path": "scripts/sandbox/sandbox-entry.sh",
+      "sha256": "fe475b05d083356cbabe99406bf2fbb4f5dd88075ce0ca2446229d522ec55abc"
+    },
+    {
+      "path": "docs/superpowers/plans/s4-hard-switch/2-sandbox-gate.md",
+      "sha256": "57dab5150165a8da1d31ce4fc61184bc1d9576d7b8a1bd722e9af02b00d04ce5"
+    },
+    {
+      "path": "docs/evidence/2026-10-21-sw3a-gate/AMENDMENTS.md",
+      "sha256": "ba352eb49c12478ba01f00e5b1d4c9cfea42ba6d02363f0efae6c0507c6e9662"
+    },
+    {
+      "path": "docs/evidence/2026-10-23-sw6-quiet-host/PREREGISTRATION.md",
+      "sha256": "32811effc5ba6c7b02eed1c76434b2c8b2d4e767f91db34dcd13eadfec38a700"
+    },
+    {
+      "path": "docs/evidence/2026-10-23-sw6-quiet-host/campaign.py",
+      "sha256": "54ce0187bd169c3cdae23802b4ed7432584a4f88c5b355b197febe900fe05b37"
+    }
+  ]
+}
