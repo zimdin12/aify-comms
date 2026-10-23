@@ -62,9 +62,26 @@ fi
 # ONE OWNER. An aify-env on PATH must be npm's own bin for the global package this would use or update, or which
 # installation runs and which one is updated are different things. Its bin is recognised in npm's two layouts, never
 # by running it (an old one could read an argument as a start): a link resolving to the package's
-# bin/aify-env.mjs (Unix), or npm's cmd-shim in the prefix, beside the root, that execs exactly that file (Windows).
-# Anything else, including an unknown prefix, is refused before a module is chosen or anything installed.
+# bin/aify-env.mjs (Unix), or, in the prefix beside the root, exactly the shim npm's own cmd-shim writes for that file
+# (Windows). A shim is judged by what it is, byte for byte, never by a string it contains: a launcher can name the
+# package's bin in a comment and exec something else. Anything else, including an unknown prefix or no cmd-shim to
+# regenerate it with, is refused before a module is chosen or anything installed.
 unix_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1"; fi; }
+native_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+# npm's cmd-shim run for the package's bin in a private copy of the prefix layout (the shim's text depends only on the
+# path from the prefix to the bin and on the bin's first line), and compared with the file on PATH.
+npm_shim_matches() {
+  local on_path="$1" shim="$root/npm/node_modules/cmd-shim" tmp rc=1
+  [ -f "$shim/package.json" ] || return 1
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/node_modules/aify-env/bin" \
+    && head -n 1 "$root/aify-env/bin/aify-env.mjs" > "$tmp/node_modules/aify-env/bin/aify-env.mjs" \
+    && node -e 'require(process.argv[1])(process.argv[2], process.argv[3]).catch(() => process.exit(1))' \
+      "$(native_path "$shim")" "$(native_path "$tmp/node_modules/aify-env/bin/aify-env.mjs")" "$(native_path "$tmp/aify-env")" \
+    && cmp -s "$tmp/aify-env" "$on_path" && rc=0
+  rm -rf "${tmp:?}"
+  return $rc
+}
 npm_owns() {
   local on_path="$1" target pkg_bin prefix
   target="$(realpath "$on_path" 2>/dev/null)" && pkg_bin="$(realpath "$root/aify-env/bin/aify-env.mjs" 2>/dev/null)" \
@@ -72,7 +89,7 @@ npm_owns() {
   prefix="$(npm prefix -g 2>/dev/null)" && [ -n "$prefix" ] || return 1
   [ "$(unix_path "$(dirname "$on_path")")" = "$(unix_path "$prefix")" ] || return 1
   [ "$(unix_path "$root")" = "$(unix_path "$prefix")/node_modules" ] || return 1
-  grep -qF '"$basedir/node_modules/aify-env/bin/aify-env.mjs"' "$on_path" 2>/dev/null
+  npm_shim_matches "$on_path"
 }
 if on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then
   if [ ! -e "$root/aify-env" ]; then
