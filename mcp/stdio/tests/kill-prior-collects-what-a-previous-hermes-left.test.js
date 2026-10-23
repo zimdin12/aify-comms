@@ -23,10 +23,12 @@ import { anchorOffsetMs, startTimes } from "aify-wrapper/lib/process-identity.mj
 
 import { runHermesDaemonCli } from "../hermes-daemon-cli.js";
 import { stopDaemon } from "../hermes-daemon.js";
-import { agentPort, claimedByOtherAgents, writeSessionIdMarker } from "../hermes-endpoint.js";
+import { PORT_BASE, PORT_SPAN, agentPort, claimedByOtherAgents, writeSessionIdMarker } from "../hermes-endpoint.js";
 import { ancestry, hermesHome, ownedGatewayPorts, persistedGatewayPort, planPriorReap, readSessionLeases, reapPriorHermes, sessionNamedByAnotherAgent } from "../hermes-prior-reap.mjs";
-import { defaultListProcesses } from "../proc-probes.js";
+import { cmdlineHermesGatewayPort, defaultListProcesses } from "../proc-probes.js";
+import { gatewaysInRange } from "../gateway-orphan-check.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
+import { OutsideGatewayOperator } from "./fixtures/outside-gateway-operator.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, "..", "hermes-daemon-cli.js");
@@ -339,13 +341,24 @@ test("REAL PROCESSES through the real `stop`: the leftover gateway and lease hol
     `const c=require("child_process").spawn(process.execPath,["-e","setInterval(()=>{},1e3)","hermes","--tui","--resume","sess-real"],{stdio:"ignore",windowsHide:true});require("fs").writeFileSync(${JSON.stringify(childPidFile)},String(c.pid));setInterval(()=>{},1e3)`,
     "hermes", "dashboard", "--port", String(persisted + 1)], { stdio: "ignore", detached: true, windowsHide: true });
   started.push(oldGateway.pid);
-  const operator = sleeper("hermes", "--resume", "sess-real");
+  const outside = OutsideGatewayOperator.start({ sessionId: "sess-real", env: sealedChildEnv() });
+  t.after(() => outside.stop());
+  const operator = outside.pid;
+  await assert.rejects(new OutsideGatewayOperator(operator, outside.startedAt - 1).stop(), /refusing to clean up/);
+  assert.ok(alive(operator), "an unverified cleanup must leave the operator alive");
   const stranger = sleeper("hermes", "--tui", "--resume", "sess-real");
   await new Promise((r) => setTimeout(r, 1500));
   const holder = Number(fs.readFileSync(childPidFile, "utf8"));
   started.push(holder);
   const starts = startTimes([holder, stranger, operator]);
   assert.ok(starts.get(holder) && starts.get(stranger) && starts.get(operator), "control: this host reads start times");
+  const rows = defaultListProcesses(undefined, { strict: true });
+  const gateways = gatewaysInRange(rows, { toPort: cmdlineHermesGatewayPort, base: PORT_BASE, span: PORT_SPAN });
+  assert.ok(gateways.some(row => row.pid === gateway), "control: the process reader sees the fixture's gateway");
+  const parents = ancestry(operator, rows);
+  const gatewayAncestors = gateways.filter(row => parents.has(row.pid));
+  console.log("operator-fixture", JSON.stringify({ pid: operator, gatewayControl: gateway, gatewayAncestors }));
+  assert.deepEqual(gatewayAncestors, [], "fixture: the operator must really be outside every gateway tree");
   // ON HERMES' CLOCK, because this file below is hermes' own record and hermes writes the wall clock. On Linux
   // `startTimes` is on the boot anchor's clock, which drifts from it (574 s on the review host, 2026-09-16),
   // and the reap converts between the two -- so a fixture left anchored is a start time hermes would never
