@@ -229,9 +229,18 @@ export function runWrapper(wrapperPath, {
   const binDir = path.join(workspace, "stub-bin");
   const home = path.join(workspace, "home");
   fs.mkdirSync(home, { recursive: true });
-  // The sealed HOME starts empty, which is what makes "no transcript exists" the default. A caller
-  // that needs the OTHER branch — a session id that validates — seeds it here rather than reaching
-  // for the real ~/.claude, which would make the test depend on the operator's machine.
+  if (runtimeName === "claude") {
+    // A real install registers this stdio server in Claude's user scope. The route reader must find
+    // that provider in the sealed home too; an empty home now correctly refuses to start.
+    fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ mcpServers: {
+      "aify-comms-channel": {
+        command: "node",
+        args: [path.join(REPO, "mcp", "stdio", "claude-channel.js").replace(/\\/g, "/")],
+      },
+    } }));
+  }
+  // Session transcripts are absent unless a caller seeds one. prepareHome runs after the installed
+  // channel fixture so a refusal test can remove it, or a caller can replace the configuration.
   if (typeof prepareHome === "function") prepareHome(home);
   const recordPath = withStub
     ? writeStubRuntime(binDir, runtimeName, { exitCode: stubExitCode, prelude: stubPrelude })

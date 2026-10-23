@@ -32,6 +32,16 @@ test("claude-aify launches the runtime and forwards argv", () => {
   assert.ok(r.argv.includes("hello world"), "an argument containing a space must survive as ONE argv entry");
 });
 
+test("claude-aify refuses a home with no channel instead of starting a deaf runtime", () => {
+  const r = run({
+    prepareHome: (home) => fs.rmSync(path.join(home, ".claude.json"), { force: true }),
+  });
+  assert.equal(r.status, 78, r.stderr);
+  assert.equal(r.launched, false, "the runtime must not start without a channel provider");
+  assert.match(r.stderr, /this session would start with no channel/);
+  assert.match(r.stderr, /Re-run the service's installer \(install\.sh --client claude\)/);
+});
+
 test("claude-aify passes the runtime's exit code through unchanged", () => {
   const r = run({ stubExitCode: 42 });
   assert.equal(r.launched, true);
