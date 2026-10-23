@@ -78,7 +78,9 @@ const CEILINGS = {
   // cancel line for comms_run_interrupt. Part paid for by cutting three sentences that restated the Deployment
   // claims table's first line.
   "aify-comms/references/operations.md": 9_679,
-  "aify-comms/references/teamwork.md": 14_364,
+  // 14_364 -> 14_348 on 2026-10-22: the channel's source is no longer one literal (the plugin route's is namespaced),
+  // so the reply rule names an aify-comms channel event; the server's own instructions give the exact source.
+  "aify-comms/references/teamwork.md": 14_348,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
   // to the machine in front of you. Most of that is a question about the HOST, and

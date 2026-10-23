@@ -170,7 +170,7 @@ Delegation, reinforcement, getting unstuck, and the manager's operational levers
 **Use one human-facing surface per interaction**, inferred from where the request arrived. An
 explicit "talk in comms" / "talk in terminal" overrides that until the user changes it.
 
-- Arrived as a `<channel source="aify-comms-channel" ...>` event → reply with
+- Arrived as an aify-comms `<channel ...>` event → reply with
   `comms_send(type="response", inReplyTo="<message id>", ...)`, because the sender is waiting on the
   threaded reply, not watching your terminal.
 - Typed directly into your CLI (operator at your keyboard) → reply in the CLI. Do not `comms_send`

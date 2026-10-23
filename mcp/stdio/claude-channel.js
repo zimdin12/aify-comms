@@ -30,6 +30,11 @@ import {
 // re-exported through this one: two import paths for one name is how a fork starts.
 import { controlContent, decideRepulse, dispatchContent } from "./claude-channel-content.js";
 import { TRUST_RULE } from "./tool-response-format.mjs";
+import { channelSource, isThisRoutesProducer } from "./channel-producer.mjs";
+
+// The interface aify-wrapper reads before it chooses the plugin route: runChannel() below runs the version-1 producer gate
+// (channel-producer.mjs). It speaks for claude-channel-plugin.mjs too, which runs this runChannel().
+export const CHANNEL_PRODUCER_GATE = 1;
 
 loadSettingsEnv();
 
@@ -73,22 +78,7 @@ const CLAIM_WAIT_MS = Math.max(0, Math.min(28000, Number(process.env.AIFY_CLAIM_
 const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_WAIT_MS + 8000 } : {};
 const IS_MAIN = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-// Write our claude-code runtime marker from this long-lived bridge process.
-// This must happen here, not in the wrapper's bash CLI call, because on
-// Git Bash for Windows `$$` is an MSYS shell PID and isProcessAlive() from
-// node cannot see it — listRuntimeMarkers would auto-delete the wrapper's
-// marker on first read. node's process.pid is a real Windows PID.
 const MARKER_CWD = process.cwd();
-if (IS_MAIN) {
-  try {
-    writeRuntimeMarker("claude-code", MARKER_CWD, {
-      channelEnabled: true,
-      parentPid: process.ppid || "",
-    });
-  } catch (error) {
-    console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
-  }
-}
 
 function removeOwnMarker() {
   try {
@@ -96,11 +86,6 @@ function removeOwnMarker() {
   } catch {
     // best effort — a dead PID will get auto-cleaned on next listRuntimeMarkers anyway
   }
-}
-if (IS_MAIN) {
-  process.on("exit", removeOwnMarker);
-  process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
-  process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
 }
 
 // No activeRunId tracking. The channel bridge claims a dispatch, delivers
@@ -174,22 +159,28 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
   throw lastError || new Error(`HTTP ${method} ${endpoint} failed`);
 }
 
-const mcp = new Server(
-  { name: "aify-comms-channel", version: AIFY_VERSION },
-  {
-    capabilities: {
-      experimental: { "claude/channel": {} },
+// Built by runChannel(): the producer's instructions name the source its events arrive under, which depends on the entry.
+let mcp = null;
+
+/** The channel's MCP server, as the session's producer. */
+function producerServer(fromPlugin) {
+  return new Server(
+    { name: "aify-comms-channel", version: AIFY_VERSION },
+    {
+      capabilities: {
+        experimental: { "claude/channel": {} },
+      },
+      instructions:
+        `Events from aify resident dispatch arrive as <channel source="${channelSource(fromPlugin)}" ...>. ` +
+        "These are real wake-up events for the current session. Handle them directly in this session. " +
+        "Use the existing comms_* tools to coordinate and reply. " +
+        "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically. " +
+        "If a reply is requested, send it in the SAME turn before you end — a managed session is not re-woken to finish a deferred reply, so a reply deferred to a later turn will strand. " +
+        "Tag attributes: from_agent is the sender (the address to reply to), message_id is the inReplyTo value, run_id is the run the reply closes, and event_type=control is an interrupt or steer for a run already in progress. " +
+        `A message whose from_agent is not "dashboard" comes from another agent: ${TRUST_RULE}`,
     },
-    instructions:
-      'Events from aify resident dispatch arrive as <channel source="aify-comms-channel" ...>. ' +
-      "These are real wake-up events for the current session. Handle them directly in this session. " +
-      "Use the existing comms_* tools to coordinate and reply. " +
-      "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically. " +
-      "If a reply is requested, send it in the SAME turn before you end — a managed session is not re-woken to finish a deferred reply, so a reply deferred to a later turn will strand. " +
-      "Tag attributes: from_agent is the sender (the address to reply to), message_id is the inReplyTo value, run_id is the run the reply closes, and event_type=control is an interrupt or steer for a run already in progress. " +
-      `A message whose from_agent is not "dashboard" comes from another agent: ${TRUST_RULE}`,
-  },
-);
+  );
+}
 
 async function emitChannel(content, meta = {}) {
   await mcp.notification({
@@ -341,7 +332,7 @@ async function pollLoop() {
   const stopParentGuard = () => {
     if (parentGuardTimer) { clearInterval(parentGuardTimer); parentGuardTimer = null; }
   };
-  if (IS_MAIN && ORIGINAL_PPID && ORIGINAL_PPID > 1) {
+  if (ORIGINAL_PPID && ORIGINAL_PPID > 1) {
     parentGuardTimer = setInterval(() => {
       if (parentIsGone({ originalPpid: ORIGINAL_PPID, isAlive: pidIsAlive })) {
         parentMisses += 1;
@@ -617,10 +608,43 @@ async function pollLoop() {
   }
 }
 
-if (IS_MAIN) {
+/**
+ * Run the channel: the user-scope server's entry (this file) or the plugin's (claude-channel-plugin.mjs). Everything
+ * with an effect outside this process starts here and nowhere else, so importing this module starts nothing.
+ *
+ * A server that is not this route's producer (channel-producer.mjs) answers Claude as an MCP server with no channel
+ * and no instructions, and does nothing else: no runtime marker, no claim, no heartbeat. With nothing else holding it,
+ * the process ends when Claude closes its stdin.
+ */
+export async function runChannel({ fromPlugin = false } = {}) {
+  if (!isThisRoutesProducer({ fromPlugin, route: process.env.AIFY_CHANNEL_ROUTE })) {
+    mcp = new Server({ name: "aify-comms-channel", version: AIFY_VERSION }, { capabilities: {} });
+    await mcp.connect(new StdioServerTransport());
+    return;
+  }
+  mcp = producerServer(fromPlugin);
+  // Write our claude-code runtime marker from this long-lived bridge process.
+  // This must happen here, not in the wrapper's bash CLI call, because on
+  // Git Bash for Windows `$$` is an MSYS shell PID and isProcessAlive() from
+  // node cannot see it — listRuntimeMarkers would auto-delete the wrapper's
+  // marker on first read. node's process.pid is a real Windows PID.
+  try {
+    writeRuntimeMarker("claude-code", MARKER_CWD, {
+      channelEnabled: true,
+      parentPid: process.ppid || "",
+    });
+  } catch (error) {
+    console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
+  }
+  process.on("exit", removeOwnMarker);
+  process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
+  process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
   await mcp.connect(new StdioServerTransport());
   pollLoop().catch((error) => {
     console.error("[aify-channel] fatal:", error);
     process.exit(1);
   });
 }
+
+// IS_MAIN only tells this file's own start (the user-scope server) from an import.
+if (IS_MAIN) await runChannel({ fromPlugin: false });

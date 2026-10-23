@@ -87,6 +87,14 @@ The `aify-comms-channel` MCP server (`claude-channel.js`) claims the agent's mes
 each one into the live session as a `<channel source="aify-comms-channel" ...>` event. If Claude says
 `no MCP server configured with that name`, re-run the installer and restart Claude Code.
 
+Once aify-wrapper's channel plugin is installed and a Claude Code policy allows it
+(`node <aify-wrapper>/lib/channel-install.mjs install`), `claude-aify` starts Claude with
+`--channels plugin:aify-channel@aify-local` instead, with no development-channels prompt. The plugin runs
+the same channel from `claude-channel-plugin.mjs`, and events then arrive as
+`<channel source="plugin:aify-channel:aify-comms-channel" ...>`. Both servers start in every session.
+`AIFY_CHANNEL_ROUTE`, which `claude-aify` exports, decides which one claims messages
+(`mcp/stdio/channel-producer.mjs`).
+
 By default the launcher loads your whole `~/.claude.json` MCP list, where the installer adds the two
 aify servers. A Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462),
 [#21341](https://github.com/anthropics/claude-code/issues/21341)) can fail to start MCP servers when
