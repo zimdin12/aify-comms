@@ -1,0 +1,66 @@
+
+> aify-wrapper@0.9.3 test
+> node tests/run-in-a-temp-root.mjs tests/connect-package.test.js
+
+TAP version 13
+# (node:75908) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Administrator/projects/aify-wrapper-wt-report/tests/connect-package.test.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\Administrator\\projects\\aify-wrapper-wt-report\\package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: INSTALL WITH SCRIPTS: the spec's commit is installed in its own prefix, prepare builds the bin, and the entry runs that bin with this node
+ok 1 - INSTALL WITH SCRIPTS: the spec's commit is installed in its own prefix, prepare builds the bin, and the entry runs that bin with this node
+  ---
+  duration_ms: 4822.1283
+  type: 'test'
+  ...
+# Subtest: REPORT FILE: --report-file records what connect installed as data, which a pending reason's text cannot add to
+ok 2 - REPORT FILE: --report-file records what connect installed as data, which a pending reason's text cannot add to
+  ---
+  duration_ms: 3648.8302
+  type: 'test'
+  ...
+# Subtest: REPORT FILE: an existing file is never overwritten, and a refused connect writes none
+ok 3 - REPORT FILE: an existing file is never overwritten, and a refused connect writes none
+  ---
+  duration_ms: 2226.1264
+  type: 'test'
+  ...
+# Subtest: SHORT SHA: a revision that is not a full commit is refused before npm runs or anything is written
+ok 4 - SHORT SHA: a revision that is not a full commit is refused before npm runs or anything is written
+  ---
+  duration_ms: 85.7009
+  type: 'test'
+  ...
+# Subtest: WRONG COMMIT: npm installing another commit than the spec's is refused, and nothing is published or left installed
+ok 5 - WRONG COMMIT: npm installing another commit than the spec's is refused, and nothing is published or left installed
+  ---
+  duration_ms: 3506.1743
+  type: 'test'
+  ...
+# Subtest: NOT A BIN: an entry the installed package does not declare as a bin is refused
+ok 6 - NOT A BIN: an entry the installed package does not declare as a bin is refused
+  ---
+  duration_ms: 2994.5134
+  type: 'test'
+  ...
+# Subtest: NOT BUILT: a commit that installs but never builds its bin is refused, so an entry never points at nothing
+ok 7 - NOT BUILT: a commit that installs but never builds its bin is refused, so an entry never points at nothing
+  ---
+  duration_ms: 4311.7432
+  type: 'test'
+  ...
+# Subtest: WRONG KEY: a key the service refuses installs nothing
+ok 8 - WRONG KEY: a key the service refuses installs nothing
+  ---
+  duration_ms: 385.0346
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 22057.3545

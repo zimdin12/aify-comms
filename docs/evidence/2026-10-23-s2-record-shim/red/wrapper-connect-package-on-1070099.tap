@@ -1,0 +1,97 @@
+
+> aify-wrapper@0.9.3 test
+> node tests/run-in-a-temp-root.mjs tests/connect-package.test.js
+
+TAP version 13
+# (node:21036) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Administrator/projects/aify-wrapper-wt-report/tests/connect-package.test.js is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\Users\\Administrator\\projects\\aify-wrapper-wt-report\\package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: INSTALL WITH SCRIPTS: the spec's commit is installed in its own prefix, prepare builds the bin, and the entry runs that bin with this node
+ok 1 - INSTALL WITH SCRIPTS: the spec's commit is installed in its own prefix, prepare builds the bin, and the entry runs that bin with this node
+  ---
+  duration_ms: 4912.9652
+  type: 'test'
+  ...
+# Subtest: REPORT FILE: --report-file records what connect installed as data, which a pending reason's text cannot add to
+not ok 2 - REPORT FILE: --report-file records what connect installed as data, which a pending reason's text cannot add to
+  ---
+  duration_ms: 72.5353
+  type: 'test'
+  location: 'C:\\Users\\Administrator\\projects\\aify-wrapper-wt-report\\tests\\connect-package.test.js:62:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    aify-wrapper-connect: unknown option --report-file
+    usage: aify-wrapper-connect <service> <url> [options]
+      --key-file <file>              the service key (its credentialRef), read from a file
+      --key-stdin                    the service key, read from stdin
+      --secret-file <field>=<file>   another declared secret, e.g. secretsCredentialRef=<file>
+      --approve <digest>             approve one artifact tuple, exactly as the refusal printed it
+      --no-prompt                    never ask; anything that needs a person fails
+      --registry <path>              the registry (default: $AIFY_SERVICE_REGISTRY or ~/.aify/services.json)
+      --dest <dir>                   where the launchers are (default: ~/.local/bin)
+      --aify-env <path>              aify-env's bin/aify-env.mjs (default: under `npm root -g`)
+      --npm-root <dir>               npm's global root, instead of asking npm
+      --file-set-root <dir>          where a file-set artifact is installed (default: ~/.<service>/mcp/stdio)
+      --package-root <dir>           where a package artifact's revisions are installed (default: ~/.aify/packages)
+      --npm-cli <path>               npm's bin/npm-cli.js (default: the one beside this node)
+    
+    
+    78 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 78
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Users/Administrator/projects/aify-wrapper-wt-report/tests/connect-package.test.js:77:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: REPORT FILE: an existing file is never overwritten, and a refused connect writes none
+ok 3 - REPORT FILE: an existing file is never overwritten, and a refused connect writes none
+  ---
+  duration_ms: 736.8833
+  type: 'test'
+  ...
+# Subtest: SHORT SHA: a revision that is not a full commit is refused before npm runs or anything is written
+ok 4 - SHORT SHA: a revision that is not a full commit is refused before npm runs or anything is written
+  ---
+  duration_ms: 78.3316
+  type: 'test'
+  ...
+# Subtest: WRONG COMMIT: npm installing another commit than the spec's is refused, and nothing is published or left installed
+ok 5 - WRONG COMMIT: npm installing another commit than the spec's is refused, and nothing is published or left installed
+  ---
+  duration_ms: 5775.1689
+  type: 'test'
+  ...
+# Subtest: NOT A BIN: an entry the installed package does not declare as a bin is refused
+ok 6 - NOT A BIN: an entry the installed package does not declare as a bin is refused
+  ---
+  duration_ms: 4079.46
+  type: 'test'
+  ...
+# Subtest: NOT BUILT: a commit that installs but never builds its bin is refused, so an entry never points at nothing
+ok 7 - NOT BUILT: a commit that installs but never builds its bin is refused, so an entry never points at nothing
+  ---
+  duration_ms: 6971.2217
+  type: 'test'
+  ...
+# Subtest: WRONG KEY: a key the service refuses installs nothing
+ok 8 - WRONG KEY: a key the service refuses installs nothing
+  ---
+  duration_ms: 389.103
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 7
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 23131.0965

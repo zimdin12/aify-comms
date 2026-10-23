@@ -1,0 +1,391 @@
+{
+ "started": "2026-10-23T01:24:57.220973+00:00",
+ "baseline": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+   "raw": "raw/baseline-handoff.tap"
+  },
+  "chain": {
+   "exit": 0,
+   "pass": 30,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+   "raw": "raw/baseline-chain.tap"
+  }
+ },
+ "arms": [
+  {
+   "arm": "C5 connect never asked for its record",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "source_sha256_mutated": "0854c4ed7d294e46ed4e0c46e740e1645b1e9011f2191164a987eff85af2569b",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 30 - the receipt is connect's record of this run, written to a fresh private file; printed prose adds nothing"
+    ],
+    "first_error": [
+     "error: 'connect was not asked for its record'",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected: true"
+    ],
+    "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+    "raw": "raw/arm-C5-connect-never-asked-for-its-record.tap"
+   },
+   "source_sha256_restored": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 the record's rows taken unchecked",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "source_sha256_mutated": "b538669e324ee2178cb819dff4e79296f188562aa55e929dcf69219d678e6752",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 30 - the receipt is connect's record of this run, written to a fresh private file; printed prose adds nothing"
+    ],
+    "first_error": [
+     "error: |-",
+     "only well-formed rows count",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+    "raw": "raw/arm-C5-the-record-s-rows-taken-unchecked.tap"
+   },
+   "source_sha256_restored": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 a wrapper whose connect cannot write the record accepted",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "source_sha256_mutated": "5bce2fe7084a105c800743c7483c6efb0e2471dc74135736443463e426b9f4d5",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 7 - a wrapper module is usable only with the functions and catalogue the chain calls, each checked"
+    ],
+    "first_error": [
+     "error: 'a wrapper whose connect cannot write its record passed'",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+    "raw": "raw/arm-C5-a-wrapper-whose-connect-cannot-write-the-record-accepted.tap"
+   },
+   "source_sha256_restored": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 the private record directory left behind",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "source_sha256_mutated": "9042323a12a5f0555f3ae96f89255b6594e67a0ead26dee653b471ee8b36acd0",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 30 - the receipt is connect's record of this run, written to a fresh private file; printed prose adds nothing"
+    ],
+    "first_error": [
+     "error: |-",
+     "the private directory is removed",
+     "",
+     "true !== false"
+    ],
+    "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+    "raw": "raw/arm-C5-the-private-record-directory-left-behind.tap"
+   },
+   "source_sha256_restored": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 a shim judged by a string it contains",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "1e0a259cd325ae06cfda7f108ce0dfb193b61825971ec96d11328feaf54a5658",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script that names the package's bin only in a comment:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-a-shim-judged-by-a-string-it-contains.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the regenerated shim never compared",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "ab1d681598530f3114505f8813f8b7319e796b0b4457e5aa578d790fdd80b8b4",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-the-regenerated-shim-never-compared.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 no cmd-shim taken as a match",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "9737f95b9d537e442ec70b0d440674b722d3b001b696cfc3a3f1ac4563733c71",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, npm's shim with no cmd-shim to regenerate it from:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-no-cmd-shim-taken-as-a-match.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the bin's first line not carried into the regenerated layout",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "ff01cbcd91f7143d0a1688f007d78ea9c88a1c6df1823bb71a0a3a41d9eb0c67",
+   "result": {
+    "exit": 1,
+    "pass": 13,
+    "fail": 2,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated",
+     "not ok 10 - an older packaged aify-env is updated from its source, then the chain runs"
+    ],
+    "first_error": [
+     "error: |-",
+     "CONTROL: npm's own shim beside the chain: The aify-env on PATH (/tmp/handoff-bin-cEK4fq/aify-env) is not npm's own bin for C:/Users/Administrator/AppData/Local/Temp/handoff-bin-cEK4fq/node_modules/aify-env, so which installation runs is unknown; nothing was installed.",
+     "Remove the one that should not be there, or rerun with --standalone to use this installer's full path.",
+     ""
+    ],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-the-bin-s-first-line-not-carried-into-the-regenerated-layout.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 the package never bound to connect's record",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "source_sha256_mutated": "08983a8a6e074ef4e82236055cc236f4c8fc4aebf5d477b02a293fee52837a96",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused"
+    ],
+    "first_error": [
+     "error: \"B was approved, named in a row and in a stale row, but connect installed A; B's package ran\"",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+    "raw": "raw/arm-C5-the-package-never-bound-to-connect-s-record.tap"
+   },
+   "source_sha256_restored": "8bdb38657e2dd595b0a959f73686e9840e1600fa06dadf70ece67f42ec59beeb",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 the chain drops connect's record",
+   "file": "lib/install-chain.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "6cc4d55bac4b193cc47a8306fc3fc44b3b1d02e091edf3200c5653a8fa113a26",
+   "source_sha256_mutated": "17615dadb8cbc5c7850c06a4b1f69218255e83d2c11432e56237e73a2a7d2b98",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 30 - the receipt is connect's record of this run, written to a fresh private file; printed prose adds nothing"
+    ],
+    "first_error": [
+     "error: |-",
+     "Expected values to be strictly deep-equal:",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+    "raw": "raw/arm-C5-the-chain-drops-connect-s-record.tap"
+   },
+   "source_sha256_restored": "6cc4d55bac4b193cc47a8306fc3fc44b3b1d02e091edf3200c5653a8fa113a26",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 any resolvable link taken as npm's",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "2110faac3f68f023beb35a8f090c7953337b667e2c914273a46ace364a875b77",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-any-resolvable-link-taken-as-npm-s.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the shim's root never compared with npm's",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "e5fd8279e847595e91f0fd5d38c0e549c59f05259ee4893c7d1bae641f607c52",
+   "result": {
+    "exit": 0,
+    "pass": 15,
+    "fail": 0,
+    "failing": [],
+    "first_error": [],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-the-shim-s-root-never-compared-with-npm-s.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "SURVIVED"
+  },
+  {
+   "arm": "C9 ownership never checked",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "60581a6e8af41fde0f6d29668ffa5b539109aea29e8e7da58ae1cdf05186d5a6",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+    "raw": "raw/arm-C9-ownership-never-checked.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  }
+ ],
+ "restored": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "b2d9bdf0944baf8593a960800f9475fff4ac37ac9e09ccb6fffe12913540e18b",
+   "raw": "raw/restored-handoff.tap"
+  },
+  "chain": {
+   "exit": 0,
+   "pass": 30,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "29556ac26ff0b1b35fb28a8fd77581b82463329365ee65d0180cf746d83d26dc",
+   "raw": "raw/restored-chain.tap"
+  }
+ },
+ "finished": "2026-10-23T01:27:28.226417+00:00"
+}

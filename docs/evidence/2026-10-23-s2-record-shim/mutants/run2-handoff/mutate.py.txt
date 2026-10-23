@@ -1,0 +1,113 @@
+"""S2 preliminary 1792718055661-ceb1f544 (C5 record, C9 shim bytes) mutants, plus the earlier arms that still apply, with each arm's source and test identities (sha256 before, mutated,
+restored), the first assertion's own words, a baseline run of every test file first and a restored run after the last
+arm. Raw TAP per run goes to OUT/raw/."""
+import datetime, hashlib, json, os, re, shutil, subprocess, sys
+
+OUT = sys.argv[1]
+os.makedirs(os.path.join(OUT, "raw"), exist_ok=True)
+COMMS = "C:/Docker/aify-comms-wt-s2"
+ENV = "C:/Users/Administrator/projects/aify-env-wt-s2"
+BASH = "C:/Program Files/Git/usr/bin/bash.exe"
+TESTS = {
+    "handoff": (COMMS, "mcp/stdio", "mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js", ["node", "--test", "tests/a-plain-install-hands-off-to-the-chain-once.test.js"]),
+    "chain": (ENV, ".", "tests/the-install-chain-runs-its-phases-in-order.test.js", [BASH, "-c", "npm test -- tests/the-install-chain-runs-its-phases-in-order.test.js"]),
+}
+SHIM_GREP = "  grep -qF '\"$basedir/node_modules/aify-env/bin/aify-env.mjs\"' \"$on_path\" 2>/dev/null"
+ROOT_CHECK = '  [ "$(unix_path "$root")" = "$(unix_path "$prefix")/node_modules" ] || return 1'
+HOST = "lib/install-chain-host.mjs"
+HANDOFF = "scripts/chain-handoff.sh"
+ARMS = [
+    # This round: C5, the receipt is connect's record.
+    ("C5 connect never asked for its record", ENV, HOST, "chain",
+     '[...args, "--report-file", file]', "args"),
+    ("C5 the record's rows taken unchecked", ENV, HOST, "chain",
+     'if (row && typeof row.id === "string" && typeof row.at === "string")', "if (row)"),
+    ("C5 a wrapper whose connect cannot write the record accepted", ENV, HOST, "chain",
+     '?.problem !== "") {\n    return { problem: `the installed aify-wrapper at ${wrapperRoot}: its connect does not accept --report-file',
+     '?.problem === Symbol()) {\n    return { problem: `the installed aify-wrapper at ${wrapperRoot}: its connect does not accept --report-file'),
+    ("C5 the private record directory left behind", ENV, HOST, "chain",
+     "  } finally {\n    fs.rmSync(dir, { recursive: true, force: true });\n  }", "  } finally {\n  }"),
+    # This round: C9, a shim is npm's by its bytes.
+    ("C9 a shim judged by a string it contains", COMMS, HANDOFF, "handoff", '  npm_shim_matches "$on_path"\n}', SHIM_GREP + "\n}"),
+    ("C9 the regenerated shim never compared", COMMS, HANDOFF, "handoff",
+     '    && cmp -s "$tmp/aify-env" "$on_path" && rc=0', "    && rc=0"),
+    ("C9 no cmd-shim taken as a match", COMMS, HANDOFF, "handoff",
+     '  [ -f "$shim/package.json" ] || return 1', '  [ -f "$shim/package.json" ] || return 0'),
+    ("C9 the bin's first line not carried into the regenerated layout", COMMS, HANDOFF, "handoff",
+     '    && head -n 1 "$root/aify-env/bin/aify-env.mjs" > "$tmp/node_modules/aify-env/bin/aify-env.mjs"',
+     '    && : > "$tmp/node_modules/aify-env/bin/aify-env.mjs"'),
+    # Earlier arms that still apply.
+    ("C5 the package never bound to connect's record", ENV, HOST, "chain",
+     '    if (accepted?.[artifact.id] !== dir.split(path.sep).join("/")) {', '    if (false) {'),
+    ("C5 the chain drops connect's record", ENV, "lib/install-chain.mjs", "chain",
+     "this.#plan.approve, installed ?? {});", "this.#plan.approve, {});"),
+    ("C9 any resolvable link taken as npm's", COMMS, HANDOFF, "handoff",
+     '    && [ -n "$target" ] && [ "$target" = "$pkg_bin" ] && return 0', '    && [ -n "$target" ] && return 0'),
+    ("C9 the shim's root never compared with npm's", COMMS, HANDOFF, "handoff", ROOT_CHECK, "  true"),
+    ("C9 ownership never checked", COMMS, HANDOFF, "handoff", '  if ! npm_owns "$on_path"; then', "  if false; then"),
+]
+
+ARMS = [a for a in ARMS if a[3] == "handoff"]
+TESTS = {"handoff": TESTS["handoff"]}
+sha = lambda path: hashlib.sha256(open(path, "rb").read()).hexdigest()
+env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_AGENT", "HERDR", "AIFY_HERDR"))}
+
+def run(test, label):
+    repo, cwd, rel, cmd = TESTS[test]
+    r = subprocess.run(cmd, cwd=os.path.join(repo, cwd), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    raw = r.stdout + r.stderr
+    name = re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-")[:80]
+    open(os.path.join(OUT, "raw", f"{name}.tap"), "w", encoding="utf-8").write(raw)
+    lines = raw.splitlines()
+    fails, first_error = [], []
+    for i, line in enumerate(lines):
+        if line.startswith("not ok"):
+            fails.append(line.strip())
+            if not first_error:
+                j = next((k for k in range(i, min(i + 12, len(lines))) if lines[k].strip().startswith("error:")), None)
+                if j is not None:
+                    first_error = [l.strip() for l in lines[j:j + 4]]
+    counts = {k: re.search(rf"^# {k} (\d+)", raw, re.M) for k in ("pass", "fail")}
+    return {"exit": r.returncode, "pass": counts["pass"] and int(counts["pass"][1]), "fail": counts["fail"] and int(counts["fail"][1]),
+            "failing": fails, "first_error": first_error, "test_sha256": sha(os.path.join(repo, rel)), "raw": f"raw/{name}.tap"}
+
+report = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(), "baseline": {}, "arms": [], "restored": {}}
+for t in TESTS:
+    report["baseline"][t] = run(t, f"baseline {t}")
+for name, repo, rel, test, old, new in ARMS:
+    path = os.path.join(repo, rel)
+    keep = path + ".mutant-keep"
+    before = sha(path)
+    shutil.copyfile(path, keep)
+    text = open(path, "rb").read().decode()
+    arm = {"arm": name, "file": rel, "repo": repo, "test": test, "source_sha256_before": before}
+    if text.count(old) != 1:
+        arm["applied"] = f"NO (pattern count {text.count(old)})"
+        os.remove(keep); report["arms"].append(arm); continue
+    open(path, "wb").write(text.replace(old, new).encode())
+    arm["source_sha256_mutated"] = sha(path)
+    arm["result"] = run(test, f"arm {name}")
+    shutil.copyfile(keep, path)
+    os.remove(keep)
+    arm["source_sha256_restored"] = sha(path)
+    arm["restored_equal"] = arm["source_sha256_restored"] == before
+    arm["verdict"] = "KILLED" if arm["result"]["exit"] != 0 and arm["result"]["failing"] else "SURVIVED"
+    report["arms"].append(arm)
+for t in TESTS:
+    report["restored"][t] = run(t, f"restored {t}")
+report["finished"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+json.dump(report, open(os.path.join(OUT, "mutants.json"), "w", encoding="utf-8"), indent=1)
+with open(os.path.join(OUT, "mutants.txt"), "w", encoding="utf-8") as out:
+    for t, r in report["baseline"].items():
+        out.write(f"BASELINE {t}: exit {r['exit']}, pass {r['pass']}, fail {r['fail']}, test sha256 {r['test_sha256'][:12]}\n")
+    for a in report["arms"]:
+        if "result" not in a:
+            out.write(f"ARM {a['arm']}: NOT APPLIED {a['applied']}\n"); continue
+        r = a["result"]
+        out.write(f"ARM {a['arm']} [{a['file']} {a['source_sha256_before'][:12]} -> {a['source_sha256_mutated'][:12]}]: exit {r['exit']}, {a['verdict']}; restored {a['source_sha256_restored'][:12]} equal {a['restored_equal']}\n")
+        for f in r["failing"][:4]:
+            out.write(f"    {f}\n")
+        for e in r["first_error"]:
+            out.write(f"      | {e}\n")
+    for t, r in report["restored"].items():
+        out.write(f"RESTORED {t}: exit {r['exit']}, pass {r['pass']}, fail {r['fail']}\n")
