@@ -8,18 +8,18 @@ ARM S2R1 the installer resolves the key before the handoff [install.sh e496bab15
       | error: |-
       | the installer resolved or stored a key before handing off
       | + actual - expected
-      | 
+      |
 ARM S2R2 ownership never compared [scripts/chain-handoff.sh bed5d4c31421 -> fc30d72838f8]: exit 1, KILLED; restored bed5d4c31421 equal True
     not ok 6 - an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated
       | error: |-
       | chain:
-      | 
+      |
       | 0 !== 78
 ARM S2R2 an unknown prefix taken as agreeing [scripts/chain-handoff.sh bed5d4c31421 -> e980f02d3ccd]: exit 1, KILLED; restored bed5d4c31421 equal True
     not ok 6 - an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated
       | error: |-
       | npm's global prefix unknown beside an aify-env on PATH is ambiguous
-      | 
+      |
       | 0 !== 78
 ARM arm 2 complement: only a REFUSED handoff falls back to the key block [install.sh e496bab1585c -> 20cffc11f469]: exit 1, KILLED; restored e496bab1585c equal True
     not ok 12 - a plain run hands off before the installer resolves, generates or stores any key; the full path does both
@@ -27,13 +27,13 @@ ARM arm 2 complement: only a REFUSED handoff falls back to the key block [instal
       | error: |-
       | a refused handoff fell back to the key block
       | + actual - expected
-      | 
+      |
 ARM E3 a not-found about any name taken as absent [scripts/sandbox/docker-readback.mjs a1721d33087c -> 29e665d98cec]: exit 1, KILLED; restored a1721d33087c equal True
     not ok 2 - anything else is present or unknown, never absent
       | error: |-
       | a not-found about another name
       | + actual - expected
-      | 
+      |
 ARM S2R3 the tuple's approval never consulted [lib/install-chain-host.mjs 0f2b5387dd85 -> ba7c488bf04f]: exit 1, KILLED; restored 0f2b5387dd85 equal True
     not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused
       | error: "B's repository was never approved for this run, and its package ran"
@@ -68,7 +68,7 @@ ARM S2R5 the catalogue's shape never checked [lib/install-chain-host.mjs 0f2b538
     not ok 7 - a wrapper module is usable only with the functions and catalogue the chain calls, each checked
       | error: |-
       | The input did not match the regular expression /artifact-catalogue\.json holds no approved list/. Input:
-      | 
+      |
       | ''
 ARM E2 assets applied to every client on PATH, selected or not (the production route) [lib/install-chain.mjs 05d450b4683c -> 9ed0974c0808]: exit 1, KILLED; restored 05d450b4683c equal True
     not ok 18 - PATH is not selection: a CLI on PATH that nobody selected gets no assets
@@ -82,7 +82,7 @@ ARM arm 13 complement: a second physical package refused only once an assets bin
       | error: |-
       | a hoisted dependency beside it is not a second candidate
       | + actual - expected
-      | 
+      |
 RESTORED handoff: exit 0, pass 15, fail 0
 RESTORED readback: exit 0, pass 3, fail 0
 RESTORED chain: exit 0, pass 28, fail 0

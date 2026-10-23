@@ -18,36 +18,36 @@ ARM C5 connect's already-installed lines not read [lib/install-chain-host.mjs 23
       | error: |-
       | Expected values to be strictly deep-equal:
       | + actual - expected
-      | 
+      |
 ARM C5 the chain drops connect's report [lib/install-chain.mjs 88076b723ed6 -> 3f3d60c983f7]: exit 1, KILLED; restored 88076b723ed6 equal True
     not ok 30 - connect's report of what it installed this run is read line by line, and reaches the assets lookup
       | error: |-
       | Expected values to be strictly deep-equal:
       | + actual - expected
-      | 
+      |
 ARM C9 any file in the prefix taken as npm's shim [scripts/chain-handoff.sh 617537dc5b4f -> 25b34a9201d2]: exit 1, KILLED; restored 617537dc5b4f equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script of somebody else's in the prefix:
-      | 
+      |
       | 0 !== 78
 ARM C9 any resolvable link taken as npm's [scripts/chain-handoff.sh 617537dc5b4f -> 4fa2c10227af]: exit 1, KILLED; restored 617537dc5b4f equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script of somebody else's in the prefix:
-      | 
+      |
       | 0 !== 78
 ARM C9 the shim's root never compared with npm's [scripts/chain-handoff.sh 617537dc5b4f -> 43e50828f20e]: exit 1, KILLED; restored 617537dc5b4f equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a shim in the prefix whose node_modules is not npm's root:
-      | 
+      |
       | 0 !== 78
 ARM C9 ownership never checked [scripts/chain-handoff.sh 617537dc5b4f -> c5deebb3f2ee]: exit 1, KILLED; restored 617537dc5b4f equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script of somebody else's in the prefix:
-      | 
+      |
       | 0 !== 78
 RESTORED handoff: exit 0, pass 15, fail 0
 RESTORED chain: exit 0, pass 30, fail 0

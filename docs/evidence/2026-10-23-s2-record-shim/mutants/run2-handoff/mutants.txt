@@ -3,19 +3,19 @@ ARM C9 a shim judged by a string it contains [scripts/chain-handoff.sh a3441ed7b
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script that names the package's bin only in a comment:
-      | 
+      |
       | 0 !== 78
 ARM C9 the regenerated shim never compared [scripts/chain-handoff.sh a3441ed7b189 -> ab1d68159853]: exit 1, KILLED; restored a3441ed7b189 equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script of somebody else's in the prefix:
-      | 
+      |
       | 0 !== 78
 ARM C9 no cmd-shim taken as a match [scripts/chain-handoff.sh a3441ed7b189 -> 9737f95b9d53]: exit 1, KILLED; restored a3441ed7b189 equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, npm's shim with no cmd-shim to regenerate it from:
-      | 
+      |
       | 0 !== 78
 ARM C9 the bin's first line not carried into the regenerated layout [scripts/chain-handoff.sh a3441ed7b189 -> ff01cbcd91f7]: exit 1, KILLED; restored a3441ed7b189 equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
@@ -23,23 +23,23 @@ ARM C9 the bin's first line not carried into the regenerated layout [scripts/cha
       | error: |-
       | CONTROL: npm's own shim beside the chain: The aify-env on PATH (/tmp/handoff-bin-UF3FOr/aify-env) is not npm's own bin for C:/Users/Administrator/AppData/Local/Temp/handoff-bin-UF3FOr/node_modules/aify-env, so which installation runs is unknown; nothing was installed.
       | Remove the one that should not be there, or rerun with --standalone to use this installer's full path.
-      | 
+      |
 ARM C9 any resolvable link taken as npm's [scripts/chain-handoff.sh a3441ed7b189 -> 2110faac3f68]: exit 1, KILLED; restored a3441ed7b189 equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script of somebody else's in the prefix:
-      | 
+      |
       | 0 !== 78
 ARM C9 the shim's root never compared with npm's [scripts/chain-handoff.sh a3441ed7b189 -> e5fd8279e847]: exit 1, KILLED; restored a3441ed7b189 equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a shim in the prefix whose node_modules is not npm's root:
-      | 
+      |
       | 0 !== 78
 ARM C9 ownership never checked [scripts/chain-handoff.sh a3441ed7b189 -> 60581a6e8af4]: exit 1, KILLED; restored a3441ed7b189 equal True
     not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated
       | error: |-
       | chain, a script of somebody else's in the prefix:
-      | 
+      |
       | 0 !== 78
 RESTORED handoff: exit 0, pass 15, fail 0
