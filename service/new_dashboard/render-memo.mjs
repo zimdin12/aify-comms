@@ -77,6 +77,7 @@ export function renderSection(key, signature, renderFn) {
 export const _agentSig = () => state.agents.map((a) => [
   a.id, a.status, a.statusNote, a.runtime, a.sessionMode, a.role, a.model,
   a.unread, a.favorited, a.consoleAvailable, a.quotaCritical, a.poolSeverity,
+  a.definition?.state, a.definition?.mode,
 ]);
 export const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
 export const _runSig = () => state.runs.map((r) => [r.id, r.status, r.subject, r.summary, r.targetAgentId || r.target_agent]);

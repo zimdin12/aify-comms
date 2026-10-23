@@ -31,6 +31,7 @@ import { AGENT_PROCESSES_ID, loadAgentProcesses, processesReadFailed } from './a
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
 import { paintAgentDrawer } from './drawer-paint.mjs';
+import { agentModes } from './agent-mode.mjs';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -42,8 +43,9 @@ export function openAgentDrawer(agentId) {
   const session = sessionForAgent(id);
   const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
   const sid = session ? sessionId(session) : '';
-  const mode = String(agent.sessionMode || (session && session.mode) || 'resident').toLowerCase();
-  const otherMode = mode === 'managed' ? 'resident' : 'managed';
+  const modes = agentModes(agent, state.sessions);
+  const mode = modes.displayMode || String(session?.mode || 'resident').toLowerCase();
+  const otherMode = modes.configuredMode === 'managed' ? 'resident' : 'managed';
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
   // AGENT-LEVEL stop (2026-07-26, operator request: "a way to stop/kill an online agent").
   // Every other action here is gated on `sid` — a resolvable session row — so an agent whose
@@ -56,7 +58,7 @@ export function openAgentDrawer(agentId) {
   const agentStatus = String(agent.status || '').trim().toLowerCase();
   const canStopWorker = !['offline', 'stopped', 'available'].includes(agentStatus);
   // START WHERE THE SERVICE WOULD START IT (v0.7.7), by the rule the Start dialog uses.
-  const canStart = startOffer(agent).start;
+  const canStart = startOffer(agent, state.sessions).start;
   // TWO GROUPS, DESTRUCTIVE LAST (v0.7 C23): the four red buttons sat among the benign ones in one
   // wrapping row, a misclick apart. "Open in Sessions" is offered only with a session to open: with
   // none it switched pages onto whatever session was selected before, often another agent's.
@@ -132,7 +134,7 @@ export function openAgentDrawer(agentId) {
       ${sessionChangedBanner}
       <dl class="chat-kv agent-drawer-kv">
         ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
-        ${row('Mode', esc(mode))}
+        ${row('Mode', esc(mode) + (modes.pendingMode ? ` <small class="subtle">next start: ${esc(modes.pendingMode)}</small>` : ''))}
         ${row('Model', `<span id="${AGENT_MODEL_ID}">${modelRowBeforeAnswer(id, agent.runsWith)}</span>`)}
         ${row('Environment', esc((env && (env.label || env.id)) || sessionEnvironmentId(session) || '—'))}
         ${row('Workspace', esc((session && session.workspace) || agent.cwd || '—'))}

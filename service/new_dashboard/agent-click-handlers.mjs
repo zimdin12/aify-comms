@@ -14,6 +14,7 @@ import { resolveStatus, undefinedStartRefusal } from './status.js';
 import { toast } from './ui.js';
 import { esc } from './util.js';
 import { state } from './state.mjs';
+import { agentModes } from './agent-mode.mjs';
 
 /**
  * Whether the dashboard offers Start for this agent, and why not when it does not (v0.7.7).
@@ -25,9 +26,10 @@ import { state } from './state.mjs';
  * way, and `misconfigured` cannot start until a human fixes it. Narrower than aify-env's
  * `startabilityOf`, which also offers an offline agent on its own host.
  */
-export function startOffer(agent) {
-  const mode = String(agent?.sessionMode || 'resident').toLowerCase();
+export function startOffer(agent, sessions = []) {
+  const { configuredMode: mode, hasLiveSession } = agentModes(agent, sessions);
   const status = resolveStatus(agent?.status).kind;
+  if (hasLiveSession) return { start: false, why: '' };
   if (mode !== 'managed') {
     return { start: false, why: 'resident: its terminal is the CLI you launched. Switch it to managed to start it here.' };
   }

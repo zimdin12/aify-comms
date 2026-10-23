@@ -20,6 +20,7 @@ import { state } from './state.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
+import { agentModes } from './agent-mode.mjs';
 import { startRefusedAttrs, undefinedStartRefusal } from './status.js';
 
 let chatController = { render() {}, renderRail() {}, renderConversation() {} };
@@ -115,7 +116,10 @@ export function mountChatConsole(agentId, hostEl) {
   // THE START REFUSAL IS PART OF WHAT RENDERS, with a session or without (review of 0.9.5, D7): a stopped
   // session's card offers Start too. A changed sig only reaches renderSessionConsole, whose own key keeps a
   // live terminal mounted, so a definition change never rebuilds one.
-  const refusal = undefinedStartRefusal((state.agents || []).find((a) => a.id === agentId));
+  const agent = (state.agents || []).find((a) => a.id === agentId);
+  const refusal = undefinedStartRefusal(agent);
+  const modes = agentModes(agent, state.sessions);
+  const modeSig = [modes.displayMode, modes.configuredMode, modes.pendingMode].join('|');
   const sig = session
     ? [sessionId(session), session.status || '', session.terminalStatus || '',
        agentForSession(session)?.runtimeState?.virtualTerminalId || '',
@@ -125,8 +129,8 @@ export function mountChatConsole(agentId, hostEl) {
        agentForSession(session)?.runtimeState?.terminalId || '',
        agentForSession(session)?.runtimeState?.consoleTerminal?.terminalId || '',
        session.terminalId || session.terminal?.id || '',
-       (state.sessionTerminals?.get?.(sessionId(session))) || '', refusal].join('|')
-    : `none|${refusal}`;
+       (state.sessionTerminals?.get?.(sessionId(session))) || '', refusal, modeSig].join('|')
+    : `none|${refusal}|${modeSig}`;
   // Unchanged sig → leave the mounted widget alone — EXCEPT when the single global xterm now
   // lives in another host (the Sessions page re-mounts it) and THIS host is visible: that's the
   // "dead chat console after visiting Sessions" bug (review finding #2) — fall through so the
@@ -139,8 +143,7 @@ export function mountChatConsole(agentId, hostEl) {
   hostEl.dataset.consoleSig = sig;
   if (!session) {
     disposeActiveXterm();
-    const agent = (state.agents || []).find((a) => a.id === agentId);
-    const resident = String(agent?.sessionMode || '').toLowerCase() === 'resident';
+    const resident = modes.displayMode === 'resident';
     hostEl.innerHTML = resident
       ? '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>Resident agent</strong>'
         + `<p>${esc(agentId)} runs in its own CLI (a <code>${esc(agent?.runtime || 'runtime')}-aify</code> terminal you launched) — there's no dashboard-owned console to show here. Switch it to managed from <strong>Details</strong> to get one.</p></div>`
