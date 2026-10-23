@@ -1,0 +1,1360 @@
+{
+ "timeline": [
+  {
+   "t": 1792767746920,
+   "acquiredFrom": 1792767746906,
+   "previousSeenFrom": null,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:02:25Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:02:25Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-23T15:02:25Z"
+    }
+   ],
+   "runs": [],
+   "events": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "No live channel sidecar heartbeat (not deliverable).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767747428,
+   "acquiredFrom": 1792767747420,
+   "previousSeenFrom": 1792767746906,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:02:25Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:02:25Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-23T15:02:25Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767777758,
+   "acquiredFrom": 1792767777751,
+   "previousSeenFrom": 1792767777246,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 2,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:02:57Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:02:25Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-23T15:02:57Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767810103,
+   "acquiredFrom": 1792767810094,
+   "previousSeenFrom": 1792767809589,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T15:03:29Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:03:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T15:03:29Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767841962,
+   "acquiredFrom": 1792767841955,
+   "previousSeenFrom": 1792767841451,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 4,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-23T15:04:01Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:03:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-23T15:04:01Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767842975,
+   "acquiredFrom": 1792767842970,
+   "previousSeenFrom": 1792767842462,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 4,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 4,
+     "data_applied_at": "2026-10-23T15:04:01Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:03:29Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-23T15:04:01Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    },
+    {
+     "id": "run_1792767842494_553aa784",
+     "subject": "C2 legacy idle, env busy",
+     "status": "queued",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-23T15:04:02Z",
+     "claimed_at": null,
+     "claim_bridge_id": "",
+     "finished_at": null,
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 6,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "queued",
+     "body": "request: C2 legacy idle, env busy",
+     "created_at": "2026-10-23T15:04:02Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767874370,
+   "acquiredFrom": 1792767874362,
+   "previousSeenFrom": 1792767873858,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 5,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 5,
+     "data_applied_at": "2026-10-23T15:04:33Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T15:04:33Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T15:04:33Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    },
+    {
+     "id": "run_1792767842494_553aa784",
+     "subject": "C2 legacy idle, env busy",
+     "status": "queued",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-23T15:04:02Z",
+     "claimed_at": null,
+     "claim_bridge_id": "",
+     "finished_at": null,
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 6,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "queued",
+     "body": "request: C2 legacy idle, env busy",
+     "created_at": "2026-10-23T15:04:02Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792767875885,
+   "acquiredFrom": 1792767875878,
+   "previousSeenFrom": 1792767875374,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792767745609,
+     "publication": 5,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 5,
+     "data_applied_at": "2026-10-23T15:04:33Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792767745630,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T15:04:33Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T15:04:33Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792767746994_3102f8e1",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:02:26Z",
+     "claimed_at": "2026-10-23T15:02:27Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:02:27Z",
+     "summary": "",
+     "error_text": ""
+    },
+    {
+     "id": "run_1792767842494_553aa784",
+     "subject": "C2 legacy idle, env busy",
+     "status": "completed",
+     "queue_if_busy": 1,
+     "steer_if_busy": 0,
+     "requested_at": "2026-10-23T15:04:02Z",
+     "claimed_at": "2026-10-23T15:04:35Z",
+     "claim_bridge_id": "stand-in-371903eb-4ef0-4665-a8db-45db327e0291",
+     "finished_at": "2026-10-23T15:04:35Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:02:26Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792767746994_3102f8e1",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:02:27Z"
+    },
+    {
+     "id": 6,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "queued",
+     "body": "request: C2 legacy idle, env busy",
+     "created_at": "2026-10-23T15:04:02Z"
+    },
+    {
+     "id": 7,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:04:35Z"
+    },
+    {
+     "id": 8,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:04:35Z"
+    },
+    {
+     "id": 9,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:04:35Z"
+    },
+    {
+     "id": 10,
+     "run_id": "run_1792767842494_553aa784",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:04:35Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792767746993_45c9baa8",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:02:26Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792767747108,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792767747132,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "delivered",
+   "runId": "run_1792767746994_3102f8e1",
+   "messageId": "1792767746989-5e89575e",
+   "subject": "warm-up",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  },
+  {
+   "t": 1792767748320,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792767749144,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767751149,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767753155,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767755160,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767757166,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767759174,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767761180,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767764154,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767767253,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767769258,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767771264,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767773270,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767775277,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767777284,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767778227,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792767779289,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767781295,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767783302,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767785309,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767787316,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767789323,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767791330,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767793336,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767797407,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767799413,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767801418,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767803424,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767805431,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767807438,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767809446,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767810537,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792767811453,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767813459,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767815466,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767817471,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767819478,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767821484,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767823490,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767825495,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767829583,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767831589,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767833595,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767835601,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767837607,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767839612,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767841618,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767843624,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767845630,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767847636,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767849642,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767851648,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767853653,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767855659,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767857665,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767861765,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767863773,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767863987,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792767865780,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767867786,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767869794,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767871832,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767873844,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "polled"
+  },
+  {
+   "t": 1792767875857,
+   "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+   "event": "delivered",
+   "runId": "run_1792767842494_553aa784",
+   "messageId": "1792767842489-13abe4f6",
+   "subject": "C2 legacy idle, env busy",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792767745006,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792767745677,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792767745609,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767745679,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792767745630,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767777672,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792767745609,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767809737,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 3,
+   "generation": 1792767745609,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767809761,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 2,
+   "generation": 1792767745630,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767841818,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 4,
+   "generation": 1792767745609,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767873912,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 5,
+   "generation": 1792767745609,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792767873935,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 3,
+   "generation": 1792767745630,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "371903eb-4ef0-4665-a8db-45db327e0291",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792767745630, publishing as residents-fda01c99a296",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792767746993_45c9baa8",
+  "[aify-env] started terminal term_1792767747012_24d9f29b for \"gate-agent\" as bbfc97fd-1963-44fa-8989-014dea57b43c-p1",
+  ""
+ ],
+ "marks": {
+  "runId": "run_1792767842494_553aa784",
+  "preLegacyBusy": 0,
+  "preEnvBusy": true,
+  "holdWindow": {
+   "from": 1792767842748,
+   "to": 1792767863653
+  },
+  "idleAccepted": {
+   "at": 1792767873000,
+   "seenAt": 1792767874370
+  }
+ },
+ "error": null
+}

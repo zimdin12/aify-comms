@@ -1,0 +1,29 @@
++0.1s owned container aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+PASS control: the synthetic child really prints its key
+PASS the key never reaches this file's output on a failing child
+PASS the failure is still reported, redacted
+PASS a resource still present fails cleanup and is named
+PASS a primary pass with failed cleanup exits nonzero
+PASS a listing that times out fails cleanup (unknown, not empty)
+PASS a missing daemon socket is not absence (unknown)
+PASS a not-found answer for another ref is not absence
+PASS control: a clean readback passes and exits 0
+PASS control: Docker 29.8's network not-found answer reads absent
+PASS control: Docker 29.8's image not-found answer reads absent
+PASS control: Docker 29.8's volume not-found answer reads absent
+PASS an existing name is refused and never owned
+PASS a stderr diagnostic never becomes the owned id
+PASS an answer naming no id fails as ownership unknown and is owned by name
+PASS an id the name does not resolve to is not owned as that id
+PASS a failed create whose name cannot be read back is still owned by name
+PASS no command starts after the run deadline
+PASS a command still running at the run deadline is cut there, not at its own 20 s
+PASS every spawnSync call in this file names a timeout
+PASS control: outside the primary steps a command runs normally
+PASS control: the real retirement holds
+PASS a retirement with generation=8 does not hold
+PASS a retirement with reason=other does not hold
+PASS a retirement with publication=1 does not hold
+PASS a retirement with rows=1 does not hold
+PASS a retirement with kind=snapshot does not hold
+PASS a changed residents key does not hold

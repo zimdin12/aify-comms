@@ -1,0 +1,6061 @@
+{
+ "timeline": [
+  {
+   "t": 1792773464501,
+   "acquiredFrom": 1792773464486,
+   "previousSeenFrom": null,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792773463200,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T16:37:43Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792773463220,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T16:37:43Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-23T16:37:43Z"
+    }
+   ],
+   "runs": [],
+   "events": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "No live channel sidecar heartbeat (not deliverable).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792773465009,
+   "acquiredFrom": 1792773465001,
+   "previousSeenFrom": 1792773464486,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792773463200,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T16:37:43Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792773463220,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T16:37:43Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-23T16:37:43Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792773464574_204b6593",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T16:37:44Z",
+     "claimed_at": "2026-10-23T16:37:44Z",
+     "claim_bridge_id": "stand-in-a080b881-234a-46bc-8079-7c511c84fe54",
+     "finished_at": "2026-10-23T16:37:44Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792773464573_5e8c8c61",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792773495351,
+   "acquiredFrom": 1792773495341,
+   "previousSeenFrom": 1792773494835,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792773463200,
+     "publication": 2,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T16:38:15Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792773463220,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T16:37:43Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-23T16:38:15Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792773464574_204b6593",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T16:37:44Z",
+     "claimed_at": "2026-10-23T16:37:44Z",
+     "claim_bridge_id": "stand-in-a080b881-234a-46bc-8079-7c511c84fe54",
+     "finished_at": "2026-10-23T16:37:44Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792773464573_5e8c8c61",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792773527718,
+   "acquiredFrom": 1792773527710,
+   "previousSeenFrom": 1792773527205,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792773463200,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T16:38:47Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792773463220,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T16:38:47Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T16:38:47Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792773464574_204b6593",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T16:37:44Z",
+     "claimed_at": "2026-10-23T16:37:44Z",
+     "claim_bridge_id": "stand-in-a080b881-234a-46bc-8079-7c511c84fe54",
+     "finished_at": "2026-10-23T16:37:44Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792773464573_5e8c8c61",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792773528225,
+   "acquiredFrom": 1792773528218,
+   "previousSeenFrom": 1792773527710,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792773463200,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T16:38:47Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792773463220,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T16:38:47Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T16:38:47Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792773464574_204b6593",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T16:37:44Z",
+     "claimed_at": "2026-10-23T16:37:44Z",
+     "claim_bridge_id": "stand-in-a080b881-234a-46bc-8079-7c511c84fe54",
+     "finished_at": "2026-10-23T16:37:44Z",
+     "summary": "",
+     "error_text": ""
+    },
+    {
+     "id": "run_1792773528000_683397ae",
+     "subject": "C12 a running run on an idle record",
+     "status": "running",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T16:38:47Z",
+     "claimed_at": "2026-10-23T16:38:48Z",
+     "claim_bridge_id": "stand-in-a080b881-234a-46bc-8079-7c511c84fe54",
+     "finished_at": null,
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792773464574_204b6593",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T16:37:44Z"
+    },
+    {
+     "id": 6,
+     "run_id": "run_1792773528000_683397ae",
+     "event_type": "queued",
+     "body": "request: C12 a running run on an idle record",
+     "created_at": "2026-10-23T16:38:47Z"
+    },
+    {
+     "id": 7,
+     "run_id": "run_1792773528000_683397ae",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T16:38:48Z"
+    },
+    {
+     "id": 8,
+     "run_id": "run_1792773528000_683397ae",
+     "event_type": "started",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T16:38:48Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792773464573_5e8c8c61",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T16:37:44Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792773464689,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792773464720,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "delivered",
+   "runId": "run_1792773464574_204b6593",
+   "messageId": "1792773464569-65c7fbe0",
+   "subject": "warm-up",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  },
+  {
+   "t": 1792773465900,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792773466731,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773468735,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773472810,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773474814,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773476820,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773478824,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773480831,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773482838,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773484848,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773486854,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773488861,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773490867,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773492875,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773494881,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773495814,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792773496888,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773498893,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773500900,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773504997,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773507003,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773509010,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773511019,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773513026,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773515034,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773517040,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773519049,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773521054,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773523059,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773525066,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773527075,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528009,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "delivered",
+   "runId": "run_1792773528000_683397ae",
+   "messageId": "1792773527995-2524525c",
+   "subject": "C12 a running run on an idle record",
+   "executionMode": "channel",
+   "writtenAs": "running"
+  },
+  {
+   "t": 1792773528015,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528018,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528021,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528023,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528026,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528029,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528032,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528036,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528038,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528041,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528044,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528047,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528049,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528052,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528055,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528058,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528061,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528064,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528067,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528070,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528073,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528076,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528079,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528081,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528085,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528089,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528092,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528095,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528098,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528100,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528103,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528106,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528108,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528111,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528114,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528117,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528119,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528124,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528129,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528134,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528138,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528141,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528145,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528147,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528150,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528153,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528156,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528159,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528161,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528164,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528167,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528170,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528173,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528176,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528179,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528182,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528184,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528187,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528191,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528194,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528197,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528200,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528203,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528206,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528208,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528211,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528213,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528217,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528221,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528226,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528229,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528232,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528235,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528237,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528240,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528243,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528246,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528249,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528252,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528255,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528260,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528264,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528267,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528270,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528272,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528275,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528278,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528281,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528284,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528286,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528289,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528292,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528294,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528297,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528300,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528302,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528306,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528308,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528311,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528313,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528316,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528319,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528322,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528325,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528327,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528330,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528333,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528335,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528338,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528341,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528343,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528346,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528349,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528352,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528354,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528357,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528360,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528363,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528365,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528368,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528371,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528373,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528376,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528378,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528381,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528383,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528386,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528388,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528391,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528394,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528397,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528399,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528402,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528405,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528407,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528410,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528413,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528415,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528442,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528444,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528447,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528450,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528452,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528455,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528458,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528460,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528463,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528466,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528469,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528471,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528475,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528477,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528481,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528484,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528486,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528489,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528492,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528494,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528497,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528499,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528502,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528504,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528507,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528510,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528513,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528515,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528517,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528522,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528524,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528527,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528529,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528532,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528534,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528537,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528540,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528542,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528545,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528547,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528550,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528553,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528556,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528558,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528561,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528563,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528566,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528569,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528571,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528574,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528576,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528579,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528582,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528585,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528588,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528590,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528593,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528596,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528598,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528601,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528604,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528606,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528609,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528611,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528614,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528617,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528619,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528622,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528625,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528627,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528629,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528632,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528634,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528637,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528640,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528642,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528645,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528647,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528650,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528653,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528656,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528659,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528662,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528664,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528667,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528670,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528673,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528675,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528678,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528680,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528683,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528686,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528689,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528691,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528694,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528697,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528699,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528702,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528705,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528708,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528710,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528713,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528716,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528718,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528721,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528723,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528725,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528730,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528734,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528737,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528739,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528743,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528747,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528749,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528753,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528756,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528759,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528761,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528764,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528766,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528769,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528772,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528775,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528778,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528781,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528783,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528786,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528789,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528791,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528794,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528796,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528799,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528802,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528804,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528807,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528809,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528812,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528815,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528818,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528821,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528824,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528826,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528829,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528832,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528835,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528837,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528840,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528844,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528847,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528850,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528853,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528856,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528859,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528863,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528866,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528869,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528872,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528875,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528877,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528880,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528883,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528886,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528888,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528893,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528897,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528899,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528902,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528905,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528908,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528912,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528915,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528918,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528921,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528924,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528926,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528929,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528932,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528935,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528938,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528941,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528943,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528946,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528949,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528951,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528954,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528957,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528959,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528962,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528964,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528967,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528970,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528972,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528975,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528978,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528982,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528985,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528988,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528990,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528993,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528996,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773528998,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529001,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529003,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529006,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529009,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529012,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529014,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529017,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529020,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529022,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529025,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529027,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529030,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529033,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529035,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529038,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529041,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529043,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529046,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529048,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529051,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529053,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529056,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529058,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529061,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529064,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529066,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529069,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529072,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529074,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529077,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529080,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529082,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529085,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529089,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529093,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529095,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529098,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529100,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529103,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529105,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529108,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529111,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529113,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529116,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529119,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529122,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529124,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529127,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529129,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529132,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529135,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529138,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529140,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529143,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529146,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529148,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529151,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529153,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529156,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529159,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529161,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529164,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529166,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529169,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529172,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529175,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529179,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529183,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529185,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529188,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529191,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529193,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529196,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529199,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529202,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529204,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529207,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529210,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529212,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529215,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529218,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529221,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529224,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529226,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529229,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529232,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529234,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529239,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529243,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529246,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529249,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529251,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529254,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529257,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529259,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529262,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529264,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529267,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529269,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529272,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529274,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529277,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529279,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529282,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529285,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529287,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529290,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529292,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529295,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529298,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529301,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529303,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529306,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529309,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529312,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529315,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529317,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529320,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529322,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529325,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529327,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529330,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529333,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529335,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529338,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529340,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529343,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529346,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529348,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529351,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529353,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529355,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529358,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529361,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529363,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529365,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529368,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529371,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529373,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529376,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529378,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529381,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529383,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529386,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529389,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529391,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529394,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529396,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529399,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529402,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529404,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529407,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529409,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529412,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529414,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529417,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529419,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529422,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529425,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529428,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529430,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529433,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529435,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529438,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529440,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529443,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529445,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529448,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529450,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529453,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529455,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529458,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529460,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529462,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529465,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529468,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529470,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529473,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529475,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529478,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529481,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529483,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529486,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529488,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529491,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529494,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529496,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529499,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529502,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529504,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529507,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529509,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529512,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529514,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529517,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529520,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529523,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529526,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529528,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529531,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529533,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529536,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529538,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529541,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529543,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529546,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529549,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529552,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529554,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529557,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529559,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529562,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529564,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529567,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529569,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529572,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529574,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529577,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529579,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529583,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529585,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529588,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529592,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529595,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529598,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529600,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529602,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529605,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529607,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529610,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529613,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529615,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529618,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529620,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529623,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529625,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529628,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529630,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529633,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529635,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529638,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529640,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529643,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529645,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529648,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529650,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529653,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529655,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529658,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529660,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529663,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529666,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529668,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529671,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529673,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529676,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529678,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529681,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529683,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529686,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529689,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529691,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529694,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529696,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529699,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529701,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529704,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529707,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529709,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529712,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529714,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529717,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529719,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529722,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529724,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529727,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529729,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529732,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529734,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529737,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529740,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529742,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529747,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529752,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529754,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529757,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529759,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529761,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529764,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529767,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529769,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529771,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529774,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529776,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529779,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529782,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529784,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529787,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529789,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529792,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529794,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529797,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529799,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529802,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529805,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529808,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529811,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529813,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529816,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529818,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529821,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529824,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529827,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529829,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529832,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529834,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529837,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529840,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529842,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529846,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529848,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529851,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529853,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529857,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529860,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529862,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529865,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529868,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529871,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529873,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529876,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529878,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529881,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529884,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529889,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529893,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529896,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529899,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529903,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529906,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529909,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529912,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529916,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529918,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529921,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529924,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529927,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529929,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529932,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529934,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529937,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529939,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529942,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529944,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529947,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529949,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529952,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529955,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529957,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529960,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529963,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529965,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529968,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529970,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529973,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529976,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529978,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529981,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529984,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529986,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529989,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529991,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529994,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529996,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773529999,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530002,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530004,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530007,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530010,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530013,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530016,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530018,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530021,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530023,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530026,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530029,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530031,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530034,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530036,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530039,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530041,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530044,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530048,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530051,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530054,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530056,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530059,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530062,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530064,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530067,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530070,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530073,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530075,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530078,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530081,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530083,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530086,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530089,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530091,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530096,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530098,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530101,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530104,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530106,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530109,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530112,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530115,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530118,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530120,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530123,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530125,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530128,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530131,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530133,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530136,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530139,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530142,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530145,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530147,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530150,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530153,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530155,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530158,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530161,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530163,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530166,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530169,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530172,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530174,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530177,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530179,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530182,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530185,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530188,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530190,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530193,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530196,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530198,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530201,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530204,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530206,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530209,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530212,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530214,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530217,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530219,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530222,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530225,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530228,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530231,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530234,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530236,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530239,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530242,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530245,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530248,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530252,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530257,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530261,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530264,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530267,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530269,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530272,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530275,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530278,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530280,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530283,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530286,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530288,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530291,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530294,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530296,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530299,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530302,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530304,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530307,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530310,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530313,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530315,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530318,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530321,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530323,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530326,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530329,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530332,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530334,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530337,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530340,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530342,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530345,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530348,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530351,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530353,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530356,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530359,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530361,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530364,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530367,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530370,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530373,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530375,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530378,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530381,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530383,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530386,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530389,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530391,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530394,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530397,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530400,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530402,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530405,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530408,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530410,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530413,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530415,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530418,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530420,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530423,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530426,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530428,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530431,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530433,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530436,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530438,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530441,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530444,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530446,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530449,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530452,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530454,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530457,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530459,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530462,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530464,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530467,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530470,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530472,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530474,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530477,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530479,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530482,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530484,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530487,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530489,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530492,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530494,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530497,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530500,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530503,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530505,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530508,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530510,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530513,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530516,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530519,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530521,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530525,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530528,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530530,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530533,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530535,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530538,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530541,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530543,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530546,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530549,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530551,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530554,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530556,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530559,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530562,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530565,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530567,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530570,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530572,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530575,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530578,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530581,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530585,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530587,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530590,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773530592,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531013,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531017,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531019,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531022,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531024,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531027,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531029,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531032,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531035,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531037,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531040,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531043,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531046,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531048,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531051,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531053,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531056,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531058,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531061,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531063,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531066,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531069,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531071,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531074,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531077,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531080,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531083,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531085,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531088,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531091,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531093,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531097,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531101,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531103,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531106,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531110,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531112,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531115,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531117,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531120,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531122,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531125,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531127,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531130,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531133,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531136,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531139,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531142,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531146,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531149,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531151,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531154,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531157,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531159,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531163,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531166,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531169,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531172,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531174,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531177,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531179,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531182,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531185,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531189,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531192,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531196,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531200,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531203,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531208,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531213,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531216,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531219,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531223,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531227,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531230,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531234,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531237,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531240,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531243,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531246,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531249,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531252,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531255,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531258,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531261,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531264,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531270,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531275,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531278,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531281,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531284,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531287,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531290,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531293,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531296,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531298,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531302,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531305,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531308,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531310,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531313,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531317,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531319,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531322,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531326,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531329,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531332,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531335,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531338,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531340,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531343,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531346,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531349,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531352,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531354,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531358,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531360,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531363,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531367,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531370,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531373,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  },
+  {
+   "t": 1792773531376,
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "event": "polled"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792773462590,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792773463268,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792773463200,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792773463272,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792773463220,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792773495271,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792773463200,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792773527357,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 3,
+   "generation": 1792773463200,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792773527378,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 2,
+   "generation": 1792773463220,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792773463220, publishing as residents-fda01c99a296",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792773464573_5e8c8c61",
+  "[aify-env] started terminal term_1792773464592_e0adcfdd for \"gate-agent\" as bd612317-f9e3-439b-bf8d-3a3846cbf10e-p1",
+  ""
+ ],
+ "marks": {
+  "runId": "run_1792773528000_683397ae",
+  "runStatus": "running",
+  "record": {
+   "instance": "default",
+   "lifetime": "a080b881-234a-46bc-8079-7c511c84fe54",
+   "busy": false,
+   "state": "idle",
+   "stateCause": "at-prompt",
+   "appliedAt": "2026-10-23T16:38:47Z"
+  },
+  "word": {
+   "status": "working",
+   "statusNote": "",
+   "lastKnown": null
+  }
+ },
+ "error": null
+}

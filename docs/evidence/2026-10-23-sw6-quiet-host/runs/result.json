@@ -1,0 +1,46 @@
+{
+  "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+  "runs": [
+    {
+      "label": "q1",
+      "argv": [
+        "C:\\nvm4w\\nodejs\\node.EXE",
+        "scripts/sandbox/gate/gate.mjs",
+        "--comms=8c4788f620fa6075a9b580246532c52872ec992e",
+        "--env=34c31d02e9af81a6e128a2051d3856431828e614",
+        "--attempt=q1",
+        "--out=C:\\Docker\\aify-comms-wt-sw3d\\docs\\evidence\\2026-10-23-sw6-quiet-host\\q1"
+      ],
+      "cwd": "C:\\Docker\\aify-comms-wt-sw3d",
+      "started": "2026-10-23T15:00:22.519572+00:00",
+      "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+      "exit": 0,
+      "ended": "2026-10-23T15:37:30.189530+00:00",
+      "log_sha256": "d9efb80e35d1628eccf2dd676f261a3efcdb1e7350a3bdfffe163d8ff029622f"
+    },
+    {
+      "label": "q2",
+      "argv": [
+        "C:\\nvm4w\\nodejs\\node.EXE",
+        "scripts/sandbox/gate/gate.mjs",
+        "--comms=8c4788f620fa6075a9b580246532c52872ec992e",
+        "--env=34c31d02e9af81a6e128a2051d3856431828e614",
+        "--attempt=q2",
+        "--out=C:\\Docker\\aify-comms-wt-sw3d\\docs\\evidence\\2026-10-23-sw6-quiet-host\\q2"
+      ],
+      "cwd": "C:\\Docker\\aify-comms-wt-sw3d",
+      "started": "2026-10-23T15:37:30.519028+00:00",
+      "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+      "exit": 0,
+      "ended": "2026-10-23T16:14:02.095869+00:00",
+      "log_sha256": "ddb51485e593fe5d45c8018dc8cda79f685ab84df1334bfb331e32b6d75fde80"
+    }
+  ],
+  "observer_failure": null,
+  "observer_thread_stopped": true,
+  "final_probe_gap": false,
+  "samples": 112,
+  "ended": "2026-10-23T16:50:36.325405+00:00",
+  "qualification": "PENDING_REVIEW",
+  "own_lanes": "executor commitment plus gate-owner commitment; final owner readback owed"
+}

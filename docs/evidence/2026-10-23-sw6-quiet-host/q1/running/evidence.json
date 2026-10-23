@@ -1,0 +1,7061 @@
+{
+ "timeline": [
+  {
+   "t": 1792769083362,
+   "acquiredFrom": 1792769083346,
+   "previousSeenFrom": null,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792769082037,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:24:42Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792769082058,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:24:42Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-23T15:24:42Z"
+    }
+   ],
+   "runs": [],
+   "events": [],
+   "controls": [],
+   "spawns": [],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "No live channel sidecar heartbeat (not deliverable).",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792769083870,
+   "acquiredFrom": 1792769083862,
+   "previousSeenFrom": 1792769083346,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792769082037,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:24:42Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792769082058,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:24:42Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": null,
+     "busy": false,
+     "state": "available",
+     "stateCause": "startable",
+     "appliedAt": "2026-10-23T15:24:42Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792769083434_6cbc5a56",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:24:43Z",
+     "claimed_at": "2026-10-23T15:24:43Z",
+     "claim_bridge_id": "stand-in-90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "finished_at": "2026-10-23T15:24:43Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792769083432_fd0b8580",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "available",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792769114206,
+   "acquiredFrom": 1792769114199,
+   "previousSeenFrom": 1792769113694,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792769082037,
+     "publication": 2,
+     "kind": "changes",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:25:14Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792769082058,
+     "publication": 1,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 1,
+     "data_applied_at": "2026-10-23T15:24:42Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "busy": true,
+     "state": "working",
+     "stateCause": "turn-open",
+     "appliedAt": "2026-10-23T15:25:14Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792769083434_6cbc5a56",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:24:43Z",
+     "claimed_at": "2026-10-23T15:24:43Z",
+     "claim_bridge_id": "stand-in-90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "finished_at": "2026-10-23T15:24:43Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792769083432_fd0b8580",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792769145453,
+   "acquiredFrom": 1792769145445,
+   "previousSeenFrom": 1792769144941,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792769082037,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T15:25:45Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792769082058,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:25:45Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T15:25:45Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792769083434_6cbc5a56",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:24:43Z",
+     "claimed_at": "2026-10-23T15:24:43Z",
+     "claim_bridge_id": "stand-in-90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "finished_at": "2026-10-23T15:24:43Z",
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792769083432_fd0b8580",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "online",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  },
+  {
+   "t": 1792769145961,
+   "acquiredFrom": 1792769145954,
+   "previousSeenFrom": 1792769145445,
+   "publishers": [
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "default",
+     "generation": 1792769082037,
+     "publication": 3,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 3,
+     "data_applied_at": "2026-10-23T15:25:45Z"
+    },
+    {
+     "machine_id": "wsl:sandbox-env",
+     "instance": "residents-fda01c99a296",
+     "generation": 1792769082058,
+     "publication": 2,
+     "kind": "snapshot",
+     "reason": null,
+     "data_publication": 2,
+     "data_applied_at": "2026-10-23T15:25:45Z"
+    }
+   ],
+   "records": [
+    {
+     "instance": "default",
+     "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "busy": false,
+     "state": "idle",
+     "stateCause": "at-prompt",
+     "appliedAt": "2026-10-23T15:25:45Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": "run_1792769083434_6cbc5a56",
+     "subject": "warm-up",
+     "status": "completed",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:24:43Z",
+     "claimed_at": "2026-10-23T15:24:43Z",
+     "claim_bridge_id": "stand-in-90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "finished_at": "2026-10-23T15:24:43Z",
+     "summary": "",
+     "error_text": ""
+    },
+    {
+     "id": "run_1792769145677_fa316236",
+     "subject": "C12 a running run on an idle record",
+     "status": "running",
+     "queue_if_busy": 0,
+     "steer_if_busy": 1,
+     "requested_at": "2026-10-23T15:25:45Z",
+     "claimed_at": "2026-10-23T15:25:45Z",
+     "claim_bridge_id": "stand-in-90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+     "finished_at": null,
+     "summary": "",
+     "error_text": ""
+    }
+   ],
+   "events": [
+    {
+     "id": 1,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "queued",
+     "body": "request: warm-up",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 2,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 3,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Auto-mirrored missing handoff to gate-sender",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 4,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "handoff",
+     "body": "Mirrored handoff stored for gate-sender; live delivery not queued: resident bridge heartbeat is gone; restart the resident wrapper or switch to managed",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 5,
+     "run_id": "run_1792769083434_6cbc5a56",
+     "event_type": "delivered",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:24:43Z"
+    },
+    {
+     "id": 6,
+     "run_id": "run_1792769145677_fa316236",
+     "event_type": "queued",
+     "body": "request: C12 a running run on an idle record",
+     "created_at": "2026-10-23T15:25:45Z"
+    },
+    {
+     "id": 7,
+     "run_id": "run_1792769145677_fa316236",
+     "event_type": "claimed",
+     "body": "machine=wsl:sandbox-env",
+     "created_at": "2026-10-23T15:25:45Z"
+    },
+    {
+     "id": 8,
+     "run_id": "run_1792769145677_fa316236",
+     "event_type": "started",
+     "body": "Delivered to the gate stand-in",
+     "created_at": "2026-10-23T15:25:45Z"
+    }
+   ],
+   "controls": [],
+   "spawns": [
+    {
+     "id": "spawn_1792769083432_fd0b8580",
+     "status": "running",
+     "initial_message": "",
+     "created_at": "2026-10-23T15:24:43Z"
+    }
+   ],
+   "legacy": [],
+   "word": {
+    "status": "working",
+    "statusNote": "",
+    "lastKnown": null
+   },
+   "wordStatus": 200
+  }
+ ],
+ "standin": [
+  {
+   "t": 1792769083549,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "registered",
+   "status": 200,
+   "machineId": "wsl:sandbox-env",
+   "text": ""
+  },
+  {
+   "t": 1792769083574,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "delivered",
+   "runId": "run_1792769083434_6cbc5a56",
+   "messageId": "1792769083428-82f8574f",
+   "subject": "warm-up",
+   "executionMode": "channel",
+   "writtenAs": "completed"
+  },
+  {
+   "t": 1792769084759,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "turn-event",
+   "kind": "turn-start",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:first"
+   }
+  },
+  {
+   "t": 1792769085585,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769087590,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769089596,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769091601,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769093606,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769095614,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769097622,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769099630,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769101638,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769103645,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769105652,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769107660,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769109667,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769113749,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769114677,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "turn-event",
+   "kind": "turn-end",
+   "status": 200,
+   "answer": {
+    "agentId": "gate-agent",
+    "applied": true,
+    "reason": "current:later"
+   }
+  },
+  {
+   "t": 1792769115756,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769117763,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769119770,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769121778,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769123785,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769125790,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769127797,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769129803,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769131809,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769133818,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769135826,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769137833,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769139839,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769141846,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769144827,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145685,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "delivered",
+   "runId": "run_1792769145677_fa316236",
+   "messageId": "1792769145672-0c5f4ea5",
+   "subject": "C12 a running run on an idle record",
+   "executionMode": "channel",
+   "writtenAs": "running"
+  },
+  {
+   "t": 1792769145692,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145695,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145697,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145701,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145704,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145707,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145710,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145712,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145715,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145718,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145720,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145723,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145726,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145728,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145731,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145734,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145738,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145740,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145743,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145746,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145749,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145752,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145755,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145758,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145761,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145764,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145767,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145770,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145773,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145775,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145778,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145780,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145783,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145786,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145788,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145791,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145793,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145796,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145801,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145806,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145810,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145815,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145818,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145821,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145825,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145827,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145830,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145833,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145837,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145840,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145843,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145846,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145849,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145851,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145854,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145857,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145860,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145862,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145865,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145868,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145871,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145874,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145877,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145880,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145884,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145887,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145889,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145892,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145895,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145898,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145901,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145904,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145907,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145909,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145912,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145915,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145917,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145920,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145923,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145925,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145928,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145931,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145934,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145937,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145939,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145945,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145949,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145952,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145957,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145962,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145965,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145968,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145971,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145973,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145976,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145979,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145982,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145984,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145988,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145991,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145994,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145996,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769145999,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146002,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146005,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146008,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146010,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146013,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146016,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146019,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146021,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146024,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146027,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146029,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146032,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146035,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146038,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146041,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146043,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146046,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146048,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146051,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146054,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146057,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146059,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146062,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146065,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146067,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146070,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146072,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146075,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146077,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146080,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146082,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146085,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146087,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146090,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146092,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146095,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146098,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146125,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146127,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146130,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146133,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146136,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146138,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146141,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146144,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146146,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146149,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146152,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146154,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146157,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146160,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146163,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146166,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146169,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146171,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146174,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146176,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146179,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146182,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146184,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146187,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146189,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146192,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146194,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146197,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146199,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146202,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146204,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146207,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146209,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146212,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146214,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146217,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146219,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146222,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146225,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146227,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146230,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146233,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146235,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146238,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146241,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146244,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146246,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146249,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146251,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146254,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146256,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146260,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146262,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146265,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146267,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146270,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146273,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146277,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146279,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146282,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146284,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146287,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146289,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146292,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146294,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146297,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146299,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146302,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146305,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146307,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146310,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146313,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146316,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146318,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146321,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146323,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146325,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146329,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146331,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146334,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146336,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146339,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146342,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146345,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146347,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146350,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146353,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146355,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146358,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146360,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146363,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146366,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146368,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146371,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146373,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146376,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146378,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146381,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146383,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146386,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146388,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146391,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146393,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146396,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146399,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146401,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146404,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146406,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146409,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146411,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146414,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146416,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146419,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146421,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146424,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146426,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146429,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146432,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146434,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146437,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146439,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146442,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146445,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146447,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146450,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146452,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146455,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146457,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146460,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146462,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146467,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146471,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146474,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146476,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146479,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146482,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146484,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146487,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146490,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146493,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146495,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146497,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146500,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146503,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146505,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146508,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146510,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146513,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146515,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146518,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146521,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146523,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146526,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146529,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146531,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146534,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146537,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146540,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146542,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146545,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146548,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146550,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146553,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146556,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146559,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146561,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146564,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146566,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146569,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146572,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146574,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146577,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146579,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146582,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146584,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146587,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146589,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146592,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146595,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146597,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146600,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146602,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146605,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146607,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146610,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146613,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146615,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146618,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146621,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146623,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146626,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146629,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146631,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146634,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146637,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146639,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146642,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146647,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146651,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146653,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146656,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146659,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146661,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146664,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146667,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146670,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146672,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146675,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146677,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146680,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146682,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146685,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146687,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146690,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146693,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146695,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146698,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146700,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146703,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146705,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146708,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146711,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146713,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146717,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146719,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146722,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146725,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146728,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146731,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146733,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146736,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146738,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146741,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146744,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146746,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146749,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146751,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146754,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146757,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146760,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146762,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146764,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146767,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146770,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146772,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146775,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146777,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146780,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146782,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146785,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146787,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146790,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146792,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146795,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146798,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146800,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146803,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146805,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146807,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146810,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146813,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146815,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146818,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146820,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146823,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146826,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146829,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146833,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146835,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146838,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146842,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146845,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146848,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146850,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146853,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146855,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146858,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146860,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146863,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146866,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146868,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146871,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146873,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146876,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146878,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146881,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146883,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146886,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146888,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146891,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146893,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146896,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146898,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146901,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146903,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146906,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146908,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146911,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146913,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146916,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146919,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146921,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146924,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146926,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146929,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146932,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146934,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146937,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146939,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146942,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146945,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146947,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146950,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146952,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146955,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146957,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146960,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146962,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146965,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146967,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146970,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146974,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146979,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146981,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146984,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146986,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146989,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146991,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146994,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146996,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769146999,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147001,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147004,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147006,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147009,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147011,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147014,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147017,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147019,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147022,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147024,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147027,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147029,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147032,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147034,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147037,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147039,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147042,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147044,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147047,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147049,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147052,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147054,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147057,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147060,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147062,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147065,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147068,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147070,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147073,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147076,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147078,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147081,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147083,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147086,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147088,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147091,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147093,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147095,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147098,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147100,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147103,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147106,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147108,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147110,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147113,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147115,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147118,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147120,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147123,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147125,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147128,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147130,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147133,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147135,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147138,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147140,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147143,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147145,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147148,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147150,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147153,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147155,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147158,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147160,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147163,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147166,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147168,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147171,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147173,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147175,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147178,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147180,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147183,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147186,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147188,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147191,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147193,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147196,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147198,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147201,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147203,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147205,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147208,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147210,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147213,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147216,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147218,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147220,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147223,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147225,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147228,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147231,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147233,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147236,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147238,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147241,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147244,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147247,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147250,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147252,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147255,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147258,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147260,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147263,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147265,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147268,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147270,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147272,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147275,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147278,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147280,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147283,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147285,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147288,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147290,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147294,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147297,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147299,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147302,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147304,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147307,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147309,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147312,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147314,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147316,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147319,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147322,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147324,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147327,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147330,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147333,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147336,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147338,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147341,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147343,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147345,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147348,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147350,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147353,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147355,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147358,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147360,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147363,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147366,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147368,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147370,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147373,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147376,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147378,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147381,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147383,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147386,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147388,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147391,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147393,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147396,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147399,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147401,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147404,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147406,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147408,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147411,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147413,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147416,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147418,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147421,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147423,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147426,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147428,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147431,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147433,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147436,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147438,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147441,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147443,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147446,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147448,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147451,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147453,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147456,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147458,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147461,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147463,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147466,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147468,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147471,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147473,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147476,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147478,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147483,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147487,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147490,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147492,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147495,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147497,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147500,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147502,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147504,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147507,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147509,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147512,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147515,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147517,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147519,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147522,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147525,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147527,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147530,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147532,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147534,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147537,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147540,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147543,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147545,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147547,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147550,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147552,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147555,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147558,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147561,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147563,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147566,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147568,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147571,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147573,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147576,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147578,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147581,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147583,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147586,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147588,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147591,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147594,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147596,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147599,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147601,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147604,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147607,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147609,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147612,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147614,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147617,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147620,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147622,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147624,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147627,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147629,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147632,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147635,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147637,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147639,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147642,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147645,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147647,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147649,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147652,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147654,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147657,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147660,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147662,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147665,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147667,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147669,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147672,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147675,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147677,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147679,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147682,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147685,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147687,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147690,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147693,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147695,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147698,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147700,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147703,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147705,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147708,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147711,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147713,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147716,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147718,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147720,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147723,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147726,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147728,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147731,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147733,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147736,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147739,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147741,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147744,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147746,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147749,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147751,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147754,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147756,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147759,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147761,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147764,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147766,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147769,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147772,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147774,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147777,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147779,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147782,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147784,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147787,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147789,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147792,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147794,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147797,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147799,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147802,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147804,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147807,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147810,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147812,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147815,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147818,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147820,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147823,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147826,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147828,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147831,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147834,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147836,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147839,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147841,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147846,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147848,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147851,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147853,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147856,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147858,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147861,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147863,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147866,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147868,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147871,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147873,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147876,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147878,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147881,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147883,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147886,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147888,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147891,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147893,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147896,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147898,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147901,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147903,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147906,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147908,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147911,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147913,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147916,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147919,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147921,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147924,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147926,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147929,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147932,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147935,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147938,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147940,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147943,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147946,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147949,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147952,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147954,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147957,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147960,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147962,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147965,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147967,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147970,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147973,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147975,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147978,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147981,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147983,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147986,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147991,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147995,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769147997,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148000,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148002,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148005,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148008,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148011,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148013,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148016,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148018,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148020,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148023,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148026,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148028,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148031,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148033,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148036,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148038,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148041,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148044,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148047,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148049,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148052,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148054,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148057,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148060,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148063,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148065,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148068,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148070,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148072,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148075,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148077,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148080,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148082,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148085,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148088,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148090,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148092,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148095,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148098,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148101,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148103,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148105,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148108,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148111,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148113,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148116,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148118,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148121,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148123,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148125,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148128,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148130,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148133,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148136,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148138,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148141,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148144,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148146,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148149,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148151,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148154,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148156,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148159,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148161,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148164,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148166,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148169,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148171,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148174,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148177,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148179,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148182,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148192,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148195,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148197,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148200,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148202,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148205,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148207,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148209,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148212,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148215,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148217,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148220,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148222,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148225,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148227,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148230,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148232,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148235,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148237,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148239,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148242,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148245,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148247,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148250,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148253,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148255,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148258,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148260,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148263,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148266,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148268,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148271,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148273,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148276,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148278,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148280,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148283,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148286,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148288,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148290,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148293,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148295,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148298,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148300,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148303,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148305,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148308,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148311,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148313,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148316,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148318,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148321,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148323,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148326,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148328,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148331,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148335,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148337,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148340,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148342,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148345,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148348,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148351,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148353,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148356,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148359,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148362,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148364,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148366,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148369,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148372,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148375,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148378,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148381,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148384,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148387,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148390,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148393,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148396,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148399,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148402,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148405,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148408,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148411,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148414,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148418,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148422,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148425,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148428,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148431,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148434,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148437,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148440,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148443,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148447,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148450,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148452,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148455,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148458,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148460,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148463,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148466,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148469,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148471,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148474,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148477,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148479,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148482,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148485,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148487,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148490,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148492,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148496,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148501,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148503,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148506,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148508,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148510,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148513,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148515,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148518,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148521,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148523,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148525,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148528,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148530,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148533,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148535,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148538,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148540,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148543,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148545,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148547,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148550,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148552,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148555,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148557,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148560,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148562,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148565,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148567,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148570,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148572,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148574,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148577,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148580,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148582,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148584,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148587,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148589,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148592,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148594,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148597,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148600,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148602,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148604,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148607,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148609,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148612,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148614,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148617,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148619,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148622,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148625,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148627,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148630,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148632,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148635,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148637,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148640,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148642,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148645,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148647,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148650,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148652,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148655,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148657,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148660,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148662,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148665,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148667,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148670,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148672,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148675,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148677,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148679,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148682,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148685,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148687,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148690,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148692,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148695,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148697,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148699,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148702,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148704,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148707,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148709,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148712,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148714,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148717,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148719,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148722,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148724,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148727,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148729,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148732,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148734,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148736,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148739,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148742,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148744,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148747,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148749,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148752,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148754,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148757,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148759,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148762,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148764,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148767,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148769,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148772,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148774,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148776,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148779,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148781,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148784,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148786,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148788,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148791,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148793,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148796,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148798,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148801,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148803,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148806,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148808,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148811,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148813,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148816,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148818,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148821,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148824,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148827,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148830,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148834,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148837,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148839,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148841,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148844,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148849,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148852,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148855,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148858,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148860,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148863,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148865,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148868,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148870,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148873,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148876,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148879,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148882,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148885,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148889,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148893,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148898,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148901,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148904,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148907,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148910,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148913,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148916,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148919,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148921,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148925,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148928,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148932,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148936,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148939,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148941,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148945,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148948,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148950,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148953,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148956,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148959,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148961,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148964,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148967,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148969,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148972,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148975,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148978,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148980,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148983,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148986,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148989,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148991,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148994,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148996,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769148999,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149001,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149006,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149011,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149013,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149016,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149019,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149021,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149024,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149027,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149029,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149032,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149035,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149038,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149041,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149043,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149046,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149049,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149051,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149054,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  },
+  {
+   "t": 1792769149056,
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "event": "polled"
+  }
+ ],
+ "contact": [
+  {
+   "t": 1792769081434,
+   "event": "listening",
+   "upstream": "comms-real"
+  },
+  {
+   "t": 1792769082104,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 1,
+   "generation": 1792769082037,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792769082107,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 1,
+   "generation": 1792769082058,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792769114119,
+   "kind": "changes",
+   "instance": "default",
+   "publication": 2,
+   "generation": 1792769082037,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792769145089,
+   "kind": "snapshot",
+   "instance": "default",
+   "publication": 3,
+   "generation": 1792769082037,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  },
+  {
+   "t": 1792769145108,
+   "kind": "snapshot",
+   "instance": "residents-fda01c99a296",
+   "publication": 2,
+   "generation": 1792769082058,
+   "reportEveryMs": 60000,
+   "forwarded": true,
+   "status": 204
+  }
+ ],
+ "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+ "envLog": [
+  "gate-agent: incarnation 1 revision 1",
+  "aify-env 0.9.4 listening on http://127.0.0.1:8802",
+  "terminals: available",
+  "[aify-env] residents role held, generation 1792769082058, publishing as residents-fda01c99a296",
+  "[aify-env] hosting work for: aify-comms",
+  "[aify-env] registered managed agent \"gate-agent\" from request spawn_1792769083432_fd0b8580",
+  "[aify-env] started terminal term_1792769083452_50f3ac1f for \"gate-agent\" as c83446c3-1dc7-4a95-9055-d7747446110e-p1",
+  ""
+ ],
+ "marks": {
+  "runId": "run_1792769145677_fa316236",
+  "runStatus": "running",
+  "record": {
+   "instance": "default",
+   "lifetime": "90a1dee7-1607-4ca9-9ebe-77b4ed4166c0",
+   "busy": false,
+   "state": "idle",
+   "stateCause": "at-prompt",
+   "appliedAt": "2026-10-23T15:25:45Z"
+  },
+  "word": {
+   "status": "working",
+   "statusNote": "",
+   "lastKnown": null
+  }
+ },
+ "error": null
+}

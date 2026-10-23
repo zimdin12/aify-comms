@@ -1,0 +1,34 @@
+{
+  "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+  "runs": [
+    {
+      "label": "gate-self-check",
+      "argv": [
+        "C:\\nvm4w\\nodejs\\node.EXE",
+        "scripts/sandbox/gate/gate.mjs",
+        "--self-check"
+      ],
+      "cwd": "C:\\Docker\\aify-comms-wt-sw3d",
+      "started": "2026-10-23T14:59:35.662742+00:00",
+      "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+      "exit": 0,
+      "ended": "2026-10-23T14:59:35.719970+00:00",
+      "log_sha256": "cf6d3e4834d87074bb2b5ca319a5e2653e1ed4f039f8a23c13a45737f281e893"
+    },
+    {
+      "label": "sandbox-self-check",
+      "argv": [
+        "C:\\nvm4w\\nodejs\\node.EXE",
+        "scripts/sandbox/env-against-comms.mjs",
+        "--self-check"
+      ],
+      "cwd": "C:\\Docker\\aify-comms-wt-sw3d",
+      "started": "2026-10-23T14:59:35.725487+00:00",
+      "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+      "exit": 0,
+      "ended": "2026-10-23T14:59:36.215198+00:00",
+      "log_sha256": "aac11972acc08c3001c09db4fa7b22c546f140045a9c4f0c01ef7d626e1cc376"
+    }
+  ],
+  "ok": true
+}

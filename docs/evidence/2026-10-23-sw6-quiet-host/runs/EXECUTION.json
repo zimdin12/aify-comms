@@ -1,0 +1,14 @@
+{
+  "frozen_commit": "63e6e9cecc05e23ae81212c336e075affbf7c023",
+  "branch": "098/sw3d",
+  "background_session_id": "proc_1c9feb4965d0",
+  "controller_pid": 58308,
+  "command": "python docs/evidence/2026-10-23-sw6-quiet-host/campaign.py run",
+  "cwd": "C:/Docker/aify-comms-wt-sw3d",
+  "q1_started_utc": "2026-10-23T15:00:22.519572+00:00",
+  "authority_message": "1792766778695-3af2ed3a",
+  "progress_reply": "1792767721858-2e8a4328",
+  "status_at_receipt": "Q1_RUNNING",
+  "qualification": "PENDING_REVIEW",
+  "build_log_limit": "The unchanged gate does not retain successful docker-build stdout/stderr. Full successful-build logs are not claimed. This limitation was routed to the gate owner before any qualification verdict."
+}
