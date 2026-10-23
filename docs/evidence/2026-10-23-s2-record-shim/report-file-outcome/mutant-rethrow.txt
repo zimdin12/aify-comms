@@ -1,0 +1,15 @@
+ok 1 - INSTALL WITH SCRIPTS: the spec's commit is installed in its own prefix, prepare builds the bin, and the entry runs that bin with this node
+ok 2 - REPORT FILE: --report-file records what connect installed as data, which a pending reason's text cannot add to
+ok 3 - REPORT FILE: an existing file is never overwritten, and a refused connect writes none
+ok 4 - REPORT FILE: a destination that cannot take the record is refused before anything is published
+not ok 5 - REPORT FILE: a record that cannot be written after connect committed keeps the committed outcome
+not ok 6 - REPORT FILE: the record's own checks (reportFileProblem, deliverConnectRecord)
+ok 7 - SHORT SHA: a revision that is not a full commit is refused before npm runs or anything is written
+ok 8 - WRONG COMMIT: npm installing another commit than the spec's is refused, and nothing is published or left installed
+ok 9 - NOT A BIN: an entry the installed package does not declare as a bin is refused
+ok 10 - NOT BUILT: a commit that installs but never builds its bin is refused, so an entry never points at nothing
+ok 11 - WRONG KEY: a key the service refuses installs nothing
+# tests 11
+# pass 9
+# fail 2
+# skipped 0

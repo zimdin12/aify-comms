@@ -1,0 +1,21 @@
+=== aify-comms installer ===
+Repo: /src/aify-comms
+Client: claude
+Server: http://comms:8800
+
+[aify-env] chain: entered for aify-comms
+[aify-env] installing aify-wrapper (/src/aify-wrapper)
+
+added 1 package in 138ms
+=== aify-comms installer ===
+Repo: /src/aify-comms
+Client: claude
+Server: http://comms:8800
+
+[1/4] Installing MCP dependencies...
+  Bridge runtime installed to /root/.aify-comms/mcp/stdio (native, fast load; staged swap).
+  Host bridge version stamp written to /root/.aify-comms/.aify-version (unknown).
+  Done (acquired; the chain connects and renders).
+aify-wrapper-connect: artifact(s) not approved: comms-bridge (approve exactly this with --approve 0da395f58a2b7b2f50c3e9f77bbe14e936dcf4efb8f14c581127e97cf1402d7f)
+[aify-env] problem: connect aify-comms: exit 78
+[aify-env] chain: not complete

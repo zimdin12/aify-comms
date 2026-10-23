@@ -1,0 +1,330 @@
+// Guided install S2: a plain `install.sh --client <runtime>` hands off to aify-env's chain (scripts/chain-handoff.sh),
+// carrying its key on the chain's stdin: never a file, argv or the chain's environment. Options the chain does not
+// carry are refused before anything is written. A missing or older packaged aify-env is installed first; a linked
+// checkout, or an aify-env npm did not install, is refused rather than replaced or silently bypassed.
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+import { sealedChildEnv } from "./_child-env.mjs";
+
+const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const HANDOFF = path.join(REPO, "scripts", "chain-handoff.sh");
+const QUICKSTART = path.join(REPO, "scripts", "install-quickstart.sh");
+const toBash = (p) => p.replace(/\\/g, "/");
+// The bash this suite already runs under, by its own path: the fake PATH below is all the child may search.
+const BASH = spawnSync("bash", ["-c", 'p="$(command -v bash)"; cygpath -w "$p" 2>/dev/null || echo "$p"'], { encoding: "utf8" }).stdout.trim();
+// npm's own cmd-shim, from the npm beside this node (Windows: <node dir>/node_modules/npm; Unix: <prefix>/lib/node_modules/npm).
+const CMD_SHIM = [path.join(path.dirname(process.execPath), "node_modules"), path.join(path.dirname(process.execPath), "..", "lib", "node_modules")]
+  .map((root) => path.join(root, "npm", "node_modules", "cmd-shim")).find((dir) => fs.existsSync(path.join(dir, "package.json")));
+
+/** The shim npm's cmd-shim writes at `to` for the bin `from`: the bytes `npm install -g` would leave on PATH. */
+function cmdShim(from, to) {
+  assert.ok(CMD_SHIM, "npm's cmd-shim must be found before a genuine shim can be made");
+  const run = spawnSync(process.execPath, ["-e", "require(process.argv[1])(process.argv[2], process.argv[3]).catch((e) => { console.error(e); process.exit(1); })", CMD_SHIM, from, to], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+}
+
+/**
+ * A fake npm prefix (`dir`) holding the named fake commands, each recording its argv, laid out as npm lays one out:
+ * the global root is `<prefix>/node_modules`, holding npm's real cmd-shim (unless `cmdShim` is false), and npm's own
+ * bin for aify-env is either the shim that cmd-shim writes in the prefix (Windows) or `<prefix>/bin/aify-env`, a link
+ * to the package's bin (Unix). This Windows host cannot create symlinks, so the Unix link is a fake `realpath` mapping
+ * that one path to the package's bin; the container witness runs real npm links on Linux.
+ *
+ * `env` is the global aify-env: "chain" (holds the chain module), "older" (a packaged one without it), "linked" (a git
+ * checkout without it), or absent; `npm install -g` plants the module. `aify` is what `aify-env` on PATH is: "shim" or
+ * "link" (npm's own), "foreign" (a script of somebody else's in the prefix), "comment" (one that names the package's
+ * bin in a comment and runs something else), or "foreign+link" (a foreign script, earlier on PATH, beside npm's
+ * genuine linked bin). The fake `node` records the key variables it inherited and its stdin; `node -e` is real node.
+ */
+function fakeBins(names, { env = "", aify = "", cmdShim: withCmdShim = true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-bin-"));
+  const log = path.join(dir, "calls.log");
+  fs.mkdirSync(path.join(dir, "scripts"));
+  fs.mkdirSync(path.join(dir, "bin"));
+  fs.copyFileSync(HANDOFF, path.join(dir, "scripts", "chain-handoff.sh"));
+  // The key resolver beside the handoff: records that it ran (and how), prints FAKE_KEY, exits RESOLVE_EXIT.
+  fs.writeFileSync(path.join(dir, "scripts", "api-key-for-install.sh"), `echo "resolved $*" >> "${toBash(log)}"; printf '%s' "\${FAKE_KEY:-}"; exit \${RESOLVE_EXIT:-0}\n`);
+  const root = path.join(dir, "node_modules");
+  const pkgBin = path.join(root, "aify-env", "bin", "aify-env.mjs");
+  const module = path.join(root, "aify-env", "bin", "aify-env-install.mjs");
+  const plant = `mkdir -p "${toBash(path.dirname(module))}" && : > "${toBash(module)}" && : > "${toBash(pkgBin)}"`;
+  if (env) { fs.mkdirSync(path.dirname(module), { recursive: true }); fs.writeFileSync(pkgBin, "#!/usr/bin/env node\n"); }
+  if (env === "chain") fs.writeFileSync(module, "");
+  if (env === "linked") fs.mkdirSync(path.join(root, "aify-env", ".git"));
+  if (withCmdShim && CMD_SHIM) fs.cpSync(CMD_SHIM, path.join(root, "npm", "node_modules", "cmd-shim"), { recursive: true });
+  const script = (file, body) => fs.writeFileSync(file, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  const foreign = `echo "aify-env $*" >> "${toBash(log)}"`;
+  if (aify === "shim") cmdShim(pkgBin, path.join(dir, "aify-env"));
+  if (aify === "comment") script(path.join(dir, "aify-env"), `# exec node "$basedir/node_modules/aify-env/bin/aify-env.mjs" "$@"\n${foreign}`);
+  if (aify === "foreign" || aify === "foreign+link") script(path.join(dir, "aify-env"), foreign);
+  if (aify === "link" || aify === "foreign+link") {
+    script(path.join(dir, "bin", "aify-env"), foreign);
+    // npm's link, as realpath answers for it: <prefix>/bin/aify-env resolves to the package's own bin.
+    script(path.join(dir, "realpath"), `case "$1" in "${toBash(path.join(dir, "bin", "aify-env"))}"|*/bin/aify-env) echo "${toBash(pkgBin)}" ;; *) exec /usr/bin/realpath "$@" ;; esac`);
+  }
+  for (const name of names) {
+    const body = name === "npm"
+      ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; echo "\${NPM_PREFIX:-${toBash(dir)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "\${NPM_ROOT:-${toBash(root)}}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
+      : `${name === "node" ? `[ "$1" = -e ] && exec "${toBash(process.execPath)}" "$@"; ` : ""}echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; [ -t 0 ] || echo "${name}-stdin $(cat)" >> "${toBash(log)}"; exit \${FAKE_EXIT:-0}`;
+    script(path.join(dir, name), body);
+  }
+  return { dir, log, module: toBash(module) };
+}
+
+function handoff(bins, env = {}) {
+  const PATH = `${toBash(bins.dir)}:${toBash(bins.dir)}/bin:/usr/bin:/bin`;
+  const run = spawnSync(BASH, [toBash(path.join(bins.dir, "scripts", "chain-handoff.sh")), "claude", "http://comms.test:8800", "/src/install.sh"], {
+    encoding: "utf8", input: "",
+    env: sealedChildEnv({ PATH, AIFY_API_KEY: "", WITH_API_KEY: undefined, WITH_HOOK: undefined, MCP_TRANSPORT: undefined, ENV_ENDPOINT_GIVEN: undefined, ...env }),
+  });
+  const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
+  return { status: run.status, stderr: run.stderr, calls, lines: calls.trim().split("\n").filter(Boolean) };
+}
+
+test("with the chain installed it is entered once, as its module, with the key on stdin and nowhere else", () => {
+  const bins = fakeBins(["npm", "node"], { env: "chain" });
+  const out = handoff(bins, { FAKE_KEY: "s3cret-key", AIFY_API_KEY: "s3cret-key", CLAUDE_MCP_API_KEY: "s3cret-key" });
+  assert.equal(out.status, 0);
+  assert.equal(out.lines[0], "resolved ", "the handoff resolves the key itself, asking only (no --generate)");
+  const entries = out.lines.filter((l) => l.startsWith(`node ${bins.module} `));
+  assert.equal(entries.length, 1, out.calls);
+  assert.match(entries[0], /--connect aify-comms=http:\/\/comms\.test:8800 --client claude --installer aify-comms=\/src\/install\.sh/);
+  assert.match(entries[0], /--no-prompt/, "a run with no terminal must not ask");
+  assert.match(entries[0], /--secret-stdin aify-comms\.credentialRef$/);
+  assert.ok(!entries[0].includes("s3cret-key"), "the key was in argv");
+  assert.ok(out.lines.includes("node-env AIFY_API_KEY= CLAUDE_MCP_API_KEY="), `the chain inherited the key in its environment: ${out.calls}`);
+  assert.ok(out.lines.includes("node-stdin s3cret-key"), `the key did not arrive on the chain's stdin: ${out.calls}`);
+});
+
+test("the chain's own status is the answer, and no key means no --secret", () => {
+  const bins = fakeBins(["npm", "node"], { env: "chain" });
+  const out = handoff(bins, { FAKE_EXIT: "78" });
+  assert.equal(out.status, 78);
+  assert.ok(!out.calls.includes("--secret"));
+  assert.ok(!out.calls.includes("--approve"), "CONTROL: nothing is approved unless the operator says so");
+});
+
+test("an operator's approvals reach the chain one by one", () => {
+  const bins = fakeBins(["npm", "node"], { env: "chain" });
+  const out = handoff(bins, { AIFY_INSTALL_APPROVE: "d1 d2" });
+  assert.match(out.calls, /--approve d1 --approve d2/);
+});
+
+test("the key is resolved after every refusal and discovery, generating one only when asked", () => {
+  const bins = fakeBins(["npm", "node"]);
+  const out = handoff(bins, { WITH_API_KEY: "true", FAKE_KEY: "made" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(out.lines.slice(0, 2), ["resolved --generate", "npm install -g --no-audit --no-fund github:zimdin12/aify-env"]);
+  const conflict = handoff(fakeBins(["npm", "node"]), { RESOLVE_EXIT: "1" });
+  assert.equal(conflict.status, 1, "a key the resolver refuses stops the handoff");
+  assert.ok(!conflict.calls.includes("npm install"), "aify-env was installed for a key the resolver refused");
+});
+
+test("npm's global root unknown is a refusal, never a global install over what may be a protected link", () => {
+  for (const failure of [{ NPM_ROOT_FAIL: "1" }, { NPM_ROOT_EMPTY: "1" }]) {
+    const out = handoff(fakeBins(["npm", "node"]), { WITH_API_KEY: "true", ...failure });
+    assert.equal(out.status, 78, JSON.stringify(failure));
+    assert.match(out.stderr, /Could not ask npm for its global root/);
+    assert.match(out.stderr, /--standalone/);
+    assert.deepEqual(out.lines, [], `${JSON.stringify(failure)}: something ran or was written: ${out.calls}`);
+  }
+});
+
+/**
+ * A global root somewhere else, holding a package of the given kind and npm's cmd-shim: npm's answer when it is not
+ * <prefix>/node_modules. The shim regenerated from it is byte-equal to the prefix's, so only the root comparison refuses.
+ */
+function otherRoot(env) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-root-"));
+  fs.mkdirSync(path.join(root, "aify-env", "bin"), { recursive: true });
+  fs.writeFileSync(path.join(root, "aify-env", "bin", "aify-env.mjs"), "#!/usr/bin/env node\n");
+  fs.cpSync(CMD_SHIM, path.join(root, "npm", "node_modules", "cmd-shim"), { recursive: true });
+  if (env === "chain") fs.writeFileSync(path.join(root, "aify-env", "bin", "aify-env-install.mjs"), "");
+  return toBash(root);
+}
+
+test("an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated", () => {
+  for (const env of ["chain", "older"]) {
+    for (const [aify, extra, why, layout = {}] of [
+      ["foreign", {}, "a script of somebody else's in the prefix"],
+      ["comment", {}, "a script that names the package's bin only in a comment"],
+      ["shim", {}, "npm's shim with no cmd-shim to regenerate it from", { cmdShim: false }],
+      ["foreign+link", {}, "a foreign script earlier on PATH, beside npm's genuine linked bin"],
+      ["shim", { NPM_PREFIX: toBash(fs.mkdtempSync(path.join(os.tmpdir(), "handoff-prefix-"))) }, "a shim outside npm's prefix"],
+      ["shim", { NPM_PREFIX_FAIL: "1" }, "a shim with npm's prefix unknown"],
+      ["shim", { NPM_ROOT: otherRoot(env) }, "a shim in the prefix whose node_modules is not npm's root"],
+    ]) {
+      const out = handoff(fakeBins(["npm", "node"], { env, aify, ...layout }), extra);
+      assert.equal(out.status, 78, `${env}, ${why}: ${out.stderr}`);
+      assert.match(out.stderr, /is not npm's own bin for .*aify-env/, `${env}, ${why}`);
+      assert.match(out.stderr, /--standalone/);
+      assert.deepEqual(out.lines, [], `${env}, ${why}: something ran or was written: ${out.calls}`);
+    }
+  }
+  for (const aify of ["shim", "link"]) {
+    const chain = handoff(fakeBins(["npm", "node"], { env: "chain", aify }));
+    assert.equal(chain.status, 0, `CONTROL: npm's own ${aify} beside the chain: ${chain.stderr}`);
+    const older = handoff(fakeBins(["npm", "node"], { env: "older", aify }), { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
+    assert.equal(older.status, 0, `CONTROL: npm's own ${aify} beside an older package: ${older.stderr}`);
+    assert.match(older.lines[1] ?? "", /^npm install -g .*\/pkg\/aify-env\.tgz$/, `CONTROL: ${aify}: the older package is updated`);
+  }
+});
+
+test("options the chain does not carry are refused before anything is installed or run", () => {
+  const cases = [["WITH_HOOK", "true", "--with-hook"], ["MCP_TRANSPORT", "sse", "--mcp-transport"], ["ENV_ENDPOINT_GIVEN", "true", "--env-endpoint"]];
+  for (const [variable, value, flag] of cases) {
+    const out = handoff(fakeBins(["npm", "node"]), { [variable]: value, WITH_API_KEY: "true" });
+    assert.equal(out.status, 64, flag);
+    assert.match(out.stderr, new RegExp(`${flag}: not carried by the guided-install chain yet, so nothing was written`));
+    assert.match(out.stderr, /--standalone/);
+    assert.deepEqual(out.lines, [], `${flag}: something ran before the refusal: ${out.calls}`);
+  }
+  const control = handoff(fakeBins(["npm", "node"], { env: "chain" }), { WITH_HOOK: "false", ENV_ENDPOINT_GIVEN: "false" });
+  assert.equal(control.status, 0, "CONTROL: an option left at its default is not a refusal");
+});
+
+test("a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone", () => {
+  const bins = fakeBins(["npm", "node"], { env: "linked", aify: "foreign" });
+  const out = handoff(bins);
+  assert.equal(out.status, 78);
+  assert.match(out.stderr, /linked checkout .* never modified/);
+  assert.match(out.stderr, /git pull.*--standalone/s);
+  assert.deepEqual(out.lines, [], `something ran: ${out.calls}`);
+});
+
+test("an aify-env on PATH that npm did not install is not replaced", () => {
+  const bins = fakeBins(["npm", "node"], { aify: "foreign" });
+  const out = handoff(bins);
+  assert.equal(out.status, 78);
+  assert.match(out.stderr, /npm did not install it, so it is not replaced/);
+  assert.deepEqual(out.lines, [], `something ran: ${out.calls}`);
+});
+
+test("an older packaged aify-env is updated from its source, then the chain runs", () => {
+  const bins = fakeBins(["npm", "node"], { env: "older", aify: "shim" });
+  const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(out.lines[0], "resolved ", "the key is resolved before anything is installed");
+  assert.match(out.lines[1], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
+  assert.ok(out.lines[2].startsWith(`node ${bins.module} --connect aify-comms=`), out.lines[2]);
+  assert.ok(!out.calls.includes("aify-env "), "the aify-env command was run; an old one could read an argument as a start");
+});
+
+test("with no aify-env at all it is installed from its source first, then the chain runs", () => {
+  const bins = fakeBins(["npm", "node"]);
+  const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
+  assert.equal(out.status, 0);
+  assert.deepEqual(out.lines[0], "resolved ", "the key is resolved before anything is installed");
+  assert.match(out.lines[1], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
+  assert.ok(out.lines[2].startsWith(`node ${bins.module} --connect aify-comms=`), out.lines[2]);
+});
+
+test("a plain run hands off before the installer resolves, generates or stores any key; the full path does both", () => {
+  // The installer's own handoff and key block, executed with their helpers stubbed to record that they ran. Resolving
+  // first could write .env (--generate, or an answer to --ask) before the handoff refused an option; storing first
+  // replaced the host's credential under the default reference before connect accepted anything.
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  // From the top of the installer's main body, so a key written anywhere before the handoff runs here too.
+  const block = /^echo "=== aify-comms installer ==="\n[\s\S]*?^;; esac$/m.exec(install)?.[0];
+  assert.ok(block, "the handoff and key block must be found before they can be exercised");
+  assert.match(block, /chain-handoff\.sh[\s\S]*api-key-for-install\.sh/, "the key is resolved before the handoff, which can write .env");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-key-"));
+  const log = `"${toBash(root)}/ran"`;
+  fs.mkdirSync(path.join(root, "scripts"));
+  fs.writeFileSync(path.join(root, "scripts", "api-key-for-install.sh"), `echo asked >> ${log}; printf k\n`);
+  fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> ${log}\n`);
+  fs.writeFileSync(path.join(root, "scripts", "chain-handoff.sh"), `echo "handed-off generate=$WITH_API_KEY" >> ${log}; exit \${HANDOFF_EXIT:-0}\n`);
+  const ran = (mode, env = {}) => {
+    fs.rmSync(path.join(root, "ran"), { force: true });
+    spawnSync(BASH, ["-c", block], { env: sealedChildEnv({ MODE: mode, SCRIPT_DIR: toBash(root), WITH_API_KEY: "true", AIFY_INSTALL_CHAIN: undefined, CLIENT: "claude", SERVER_URL: "http://c.test:8800", EMIT_WRAPPERS_DIR: "", PREBUILD_DRY_RUN: "false", ...env }) });
+    return fs.existsSync(path.join(root, "ran")) ? fs.readFileSync(path.join(root, "ran"), "utf8").trim().split("\n") : [];
+  };
+  assert.deepEqual(ran(""), ["handed-off generate=true"], "the installer resolved or stored a key before handing off");
+  assert.deepEqual(ran("", { HANDOFF_EXIT: "64" }), ["handed-off generate=true"], "a refused handoff fell back to the key block");
+  assert.deepEqual(ran("", { AIFY_INSTALL_CHAIN: "1" }), ["asked", "carried"], "CONTROL: under the chain's mark there is no handoff");
+  assert.deepEqual(ran("standalone"), ["asked", "carried"], "CONTROL: --standalone is the old path");
+  assert.deepEqual(ran("acquire-only"), []);
+  assert.deepEqual(ran("assets-only"), []);
+});
+
+test("through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists", () => {
+  // The installer's main body, with the REAL resolver (api-key-for-install.sh, api-key.sh) and the real handoff
+  // copied beside it, writing to an owned .env (AIFY_ENV_FILE). Only the credential store and the chain are stubs.
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  const block = /^echo "=== aify-comms installer ==="\n[\s\S]*?^;; esac$/m.exec(install)?.[0];
+  assert.ok(block, "the installer's main body must be found before it can be exercised");
+  const bins = fakeBins(["npm", "node"], { env: "chain" });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-persist-"));
+  fs.mkdirSync(path.join(root, "scripts"));
+  for (const real of ["api-key-for-install.sh", "api-key.sh", "chain-handoff.sh"]) fs.copyFileSync(path.join(REPO, "scripts", real), path.join(root, "scripts", real));
+  fs.writeFileSync(path.join(root, "scripts", "credential-carrier.sh"), `echo carried >> "${toBash(bins.log)}"\n`);
+  const envFile = path.join(root, "owned.env");
+  const run = (mode, extra = {}) => {
+    fs.rmSync(bins.log, { force: true });
+    const r = spawnSync(BASH, ["-c", block], {
+      encoding: "utf8", input: "",
+      env: sealedChildEnv({
+        PATH: `${toBash(bins.dir)}:/usr/bin:/bin`, MODE: mode, SCRIPT_DIR: toBash(root), AIFY_ENV_FILE: toBash(envFile),
+        WITH_API_KEY: "true", WITH_HOOK: "false", ENV_ENDPOINT_GIVEN: "false", MCP_TRANSPORT: undefined,
+        API_KEY: undefined, AIFY_API_KEY: undefined, CLAUDE_MCP_API_KEY: undefined, AIFY_INSTALL_CHAIN: undefined,
+        CLIENT: "claude", SERVER_URL: "http://c.test:8800", EMIT_WRAPPERS_DIR: "", PREBUILD_DRY_RUN: "false", ...extra,
+      }),
+    });
+    const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
+    return { status: r.status, stderr: r.stderr, calls, env: fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf8") : null };
+  };
+  for (const [variable, value] of [["WITH_HOOK", "true"], ["MCP_TRANSPORT", "sse"], ["ENV_ENDPOINT_GIVEN", "true"]]) {
+    fs.rmSync(envFile, { force: true });
+    const absent = run("", { [variable]: value });
+    assert.equal(absent.status, 64, `${variable}: ${absent.stderr}`);
+    assert.equal(absent.env, null, `${variable}: .env was written before the refusal: ${absent.env}`);
+    assert.ok(!/carried|node /.test(absent.calls), `${variable}: the store or the chain ran: ${absent.calls}`);
+    fs.writeFileSync(envFile, "OTHER=1\n");
+    const seeded = run("", { [variable]: value });
+    assert.equal(seeded.status, 64);
+    assert.equal(seeded.env, "OTHER=1\n", `${variable}: an existing .env was rewritten before the refusal`);
+  }
+  fs.rmSync(envFile, { force: true });
+  const standalone = run("standalone");
+  assert.equal(standalone.status, 0, standalone.stderr);
+  assert.match(standalone.env ?? "", /^API_KEY=[0-9a-f]{64}$/m, "CONTROL: --standalone generates and persists the key");
+  assert.match(standalone.calls, /carried/, "CONTROL: --standalone stores it");
+  fs.rmSync(envFile, { force: true });
+  const handedOff = run("");
+  assert.equal(handedOff.status, 0, handedOff.stderr);
+  assert.match(handedOff.env ?? "", /^API_KEY=[0-9a-f]{64}$/m, "CONTROL: with nothing refused, the generated key is persisted");
+  assert.match(handedOff.calls, /--secret-stdin aify-comms\.credentialRef/);
+  assert.ok(!/carried/.test(handedOff.calls), "the handed-off path stored the key itself");
+});
+
+test("the chain's modes resolve no key value, so no registration can put one in argv", () => {
+  // The installer's own key lookup, which every registration (claude/codex `--env`, hermes' node argument) calls.
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  const lookup = /^aify_api_key\(\) \{[\s\S]*?^\}$|^aify_api_key\(\) \{.*\}$/m.exec(install)?.[0];
+  assert.ok(lookup, "the key lookup must be found before it can be exercised");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-lookup-"));
+  fs.mkdirSync(path.join(root, "scripts"));
+  fs.writeFileSync(path.join(root, "scripts", "api-key.sh"), "printf from-env-or-dotenv\n");
+  const key = (mode) => spawnSync(BASH, ["-c", `${lookup}\naify_api_key`], {
+    encoding: "utf8", env: sealedChildEnv({ MODE: mode, SCRIPT_DIR: toBash(root), AIFY_API_KEY: "inherited" }),
+  }).stdout;
+  assert.equal(key(""), "from-env-or-dotenv", "CONTROL: a full install resolves its key");
+  assert.equal(key("assets-only"), "");
+  assert.equal(key("acquire-only"), "");
+});
+
+test("the quick-start lines are the installer's, per client", () => {
+  for (const client of ["claude", "codex", "hermes"]) {
+    const out = spawnSync("bash", [toBash(QUICKSTART), client], { encoding: "utf8" });
+    assert.equal(out.status, 0);
+    assert.match(out.stdout, /^Quick start:\n/);
+    assert.match(out.stdout, new RegExp(`runtime=\\\\?"${client === "claude" ? "claude-code" : client}`));
+  }
+  const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  assert.match(install, /scripts\/install-quickstart\.sh" "\$CLIENT"/);
+});

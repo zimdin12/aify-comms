@@ -1,0 +1,30 @@
+[aify-env] node v22.23.4
+[aify-env] installing dependencies
+
+added 8 packages in 10s
+npm notice
+npm notice New major version of npm available! 10.9.9 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
+[aify-env] installing the aify-env command
+
+added 1 package in 166ms
+[aify-env] installed: /usr/local/bin/aify-env
+[aify-env] /root/.aify/config.json: transport.localSocket = true
+[aify-env] chain: entered for aify-comms
+[aify-env] installing aify-wrapper (/src/aify-wrapper)
+
+added 1 package in 148ms
+=== aify-comms installer ===
+Repo: /root/.aify/sources/aify-comms/b45db2e57967e4c4dd25316d9b64276b8f1bdcd1
+Client: claude
+Server: http://127.0.0.1:8800
+
+[1/4] Installing MCP dependencies...
+  Bridge runtime installed to /root/.aify-comms/mcp/stdio (native, fast load; staged swap).
+  Host bridge version stamp written to /root/.aify-comms/.aify-version (b45db2e5).
+  Done (acquired; the chain connects and renders).
+aify-wrapper-connect: cannot read key: ENOENT
+[aify-env] problem: connect aify-comms: exit 78
+[aify-env] chain: not complete

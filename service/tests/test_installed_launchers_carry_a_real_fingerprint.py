@@ -16,6 +16,7 @@ tool. Both halves were present; nothing joined them.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -125,15 +126,18 @@ def test_the_service_registers_before_any_launcher_is_written():
     lines = INSTALL_SH.read_text(encoding="utf-8").splitlines()
 
     def line_of(needle: str) -> int:
-        hits = [i for i, l in enumerate(lines) if needle in l and not l.lstrip().startswith("#")]
+        # A CALL of the name, guarded or not (`[ "$MODE" = assets-only ] || install_claude_wrapper`, S2): never
+        # its definition, `name() {`, and never a comment.
+        call = re.compile(rf"(?<![\w-]){re.escape(needle)}(?![\w-])(?!\s*\()")
+        hits = [i for i, l in enumerate(lines) if call.search(l) and not l.lstrip().startswith("#")]
         assert hits, f"{needle} no longer appears as code in install.sh"
         return hits[0]
 
     registers = line_of("register-service-cli.mjs")
     first_wrapper = min(
-        line_of("  install_claude_wrapper"),
-        line_of("  install_codex_wrapper"),
-        line_of("  install_hermes_wrapper"),
+        line_of("install_claude_wrapper"),
+        line_of("install_codex_wrapper"),
+        line_of("install_hermes_wrapper"),
     )
     assert registers < first_wrapper, (
         f"registration runs at line {registers + 1}, after the first wrapper install at "

@@ -1,0 +1,309 @@
+TAP version 13
+# Subtest: with the chain installed it is entered once, as its module, with the key on stdin and nowhere else
+not ok 1 - with the chain installed it is entered once, as its module, with the key on stdin and nowhere else
+  ---
+  duration_ms: 250.6059
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:59:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the handoff resolves the key itself, asking only (no --generate)
+    + actual - expected
+    
+    + 'node C:/Users/Administrator/AppData/Local/Temp/handoff-bin-niGxGj/global/aify-env/bin/aify-env-install.mjs --connect aify-comms=http://comms.test:8800 --client claude --installer aify-comms=/src/install.sh --no-prompt --secret-stdin aify-comms.credentialRef'
+    - 'resolved '
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'resolved '
+  actual: 'node C:/Users/Administrator/AppData/Local/Temp/handoff-bin-niGxGj/global/aify-env/bin/aify-env-install.mjs --connect aify-comms=http://comms.test:8800 --client claude --installer aify-comms=/src/install.sh --no-prompt --secret-stdin aify-comms.credentialRef'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:63:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: the chain's own status is the answer, and no key means no --secret
+ok 2 - the chain's own status is the answer, and no key means no --secret
+  ---
+  duration_ms: 576.8521
+  type: 'test'
+  ...
+# Subtest: an operator's approvals reach the chain one by one
+ok 3 - an operator's approvals reach the chain one by one
+  ---
+  duration_ms: 210.9231
+  type: 'test'
+  ...
+# Subtest: the key is resolved after every refusal and discovery, generating one only when asked
+not ok 4 - the key is resolved after every refusal and discovery, generating one only when asked
+  ---
+  duration_ms: 355.4717
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:88:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    -   'resolved --generate',
+        'npm install -g --no-audit --no-fund github:zimdin12/aify-env',
+    +   'node C:/Users/Administrator/AppData/Local/Temp/handoff-bin-GkkKXP/global/aify-env/bin/aify-env-install.mjs --connect aify-comms=http://comms.test:8800 --client claude --installer aify-comms=/src/install.sh --no-prompt'
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'resolved --generate'
+    1: 'npm install -g --no-audit --no-fund github:zimdin12/aify-env'
+  actual:
+    0: 'npm install -g --no-audit --no-fund github:zimdin12/aify-env'
+    1: 'node C:/Users/Administrator/AppData/Local/Temp/handoff-bin-GkkKXP/global/aify-env/bin/aify-env-install.mjs --connect aify-comms=http://comms.test:8800 --client claude --installer aify-comms=/src/install.sh --no-prompt'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:92:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: npm's global root unknown is a refusal, never a global install over what may be a protected link
+not ok 5 - npm's global root unknown is a refusal, never a global install over what may be a protected link
+  ---
+  duration_ms: 251.3984
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:98:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"NPM_ROOT_FAIL":"1"}
+    
+    1 !== 78
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 78
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:101:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated
+not ok 6 - an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated
+  ---
+  duration_ms: 182.1774
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:108:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    chain: 
+    
+    0 !== 78
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 78
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:112:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: options the chain does not carry are refused before anything is installed or run
+ok 7 - options the chain does not carry are refused before anything is installed or run
+  ---
+  duration_ms: 582.0223
+  type: 'test'
+  ...
+# Subtest: a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone
+ok 8 - a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone
+  ---
+  duration_ms: 94.6872
+  type: 'test'
+  ...
+# Subtest: an aify-env on PATH that npm did not install is not replaced
+ok 9 - an aify-env on PATH that npm did not install is not replaced
+  ---
+  duration_ms: 125.3947
+  type: 'test'
+  ...
+# Subtest: an older packaged aify-env is updated from its source, then the chain runs
+not ok 10 - an older packaged aify-env is updated from its source, then the chain runs
+  ---
+  duration_ms: 316.1467
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:154:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the key is resolved before anything is installed
+    + actual - expected
+    
+    + 'npm install -g --no-audit --no-fund /pkg/aify-env.tgz'
+    - 'resolved '
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'resolved '
+  actual: 'npm install -g --no-audit --no-fund /pkg/aify-env.tgz'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:158:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: with no aify-env at all it is installed from its source first, then the chain runs
+not ok 11 - with no aify-env at all it is installed from its source first, then the chain runs
+  ---
+  duration_ms: 334.2657
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:164:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the key is resolved before anything is installed
+    + actual - expected
+    
+    + 'npm install -g --no-audit --no-fund /pkg/aify-env.tgz'
+    - 'resolved '
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'resolved '
+  actual: 'npm install -g --no-audit --no-fund /pkg/aify-env.tgz'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:168:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a plain run hands off before the installer resolves, generates or stores any key; the full path does both
+not ok 12 - a plain run hands off before the installer resolves, generates or stores any key; the full path does both
+  ---
+  duration_ms: 7.208
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:173:1'
+  failureType: 'testCodeFailure'
+  error: 'the key is resolved before the handoff, which can write .env'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    echo "=== aify-comms installer ==="
+    echo "Repo: $SCRIPT_DIR"
+    echo "Client: $CLIENT"
+    echo "Server: ${SERVER_URL:-local mode (no shared server)}"
+    echo ""
+    
+    # Render-only mode: emit this client's wrapper and stop. Ahead of the hermes prebuild and of
+    # `require_cmd` ON PURPOSE — rendering wrapper text must not require the runtime CLI to be present,
+    # or a wrapper could only be guarded on a machine that already runs it.
+    if [ -n "$EMIT_WRAPPERS_DIR" ]; then
+      mkdir -p "$EMIT_WRAPPERS_DIR"
+      "install_${CLIENT}_wrapper"
+      # And the bridge launcher: it is a launcher, and it is the one carrying delegation.
+      install_bridge_launcher
+      exit 0
+    fi
+    # Dry run: the hermes prebuild branch alone, and out BEFORE the key block, whose carrier writes this
+    # host's credential store (it did, on every test run, until the 0.7.6 review).
+    [ "$CLIENT" = "hermes" ] && [ "$PREBUILD_DRY_RUN" = true ] && { prebuild_hermes_web_dist || true; exit 0; }
+    
+    # Settled BEFORE the first config that carries it, and NOT gated on `--with-api-key` (that flag GENERATES
+    # a key; gating the carry left clients 401'ing beside a keyless aify-env: test_install_carries_the_key_to_the_env*).
+    # ONE SCRIPT answers and DECIDES "what key": a bare `|| true` read a conflict as "no key" (Round 8 H8).
+    # Skipped in the chain's modes: the chain took the key and connect published it, which the bridge reads for its endpoint.
+    case "$MODE" in acquire-only|assets-only) ;; *)
+    [ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
+    RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
+    # A plain run hands off once to aify-env's chain (S2) and ends with its status, BEFORE anything is stored: connect
+    # publishes the key or refuses with the host's credential untouched. --standalone is this full path, storing below.
+    if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then AIFY_API_KEY="$RESOLVED_API_KEY" WITH_HOOK="$WITH_HOOK" MCP_TRANSPORT="${MCP_TRANSPORT:-}" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
+    if [ -n "${RESOLVED_API_KEY:-}" ]; then
+      export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
+      export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"
+    fi
+    ;; esac
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:181:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists
+not ok 13 - through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists
+  ---
+  duration_ms: 1144.7854
+  type: 'test'
+  location: 'C:\\Docker\\aify-comms-wt-s2pre\\mcp\\stdio\\tests\\a-plain-install-hands-off-to-the-chain-once.test.js:201:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    WITH_HOOK: .env was written before the refusal: API_KEY=76ba1b515bb969d1f1e34a1a96be49f7ff41c09529af22e08664d0deaece601d
+    
+    + actual - expected
+    
+    + 'API_KEY=76ba1b515bb969d1f1e34a1a96be49f7ff41c09529af22e08664d0deaece601d\n'
+    - null
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: |-
+    API_KEY=76ba1b515bb969d1f1e34a1a96be49f7ff41c09529af22e08664d0deaece601d
+    
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Docker/aify-comms-wt-s2pre/mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js:231:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: the chain's modes resolve no key value, so no registration can put one in argv
+ok 14 - the chain's modes resolve no key value, so no registration can put one in argv
+  ---
+  duration_ms: 490.5917
+  type: 'test'
+  ...
+# Subtest: the quick-start lines are the installer's, per client
+ok 15 - the quick-start lines are the installer's, per client
+  ---
+  duration_ms: 89.1158
+  type: 'test'
+  ...
+1..15
+# tests 15
+# suites 0
+# pass 7
+# fail 8
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5193.5282

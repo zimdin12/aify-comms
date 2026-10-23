@@ -1,0 +1,40 @@
+
+> aify-env@0.9.4 test
+> node tests/run-in-a-temp-root.mjs tests/no-oversized-source-file.test.js
+
+TAP version 13
+# \# largest: lib/runner.mjs=988, bin/aify-env.mjs=986, lib/plugins/aify-comms/terminal-controls.mjs=932, lib/tui.mjs=915, lib/agent-definitions.mjs=803
+# \# past the 400-line signal: lib/runner.mjs, bin/aify-env.mjs, lib/plugins/aify-comms/terminal-controls.mjs, lib/tui.mjs, lib/agent-definitions.mjs
+# Subtest: the scan finds source files at all
+ok 1 - the scan finds source files at all
+  ---
+  duration_ms: 0.5966
+  type: 'test'
+  ...
+# Subtest: the scan EXCLUDES tests, which are long on purpose
+ok 2 - the scan EXCLUDES tests, which are long on purpose
+  ---
+  duration_ms: 0.1361
+  type: 'test'
+  ...
+# Subtest: no source file reaches 1000 lines
+ok 3 - no source file reaches 1000 lines
+  ---
+  duration_ms: 0.4322
+  type: 'test'
+  ...
+# Subtest: REPORT: the largest files, so drift is visible before it is a defect
+ok 4 - REPORT: the largest files, so drift is visible before it is a defect
+  ---
+  duration_ms: 0.4112
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 218.7687

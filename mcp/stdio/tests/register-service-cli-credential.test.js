@@ -11,7 +11,8 @@ const cli = fileURLToPath(new URL("../register-service-cli.mjs", import.meta.url
 const installer = readFileSync(new URL("../../../install.sh", import.meta.url), "utf8");
 // Execute the real producer block, not a reimplementation or the whole installer. Only its
 // external key helpers are stubbed; no key store, installed config, daemon or API is touched.
-const producer = installer.match(/^\[ "\$WITH_API_KEY" = true \].*\nRESOLVED_API_KEY=.*\nif \[ -n "\$\{RESOLVED_API_KEY:-\}" \]; then\n[\s\S]*?^fi$/m)?.[0];
+// The guided-install handoff sits between resolution and storing (S2); `--standalone` below keeps it inert here.
+const producer = installer.match(/^\[ "\$WITH_API_KEY" = true \].*\nRESOLVED_API_KEY=.*\n(?:#.*\n|if \[ -z "\$MODE" \].*chain-handoff\.sh.*\n)*if \[ -n "\$\{RESOLVED_API_KEY:-\}" \]; then\n[\s\S]*?^fi$/m)?.[0];
 assert.ok(producer, "the installer credential producer must be found before it can be exercised");
 const other = { endpoint: "http://other.invalid", endpointEnv: ["OTHER_URL"], keyEnv: [],
   mcp: [{ name: "other", command: "node", args: ["other.js"] }], credentialRef: "other.key" };
@@ -39,7 +40,7 @@ function exercise(t, { credentialRef, installerMode, expected = "existing.key" }
       installerMode === "present" ? "printf '%s' replacement.key\n" :
         installerMode === "failed" ? "exit 1\n" : "exit 0\n");
     run = spawnSync("bash", ["-c", `${producer}\n"$NODE_EXE" "$CLI" "$REGISTRY" http://new.invalid "$BRIDGE"`], {
-      env: { ...env, SCRIPT_DIR: root, WITH_API_KEY: "false" }, encoding: "utf8", timeout: 10000,
+      env: { ...env, SCRIPT_DIR: root, WITH_API_KEY: "false", MODE: "standalone" }, encoding: "utf8", timeout: 10000,
     });
   } else {
     run = spawnSync(process.execPath, [cli, registry, "http://new.invalid", root], {

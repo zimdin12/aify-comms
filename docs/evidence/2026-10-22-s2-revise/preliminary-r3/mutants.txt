@@ -1,0 +1,11 @@
+# S2 preliminary-revise mutants, 2026-10-22T19:16:10.240857+00:00
+ARM 1a the installer resolves (and may generate) the key before the handoff [install.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 11 - a plain run hands off before the installer resolves, generates or stores any key; the full path does both
+ARM 1b the handoff resolves the key before its refusals [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 4 - the key is resolved after every refusal and discovery, generating one only when asked
+    not ok 5 - npm's global root unknown is a refusal, never a global install over what may be a protected link
+    not ok 6 - options the chain does not carry are refused before anything is installed or run
+    not ok 7 - a linked aify-env checkout without the chain is never modified: refused, naming git pull and --standalone
+    not ok 8 - an aify-env on PATH that npm did not install is not replaced
+ARM 2 an unknown npm root normalized to absent [scripts/chain-handoff.sh]: exit 1, KILLED; restored byte-equal True
+    not ok 5 - npm's global root unknown is a refusal, never a global install over what may be a protected link

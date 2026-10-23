@@ -1,0 +1,37 @@
+{
+ "run": "fb4a48af",
+ "envRef": "22ecc07",
+ "wrapperRef": "3a14911",
+ "results": [
+  {
+   "id": "missing-key",
+   "ok": true,
+   "detail": "exit 78; registry absent; launcher absent"
+  },
+  {
+   "id": "unapproved",
+   "ok": true,
+   "detail": "exit 78; digest 26074f8380ce802f828498c052301436400f8bc3df77adf2f5a938e8aebd4d57"
+  },
+  {
+   "id": "render-after",
+   "ok": true,
+   "detail": "exit 78; launcher fingerprint current"
+  },
+  {
+   "id": "key-from-store",
+   "ok": true,
+   "detail": "store-key found with 200 without 401"
+  },
+  {
+   "id": "no-recursion",
+   "ok": true,
+   "detail": "exit 0; entered 1; registry 5ac17c718ce0d71a8a95a37a2c991817af9fd719db0b466a27f763c6d34950e3 -> 5ac17c718ce0d71a8a95a37a2c991817af9fd719db0b466a27f763c6d34950e3; claude assets applied"
+  },
+  {
+   "id": "path-not-selection",
+   "ok": true,
+   "detail": "codex never run; codex-aify absent"
+  }
+ ]
+}

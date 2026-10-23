@@ -1,0 +1,5 @@
+httpCall refused: HTTP 404: {"detail":"Not Found"}
+
+--- control, registry pointed away ---
+[aify-comms] credential unavailable: registry_unreadable; will re-resolve
+httpCall refused: HTTP 401: {"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}

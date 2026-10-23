@@ -1,0 +1,263 @@
+{
+ "started": "2026-10-22T21:09:35.963341+00:00",
+ "baseline": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "c2dced8be28a7dcc37214790b61a9b002f0890af5ad4e2784160e5a1c9a23d52",
+   "raw": "raw/baseline-handoff.tap"
+  },
+  "chain": {
+   "exit": 0,
+   "pass": 30,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "99275b6c5f796762d9fc0a066f851c058b6b335cb8f960e44305d32c3d31e943",
+   "raw": "raw/baseline-chain.tap"
+  }
+ },
+ "arms": [
+  {
+   "arm": "C5 the package never bound to connect's report",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "2390a2c27053ee76fb215e264715827af33022bdf1c0f52f2977b5c7ecfbd25c",
+   "source_sha256_mutated": "c46b6d4de777b0a4ff22001d2cd012c18ec8241fdc6df903fb1358ab39e87fb5",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused"
+    ],
+    "first_error": [
+     "error: \"B was approved, named in a row and in a stale row, but connect installed A; B's package ran\"",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "99275b6c5f796762d9fc0a066f851c058b6b335cb8f960e44305d32c3d31e943",
+    "raw": "raw/arm-C5-the-package-never-bound-to-connect-s-report.tap"
+   },
+   "source_sha256_restored": "2390a2c27053ee76fb215e264715827af33022bdf1c0f52f2977b5c7ecfbd25c",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 binding checked before the no-assets skip",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "2390a2c27053ee76fb215e264715827af33022bdf1c0f52f2977b5c7ecfbd25c",
+   "source_sha256_mutated": "da9cb7e64cc4f28996fe5abbb301cf406644a1cc7b268c3141f79984009f5612",
+   "result": {
+    "exit": 1,
+    "pass": 28,
+    "fail": 2,
+    "failing": [
+     "not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused",
+     "not ok 29 - an approved package without an assets bin is no assets, even with no MCP row and nothing reported for it"
+    ],
+    "first_error": [
+     "error: \"B's repository was never approved for this run, and its package ran\"",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "99275b6c5f796762d9fc0a066f851c058b6b335cb8f960e44305d32c3d31e943",
+    "raw": "raw/arm-C5-binding-checked-before-the-no-assets-skip.tap"
+   },
+   "source_sha256_restored": "2390a2c27053ee76fb215e264715827af33022bdf1c0f52f2977b5c7ecfbd25c",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 connect's already-installed lines not read",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "2390a2c27053ee76fb215e264715827af33022bdf1c0f52f2977b5c7ecfbd25c",
+   "source_sha256_mutated": "0b9eeed93c3a886d4d13ca5a88139220a60e390820560bf37e6cc8e5e3c2e809",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 30 - connect's report of what it installed this run is read line by line, and reaches the assets lookup"
+    ],
+    "first_error": [
+     "error: |-",
+     "Expected values to be strictly deep-equal:",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "99275b6c5f796762d9fc0a066f851c058b6b335cb8f960e44305d32c3d31e943",
+    "raw": "raw/arm-C5-connect-s-already-installed-lines-not-read.tap"
+   },
+   "source_sha256_restored": "2390a2c27053ee76fb215e264715827af33022bdf1c0f52f2977b5c7ecfbd25c",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C5 the chain drops connect's report",
+   "file": "lib/install-chain.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "88076b723ed6e037531c239151b43a3c98f3698bf3e83db32ddb968ec4dcb660",
+   "source_sha256_mutated": "3f3d60c983f7e86578c0a5d6671bbcb67c0215febf0818999b738e1d407c1080",
+   "result": {
+    "exit": 1,
+    "pass": 29,
+    "fail": 1,
+    "failing": [
+     "not ok 30 - connect's report of what it installed this run is read line by line, and reaches the assets lookup"
+    ],
+    "first_error": [
+     "error: |-",
+     "Expected values to be strictly deep-equal:",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "99275b6c5f796762d9fc0a066f851c058b6b335cb8f960e44305d32c3d31e943",
+    "raw": "raw/arm-C5-the-chain-drops-connect-s-report.tap"
+   },
+   "source_sha256_restored": "88076b723ed6e037531c239151b43a3c98f3698bf3e83db32ddb968ec4dcb660",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 any file in the prefix taken as npm's shim",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "source_sha256_mutated": "25b34a9201d264d23ace4fcbee2a500684b04787ef08f602afc477ff61038bd6",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "c2dced8be28a7dcc37214790b61a9b002f0890af5ad4e2784160e5a1c9a23d52",
+    "raw": "raw/arm-C9-any-file-in-the-prefix-taken-as-npm-s-shim.tap"
+   },
+   "source_sha256_restored": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 any resolvable link taken as npm's",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "source_sha256_mutated": "4fa2c10227af7c0b66498a221ae3b4ba3587b48af7e86535250f7a20ecc70e13",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "c2dced8be28a7dcc37214790b61a9b002f0890af5ad4e2784160e5a1c9a23d52",
+    "raw": "raw/arm-C9-any-resolvable-link-taken-as-npm-s.tap"
+   },
+   "source_sha256_restored": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the shim's root never compared with npm's",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "source_sha256_mutated": "43e50828f20e49bfc1db1dcefcb50ae29cd19550b149705f2707a57c4af7aa6b",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a shim in the prefix whose node_modules is not npm's root:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "c2dced8be28a7dcc37214790b61a9b002f0890af5ad4e2784160e5a1c9a23d52",
+    "raw": "raw/arm-C9-the-shim-s-root-never-compared-with-npm-s.tap"
+   },
+   "source_sha256_restored": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 ownership never checked",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "source_sha256_mutated": "c5deebb3f2eebc3d104f18551aaff2730f6e23913c7a05cd4ff00c322565ec1b",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "c2dced8be28a7dcc37214790b61a9b002f0890af5ad4e2784160e5a1c9a23d52",
+    "raw": "raw/arm-C9-ownership-never-checked.tap"
+   },
+   "source_sha256_restored": "617537dc5b4f0cff19bdf71c9c0e45ec92ae441d6a066348fd56a4483feac9d0",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  }
+ ],
+ "restored": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "c2dced8be28a7dcc37214790b61a9b002f0890af5ad4e2784160e5a1c9a23d52",
+   "raw": "raw/restored-handoff.tap"
+  },
+  "chain": {
+   "exit": 0,
+   "pass": 30,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "99275b6c5f796762d9fc0a066f851c058b6b335cb8f960e44305d32c3d31e943",
+   "raw": "raw/restored-chain.tap"
+  }
+ },
+ "finished": "2026-10-22T21:12:11.789814+00:00"
+}

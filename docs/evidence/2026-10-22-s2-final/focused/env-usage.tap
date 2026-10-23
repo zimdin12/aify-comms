@@ -1,0 +1,80 @@
+
+> aify-env@0.9.4 test
+> node tests/run-in-a-temp-root.mjs tests/usage.test.js
+
+TAP version 13
+# Subtest: EVERY ARGUMENT THE DAEMON READS IS DECLARED
+ok 1 - EVERY ARGUMENT THE DAEMON READS IS DECLARED
+  ---
+  duration_ms: 1.1501
+  type: 'test'
+  ...
+# Subtest: both help flags are recognised
+ok 2 - both help flags are recognised
+  ---
+  duration_ms: 0.1607
+  type: 'test'
+  ...
+# Subtest: NEGATIVE CONTROL: an ordinary run is not asking for help
+ok 3 - NEGATIVE CONTROL: an ordinary run is not asking for help
+  ---
+  duration_ms: 0.0861
+  type: 'test'
+  ...
+# Subtest: the usage text names every subcommand and every key
+ok 4 - the usage text names every subcommand and every key
+  ---
+  duration_ms: 0.2276
+  type: 'test'
+  ...
+# Subtest: the header no longer carries a second copy of the command list
+ok 5 - the header no longer carries a second copy of the command list
+  ---
+  duration_ms: 0.1515
+  type: 'test'
+  ...
+# Subtest: AN UNKNOWN OPTION IS REFUSED RATHER THAN STARTING A DAEMON
+ok 6 - AN UNKNOWN OPTION IS REFUSED RATHER THAN STARTING A DAEMON
+  ---
+  duration_ms: 0.3377
+  type: 'test'
+  ...
+# Subtest: NEGATIVE CONTROL: every legitimate invocation is allowed through
+ok 7 - NEGATIVE CONTROL: every legitimate invocation is allowed through
+  ---
+  duration_ms: 0.2383
+  type: 'test'
+  ...
+# Subtest: `--port` swallows its value, so the number is not read as an option
+ok 8 - `--port` swallows its value, so the number is not read as an option
+  ---
+  duration_ms: 0.0779
+  type: 'test'
+  ...
+# Subtest: EVERYTHING AFTER `--` BELONGS TO THE CHILD
+ok 9 - EVERYTHING AFTER `--` BELONGS TO THE CHILD
+  ---
+  duration_ms: 0.2565
+  type: 'test'
+  ...
+# Subtest: a child's unknown flags are not refused on its behalf
+ok 10 - a child's unknown flags are not refused on its behalf
+  ---
+  duration_ms: 0.2811
+  type: 'test'
+  ...
+# Subtest: `--` with nothing after it is still a separator
+ok 11 - `--` with nothing after it is still a separator
+  ---
+  duration_ms: 0.1257
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 86.6778

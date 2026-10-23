@@ -1,0 +1,69 @@
+=== aify-comms installer ===
+Repo: /src/aify-comms
+Client: claude
+Server: http://comms:8800
+
+aify-env is not installed, so no credential was stored for it.
+That is fine unless you are delegating spawns: without a stored key, aify-env cannot
+advertise to a service that requires one, and this bridge keeps describing the host.
+Installing aify-env (/src/aify-env) to run the guided-install chain...
+
+added 1 package in 145ms
+[aify-env] chain: entered for aify-comms
+[aify-env] installing aify-wrapper (/src/aify-wrapper)
+
+added 1 package in 142ms
+=== aify-comms installer ===
+Repo: /src/aify-comms
+Client: claude
+Server: http://127.0.0.1:8800
+
+[1/4] Installing MCP dependencies...
+  Bridge runtime installed to /root/.aify-comms/mcp/stdio (native, fast load; staged swap).
+  Host bridge version stamp written to /root/.aify-comms/.aify-version (unknown).
+  Done (acquired; the chain connects and renders).
+connected aify-comms at http://comms:8800: committed
+  comms-bridge: 4002 file(s) on disk not in its manifest, not run by any entry (e.g. node_modules/.bin/aify-herdr-pane, node_modules/.bin/aify-wrapper-check, node_modules/.bin/aify-wrapper-connect, node_modules/.bin/aify-wrapper-install, node_modules/.bin/herdr-aify)
+wrote /root/.local/bin/claude-aify
+note: /root/.local/bin is not on PATH; add it or the launcher cannot be invoked by name.
+
+Installed wrapper 0.9.3 for: claude. Verify without starting anything:
+  claude-aify --check
+[aify-env] registry before assets: 5ac17c718ce0d71a8a95a37a2c991817af9fd719db0b466a27f763c6d34950e3
+=== aify-comms installer ===
+Repo: /src/aify-comms
+Client: claude
+Server: http://comms:8800
+
+[2/4] Installing agent guidance...
+  Done.
+[3/4] Registering MCP server...
+  Done.
+[4/4] Notification hook skipped (use --with-hook to enable).
+
+
+  [usage] WARNING — OpenAI/ChatGPT usage will NOT appear in the dashboard: no OpenAI token found.
+  [usage] Install the codex CLI and sign in (`codex login`). Hermes delegates its OpenAI auth to the codex store, so codex is what actually holds the token — a hermes-only install has none. Searched: /root/.codex/auth.json, /root/AppData/Local/codex/auth.json, /root/.config/codex/auth.json, /root/Library/Application Support/codex/auth.json, /root/.hermes/auth.json, /root/AppData/Local/hermes/auth.json, /root/.config/hermes/auth.json, /root/Library/Application Support/hermes/auth.json
+  [usage] Everything else works; only the OpenAI quota panel is affected.
+
+
+=== Installation complete ===
+Components on this host:
+  aify-comms: MISSING -- clone https://github.com/zimdin12/aify-comms and run ./install.sh
+  aify-env: installed 0.9.4
+  aify-wrapper: installed 0.9.3
+Verifier: aify-comms doctor    verify this install against the RUNNING system (or aify-doctor)
+          aify-comms --check   validate the MCP bridge script (starts nothing)
+  Managed agents are hosted by aify-env. Check with 'aify-env doctor'; start 'aify-env' only if none is serving this host.
+Restart Claude Code for changes to take effect.
+For resident-session wakeups, start Claude with: claude-aify
+  (wrapper installed at ~/.local/bin/claude-aify)
+
+Quick start:
+  comms_register(agentId="my-agent", role="coder", runtime="claude-code")
+  comms_agents()
+  comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there")
+  comms_inbox(agentId="my-agent", mode="headers")
+  comms_inbox(agentId="my-agent", messageId="<message id>")
+[aify-env] registry after assets: 5ac17c718ce0d71a8a95a37a2c991817af9fd719db0b466a27f763c6d34950e3
+[aify-env] chain: complete

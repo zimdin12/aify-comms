@@ -1,0 +1,436 @@
+{
+ "started": "2026-10-22T19:28:08.854688+00:00",
+ "baseline": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "b034e3c57fcc98948aab0b39f33c25351fc8213424bb312cf66ba4c915b7cf9a",
+   "raw": "raw/baseline-handoff.tap"
+  },
+  "readback": {
+   "exit": 0,
+   "pass": 3,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "c5dcce932e95992d11fc6cd2b438aa4929c68da9938611294b670f429826801a",
+   "raw": "raw/baseline-readback.tap"
+  },
+  "chain": {
+   "exit": 0,
+   "pass": 28,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+   "raw": "raw/baseline-chain.tap"
+  },
+  "entry": {
+   "exit": 0,
+   "pass": 3,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "f2914e586f96dcde8de53ea679fe594f6ac2f4344ec8fb8004c66749d5071c7f",
+   "raw": "raw/baseline-entry.tap"
+  }
+ },
+ "arms": [
+  {
+   "arm": "S2R1 the installer resolves the key before the handoff",
+   "file": "install.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "e496bab1585c712c9bc6c73f52dcd56d2452225af8b596c8a67e3ca663e57f83",
+   "source_sha256_mutated": "3d8524f66c93bcaf0c16bc063134af340e6910dcb055a833b9a6e17f5e6922c5",
+   "result": {
+    "exit": 1,
+    "pass": 13,
+    "fail": 2,
+    "failing": [
+     "not ok 12 - a plain run hands off before the installer resolves, generates or stores any key; the full path does both",
+     "not ok 13 - through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists"
+    ],
+    "first_error": [
+     "error: |-",
+     "the installer resolved or stored a key before handing off",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "b034e3c57fcc98948aab0b39f33c25351fc8213424bb312cf66ba4c915b7cf9a",
+    "raw": "raw/arm-S2R1-the-installer-resolves-the-key-before-the-handoff.tap"
+   },
+   "source_sha256_restored": "e496bab1585c712c9bc6c73f52dcd56d2452225af8b596c8a67e3ca663e57f83",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R2 ownership never compared",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "bed5d4c3142178f93eed1d06e47d2b0d67d21358cd34f81ab8fbae9e0fa84a76",
+   "source_sha256_mutated": "fc30d72838f83cee15609b0855932e90a17a23e0308b9bd5e91da21a44dceb37",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b034e3c57fcc98948aab0b39f33c25351fc8213424bb312cf66ba4c915b7cf9a",
+    "raw": "raw/arm-S2R2-ownership-never-compared.tap"
+   },
+   "source_sha256_restored": "bed5d4c3142178f93eed1d06e47d2b0d67d21358cd34f81ab8fbae9e0fa84a76",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R2 an unknown prefix taken as agreeing",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "bed5d4c3142178f93eed1d06e47d2b0d67d21358cd34f81ab8fbae9e0fa84a76",
+   "source_sha256_mutated": "e980f02d3ccd832c514415f2ff0aef602385afae2845e8c0f5ccd9dfad4b5fe4",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH that is not npm's global one makes ownership ambiguous: refused, before the global module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "npm's global prefix unknown beside an aify-env on PATH is ambiguous",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "b034e3c57fcc98948aab0b39f33c25351fc8213424bb312cf66ba4c915b7cf9a",
+    "raw": "raw/arm-S2R2-an-unknown-prefix-taken-as-agreeing.tap"
+   },
+   "source_sha256_restored": "bed5d4c3142178f93eed1d06e47d2b0d67d21358cd34f81ab8fbae9e0fa84a76",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "arm 2 complement: only a REFUSED handoff falls back to the key block",
+   "file": "install.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "e496bab1585c712c9bc6c73f52dcd56d2452225af8b596c8a67e3ca663e57f83",
+   "source_sha256_mutated": "20cffc11f4698e0a49b72704e1712e3b6c6c095178e9b16e1808c6f7003096f2",
+   "result": {
+    "exit": 1,
+    "pass": 13,
+    "fail": 2,
+    "failing": [
+     "not ok 12 - a plain run hands off before the installer resolves, generates or stores any key; the full path does both",
+     "not ok 13 - through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists"
+    ],
+    "first_error": [
+     "error: |-",
+     "a refused handoff fell back to the key block",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "b034e3c57fcc98948aab0b39f33c25351fc8213424bb312cf66ba4c915b7cf9a",
+    "raw": "raw/arm-arm-2-complement-only-a-REFUSED-handoff-falls-back-to-the-key-block.tap"
+   },
+   "source_sha256_restored": "e496bab1585c712c9bc6c73f52dcd56d2452225af8b596c8a67e3ca663e57f83",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "E3 a not-found about any name taken as absent",
+   "file": "scripts/sandbox/docker-readback.mjs",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "readback",
+   "source_sha256_before": "a1721d33087c4021717ac7a7558b3ed9e3dc33df4ede28331efbe59a64687123",
+   "source_sha256_mutated": "29e665d98cecf598fdf1b567290f980354c3f2440d8245daa7f349237ad912c6",
+   "result": {
+    "exit": 1,
+    "pass": 2,
+    "fail": 1,
+    "failing": [
+     "not ok 2 - anything else is present or unknown, never absent"
+    ],
+    "first_error": [
+     "error: |-",
+     "a not-found about another name",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "c5dcce932e95992d11fc6cd2b438aa4929c68da9938611294b670f429826801a",
+    "raw": "raw/arm-E3-a-not-found-about-any-name-taken-as-absent.tap"
+   },
+   "source_sha256_restored": "a1721d33087c4021717ac7a7558b3ed9e3dc33df4ede28331efbe59a64687123",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R3 the tuple's approval never consulted",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "source_sha256_mutated": "ba7c488bf04fbc32426d97b1b2d719587186d7fc9d75a608245e499ef3534ec8",
+   "result": {
+    "exit": 1,
+    "pass": 27,
+    "fail": 1,
+    "failing": [
+     "not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused"
+    ],
+    "first_error": [
+     "error: \"B's repository was never approved for this run, and its package ran\"",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+    "raw": "raw/arm-S2R3-the-tuple-s-approval-never-consulted.tap"
+   },
+   "source_sha256_restored": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R3 the package never joined to what connect published",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "source_sha256_mutated": "e4dd8ba1bc431a21d0c718fa03f5669d228443eb3b7a7abf7d88ffefb0fdcf05",
+   "result": {
+    "exit": 1,
+    "pass": 27,
+    "fail": 1,
+    "failing": [
+     "not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused"
+    ],
+    "first_error": [
+     "error: \"B was approved but connect published A; B's package ran\"",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+    "raw": "raw/arm-S2R3-the-package-never-joined-to-what-connect-published.tap"
+   },
+   "source_sha256_restored": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R4 an empty right-hand side given the caller's directory",
+   "file": "install.sh",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "entry",
+   "source_sha256_before": "6c311d614012570439660f1fa146038f84dceb24c4f3a58b66f50e804d883562",
+   "source_sha256_mutated": "38c1a5daf7239fb221dbd8609661267d5cc3f7fecc9928c02a0346326f821df9",
+   "result": {
+    "exit": 1,
+    "pass": 2,
+    "fail": 1,
+    "failing": [
+     "not ok 3 - an empty right-hand side reaches the chain's parser empty, and a UNC path is kept absolute"
+    ],
+    "first_error": [
+     "error: 'an empty key path was given a directory: /c/Users/Administrator/projects/aify-env-wt-s2/bin/aify-env-install.mjs --connect aify-comms=http://c.test:8800 --client claude --secret aify-comms.credentialRef=/tmp/aify-env-testrun-Jc39na/entry-caller-wTVKtv/ --installer aify-comms=/tmp/aify-env-testrun-Jc39na/entry-caller-wTVKtv/'",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected: true"
+    ],
+    "test_sha256": "f2914e586f96dcde8de53ea679fe594f6ac2f4344ec8fb8004c66749d5071c7f",
+    "raw": "raw/arm-S2R4-an-empty-right-hand-side-given-the-caller-s-directory.tap"
+   },
+   "source_sha256_restored": "6c311d614012570439660f1fa146038f84dceb24c4f3a58b66f50e804d883562",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R4 a UNC path made relative",
+   "file": "install.sh",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "entry",
+   "source_sha256_before": "6c311d614012570439660f1fa146038f84dceb24c4f3a58b66f50e804d883562",
+   "source_sha256_mutated": "ebfed6fa95110048a19f5359e7a5ee01735384fdcb78a80d8ac481d103fccf80",
+   "result": {
+    "exit": 1,
+    "pass": 2,
+    "fail": 1,
+    "failing": [
+     "not ok 3 - an empty right-hand side reaches the chain's parser empty, and a UNC path is kept absolute"
+    ],
+    "first_error": [
+     "error: 'a UNC path was made relative: /c/Users/Administrator/projects/aify-env-wt-s2/bin/aify-env-install.mjs --connect aify-comms=http://c.test:8800 --client claude --secret aify-comms.credentialRef=/tmp/aify-env-testrun-2lONTe/entry-caller-yBTljc/\\\\\\\\host\\\\share\\\\key --installer aify-comms=//host/share/install.sh'",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected: true"
+    ],
+    "test_sha256": "f2914e586f96dcde8de53ea679fe594f6ac2f4344ec8fb8004c66749d5071c7f",
+    "raw": "raw/arm-S2R4-a-UNC-path-made-relative.tap"
+   },
+   "source_sha256_restored": "6c311d614012570439660f1fa146038f84dceb24c4f3a58b66f50e804d883562",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R5 exports never checked",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "source_sha256_mutated": "0a87b421c976ac19c140e18ccdeae8403840bb81e0918fd20464c3853e1cb201",
+   "result": {
+    "exit": 1,
+    "pass": 27,
+    "fail": 1,
+    "failing": [
+     "not ok 7 - a wrapper module is usable only with the functions and catalogue the chain calls, each checked"
+    ],
+    "first_error": [
+     "error: 'a wrapper without validateSpec passed'",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected:"
+    ],
+    "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+    "raw": "raw/arm-S2R5-exports-never-checked.tap"
+   },
+   "source_sha256_restored": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "S2R5 the catalogue's shape never checked",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "source_sha256_mutated": "2f40bf92114ced40ffaa12f0d31a256a3b7170f71e804551c91a1794b4ecf72d",
+   "result": {
+    "exit": 1,
+    "pass": 27,
+    "fail": 1,
+    "failing": [
+     "not ok 7 - a wrapper module is usable only with the functions and catalogue the chain calls, each checked"
+    ],
+    "first_error": [
+     "error: |-",
+     "The input did not match the regular expression /artifact-catalogue\\.json holds no approved list/. Input:",
+     "",
+     "''"
+    ],
+    "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+    "raw": "raw/arm-S2R5-the-catalogue-s-shape-never-checked.tap"
+   },
+   "source_sha256_restored": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "E2 assets applied to every client on PATH, selected or not (the production route)",
+   "file": "lib/install-chain.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "05d450b4683cf5bd43c89f52b3ec28328c1e1042a4b6b2d48572cecedc5f78f7",
+   "source_sha256_mutated": "9ed0974c0808fe9ba15b10549de02e63d800eb65d8e6a574d50bdd83d055b224",
+   "result": {
+    "exit": 1,
+    "pass": 27,
+    "fail": 1,
+    "failing": [
+     "not ok 18 - PATH is not selection: a CLI on PATH that nobody selected gets no assets"
+    ],
+    "first_error": [
+     "error: 'codex was touched'",
+     "code: 'ERR_ASSERTION'",
+     "name: 'AssertionError'",
+     "expected: true"
+    ],
+    "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+    "raw": "raw/arm-E2-assets-applied-to-every-client-on-PATH-selected-or-not-the-production-rou.tap"
+   },
+   "source_sha256_restored": "05d450b4683cf5bd43c89f52b3ec28328c1e1042a4b6b2d48572cecedc5f78f7",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "arm 13 complement: a second physical package refused only once an assets bin is declared",
+   "file": "lib/install-chain-host.mjs",
+   "repo": "C:/Users/Administrator/projects/aify-env-wt-s2",
+   "test": "chain",
+   "source_sha256_before": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "source_sha256_mutated": "05e26842fcd94c3db97e662b73d77210baa4eccd1de5e49fdf6aa24db4c1a3f7",
+   "result": {
+    "exit": 1,
+    "pass": 26,
+    "fail": 2,
+    "failing": [
+     "not ok 27 - a package's assets entry is the <service>-assets bin of the one package npm installed directly, beside its dependencies",
+     "not ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused"
+    ],
+    "first_error": [
+     "error: |-",
+     "a hoisted dependency beside it is not a second candidate",
+     "+ actual - expected",
+     ""
+    ],
+    "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+    "raw": "raw/arm-arm-13-complement-a-second-physical-package-refused-only-once-an-assets-bin-.tap"
+   },
+   "source_sha256_restored": "0f2b5387dd859b820c3d1309b53e03d88799cd1bc8206f4f02442487a1b0a555",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  }
+ ],
+ "restored": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "b034e3c57fcc98948aab0b39f33c25351fc8213424bb312cf66ba4c915b7cf9a",
+   "raw": "raw/restored-handoff.tap"
+  },
+  "readback": {
+   "exit": 0,
+   "pass": 3,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "c5dcce932e95992d11fc6cd2b438aa4929c68da9938611294b670f429826801a",
+   "raw": "raw/restored-readback.tap"
+  },
+  "chain": {
+   "exit": 0,
+   "pass": 28,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "030d3ca17109a673e0e95455e4edfb450f6edd122d96515abdb3bf04a3d4b751",
+   "raw": "raw/restored-chain.tap"
+  },
+  "entry": {
+   "exit": 0,
+   "pass": 3,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "f2914e586f96dcde8de53ea679fe594f6ac2f4344ec8fb8004c66749d5071c7f",
+   "raw": "raw/restored-entry.tap"
+  }
+ },
+ "finished": "2026-10-22T19:33:10.861379+00:00"
+}

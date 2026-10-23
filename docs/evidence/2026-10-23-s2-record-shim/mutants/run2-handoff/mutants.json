@@ -1,0 +1,218 @@
+{
+ "started": "2026-10-23T01:27:48.516027+00:00",
+ "baseline": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+   "raw": "raw/baseline-handoff.tap"
+  }
+ },
+ "arms": [
+  {
+   "arm": "C9 a shim judged by a string it contains",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "1e0a259cd325ae06cfda7f108ce0dfb193b61825971ec96d11328feaf54a5658",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script that names the package's bin only in a comment:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-a-shim-judged-by-a-string-it-contains.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the regenerated shim never compared",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "ab1d681598530f3114505f8813f8b7319e796b0b4457e5aa578d790fdd80b8b4",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-the-regenerated-shim-never-compared.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 no cmd-shim taken as a match",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "9737f95b9d537e442ec70b0d440674b722d3b001b696cfc3a3f1ac4563733c71",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, npm's shim with no cmd-shim to regenerate it from:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-no-cmd-shim-taken-as-a-match.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the bin's first line not carried into the regenerated layout",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "ff01cbcd91f7143d0a1688f007d78ea9c88a1c6df1823bb71a0a3a41d9eb0c67",
+   "result": {
+    "exit": 1,
+    "pass": 13,
+    "fail": 2,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated",
+     "not ok 10 - an older packaged aify-env is updated from its source, then the chain runs"
+    ],
+    "first_error": [
+     "error: |-",
+     "CONTROL: npm's own shim beside the chain: The aify-env on PATH (/tmp/handoff-bin-UF3FOr/aify-env) is not npm's own bin for C:/Users/Administrator/AppData/Local/Temp/handoff-bin-UF3FOr/node_modules/aify-env, so which installation runs is unknown; nothing was installed.",
+     "Remove the one that should not be there, or rerun with --standalone to use this installer's full path.",
+     ""
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-the-bin-s-first-line-not-carried-into-the-regenerated-layout.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 any resolvable link taken as npm's",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "2110faac3f68f023beb35a8f090c7953337b667e2c914273a46ace364a875b77",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-any-resolvable-link-taken-as-npm-s.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 the shim's root never compared with npm's",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "e5fd8279e847595e91f0fd5d38c0e549c59f05259ee4893c7d1bae641f607c52",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a shim in the prefix whose node_modules is not npm's root:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-the-shim-s-root-never-compared-with-npm-s.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  },
+  {
+   "arm": "C9 ownership never checked",
+   "file": "scripts/chain-handoff.sh",
+   "repo": "C:/Docker/aify-comms-wt-s2",
+   "test": "handoff",
+   "source_sha256_before": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "source_sha256_mutated": "60581a6e8af41fde0f6d29668ffa5b539109aea29e8e7da58ae1cdf05186d5a6",
+   "result": {
+    "exit": 1,
+    "pass": 14,
+    "fail": 1,
+    "failing": [
+     "not ok 6 - an aify-env on PATH runs only when it is npm's own bin for the global package; anything else is refused before a module is chosen or updated"
+    ],
+    "first_error": [
+     "error: |-",
+     "chain, a script of somebody else's in the prefix:",
+     "",
+     "0 !== 78"
+    ],
+    "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+    "raw": "raw/arm-C9-ownership-never-checked.tap"
+   },
+   "source_sha256_restored": "a3441ed7b18935ba4058c23782a51649cf93485c3e12ddb10160a3c791860a3a",
+   "restored_equal": true,
+   "verdict": "KILLED"
+  }
+ ],
+ "restored": {
+  "handoff": {
+   "exit": 0,
+   "pass": 15,
+   "fail": 0,
+   "failing": [],
+   "first_error": [],
+   "test_sha256": "9c93996fb9614c96ccc22f6f8efa5533b485215241c9b54bf505488edf41e204",
+   "raw": "raw/restored-handoff.tap"
+  }
+ },
+ "finished": "2026-10-23T01:31:05.640397+00:00"
+}

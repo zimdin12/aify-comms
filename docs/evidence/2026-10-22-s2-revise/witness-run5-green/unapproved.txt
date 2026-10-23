@@ -1,0 +1,15 @@
+[aify-env] node v22.23.4
+[aify-env] installing dependencies
+
+up to date in 164ms
+[aify-env] installing the aify-env command
+
+up to date in 193ms
+[aify-env] installed: /usr/local/bin/aify-env
+[aify-env] /root/.aify/config.json: transport.localSocket is already true; left alone
+[aify-env] chain: entered for aify-comms
+[aify-env] installing aify-wrapper (/src/aify-wrapper)
+
+added 1 package in 151ms
+[aify-env] problem: acquire aify-comms: artifact comms-bridge (zimdin12/aify-comms@0c67ddd23c157d228c6cf33049c5b170a6a9aa2c) is not approved; to approve exactly this tuple, rerun with --approve cafc8b6d602cee0346d2b9785056e51ea130a3b77f77137d2e774db278cd827c
+[aify-env] chain: not complete

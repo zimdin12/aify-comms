@@ -1,0 +1,24 @@
+claude mcp remove --scope local aify-comms
+claude mcp remove --scope project aify-comms
+claude mcp remove --scope user aify-comms
+claude mcp add aify-comms --scope user --env AIFY_SERVER_URL=http://comms:8800 --env CLAUDE_MCP_SERVER_URL=http://comms:8800 --env AIFY_API_KEY=<key> --env CLAUDE_MCP_API_KEY=<key> -- node /root/.aify-comms/mcp/stdio/server.js
+claude mcp remove --scope local aify-comms-channel
+claude mcp remove --scope project aify-comms-channel
+claude mcp remove --scope user aify-comms-channel
+claude mcp add --scope user aify-comms-channel --env AIFY_SERVER_URL=http://comms:8800 --env CLAUDE_MCP_SERVER_URL=http://comms:8800 --env AIFY_API_KEY=<key> --env CLAUDE_MCP_API_KEY=<key> -- node /root/.aify-comms/mcp/stdio/claude-channel.js
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>
+CLAUDE_MCP_API_KEY=<key>
+AIFY_API_KEY=<key>

@@ -1,0 +1,11 @@
+register-service-cli-credential exit=0
+no-unwatched-oversized-file exit=0
+child-processes-cannot-inherit-live-carriers exit=0
+the-hermes-mcp-entry-carries-the-service-key exit=0
+the-credential-reaches-the-other-tier exit=0
+python-installer exit=0
+python-docs-gates exit=0
+env one-command-with-subcommands exit=0
+env usage exit=0
+env no-oversized-source-file exit=0
+env no-command-substitution-in-installer-strings exit=0

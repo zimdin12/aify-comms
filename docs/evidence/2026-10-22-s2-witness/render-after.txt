@@ -1,0 +1,30 @@
+[aify-env] node v22.23.4
+[aify-env] installing dependencies
+
+up to date in 173ms
+[aify-env] installing the aify-env command
+
+up to date in 145ms
+[aify-env] installed: /usr/local/bin/aify-env
+[aify-env] /root/.aify/config.json: transport.localSocket is already true; left alone
+[aify-env] chain: entered for aify-comms
+=== aify-comms installer ===
+Repo: /root/.aify/sources/aify-comms/e1f72e485451c650bb49250a7249fd6ae7d3e141
+Client: claude
+Server: http://127.0.0.1:8800
+
+[1/4] Installing MCP dependencies...
+  Bridge runtime installed to /root/.aify-comms/mcp/stdio (native, fast load; staged swap).
+  Host bridge version stamp written to /root/.aify-comms/.aify-version (e1f72e48).
+  Done (acquired; the chain connects and renders).
+connected aify-comms at http://comms:8800: committed
+  comms-bridge: 4002 file(s) on disk not in its manifest, not run by any entry (e.g. node_modules/.bin/aify-herdr-pane, node_modules/.bin/aify-wrapper-check, node_modules/.bin/aify-wrapper-connect, node_modules/.bin/aify-wrapper-install, node_modules/.bin/herdr-aify)
+wrote /root/.local/bin/claude-aify
+note: /root/.local/bin is not on PATH; add it or the launcher cannot be invoked by name.
+
+Installed wrapper 0.9.3 for: claude. Verify without starting anything:
+  claude-aify --check
+[aify-env] registry before assets: 4839cd5921def0cfe12dc294d9585917710f17346400ebe64c791ef2c16364f3
+[aify-env] registry after assets: 4839cd5921def0cfe12dc294d9585917710f17346400ebe64c791ef2c16364f3
+[aify-env] pending: claude: pending (CLI absent)
+[aify-env] chain: not complete

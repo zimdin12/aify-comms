@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "current": [
+    {
+      "name": "claude-aify",
+      "installed": "db88c05b67e0f508",
+      "expected": "db88c05b67e0f508"
+    }
+  ],
+  "stale": [],
+  "unknown": [],
+  "summary": "1 current"
+}

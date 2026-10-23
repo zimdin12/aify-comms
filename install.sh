@@ -31,6 +31,7 @@ CLIENT="claude"
 SERVER_URL=""
 WITH_HOOK=false
 WITH_API_KEY=false
+MODE=""
 # Plan 5 (2026-05-25): --prebuild-dry-run exits after running the hermes
 # web_dist prebuild branch (no npm, no wrappers, no key or credential). Used by
 # service/tests/test_install_hermes_prebuild.py to verify the branch's
@@ -115,6 +116,7 @@ while [ $# -gt 0 ]; do
       PREBUILD_DRY_RUN=true
       shift
       ;;
+    --acquire-only|--assets-only|--standalone) MODE="${1#--}"; shift ;;  # guided install S2: scripts/chain-handoff.sh
     --emit-wrappers|--emit-claude-wrappers|--emit-codex-wrappers|--emit-hermes-wrappers|--emit-pi-wrappers)
       EMIT_WRAPPERS_DIR="${2:-}"
       shift 2
@@ -1002,9 +1004,8 @@ hermes_runtime_is_native_windows() {
 
 # One reader for the key: this shell, then the service's own `.env`. scripts/api-key.sh says why.
 # No `|| true`: it made ERROR read as ABSENT. "HOW THE CALLERS MUST READ THIS" there covers both.
-aify_api_key() {
-  bash "$SCRIPT_DIR/scripts/api-key.sh"
-}
+# The chain's modes register by REFERENCE: connect published the key, and the bridge reads it for its endpoint.
+aify_api_key() { case "$MODE" in acquire-only|assets-only) ;; *) bash "$SCRIPT_DIR/scripts/api-key.sh" ;; esac; }
 
 path_for_node() {
   local value="$1"
@@ -1917,18 +1918,20 @@ fi
 # host's credential store (it did, on every test run, until the 0.7.6 review).
 [ "$CLIENT" = "hermes" ] && [ "$PREBUILD_DRY_RUN" = true ] && { prebuild_hermes_web_dist || true; exit 0; }
 
-# Settled BEFORE the first config that carries it. NOT gated on `--with-api-key`: that flag asks for a
-# key to be GENERATED, and gating the carry left configured clients beside an aify-env holding no
-# credential, 401'ing while both reported healthy. See test_install_carries_the_key_to_the_env*.
-# ONE SCRIPT ANSWERS "what key does this install use", generate and resolve alike. It also DECIDES:
-# a bare `|| true` here read a conflict and an unparseable .env as "no key, carry on" (Round 8 H8).
+# A plain run hands off once to aify-env's chain (S2) and ends with its status, BEFORE this installer resolves, makes
+# or stores any key: the handoff refuses what it cannot carry first, then resolves the key itself. --standalone stays.
+if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY="$WITH_API_KEY" WITH_HOOK="$WITH_HOOK" MCP_TRANSPORT="${MCP_TRANSPORT:-}" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
+# The full path's key: settled BEFORE the first config that carries it, NOT gated on `--with-api-key` (it GENERATES one;
+# gating the carry left clients 401'ing: test_install_carries_the_key_to_the_env*). ONE SCRIPT decides "what key" (H8).
+# Skipped in the chain's modes: the chain took the key and connect published it, which the bridge reads for its endpoint.
+case "$MODE" in acquire-only|assets-only) ;; *)
 [ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
 RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
   export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"
 fi
-
+;; esac
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
 # steps so a fresh hermes install doesn't fall through to plain `hermes`
 # (which leaves AIFY_HERMES_GATEWAY_URL unexported and every resident
@@ -1937,12 +1940,13 @@ fi
 
 require_cmd node
 require_cmd npm
-if [ "$CLIENT" = "hermes" ]; then
+if [ "$MODE" = acquire-only ]; then :; elif [ "$CLIENT" = "hermes" ]; then
   require_hermes_cmd
 else
   require_cmd "$CLIENT"
 fi
 
+if [ "$MODE" != assets-only ]; then
 echo "[1/4] Installing MCP dependencies..."
 cd "$SCRIPT_DIR/mcp/stdio"
 npm install --silent
@@ -1961,6 +1965,7 @@ cd "$SCRIPT_DIR"
 # every wrapper + MCP config points at. Re-synced on every install (mirror with
 # --delete) so security fixes flow; self-contained so a client needs no repo.
 copy_bridge_to_native_dir
+[ "$MODE" != acquire-only ] || { echo "  Done (acquired; the chain connects and renders)."; exit 0; }
 
 # Registered BEFORE any launcher renders: a launcher bakes the registry's fingerprint as it stands, so
 # registering afterwards left every first install with a launcher stale by the entry it had just added.
@@ -1969,6 +1974,7 @@ node "$(path_for_node "$AIFY_BRIDGE_DIR/register-service-cli.mjs")" "$(path_for_
   "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$(path_for_node "$AIFY_BRIDGE_DIR")" \
   || echo "warning: aify-comms was not registered in $AIFY_SERVICE_REGISTRY (see above)." >&2
 echo "  Done."
+fi
 
 echo "[2/4] Installing agent guidance..."
 if [ "$CLIENT" = "claude" ]; then
@@ -2020,7 +2026,7 @@ fi
 
 if [ "$CLIENT" = "claude" ]; then
   if [ -n "$SERVER_URL" ]; then
-    install_claude_wrapper
+    [ "$MODE" = assets-only ] || install_claude_wrapper
     # Always install the Stop + UserPromptSubmit hooks (not gated on
     # --with-hook). Stop is the architectural turn-end signal; UserPromptSubmit
     # is its symmetric counterpart so direct CLI typing (not just channel-
@@ -2033,7 +2039,7 @@ if [ "$CLIENT" = "claude" ]; then
     remove_claude_wrapper
   fi
 elif [ "$CLIENT" = "codex" ]; then
-  install_codex_wrapper
+  [ "$MODE" = assets-only ] || install_codex_wrapper
   # Turn-start/turn-end, interrupt and approval hooks for codex-aify, mirroring claude-aify.
   # Codex's hooks.json shares the Claude Code schema. Inert if a codex CLI version doesn't
   # recognize an event.
@@ -2061,7 +2067,7 @@ elif [ "$CLIENT" = "hermes" ]; then
   # into hermes' config.yaml mcp_servers by register_stdio_server above, which
   # is what gives the in-session hermes agent the comms_* tools for self-reply.
   install_hermes_plugin
-  install_hermes_wrapper
+  [ "$MODE" = assets-only ] || install_hermes_wrapper
   bash "$SCRIPT_DIR/scripts/hermes-session-servers.sh" "$AIFY_SERVICE_REGISTRY" \
     || { echo "install.sh: hermes-aify is installed, but the hermes config step above did not finish." >&2; exit 78; }
   # Turn-start (pre_llm_call), turn-end (on_session_end) and approval
@@ -2152,20 +2158,4 @@ elif [ "$CLIENT" = "hermes" ]; then
   fi
 fi
 echo ""
-echo "Quick start:"
-if [ "$CLIENT" = "codex" ]; then
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\", appServerUrl=\"\$AIFY_CODEX_APP_SERVER_URL\")"
-  echo "  # Current bridges auto-discover the live Codex thread from the app-server when possible."
-  echo "  # Add sessionHandle=\"\$CODEX_THREAD_ID\" only when CODEX_THREAD_ID is non-empty in this same session."
-elif [ "$CLIENT" = "claude" ]; then
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")"
-elif [ "$CLIENT" = "hermes" ]; then
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"hermes\")"
-  echo "  # Add sessionHandle=\"\$HERMES_SESSION_ID\" only after explicit hermes-aify --resume <id> in this same terminal."
-else
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\")"
-fi
-echo "  comms_agents()"
-echo "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")"
-echo "  comms_inbox(agentId=\"my-agent\", mode=\"headers\")"
-echo "  comms_inbox(agentId=\"my-agent\", messageId=\"<message id>\")"
+bash "$SCRIPT_DIR/scripts/install-quickstart.sh" "$CLIENT"

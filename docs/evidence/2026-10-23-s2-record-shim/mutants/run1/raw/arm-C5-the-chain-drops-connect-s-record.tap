@@ -1,0 +1,233 @@
+
+> aify-env@0.9.4 test
+> node tests/run-in-a-temp-root.mjs tests/the-install-chain-runs-its-phases-in-order.test.js
+
+TAP version 13
+# connected aify-dashboard: committed
+#   bridge-b: installed at /forged/b
+# connected aify-dashboard: committed
+#   bridge-b: installed at /forged/b
+# connected aify-dashboard: committed
+#   bridge-b: installed at /forged/b
+# connected aify-dashboard: committed
+#   bridge-b: installed at /forged/b
+# Subtest: render comes after connect, and a selected client whose CLI is absent fails a --no-prompt run, named
+ok 1 - render comes after connect, and a selected client whose CLI is absent fails a --no-prompt run, named
+  ---
+  duration_ms: 2.2198
+  type: 'test'
+  ...
+# Subtest: control: the same run with the CLI present applies assets after render and completes
+ok 2 - control: the same run with the CLI present applies assets after render and completes
+  ---
+  duration_ms: 0.3952
+  type: 'test'
+  ...
+# Subtest: every assets installer starts without the key variables any connected service names
+ok 3 - every assets installer starts without the key variables any connected service names
+  ---
+  duration_ms: 0.3162
+  type: 'test'
+  ...
+# Subtest: a registry whose key variables cannot be read stops assets, never runs them with the key inherited
+ok 4 - a registry whose key variables cannot be read stops assets, never runs them with the key inherited
+  ---
+  duration_ms: 0.3105
+  type: 'test'
+  ...
+# Subtest: every installer the chain runs is told it may not ask: stdin closed and the no-prompt contract set
+ok 5 - every installer the chain runs is told it may not ask: stdin closed and the no-prompt contract set
+  ---
+  duration_ms: 0.4493
+  type: 'test'
+  ...
+# Subtest: an installed aify-wrapper that lacks what the chain needs is a reported refusal with guidance, not a crash
+ok 6 - an installed aify-wrapper that lacks what the chain needs is a reported refusal with guidance, not a crash
+  ---
+  duration_ms: 0.2446
+  type: 'test'
+  ...
+# Subtest: a wrapper module is usable only with the functions and catalogue the chain calls, each checked
+ok 7 - a wrapper module is usable only with the functions and catalogue the chain calls, each checked
+  ---
+  duration_ms: 26.9516
+  type: 'test'
+  ...
+# Subtest: an assets step that writes the registry fails the run, naming both hashes
+ok 8 - an assets step that writes the registry fails the run, naming both hashes
+  ---
+  duration_ms: 0.3176
+  type: 'test'
+  ...
+# Subtest: envWithout drops the named variables whatever their case, and keeps the rest
+ok 9 - envWithout drops the named variables whatever their case, and keeps the rest
+  ---
+  duration_ms: 0.3248
+  type: 'test'
+  ...
+# Subtest: registryKeyEnv reads each connected service's keyEnv from the registry, and refuses one it cannot parse
+ok 10 - registryKeyEnv reads each connected service's keyEnv from the registry, and refuses one it cannot parse
+  ---
+  duration_ms: 2.2108
+  type: 'test'
+  ...
+# Subtest: a package's assets bin that exits non-zero is a reported problem, never a skip
+ok 11 - a package's assets bin that exits non-zero is a reported problem, never a skip
+  ---
+  duration_ms: 0.3741
+  type: 'test'
+  ...
+# Subtest: without --no-prompt a pending client is reported, not failed
+ok 12 - without --no-prompt a pending client is reported, not failed
+  ---
+  duration_ms: 0.2628
+  type: 'test'
+  ...
+# Subtest: a missing key stops the run before anything is acquired, connected or rendered, naming it
+ok 13 - a missing key stops the run before anything is acquired, connected or rendered, naming it
+  ---
+  duration_ms: 0.1856
+  type: 'test'
+  ...
+# Subtest: a key already published on this host is reused, so a reconnect needs none supplied
+ok 14 - a key already published on this host is reused, so a reconnect needs none supplied
+  ---
+  duration_ms: 0.1899
+  type: 'test'
+  ...
+# Subtest: a failed connect stops the chain before render
+ok 15 - a failed connect stops the chain before render
+  ---
+  duration_ms: 0.1602
+  type: 'test'
+  ...
+# Subtest: an unknown publish outcome is named as such
+ok 16 - an unknown publish outcome is named as such
+  ---
+  duration_ms: 0.2074
+  type: 'test'
+  ...
+# Subtest: entered once: under the chain's own mark it refuses to start, and its installers run only in their two modes
+ok 17 - entered once: under the chain's own mark it refuses to start, and its installers run only in their two modes
+  ---
+  duration_ms: 0.729
+  type: 'test'
+  ...
+# Subtest: PATH is not selection: a CLI on PATH that nobody selected gets no assets
+ok 18 - PATH is not selection: a CLI on PATH that nobody selected gets no assets
+  ---
+  duration_ms: 0.1778
+  type: 'test'
+  ...
+# Subtest: with no --client, --no-prompt refuses rather than reading PATH; an asked run takes the answer
+ok 19 - with no --client, --no-prompt refuses rather than reading PATH; an asked run takes the answer
+  ---
+  duration_ms: 0.3746
+  type: 'test'
+  ...
+# Subtest: an installer given by the entry point is used as is; a service without one acquires nothing
+ok 20 - an installer given by the entry point is used as is; a service without one acquires nothing
+  ---
+  duration_ms: 0.3623
+  type: 'test'
+  ...
+# Subtest: only aify-comms renders launchers
+ok 21 - only aify-comms renders launchers
+  ---
+  duration_ms: 0.1918
+  type: 'test'
+  ...
+# Subtest: arguments: keys never in argv, every name checked, usage names the flags
+ok 22 - arguments: keys never in argv, every name checked, usage names the flags
+  ---
+  duration_ms: 0.3523
+  type: 'test'
+  ...
+# Subtest: a service's installer runs only from an approved tuple, checked out at its exact revision
+ok 23 - a service's installer runs only from an approved tuple, checked out at its exact revision
+  ---
+  duration_ms: 3.9102
+  type: 'test'
+  ...
+# Subtest: a key counts as published only when the registry names a reference the store can read
+ok 24 - a key counts as published only when the registry names a reference the store can read
+  ---
+  duration_ms: 1.7545
+  type: 'test'
+  ...
+# Subtest: an installer runs under the chain's mark; a checkout is read back at its revision
+ok 25 - an installer runs under the chain's mark; a checkout is read back at its revision
+  ---
+  duration_ms: 0.8428
+  type: 'test'
+  ...
+# Subtest: a package's own assets entry runs after its connect, in assets-only mode with the url
+ok 26 - a package's own assets entry runs after its connect, in assets-only mode with the url
+  ---
+  duration_ms: 0.3949
+  type: 'test'
+  ...
+# Subtest: a package's assets entry is the <service>-assets bin of the one package npm installed directly, beside its dependencies
+ok 27 - a package's assets entry is the <service>-assets bin of the one package npm installed directly, beside its dependencies
+  ---
+  duration_ms: 7.0962
+  type: 'test'
+  ...
+# Subtest: assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused
+ok 28 - assets run only from the package connect installed, at a tuple approved now: a later spec naming another repository is refused
+  ---
+  duration_ms: 4.6916
+  type: 'test'
+  ...
+# Subtest: an approved package without an assets bin is no assets, even with no MCP row and nothing reported for it
+ok 29 - an approved package without an assets bin is no assets, even with no MCP row and nothing reported for it
+  ---
+  duration_ms: 2.1614
+  type: 'test'
+  ...
+# Subtest: the receipt is connect's record of this run, written to a fresh private file; printed prose adds nothing
+not ok 30 - the receipt is connect's record of this run, written to a fresh private file; printed prose adds nothing
+  ---
+  duration_ms: 6.3165
+  type: 'test'
+  location: 'C:\\Users\\Administrator\\projects\\aify-env-wt-s2\\tests\\the-install-chain-runs-its-phases-in-order.test.js:486:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+        'packageAssets',
+        'aify-dashboard',
+    +   {}
+    -   {
+    -     'dashboard-bridge': '/p/a'
+    -   }
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'packageAssets'
+    1: 'aify-dashboard'
+    2:
+      dashboard-bridge: '/p/a'
+  actual:
+    0: 'packageAssets'
+    1: 'aify-dashboard'
+    2:
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Users/Administrator/projects/aify-env-wt-s2/tests/the-install-chain-runs-its-phases-in-order.test.js:508:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..30
+# tests 30
+# suites 0
+# pass 29
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 141.9731

@@ -115,7 +115,9 @@ for client in "${CLIENTS[@]}"; do
     continue
   fi
   echo "redeploy.sh: refreshing $client..."
-  if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL" ${ENV_ENDPOINT_ARGS[@]+"${ENV_ENDPOINT_ARGS[@]}"}; then
+  # --standalone: a redeploy refreshes this checkout's bridge on the full path, carrying --env-endpoint, which the
+  # guided-install chain refuses rather than drops (S2 review C4).
+  if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL" --standalone ${ENV_ENDPOINT_ARGS[@]+"${ENV_ENDPOINT_ARGS[@]}"}; then
     echo "redeploy.sh: $client refreshed"
     REFRESHED=$((REFRESHED + 1))
   else

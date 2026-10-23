@@ -1,0 +1,23 @@
+# The 'key file kept' mutant, rerun on the final tree
+
+Recorded SURVIVED once, during the pre-commit campaign: the test then asked Node fs.existsSync about the MSYS /tmp path
+bash wrote, which Node on Windows reads as C:\tmp\..., so it answered 'absent' for any path. 74afacc5 shipped the
+probe through bash with a positive control. This run, on 26228c57:
+
+tree: 26228c57ee8b8c726b6b2374d4b12fd618f8b848 (clean: 0 changed files)
+mutant 'key file kept': scripts/chain-handoff.sh line
+54:[ -z "$keydir" ] || rm -rf -- "${keydir:?}"
+replaced by ':'
+mutated diff:
+ scripts/chain-handoff.sh | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+mutant run exit=1
+not ok 1 - with the chain installed it is entered once, as its module, with the installer named and the key in a private file
+    the key file outlived the chain
+# pass 6
+# fail 1
+restored by byte copy (cmp equal)
+tree after restore: 0 changed files
+control run on restored tree exit=0
+# pass 7
+# fail 0

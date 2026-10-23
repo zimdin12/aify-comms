@@ -1,0 +1,38 @@
+[aify-env] node v22.23.4
+[aify-env] installing dependencies
+
+added 8 packages in 10s
+npm notice
+npm notice New major version of npm available! 10.9.9 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
+[aify-env] installing the aify-env command
+
+added 1 package in 148ms
+[aify-env] installed: /usr/local/bin/aify-env
+[aify-env] /root/.aify/config.json: transport.localSocket = true
+[aify-env] chain: entered for aify-comms
+[aify-env] installing aify-wrapper (/src/aify-wrapper)
+
+added 1 package in 154ms
+=== aify-comms installer ===
+Repo: /root/.aify/sources/aify-comms/474e26521e0cdf2fa38042d1d8314d46c2377f49
+Client: claude
+Server: http://comms:8800
+
+[1/4] Installing MCP dependencies...
+  Bridge runtime installed to /root/.aify-comms/mcp/stdio (native, fast load; staged swap).
+  Host bridge version stamp written to /root/.aify-comms/.aify-version (474e2652).
+  Done (acquired; the chain connects and renders).
+connected aify-comms at http://comms:8800: committed
+  comms-bridge: 4002 file(s) on disk not in its manifest, not run by any entry (e.g. node_modules/.bin/aify-herdr-pane, node_modules/.bin/aify-wrapper-check, node_modules/.bin/aify-wrapper-connect, node_modules/.bin/aify-wrapper-install, node_modules/.bin/herdr-aify)
+wrote /root/.local/bin/claude-aify
+note: /root/.local/bin is not on PATH; add it or the launcher cannot be invoked by name.
+
+Installed wrapper 0.9.3 for: claude. Verify without starting anything:
+  claude-aify --check
+[aify-env] registry before assets: 6cdfbb064f9352e62821d5ee3931663dac75ff46fd6e7af5dc1de5edeff33524
+[aify-env] registry after assets: 6cdfbb064f9352e62821d5ee3931663dac75ff46fd6e7af5dc1de5edeff33524
+[aify-env] pending: claude: pending (CLI absent)
+[aify-env] chain: not complete

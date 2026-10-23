@@ -1,0 +1,114 @@
+"""S2 final-verdict round (1792696826105-fa81c862) mutants, with what the earlier drivers dropped: each arm's source and
+test identities (sha256 before, mutated, restored), the first assertion's own words, a baseline run of every test file
+on the unmutated tree first, and a restored run after the last arm. Raw TAP per run goes to OUT/raw/."""
+import datetime, hashlib, json, os, re, shutil, subprocess, sys
+
+OUT = sys.argv[1]
+os.makedirs(os.path.join(OUT, "raw"), exist_ok=True)
+COMMS = "C:/Docker/aify-comms-wt-s2"
+ENV = "C:/Users/Administrator/projects/aify-env-wt-s2"
+BASH = "C:/Program Files/Git/usr/bin/bash.exe"
+TESTS = {
+    "handoff": (COMMS, "mcp/stdio", "mcp/stdio/tests/a-plain-install-hands-off-to-the-chain-once.test.js", ["node", "--test", "tests/a-plain-install-hands-off-to-the-chain-once.test.js"]),
+    "readback": (COMMS, "mcp/stdio", "mcp/stdio/tests/the-witness-reads-back-only-dockers-own-not-found.test.js", ["node", "--test", "tests/the-witness-reads-back-only-dockers-own-not-found.test.js"]),
+    "chain": (ENV, ".", "tests/the-install-chain-runs-its-phases-in-order.test.js", [BASH, "-c", "npm test -- tests/the-install-chain-runs-its-phases-in-order.test.js"]),
+    "entry": (ENV, ".", "tests/the-install-entry-keeps-the-callers-paths.test.js", [BASH, "-c", "npm test -- tests/the-install-entry-keeps-the-callers-paths.test.js"]),
+}
+ARMS = [
+    ("S2R1 the installer resolves the key before the handoff", COMMS, "install.sh", "handoff",
+     'if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY=',
+     'RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $([ "$WITH_API_KEY" = true ] && echo --generate))" || exit 1\nif [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY='),
+    ("S2R2 ownership never compared", COMMS, "scripts/chain-handoff.sh", "handoff",
+     'if on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then',
+     'if false && on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then'),
+    ("S2R2 an unknown prefix taken as agreeing", COMMS, "scripts/chain-handoff.sh", "handoff",
+     '  if [ -z "$prefix" ] || { [ "$dir" != "$(unix_path "$prefix")" ]',
+     '  if [ -n "$prefix" ] && { [ "$dir" != "$(unix_path "$prefix")" ]'),
+    ("arm 2 complement: only a REFUSED handoff falls back to the key block", COMMS, "install.sh", "handoff",
+     '"$SCRIPT_DIR/install.sh"; exit $?; fi', '"$SCRIPT_DIR/install.sh" && exit 0; fi'),
+    ("E3 a not-found about any name taken as absent", COMMS, "scripts/sandbox/docker-readback.mjs", "readback",
+     '  const n = String(name).replace(', '  const n = ".*"; String(name).replace('),
+    ("S2R3 the tuple's approval never consulted", ENV, "lib/install-chain-host.mjs", "chain",
+     '    if (!catalogue.includes(digest) && !approve.includes(digest)) return', '    if (false) return'),
+    ("S2R3 the package never joined to what connect published", ENV, "lib/install-chain-host.mjs", "chain",
+     '    if (!JSON.stringify(registryEntry?.mcp ?? []).includes(dir.split(path.sep).join("/"))) {', '    if (false) {'),
+    ("S2R4 an empty right-hand side given the caller's directory", ENV, "install.sh", "entry",
+     '        --secret=*=|--installer=*=|--secret=*=/*|--installer=*=/*) ;;', '        --secret=*=/*|--installer=*=/*) ;;'),
+    ("S2R4 a UNC path made relative", ENV, "install.sh", "entry",
+     '|--secret=*=\\\\\\\\*|--installer=*=\\\\\\\\*) ;;', ') ;;'),
+    ("S2R5 exports never checked", ENV, "lib/install-chain-host.mjs", "chain",
+     '      if (typeof mod[name] !== "function") return', '      if (false) return'),
+    ("S2R5 the catalogue's shape never checked", ENV, "lib/install-chain-host.mjs", "chain",
+     '  if (!Array.isArray(catalogue) || !catalogue.every((d) => typeof d === "string")) {', '  if (false) {'),
+    ("E2 assets applied to every client on PATH, selected or not (the production route)", ENV, "lib/install-chain.mjs", "chain",
+     '''    for (const client of clients) {
+      if (!this.#io.cliPresent(client)) {''',
+     '''    for (const client of [...new Set([...clients, ...CLIENTS.filter((c) => this.#io.cliPresent(c))])]) {
+      if (!this.#io.cliPresent(client)) {'''),
+    ("arm 13 complement: a second physical package refused only once an assets bin is declared", ENV, "lib/install-chain-host.mjs", "chain",
+     '    const { files, problems } = binFiles(pkg, [entry]);',
+     '    if (fs.readdirSync(path.join(prefix, "node_modules")).length !== 1) return { problem: "the prefix holds more than one package" };\n    const { files, problems } = binFiles(pkg, [entry]);'),
+]
+
+sha = lambda path: hashlib.sha256(open(path, "rb").read()).hexdigest()
+env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_AGENT", "HERDR", "AIFY_HERDR"))}
+
+def run(test, label):
+    repo, cwd, rel, cmd = TESTS[test]
+    r = subprocess.run(cmd, cwd=os.path.join(repo, cwd), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    raw = r.stdout + r.stderr
+    name = re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-")[:80]
+    open(os.path.join(OUT, "raw", f"{name}.tap"), "w", encoding="utf-8").write(raw)
+    lines = raw.splitlines()
+    fails, first_error = [], []
+    for i, line in enumerate(lines):
+        if line.startswith("not ok"):
+            fails.append(line.strip())
+            if not first_error:
+                j = next((k for k in range(i, min(i + 12, len(lines))) if lines[k].strip().startswith("error:")), None)
+                if j is not None:
+                    first_error = [l.strip() for l in lines[j:j + 4]]
+    counts = {k: re.search(rf"^# {k} (\d+)", raw, re.M) for k in ("pass", "fail")}
+    return {"exit": r.returncode, "pass": counts["pass"] and int(counts["pass"][1]), "fail": counts["fail"] and int(counts["fail"][1]),
+            "failing": fails, "first_error": first_error, "test_sha256": sha(os.path.join(repo, rel)), "raw": f"raw/{name}.tap"}
+
+report = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(), "baseline": {}, "arms": [], "restored": {}}
+for t in TESTS:
+    report["baseline"][t] = run(t, f"baseline {t}")
+for name, repo, rel, test, old, new in ARMS:
+    path = os.path.join(repo, rel)
+    keep = path + ".mutant-keep"
+    before = sha(path)
+    shutil.copyfile(path, keep)
+    text = open(path, "rb").read().decode()
+    arm = {"arm": name, "file": rel, "repo": repo, "test": test, "source_sha256_before": before}
+    if text.count(old) != 1:
+        arm["applied"] = f"NO (pattern count {text.count(old)})"
+        os.remove(keep); report["arms"].append(arm); continue
+    open(path, "wb").write(text.replace(old, new).encode())
+    arm["source_sha256_mutated"] = sha(path)
+    arm["result"] = run(test, f"arm {name}")
+    shutil.copyfile(keep, path)
+    os.remove(keep)
+    arm["source_sha256_restored"] = sha(path)
+    arm["restored_equal"] = arm["source_sha256_restored"] == before
+    arm["verdict"] = "KILLED" if arm["result"]["exit"] != 0 and arm["result"]["failing"] else "SURVIVED"
+    report["arms"].append(arm)
+for t in TESTS:
+    report["restored"][t] = run(t, f"restored {t}")
+report["finished"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+json.dump(report, open(os.path.join(OUT, "mutants.json"), "w", encoding="utf-8"), indent=1)
+with open(os.path.join(OUT, "mutants.txt"), "w", encoding="utf-8") as out:
+    for t, r in report["baseline"].items():
+        out.write(f"BASELINE {t}: exit {r['exit']}, pass {r['pass']}, fail {r['fail']}, test sha256 {r['test_sha256'][:12]}\n")
+    for a in report["arms"]:
+        if "result" not in a:
+            out.write(f"ARM {a['arm']}: NOT APPLIED {a['applied']}\n"); continue
+        r = a["result"]
+        out.write(f"ARM {a['arm']} [{a['file']} {a['source_sha256_before'][:12]} -> {a['source_sha256_mutated'][:12]}]: exit {r['exit']}, {a['verdict']}; restored {a['source_sha256_restored'][:12]} equal {a['restored_equal']}\n")
+        for f in r["failing"][:4]:
+            out.write(f"    {f}\n")
+        for e in r["first_error"]:
+            out.write(f"      | {e}\n")
+    for t, r in report["restored"].items():
+        out.write(f"RESTORED {t}: exit {r['exit']}, pass {r['pass']}, fail {r['fail']}\n")

@@ -1,0 +1,34 @@
+SHIM_GREP = "  grep -qF '\"$basedir/node_modules/aify-env/bin/aify-env.mjs\"' \"$on_path\" 2>/dev/null"
+ROOT_CHECK = '  [ "$(unix_path "$root")" = "$(unix_path "$prefix")/node_modules" ] || return 1'
+HOST = "lib/install-chain-host.mjs"
+HANDOFF = "scripts/chain-handoff.sh"
+ARMS = [
+    # This round: C5, the receipt is connect's record.
+    ("C5 connect never asked for its record", ENV, HOST, "chain",
+     '[...args, "--report-file", file]', "args"),
+    ("C5 the record's rows taken unchecked", ENV, HOST, "chain",
+     'if (row && typeof row.id === "string" && typeof row.at === "string")', "if (row)"),
+    ("C5 a wrapper whose connect cannot write the record accepted", ENV, HOST, "chain",
+     '?.problem !== "") {\n    return { problem: `the installed aify-wrapper at ${wrapperRoot}: its connect does not accept --report-file',
+     '?.problem === Symbol()) {\n    return { problem: `the installed aify-wrapper at ${wrapperRoot}: its connect does not accept --report-file'),
+    ("C5 the private record directory left behind", ENV, HOST, "chain",
+     "  } finally {\n    fs.rmSync(dir, { recursive: true, force: true });\n  }", "  } finally {\n  }"),
+    # This round: C9, a shim is npm's by its bytes.
+    ("C9 a shim judged by a string it contains", COMMS, HANDOFF, "handoff", '  npm_shim_matches "$on_path"\n}', SHIM_GREP + "\n}"),
+    ("C9 the regenerated shim never compared", COMMS, HANDOFF, "handoff",
+     '    && cmp -s "$tmp/aify-env" "$on_path" && rc=0', "    && rc=0"),
+    ("C9 no cmd-shim taken as a match", COMMS, HANDOFF, "handoff",
+     '  [ -f "$shim/package.json" ] || return 1', '  [ -f "$shim/package.json" ] || return 0'),
+    ("C9 the bin's first line not carried into the regenerated layout", COMMS, HANDOFF, "handoff",
+     '    && head -n 1 "$root/aify-env/bin/aify-env.mjs" > "$tmp/node_modules/aify-env/bin/aify-env.mjs"',
+     '    && : > "$tmp/node_modules/aify-env/bin/aify-env.mjs"'),
+    # Earlier arms that still apply.
+    ("C5 the package never bound to connect's record", ENV, HOST, "chain",
+     '    if (accepted?.[artifact.id] !== dir.split(path.sep).join("/")) {', '    if (false) {'),
+    ("C5 the chain drops connect's record", ENV, "lib/install-chain.mjs", "chain",
+     "this.#plan.approve, installed ?? {});", "this.#plan.approve, {});"),
+    ("C9 any resolvable link taken as npm's", COMMS, HANDOFF, "handoff",
+     '    && [ -n "$target" ] && [ "$target" = "$pkg_bin" ] && return 0', '    && [ -n "$target" ] && return 0'),
+    ("C9 the shim's root never compared with npm's", COMMS, HANDOFF, "handoff", ROOT_CHECK, "  true"),
+    ("C9 ownership never checked", COMMS, HANDOFF, "handoff", '  if ! npm_owns "$on_path"; then', "  if false; then"),
+]

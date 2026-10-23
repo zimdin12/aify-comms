@@ -1,0 +1,27 @@
+comms b45db2e57967e4c4dd25316d9b64276b8f1bdcd1, aify-env 22ecc07, aify-wrapper 3a14911, run 6fa5e7c1
+owned image s2w-6fa5e7c1-comms
+owned network s2w-6fa5e7c1
+owned container s2w-6fa5e7c1-comms
+served artifact revision b45db2e57967e4c4dd25316d9b64276b8f1bdcd1
+owned container s2w-6fa5e7c1-a
+row missing-key: PASS -- exit 78; registry absent; launcher absent
+row unapproved: PASS -- exit 78; digest 6d155c869306e7a79ecf25b1270c0468e425460a2d3a41f208f5b623a86efb52
+owned container s2w-6fa5e7c1-c
+row render-after: FAIL -- exit 78; relative key file NOT read; launcher fingerprint NOT current
+row key-from-store: FAIL -- published key: httpCall refused: HTTP 401: {"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}; registry away: httpCall refused: HTTP 401: {"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}
+owned container s2w-6fa5e7c1-b
+row no-recursion: PASS -- exit 0; entered 1; registry 29fde465ee39936d3a1ae7b67609fa183107e2d7c58d56dadb70157f872b1f77 -> 29fde465ee39936d3a1ae7b67609fa183107e2d7c58d56dadb70157f872b1f77
+row no-key-in-argv: FAIL -- key in claude argv/env: PRESENT; control: grep finds the key in /tmp/key true, registration inspected true
+row keyed-continuation: PASS -- httpCall ok
+row path-not-selection: PASS -- codex unselected: nothing applied; claude skills present; control: codex skills after a by-hand codex assets run detected
+owned container s2w-6fa5e7c1-e
+row no-early-store: FAIL -- exit 78; stored key under aify-comms-6b1e649c84bd.key: REPLACED by the new key
+remove container s2w-6fa5e7c1-e: exit 0
+remove container s2w-6fa5e7c1-b: exit 0
+remove container s2w-6fa5e7c1-c: exit 0
+remove container s2w-6fa5e7c1-a: exit 0
+remove container s2w-6fa5e7c1-comms: exit 0
+remove network s2w-6fa5e7c1: exit 0
+remove image s2w-6fa5e7c1-comms: exit 0
+cleanup: complete, every owned resource read back absent
+terminal: exit 1
