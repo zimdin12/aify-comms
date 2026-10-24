@@ -94,6 +94,7 @@ def test_no_flag_and_no_hook_stays_skipped():
         out = _run("claude", False, Path(tmp), config=None)
         assert "STUB-RAN" not in out
         assert "skipped" in out
+        assert "--standalone --with-hook" in out, "the next-step hint must not recreate exit64"
 
 
 def test_a_client_with_no_installer_says_so_instead_of_failing():

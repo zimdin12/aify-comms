@@ -9,7 +9,7 @@ also lists the prerequisites).
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client claude http://<service-host>:8800 --with-hook
+bash install.sh --client claude http://<service-host>:8800
 ```
 
 - On Windows from PowerShell or cmd, run `.\install.cmd` with the same arguments: a bare `bash` there is
@@ -115,8 +115,11 @@ many start at once, leaving the channel server unregistered and messages undeliv
   `PermissionRequest` (blocked). They post through `agent-state-event.mjs`, which carries the API key,
   and do nothing in a session without `AIFY_AGENT_ID`. The bridge also reads the transcript to set and
   clear `working` when a hook does not fire.
-- With `--with-hook`, a `PostToolUse` hook running `notify-check.js`, which tells the agent about
-  unread messages without marking them read. Once installed, re-runs keep it.
+- Optional legacy unread-message hook (`notify-check.js`): add a new one with
+  `bash install.sh --standalone --client claude http://<service-host>:8800 --with-hook`.
+  It reports unread messages without marking them read. An existing readable, recognized hook is
+  refreshed automatically on later installs, including the plain chain. It is separate from the
+  channel plugin and the turn hooks above.
 
 A malformed `~/.claude/settings.json` is backed up to `<path>.aify-bak-<timestamp>` before the
 installer rewrites it.

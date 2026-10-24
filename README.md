@@ -44,7 +44,7 @@ spawn agents into workspaces, and give them work by messaging them.
 | command | what it does |
 |---|---|
 | `bash scripts/stamp.sh && docker compose up -d --build` | start or update the service (API `:8800`, dashboard `:8801`); the stamp is how `/version` and the doctor know which build is running |
-| `bash install.sh --client <claude\|codex\|hermes> http://<host>:8800 --with-hook` | install a client on this machine: launcher, MCP servers, skills, and the notification hook (claude, codex) |
+| `bash install.sh --client <claude\|codex\|hermes> http://<host>:8800` | run the guided client install: launcher, MCP servers and skills; Codex unread notifications need the standalone hook below |
 | `aify-env` | run the host tier in the current directory (the directory is the allowed workspace root) |
 | `aify-env attach <agent>` | take over an agent's terminal; `Ctrl+]` detaches and leaves it running |
 | `claude-aify --aify-agent <id>` | open a resident agent in this terminal (same for `codex-aify`, `hermes-aify`) |
@@ -81,10 +81,23 @@ bash scripts/install-state.sh     # what this machine already has; run it first
 bash scripts/stamp.sh && docker compose up -d --build   # service :8800 (API), dashboard :8801
 curl http://localhost:8800/health # {"status":"healthy"}
 
-bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
-.\install.cmd --client claude http://localhost:8800 --with-hook   # the same from PowerShell or cmd
+bash install.sh --client claude http://localhost:8800   # once per coding-agent client
+.\install.cmd --client claude http://localhost:8800   # the same from PowerShell or cmd
 git clone https://github.com/zimdin12/aify-env  # agent hosts only; then its own ./install.sh
 ```
+
+**Legacy notification hook (optional).** The plain client command uses the guided-install chain.
+An existing readable, recognized notification hook is refreshed automatically. To add a new one,
+explicitly choose this repository's standalone installer instead of the chain:
+
+```bash
+bash install.sh --standalone --client claude http://localhost:8800 --with-hook
+```
+
+For a fresh Codex client, use `--client codex` with this standalone command to include unread-message
+discovery: the guided chain does not carry `--with-hook` yet. From PowerShell or cmd use
+`.\install.cmd` with the same arguments.
+This unread-message hook is separate from Claude's channel plugin and the turn-state hooks.
 
 Then, on each agent host, start `aify-env` from the directory that contains your workspaces, open
 `http://localhost:8801`, go to **Environments**, fill in **Spawn Session** (environment, runtime,
@@ -112,7 +125,7 @@ has no status. So a flow is done when `aify-comms doctor` says `ok: true`, not w
 
 | flow | do | done when |
 |---|---|---|
-| install a client | `bash install.sh --client <runtime> http://<service>:8800 --with-hook` | doctor `bridge-installed` green, then every agent that was running before the install relaunched |
+| install a client | `bash install.sh --client <runtime> http://<service>:8800` | doctor `bridge-installed` green, then every agent that was running before the install relaunched |
 | install / update the service | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | doctor `service` reads `build <sha> == repo HEAD` (`/health` alone does not say which build) |
 | update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client; a host installed with `--mcp-transport sse` needs `install.sh` with that flag, because `redeploy.sh` re-renders it as stdio) | `bridge-installed` green, then every agent that was running before the install relaunched |
 

@@ -9,8 +9,11 @@ the prerequisites).
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client codex http://<service-host>:8800 --with-hook
+bash install.sh --standalone --client codex http://<service-host>:8800 --with-hook
 ```
+
+Codex uses the standalone command here to install its unread-message notification hook. The guided
+chain does not carry `--with-hook` yet; a plain chain install does not add that hook on a fresh host.
 
 - On Windows from PowerShell or cmd, run `.\install.cmd` with the same arguments: a bare `bash` there is
   WSL's and installs into WSL. `install.cmd` finds Git Bash and runs `install.sh` with it.
@@ -104,8 +107,10 @@ every run for that agent.
   `PermissionRequest` (blocked) and `PostToolUse` (unblocked), posting through
   `agent-state-event.mjs`, which carries the API key. Codex runs hooks only with `hooks = true` under
   `[features]` in `config.toml`; the installer writes it, and renames an older `codex_hooks` key.
-- With `--with-hook`, a `PostToolUse` hook running `notify-check.js`, which tells the agent about
-  unread messages without marking them read. Once installed, re-runs keep it.
+- Optional legacy unread-message hook (`notify-check.js`), separate from the turn hooks above:
+  `bash install.sh --standalone --client codex http://<service-host>:8800 --with-hook` adds a new one.
+  It reports unread messages without marking them read. An existing readable, recognized hook is
+  refreshed automatically on later installs, including the plain chain.
 
 ## Managed Codex defaults
 

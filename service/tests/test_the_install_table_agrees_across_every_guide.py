@@ -41,7 +41,60 @@ NPM_GLOBAL_AIFY_ENV = re.compile(r"npm\s+install\s+-g\s+\S*aify-env", re.I)
 INSTALLER = re.compile(r"install\.sh", re.I)
 
 
+# Matches offered shell commands in fences, inline table cells, installer help and source examples.
+# Discussion of a flag alone is not a command; a trailing comment cannot grant standalone mode.
+INSTALL_COMMAND = re.compile(r'(?:bash\s+install\.sh|\.\\install\.cmd)\s+--(?:client|standalone)\b[^`"\n]*')
+
+
+def uncarried_hook_commands(text: str) -> list[str]:
+    """Commands that ask the guided chain for the legacy hook it refuses with exit64.
+
+    Runtime refusal is covered by the bridge's plain-install handoff test; this checks its readers.
+    """
+    return [
+        command for match in INSTALL_COMMAND.finditer(text)
+        if (command := match.group().split('#', 1)[0].strip())
+        and '--with-hook' in (flags := set(re.findall(r'--[a-z][a-z0-9-]*', command)))
+        and '--standalone' not in flags
+    ]
+
+
 class TheInstallTableAgreesTests(unittest.TestCase):
+    def test_the_hook_command_scan_distinguishes_default_chain_and_standalone(self):
+        for command in (
+            'bash install.sh --client claude http://host:8800 --with-hook',
+            r'.\install.cmd --client claude http://host:8800 --with-hook',
+        ):
+            self.assertEqual(uncarried_hook_commands(command), [command])
+            self.assertEqual(uncarried_hook_commands(f'| `{command}` | client install |'), [command])
+            self.assertEqual(uncarried_hook_commands(command + ' # --standalone'), [command])
+            self.assertEqual(uncarried_hook_commands(command + ' --standalone'), [])
+        self.assertEqual(uncarried_hook_commands('bash install.sh --client claude http://host:8800'), [])
+        self.assertEqual(uncarried_hook_commands('bash install.sh --standalone --client claude --with-hook'), [])
+        self.assertEqual(uncarried_hook_commands('Use `--standalone --with-hook` for the legacy hook.'), [])
+
+    def test_no_guide_offers_a_hook_the_default_chain_refuses(self):
+        """A copied quickstart or help example must not recreate the measured exit64."""
+        offenders = {
+            name: commands for name in [*GUIDES, 'install.sh']
+            if (commands := uncarried_hook_commands(self._text(name)))
+        }
+        self.assertEqual(offenders, {},
+                         'these hook commands need explicit --standalone, not the default chain')
+
+    def test_codex_examples_keep_their_unread_message_hook(self):
+        """The guide, help and header must retain the Codex unread-discovery opt-in."""
+        commands = [
+            (name, command) for name in [*GUIDES, 'install.sh']
+            for command in INSTALL_COMMAND.findall(self._text(name))
+            if re.search(r'--client\s+codex\b', command)
+        ]
+        self.assertTrue(commands, 'the install guides must offer a concrete Codex command')
+        for name, command in commands:
+            with self.subTest(document=name, command=command):
+                self.assertIn('--standalone', command, 'the guided chain does not carry the hook yet')
+                self.assertIn('--with-hook', command, 'Codex examples must install unread-mail discovery')
+
     def _text(self, name: str) -> str:
         return (REPO / name).read_text(encoding="utf-8", errors="replace")
 

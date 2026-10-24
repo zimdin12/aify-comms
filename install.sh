@@ -5,8 +5,8 @@
 #
 # Usage:
 #   bash install.sh --client claude
-#   bash install.sh --client codex
-#   bash install.sh --client codex http://localhost:8800 --with-hook
+#   bash install.sh --client codex --standalone --with-hook
+#   bash install.sh --client codex http://localhost:8800 --standalone --with-hook
 #   bash install.sh --client hermes http://localhost:8800
 
 set -euo pipefail
@@ -53,22 +53,22 @@ DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://127.0.0.1:8800}"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--with-hook] [--with-api-key]
+  bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--standalone [--with-hook]] [--with-api-key]
 
 Examples:
-  bash install.sh --client claude
-  bash install.sh --client claude http://localhost:8800 --with-hook
-  bash install.sh --client codex http://localhost:8800
+  bash install.sh --client claude http://localhost:8800
+  bash install.sh --client codex http://localhost:8800 --standalone --with-hook
   bash install.sh --client hermes http://localhost:8800
+  bash install.sh --standalone --client claude http://localhost:8800 --with-hook
 
   --env-endpoint <url>          the aify-env 'aify-comms doctor' asks (default http://127.0.0.1:8802).
                                 aify-env hosts every managed spawn. --delegate-spawns [url] is
                                 accepted as its old name; --no-delegate-spawns does nothing.
-
+  Existing notification hooks refresh automatically; new legacy hooks need --standalone --with-hook.
   --mcp-transport <stdio|sse>   how the launcher reaches MCP. Default stdio: the launcher spawns
                                 the local bridge from ~/.aify-comms. With sse it talks to
                                 <endpoint>/mcp/sse instead and needs no service code on this host.
-
+  --standalone runs only this installer; plain installs use the guided chain.
   --client pi is intentionally disabled: Pi (`omp --mode rpc`) is deprecated.
   --client opencode is intentionally disabled: OpenCode is not supported.
 EOF
@@ -2021,7 +2021,7 @@ elif [ "$WITH_HOOK" = true ] || [ "$_hook_present" = true ]; then
   fi
   echo "  Done."
 else
-  echo "[4/4] Notification hook skipped (use --with-hook to enable)."
+  echo "[4/4] Notification hook skipped (use --standalone --with-hook for the legacy hook)."
 fi
 
 if [ "$CLIENT" = "claude" ]; then
