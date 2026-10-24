@@ -87,6 +87,47 @@ test("every forwarded env name reaches the entry", () => {
   }
 });
 
+test("refresh preserves the owned MCP entry's explicit TEMP pins without borrowing another server's", () => {
+  const dir = tmpDir("aify-hermes-temp-pins-");
+  try {
+    const file = path.join(dir, "config.yaml");
+    const pins = ['      TEMP: "/tmp"', '      TMP: "/tmp"', '      TMPDIR: "/tmp"'];
+    const other = '  other:\n    command: other\n    env:\n      TEMP: "/unrelated"';
+    fs.writeFileSync(file, ["mcp_servers:", other, "  aify-comms:", "    command: stale",
+      "    env:", ...pins, '      AIFY_SERVER_URL: "http://stale"', ""].join("\n"));
+    const options = { serverPath: SERVER_PATH, serverUrl: URL_ };
+    patchHermesConfigFile(file, options);
+    const once = fs.readFileSync(file, "utf8");
+    const owned = once.slice(once.indexOf("  aify-comms:\n"));
+    assert.deepEqual(owned.split("\n").filter((line) => /^      (TEMP|TMP|TMPDIR):/.test(line)), pins,
+      "all three explicit pins survive the refresh");
+    assert.ok(once.includes(other), "another server is unchanged");
+    assert.ok(!owned.includes("/unrelated"), "another server's pin is not imported");
+    assert.ok(!owned.includes("http://stale"), "the rest of the entry is still refreshed");
+    patchHermesConfigFile(file, options);
+    assert.equal(fs.readFileSync(file, "utf8"), once, "retaining pins is idempotent");
+    const withoutPins = configWithAifyEntry(`mcp_servers:\n${other}\n`, options);
+    assert.ok(!withoutPins.slice(withoutPins.indexOf("  aify-comms:\n"), withoutPins.indexOf("  other:\n")).includes("TEMP:"),
+      "a new entry gets no invented pin from its neighbour");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a refreshed per-turn MCP entry forwards its resident lifecycle owner", () => {
+  const dir = tmpDir("aify-hermes-owner-");
+  try {
+    const file = path.join(dir, "config.yaml");
+    fs.writeFileSync(file, "model: fixture\nmcp_servers:\n  aify-comms:\n    command: node\n");
+    patchHermesConfigFile(file, { serverPath: SERVER_PATH, serverUrl: URL_ });
+    const text = fs.readFileSync(file, "utf8");
+    assert.match(text, /^      AIFY_AGENT_ID: "\$\{AIFY_AGENT_ID\}"$/m, "the existing forwarding control reaches the file");
+    assert.doesNotMatch(text, /AIFY_MISSING_CONTROL/, "an unrequested variable is absent");
+    assert.match(text, /^      AIFY_RESIDENT_LIFECYCLE_OWNER: "\$\{AIFY_RESIDENT_LIFECYCLE_OWNER\}"$/m,
+      "a per-turn MCP child must receive the launcher's lifecycle owner");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an existing aify-comms entry is REPLACED, never duplicated, and neighbours survive", () => {
   const before = [
     "mcp_servers:",

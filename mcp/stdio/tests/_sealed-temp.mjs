@@ -1,4 +1,4 @@
-// Imported FIRST, for its side effect: this test process's TEMP, TMP and TMPDIR become a fresh directory of its own.
+// Imported FIRST: TEMP/TMP/TMPDIR and HOME/USERPROFILE become private paths before product imports.
 //
 // `tests/run-all.mjs` already gives every file it runs a private temp root. A file run DIRECTLY -- `node --test
 // tests/x.test.js`, which is how a failure is chased and how every mutation run works -- had none, and the
@@ -11,11 +11,17 @@
 // It must be the first import: module constants such as a marker directory are read when their module loads,
 // and ES modules load in import order.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const root = mkdtempSync(path.join(os.tmpdir(), "aify-sealed-temp-"));
+// Gateway discovery is per-user, not per-TEMP. Seal both home aliases before imports too.
+const home = path.join(root, "home");
+mkdirSync(home);
+process.env.HOME = home;
+process.env.USERPROFILE = home;
+process.env.HERMES_HOME = path.join(home, ".hermes");
 process.env.TEMP = root;
 process.env.TMP = root;
 process.env.TMPDIR = root;

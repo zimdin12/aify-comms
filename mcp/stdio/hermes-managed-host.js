@@ -567,7 +567,6 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   // (collides for same-folder agents) or the agent hand-rolling registration.
   writeGatewayUrlMarker(id, host.wsUrl, {
     gatewayTokenEnv: process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "",
-    tempDir: TMP_DIR,
   });
   // The gateway host must OUTLIVE this short-lived CLI process (the delivery
   // loop + the visible TUI attach to it). It was spawned detached+unref'd.

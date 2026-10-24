@@ -18,6 +18,7 @@
 // environment variable, not its contents; the tests below assert that a NAME propagates and never construct
 // a token.
 
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
@@ -32,8 +33,7 @@ const LEAF = pathToFileURL(path.join(STDIO, "hermes-gateway-config.mjs")).href;
 
 const { writeGatewayUrlMarker } = await import("../hermes-endpoint.js");
 
-// Read the resolved pair out of a fresh process. `tmp` becomes the marker directory so a marker can be
-// planted where `readGatewayUrlMarker` will find it.
+// Resolve in a fresh process with a private home and temp root.
 function resolve({ env = {}, marker = null } = {}) {
   const tmp = mkdtempSync(path.join(os.tmpdir(), "aify-gw-"));
   try {
@@ -45,7 +45,7 @@ function resolve({ env = {}, marker = null } = {}) {
       // shape ever changes, both halves move together and this file needs no edit.
       const ok = writeGatewayUrlMarker(marker.agentId, marker.gatewayUrl, {
         gatewayTokenEnv: marker.gatewayTokenEnv || "",
-        tempDir: tmp,
+        gatewayDir: path.join(tmp, "home", ".aify", "hermes", "gateways"),
       });
       assert.equal(ok, true, "the marker fixture must actually be written");
     }
@@ -60,7 +60,9 @@ function resolve({ env = {}, marker = null } = {}) {
       {
         env: {
           ...sealedChildEnv(),
-          TEMP: tmp, TMP: tmp,
+          TEMP: tmp, TMP: tmp, TMPDIR: tmp,
+          HOME: path.join(tmp, "home"), USERPROFILE: path.join(tmp, "home"),
+          HERMES_HOME: path.join(tmp, "home", ".hermes"),
           AIFY_HERMES_GATEWAY_URL: "", AIFY_AGENT_ID: "",
           ...env,
         },

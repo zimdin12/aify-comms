@@ -547,6 +547,7 @@ export function startResumeMarkerSync(opts = {}) {
     agentId,
     intervalMs = 20_000,
     tempDir = TMP_DIR,
+    gatewayDir,
     openWs = openGatewayWsClient,
     readGatewayUrl = readGatewayUrlMarker,
     readMarker = readSessionIdMarker,
@@ -560,7 +561,7 @@ export function startResumeMarkerSync(opts = {}) {
 
   const tick = async () => {
     if (stopped) return;
-    const gw = readGatewayUrl(id, { tempDir });
+    const gw = readGatewayUrl(id, { gatewayDir });
     const wsUrl = gw && gw.gatewayUrl;
     if (!wsUrl) return;
     let cli = null;

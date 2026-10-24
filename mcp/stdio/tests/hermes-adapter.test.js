@@ -8,6 +8,7 @@
 // retired pinnedSessionId path is gone; hermes is now symmetric with claude
 // (captured UUID) / codex (resume thread).
 
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import os from "node:os";

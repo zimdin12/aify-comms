@@ -36,6 +36,8 @@ import { pathToFileURL } from "node:url";
  * 2026-05-26 with the wrapper PTY attached, the hermes TUI rendered and the MCP server loaded,
  * but no `/agents` POST. `AIFY_COMMS_AGENT_ID` and `AIFY_TERMINAL_ID` are kept for symmetry with
  * `terminalChildEnv`.
+ * A per-turn MCP child's lifecycle owner must cross that same filter: closing
+ * the child is not the resident managed host ending.
  */
 export const FORWARDED_ENV_NAMES = [
   "AIFY_AGENT_ID",
@@ -43,6 +45,7 @@ export const FORWARDED_ENV_NAMES = [
   "AIFY_AGENT_ROLE",
   "AIFY_AGENT_CWD",
   "AIFY_SESSION_MODE",
+  "AIFY_RESIDENT_LIFECYCLE_OWNER",
   "AIFY_SESSION_HANDLE",
   "AIFY_EXPLICIT_SESSION_HANDLE",
   "AIFY_RUNTIME",
@@ -103,6 +106,21 @@ function sectionOf(lines, index) {
   return "";
 }
 
+// Preserve operator temp-directory pins from this entry only, including their YAML value blocks.
+function explicitTempPins(entryLines) {
+  const envAt = entryLines.findIndex((line) => /^    env:[ \t]*(?:#.*)?$/.test(line));
+  if (envAt < 0) return [];
+  const end = blockEnd(entryLines, envAt, 4);
+  const pins = [];
+  for (let i = envAt + 1; i < end; i++) {
+    if (!/^      (["']?)(TEMP|TMP|TMPDIR)\1:/.test(entryLines[i])) continue;
+    const valueEnd = blockEnd(entryLines, i, 6);
+    pins.push(...entryLines.slice(i, valueEnd));
+    i = valueEnd - 1;
+  }
+  return pins;
+}
+
 /**
  * Return `text` with the aify-comms MCP entry present exactly once, under `mcp_servers:`.
  *
@@ -136,7 +154,9 @@ export function configWithAifyEntry(text, options) {
   const sectionEnd = blockEnd(lines, mcpIndex, 0);
   const existing = lines.findIndex((line, i) => i > mcpIndex && i < sectionEnd && /^  aify-comms:[ \t]*$/.test(line));
   if (existing >= 0) {
-    lines.splice(existing, blockEnd(lines, existing, 2) - existing, ...entry);
+    const end = blockEnd(lines, existing, 2);
+    const pins = explicitTempPins(lines.slice(existing, end));
+    lines.splice(existing, end - existing, ...entry, ...pins);
   } else {
     lines.splice(mcpIndex + 1, 0, ...entry);
   }

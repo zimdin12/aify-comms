@@ -47,8 +47,7 @@
 // stopped, because resident gateways were exempt. Neither says whether anyone is using the gateway; its own
 // session.active_list does, so a gateway listing no session is reported whoever owns it.
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readGatewayUrlMarker } from "./hermes-endpoint.js";
 
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import { activeListRowsOrNull, buildSessionActiveListFrame } from "./hermes-gateway-protocol.js";
@@ -57,10 +56,11 @@ import { activeListRowsOrNull, buildSessionActiveListFrame } from "./hermes-gate
  * How many sessions an agent's gateway lists, or null when that could not be read (no gateway file,
  * a refused or rejected connect, an RPC that failed). Null is unknown, never zero.
  */
-export async function readGatewaySessionCount(agentId, { tempDir = process.env.TEMP || process.env.TMP || "/tmp", open = openGatewayWsClient, timeoutMs = 4000 } = {}) {
+export async function readGatewaySessionCount(agentId, { tempDir, gatewayDir = tempDir, open = openGatewayWsClient, timeoutMs = 4000 } = {}) {
   let client = null;
   try {
-    const { gatewayUrl } = JSON.parse(readFileSync(join(tempDir, `aify-hermes-gateway-${agentId}`), "utf8"));
+    const gatewayUrl = readGatewayUrlMarker(agentId, { gatewayDir })?.gatewayUrl;
+    if (!gatewayUrl) return null;
     client = await open(gatewayUrl, { timeoutMs });
     // A reply in no known shape is unknown, never zero (review of 53ba3622).
     return activeListRowsOrNull(await client.request(buildSessionActiveListFrame({ id: 1 })))?.length ?? null;

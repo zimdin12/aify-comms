@@ -57,6 +57,7 @@ export function startSessionEffort(opts = {}) {
     effort,
     intervalMs = 20_000,
     tempDir = TMP_DIR,
+    gatewayDir,
     openWs = openGatewayWsClient,
     readGatewayUrl = readGatewayUrlMarker,
     readMarker = readSessionIdMarker,
@@ -73,7 +74,7 @@ export function startSessionEffort(opts = {}) {
 
   const tick = async () => {
     if (stopped || passing) return;
-    const wsUrl = readGatewayUrl(id, { tempDir })?.gatewayUrl;
+    const wsUrl = readGatewayUrl(id, { gatewayDir })?.gatewayUrl;
     if (!wsUrl) return;
     passing = true;
     let cli = null;

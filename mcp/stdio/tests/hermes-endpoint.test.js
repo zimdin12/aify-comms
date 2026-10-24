@@ -7,6 +7,7 @@
 // file, then read back identically on subsequent calls. Tests inject a temp
 // dir and clean it up so nothing touches the real os.tmpdir().
 
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";

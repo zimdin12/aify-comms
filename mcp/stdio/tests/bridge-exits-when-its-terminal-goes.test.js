@@ -71,10 +71,17 @@ async function runBridge({ sessionMode, end }) {
 
 const lost = (paths) => paths.filter((p) => p === "POST /api/v1/agents/hup-agent/resident-lost");
 
-test("a resident bridge whose stdin ends reports resident-lost and exits", async () => {
-  const { result, paths } = await runBridge({ sessionMode: "resident", end: (c) => c.stdin.end() });
-  assert.ok(result, "the bridge must exit when its client closes stdin");
-  assert.equal(lost(paths).length, 1, paths.join("\n"));
+test("a resident bridge reports loss on stdin end without inheriting its parent's lifecycle owner", async () => {
+  const previous = process.env.AIFY_RESIDENT_LIFECYCLE_OWNER;
+  process.env.AIFY_RESIDENT_LIFECYCLE_OWNER = "managed-host";
+  try {
+    const { result, paths } = await runBridge({ sessionMode: "resident", end: (c) => c.stdin.end() });
+    assert.ok(result, "the bridge must exit when its client closes stdin");
+    assert.equal(lost(paths).length, 1, paths.join("\n"));
+  } finally {
+    if (previous === undefined) delete process.env.AIFY_RESIDENT_LIFECYCLE_OWNER;
+    else process.env.AIFY_RESIDENT_LIFECYCLE_OWNER = previous;
+  }
 });
 
 test("a resident bridge given SIGHUP reports resident-lost before exiting", { skip: process.platform === "win32" }, async () => {

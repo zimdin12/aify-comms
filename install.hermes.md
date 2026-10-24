@@ -125,6 +125,28 @@ The gateway host carries the launcher's lease pid as `HERMES_PARENT_PID`, so Her
 ends it with the agent, and the next start of the agent stops anything a hard kill left behind. After
 a hard kill of aify-env, `aify-comms doctor` `gateway-orphans` names gateways nothing owns.
 
+Gateway discovery uses `os.homedir()/.aify/hermes/gateways/aify-hermes-gateway-<sanitized-agent-id>`.
+Default publication and primary lookup share that location across the ensure-host writer, MCP bridge,
+resume sync, session-effort loop and doctor, independently of `TEMP`, `TMP`, `TMPDIR`, `HERMES_HOME`
+and `AIFY_HOME`. A usable explicit `AIFY_HERMES_GATEWAY_URL` still wins. Reads create nothing; the
+writer creates the directory with mode 0700 and atomically replaces the marker with mode 0600 where
+supported. The URL can contain a token, so do not print the marker. No Windows ACL changes are made.
+
+Only gateway URL discovery moved. Session/resume bindings, port/key claims, PID and loop-ready
+markers keep their existing temp roots. The gateway read/write helpers retain explicit `tempDir`
+as a legacy gateway-directory override and accept `gatewayDir` separately. Resume sync and effort
+use `tempDir` for sessions only and `gatewayDir` for gateway discovery. Cleanup keeps its bare
+legacy launch-directory argument and accepts a third `{ gatewayDir }` argument; it removes the
+stable URL plus the target's legacy port/key/URL files, not its persistent session binding.
+When no usable stable marker is found, the default reader also checks the legacy TEMP location.
+That fallback only reads; it does not copy, rewrite or migrate a marker. Explicit gateway-directory
+overrides remain isolated. Refreshing the MCP entry preserves its existing explicit `TEMP`, `TMP`
+and `TMPDIR` values. In particular, an entry pinned to `/tmp` on laputa keeps those pins, so a new
+reader can still consume an old publisher's `/tmp` marker without a coordinated relaunch window.
+A later `install.sh` run replaces bridge code but leaves those existing marker files in place.
+The next ensure-host publication writes the stable location, which takes precedence. This source
+change alone does not update or activate installed agents.
+
 **When a live Hermes turn has no `mcp_aify_comms_*` tools**, its gateway loaded before the MCP server:
 restart `hermes-aify`. **When a send fails with `visible session not found`**, the terminal was started
 by an older launcher, with the plugin disabled, or before the TUI attached: re-run the installer,

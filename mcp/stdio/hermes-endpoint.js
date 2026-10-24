@@ -21,6 +21,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { GatewayMarkerStore, defaultGatewayMarkerDir } from "./hermes-gateway-marker.mjs";
 
 // EXPORTED so the gateway-orphan check applies THIS range rather than a copy of it. A second
 // hand-written 8642 somewhere else agrees until one of them is changed, and the check's whole job is
@@ -28,12 +29,8 @@ import path from "node:path";
 export const PORT_BASE = 8642; // first port in the per-agent range
 export const PORT_SPAN = 1000; // range is PORT_BASE .. PORT_BASE + PORT_SPAN - 1 (8642–9641)
 
-// Single tmp-dir resolution shared by EVERY marker reader/writer (the wrapper's
-// `node -e`, server.js register, and hermes-managed-host.js's loop) so they all
-// agree on WHERE the markers live. The loop uses TEMP||TMP||os.tmpdir(); marker
-// helpers must default to the SAME order, else on a host where $TEMP/$TMP differ
-// from os.tmpdir() (Windows Git-Bash) the loop writes one dir and the wrapper
-// reads another → resume silently fails. (Review fix 2026-06-03.)
+// Temp-root resolution for session, port, key, PID and loop-ready markers.
+// Gateway URLs alone use the per-user GatewayMarkerStore, because Hermes changes TEMP for MCP children.
 export function defaultMarkerTmpDir() {
   return process.env.TEMP || process.env.TMP || os.tmpdir();
 }
@@ -69,9 +66,8 @@ export function agentPort(agentId) {
 
 // Sanitize an agentId into a safe filename fragment (same charset rules as the
 // pinned session id), so the key file name is a valid path component.
-// THE OWNER of the hermes filename sanitiser. `hermes-daemon.js` and `hermes-loop-ready.js`
-// declared byte-identical copies until v0.5.4; this module imports nothing, so it cannot cycle,
-// and it holds eight of the eleven call sites.
+// THE OWNER of the hermes filename sanitizer, shared by daemon and loop-ready markers too.
+// GatewayMarkerStore receives only its result.
 //
 // NOT THE SAME FUNCTION as `sanitizeAgentId` in `claude-session-store.js`, which shares the name
 // and does something different: it keeps dots and substitutes underscores, where this one folds
@@ -238,38 +234,21 @@ function loadOrCreateKey(agentId, tempDir) {
 // AGENT-keyed (not cwd-keyed like runtime-markers.js) so two hermes agents in
 // the same folder never read each other's gateway. Overwritten on each
 // ensure-host (the wsUrl/token rotate per launch); cleared on terminal teardown.
-function gatewayUrlMarkerPath(agentId, tempDir) {
-  return path.join(tempDir, `aify-hermes-gateway-${sanitizeAgentId(agentId)}`);
-}
-
-export function writeGatewayUrlMarker(agentId, gatewayUrl, { gatewayTokenEnv = "", tempDir = defaultMarkerTmpDir() } = {}) {
+// Explicit tempDir is a legacy gateway-root override. Production omits it; gatewayDir makes the split explicit.
+export function writeGatewayUrlMarker(agentId, gatewayUrl, { gatewayTokenEnv = "", tempDir, gatewayDir = tempDir ?? defaultGatewayMarkerDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   const url = String(gatewayUrl || "").trim();
   if (!safe || !/^wss?:\/\//i.test(url)) return false;
-  try {
-    fs.writeFileSync(
-      gatewayUrlMarkerPath(agentId, tempDir),
-      JSON.stringify({ gatewayUrl: url, gatewayTokenEnv: String(gatewayTokenEnv || "") }),
-    );
-    return true;
-  } catch {
-    return false; // best-effort: never throw
-  }
+  return new GatewayMarkerStore(gatewayDir).write(safe, url, String(gatewayTokenEnv || ""));
 }
 
-export function readGatewayUrlMarker(agentId, { tempDir = defaultMarkerTmpDir() } = {}) {
+export function readGatewayUrlMarker(agentId, { tempDir, gatewayDir } = {}) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return null;
-  try {
-    const raw = fs.readFileSync(gatewayUrlMarkerPath(agentId, tempDir), "utf8").trim();
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const url = String(parsed?.gatewayUrl || "").trim();
-    if (!/^wss?:\/\//i.test(url)) return null;
-    return { gatewayUrl: url, gatewayTokenEnv: String(parsed?.gatewayTokenEnv || "") };
-  } catch {
-    return null;
-  }
+  const marker = new GatewayMarkerStore(gatewayDir ?? tempDir ?? defaultGatewayMarkerDir()).read(safe);
+  if (marker || gatewayDir !== undefined || tempDir !== undefined) return marker;
+  // ponytail: legacy TEMP read: delete when no host publishes there
+  return new GatewayMarkerStore(defaultMarkerTmpDir()).read(safe);
 }
 
 // Agent-keyed REAL hermes session id marker. The native-session-id model
@@ -334,9 +313,11 @@ export function readSessionIdMarker(agentId, { tempDir = defaultMarkerTmpDir() }
 // It deliberately does NOT touch the SESSION-id marker: that is the persistent agent->real-session
 // binding the next launch must read to resume the SAME transcript — clearing it here was the
 // 2026-06-03 regression that made every relaunch start fresh.
-export function clearGatewayMarkers(agentId, dir = defaultMarkerTmpDir()) {
+export function clearGatewayMarkers(agentId, dir = defaultMarkerTmpDir(), { gatewayDir = defaultGatewayMarkerDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return;
+  new GatewayMarkerStore(gatewayDir).clear(safe);
+  // Remove the exact legacy fallback filename too, so cleanup cannot resurrect an old URL.
   for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`, `aify-hermes-gateway-${safe}`]) {
     try {
       fs.rmSync(path.join(dir, name), { force: true });

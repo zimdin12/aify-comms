@@ -16,10 +16,9 @@
 // gateway-host launch the env is useless and the marker is the real source. Getting the order wrong does not
 // degrade gracefully — it stores a placeholder as an agent's delivery address.
 //
-// `AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER` HOLDS THE NAME OF AN ENVIRONMENT VARIABLE, NOT A TOKEN. The
-// marker records which variable the gateway's auth token lives in; the token itself is never read here,
-// never stored here, and never logged. The constant's name invites the opposite reading, which is exactly
-// why this paragraph exists.
+// `AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER` holds an environment variable name, not a token.
+// The marker under the per-user gateway directory can contain a token in gatewayUrl;
+// neither the URL nor its token is logged here.
 //
 // THIS MODULE RESOLVES AT IMPORT, and that is deliberate rather than an oversight. Reading the marker is a
 // file read, so unlike `local-store.mjs` — which owns paths and refuses to touch the filesystem on import —
