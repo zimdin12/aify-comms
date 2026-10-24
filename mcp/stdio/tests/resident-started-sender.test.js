@@ -106,6 +106,8 @@ for (const [label, harness, payload, changes] of [
   ["long session", "claude", { ...PAYLOAD, session_id: "é".repeat(513) }, {}],
   ["array", "claude", [], {}], ["null", "claude", null, {}],
   ["missing identity", "claude", PAYLOAD, { AIFY_AGENT_ID: "" }],
+  ["padded identity", "claude", PAYLOAD, { AIFY_AGENT_ID: " hook/agent " }],
+  ["non-string identity", "claude", PAYLOAD, { AIFY_AGENT_ID: ["hook/agent"] }],
   ["missing lifetime", "claude", PAYLOAD, { AIFY_LIFETIME: "" }],
   ["malformed lifetime", "claude", PAYLOAD, { AIFY_LIFETIME: "bad" }],
   ["newline lifetime", "claude", PAYLOAD, { AIFY_LIFETIME: LIFETIME + "\n" }],

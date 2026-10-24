@@ -81,9 +81,10 @@ function descriptorEndpoint(env, instance) {
 export async function postEnvResidentStarted(harness, payload, { env = process.env } = {}) {
   const instance = env.AIFY_ENV_INSTANCE;
   const lifetime = env.AIFY_LIFETIME;
-  const agentId = String(env.AIFY_AGENT_ID || "").trim();
+  const agentId = env.AIFY_AGENT_ID;
   // ASYMMETRY(claude): only its native SessionStart hook is supported in this stage.
-  if (harness !== "claude" || instance !== "residents" || !agentId
+  if (harness !== "claude" || instance !== "residents" || typeof agentId !== "string"
+      || !agentId || agentId.trim() !== agentId
       || typeof lifetime !== "string"
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lifetime)
       || !payload || typeof payload !== "object" || Array.isArray(payload)
