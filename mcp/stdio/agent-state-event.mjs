@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // agent-state-event.mjs <turn-start|turn-end|blocked|unblocked>
+// agent-state-event.mjs resident-started claude < native-SessionStart.json
 //
 // What a runtime hook runs to tell the service a resident's turn started, ended, or is waiting for an
 // approval. The hooks used to curl the routes directly with no key header; once the service enforced
@@ -11,7 +12,7 @@
 // module is imported -- the module resolves at import time. A name the module already reads wins.
 //
 // It runs inside hooks: never prints (codex parses a hook's stdout), always exits 0, gives up after
-// ~2s, and drains stdin without waiting for it to close.
+// ~2s. Turn events drain stdin without waiting for it to close; startup requires bounded native JSON.
 
 import path from "node:path";
 import fs from "node:fs";
@@ -22,6 +23,8 @@ import { defaultMachineId } from "./machine-id.mjs";
 const EVENTS = new Set(["turn-start", "turn-end", "blocked", "unblocked"]);
 
 const TIMEOUT_MS = 2000;
+const HOOK_INPUT_MAX_BYTES = 64 * 1024;
+const SESSION_ID_MAX_BYTES = 1024;
 // This process's start on the WALL clock, in microseconds: the fallback when the hook command passed no
 // shell time. The same clock as $EPOCHREALTIME and the bridge's stamps (turn-event-stamp.mjs says why).
 const STARTED_AT_US = Date.now() * 1000;
@@ -50,18 +53,48 @@ export async function postEnvAgentState(kind, { env = process.env, firedAtUs = h
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lifetime || "")
       || !Number.isSafeInteger(firedAtUs) || firedAtUs <= 0) return false;
   try {
-    const home = process.platform === "win32" ? env.USERPROFILE : env.HOME;
-    const descriptor = JSON.parse(fs.readFileSync(path.join(home || os.homedir(), ".aify", "env", `${instance}.json`), "utf8"));
-    if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)
-        || descriptor.instance !== instance || !Number.isSafeInteger(descriptor.pid) || descriptor.pid <= 0
-        || typeof descriptor.startedAt !== "string" || Number.isNaN(Date.parse(descriptor.startedAt))
-        || typeof descriptor.url !== "string") return false;
-    // Match the descriptor's strict endpoint form before URL normalisation can repair malformed input.
-    if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(descriptor.url)) return false;
-    const endpoint = new URL(descriptor.url);
+    const endpoint = descriptorEndpoint(env, instance);
+    if (!endpoint) return false;
     const response = await fetch(new URL(`/agents/${encodeURIComponent(agentId)}/turn-event`, endpoint), {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ instance, lifetime, kind, firedAtUs }),
+      redirect: "manual", credentials: "omit", signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    await response.body?.cancel();
+    return response.ok;
+  } catch { return false; }
+}
+
+/** Reread the descriptor, keeping the raw endpoint guard ahead of URL normalization. */
+function descriptorEndpoint(env, instance) {
+  const home = process.platform === "win32" ? env.USERPROFILE : env.HOME;
+  const descriptor = JSON.parse(fs.readFileSync(path.join(home || os.homedir(), ".aify", "env", `${instance}.json`), "utf8"));
+  if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)
+      || descriptor.instance !== instance || !Number.isSafeInteger(descriptor.pid) || descriptor.pid <= 0
+      || typeof descriptor.startedAt !== "string" || Number.isNaN(Date.parse(descriptor.startedAt))
+      || typeof descriptor.url !== "string") return null;
+  if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(descriptor.url)) return null;
+  return new URL(descriptor.url);
+}
+
+/** Native startup provenance is a separate env-only acknowledgment, never a turn event. */
+export async function postEnvResidentStarted(harness, payload, { env = process.env } = {}) {
+  const instance = env.AIFY_ENV_INSTANCE;
+  const lifetime = env.AIFY_LIFETIME;
+  const agentId = String(env.AIFY_AGENT_ID || "").trim();
+  // ASYMMETRY(claude): only its native SessionStart hook is supported in this stage.
+  if (harness !== "claude" || instance !== "residents" || !agentId
+      || typeof lifetime !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lifetime)
+      || !payload || typeof payload !== "object" || Array.isArray(payload)
+      || payload.hook_event_name !== "SessionStart" || typeof payload.session_id !== "string"
+      || !payload.session_id.trim() || Buffer.byteLength(payload.session_id) > SESSION_ID_MAX_BYTES) return false;
+  try {
+    const endpoint = descriptorEndpoint(env, instance);
+    if (!endpoint) return false;
+    const response = await fetch(new URL(`/agents/${encodeURIComponent(agentId)}/resident-started`, endpoint), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instance, lifetime, harness, producer: "SessionStart", sessionId: payload.session_id }),
       redirect: "manual", credentials: "omit", signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     await response.body?.cancel();
@@ -111,9 +144,44 @@ const isEntrypoint = (() => {
   }
 })();
 
+/** Only EOF completes native hook evidence; oversized, broken or stalled input fails closed. */
+function readNativeHookPayload() {
+  return new Promise(resolve => {
+    const chunks = [];
+    let bytes = 0;
+    const finish = payload => {
+      clearTimeout(timer);
+      process.stdin.removeListener("data", onData);
+      process.stdin.removeListener("end", onEnd);
+      process.stdin.removeListener("error", onError);
+      process.stdin.pause();
+      resolve(payload);
+    };
+    const onData = chunk => {
+      bytes += chunk.length;
+      if (bytes > HOOK_INPUT_MAX_BYTES) finish(null);
+      else chunks.push(chunk);
+    };
+    const onEnd = () => {
+      try { finish(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)))); }
+      catch { finish(null); }
+    };
+    const onError = () => finish(null);
+    const timer = setTimeout(() => finish(null), TIMEOUT_MS);
+    process.stdin.on("data", onData);
+    process.stdin.once("end", onEnd);
+    process.stdin.once("error", onError);
+  });
+}
+
 if (isEntrypoint) {
-  process.stdin.on("data", () => {});
-  process.stdin.on("error", () => {});
   setTimeout(() => process.exit(0), TIMEOUT_MS + 500).unref();
-  postAgentState(process.argv[2]).finally(() => process.exit(0));
+  if (process.argv[2] === "resident-started") {
+    readNativeHookPayload().then(payload => postEnvResidentStarted(process.argv[3], payload))
+      .finally(() => process.exit(0));
+  } else {
+    process.stdin.on("data", () => {});
+    process.stdin.on("error", () => {});
+    postAgentState(process.argv[2]).finally(() => process.exit(0));
+  }
 }
