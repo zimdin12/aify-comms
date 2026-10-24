@@ -23,9 +23,9 @@ def record(busy, state='idle', lifetime='L1', turn_open=False, started_us=0, bus
     return shadow.Record(agent, lifetime, state, (), clock, busy_if, ('running', True), busy=busy)
 
 
-def publisher(*rows, applied=T0, complete=True, unavailable=False, loss=False):
+def publisher(*rows, applied=T0, complete=True, unavailable=False, loss=False, every=60_000):
     """A publisher whose last report, received at `applied`, announced 60 s (decision 2): fresh for 180 s."""
-    return shadow.Publisher(1, iso(applied), complete, unavailable, tuple(rows), loss, report=(iso(applied), 60_000))
+    return shadow.Publisher(1, iso(applied), complete, unavailable, tuple(rows), loss, report=(iso(applied), every))
 
 
 def binding(*publishers, at=T0, machine=MACHINE):
@@ -65,9 +65,9 @@ class TheTruthTable(unittest.TestCase):
         v = view_of(binding(publisher(record(False))))
         self.assertEqual((v.eligibility, v.busy, v.holds_delivery), ('known', False, False))
 
-    def test_a_fresh_idle_holder_beside_a_stale_holder_is_unknown_never_false(self):
-        stale = publisher(record(False, lifetime='L0'), applied=T0 - timedelta(seconds=600))
-        v = view_of(binding(publisher(record(False)), stale))
+    def test_a_fresh_idle_holder_beside_a_not_reporting_holder_is_unknown_never_false(self):
+        unknown = publisher(record(False, lifetime='L0'), applied=T0 - timedelta(seconds=600), every=None)
+        v = view_of(binding(publisher(record(False)), unknown))
         self.assertEqual((v.eligibility, v.busy, v.holds_delivery), ('unknown', None, None))
 
     def test_an_unreadable_publisher_with_no_rows_makes_a_fresh_idle_holder_unknown(self):
@@ -78,8 +78,8 @@ class TheTruthTable(unittest.TestCase):
                 self.assertEqual((v.eligibility, v.holds_delivery), ('unknown', None))
 
     def test_a_fresh_busy_holder_holds_even_beside_an_unknown_one(self):
-        stale = publisher(record(False, lifetime='L0'), applied=T0 - timedelta(seconds=600))
-        v = view_of(binding(publisher(record(True, state='working')), stale))
+        unknown = publisher(record(False, lifetime='L0'), applied=T0 - timedelta(seconds=600), every=None)
+        v = view_of(binding(publisher(record(True, state='working')), unknown))
         self.assertEqual((v.eligibility, v.busy, v.holds_delivery), ('unknown', True, True))
 
     def test_any_busy_among_fresh_holders_holds_a_conflict_included(self):
@@ -99,8 +99,8 @@ class ReadersCheckEligibilityFirst(unittest.TestCase):
     """Obligation: unknown withholds every claim before busy and before steer; R3's readers pause on busy or unknown."""
 
     def test_claim_withholds_unknown_even_with_a_steerable_run(self):
-        stale = publisher(record(False, lifetime='L0'), applied=T0 - timedelta(seconds=600))
-        v = view_of(binding(publisher(record(True, state='working')), stale))
+        unknown = publisher(record(False, lifetime='L0'), applied=T0 - timedelta(seconds=600), every=None)
+        v = view_of(binding(publisher(record(True, state='working')), unknown))
         self.assertEqual(ov.claim_decision(v, steerable_run=True), 'withhold')
 
     def test_claim_on_known_busy_steers_only_a_steerable_run(self):

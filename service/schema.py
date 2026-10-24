@@ -679,6 +679,8 @@ CREATE TABLE IF NOT EXISTS agent_state_shadow_publishers (
     data_publication INTEGER,
     data_applied_at TEXT,
     data_inputs TEXT,
+    report_received_at TEXT,
+    report_every_ms INTEGER,
     PRIMARY KEY (machine_id, instance)
 );
 CREATE TABLE IF NOT EXISTS agent_state_shadow_rows (

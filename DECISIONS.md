@@ -6,6 +6,21 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## Stale publisher keys yield under the post-switch rule, superseding the sandbox case (2026-10-24, task #5)
+
+The operator's 2026-10-22 ruling, recorded in `985ec638`, is now implemented after the switch. A publisher yields
+only after three of its own announced `reportEveryMs` intervals have passed since its last accepted report, and
+only where a fresh, readable peer on the same machine lists the same agent. This is a read projection, not key
+retirement. Missing or invalid cadence, including legacy saved rows with no contact pair, never earns a guessed
+expiry. A restored contact pair can prove silence but never makes restored data fresh.
+
+This supersedes `stale-second-holder` in the `098/sw3d` sandbox gate. That case expected "eligibility unknown:
+withheld, steer included" and called "stale holders are ignored (known false: delivered)" its RED. Under the
+bounded post-switch rule, the latter is intended behavior. Before any future qualification, amend that case and
+its judge, and keep unknown-before-steer coverage with a genuinely unknown, non-yielding peer. The required changes
+are recorded in [the post-switch gate amendment](docs/evidence/2026-10-21-sw3a-gate/POST-SWITCH-AMENDMENTS.md).
+Frozen SW6 records keep their original bytes and historical verdicts; this change does not requalify them.
+
 ## The aify channel ships as an aify-wrapper plugin, allowed by a per-user Claude Code policy (Steven, 2026-10-22)
 
 - Agents start with the aify channel and no development-channels warning. The channel is a Claude Code plugin owned

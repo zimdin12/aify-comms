@@ -147,7 +147,7 @@ class ReportIntervalIsAifyEnvs(FastApiTestCase):
         self.applied(announced(agents=[idle()]))
         self.shadow.mirror = self.shadow.Mirror()
         self.assertEqual(asyncio.run(mirror_restore.restore_mirror(get_db)).restored, (KEY,))
-        self.assertEqual(self.report_age(at(1)), 'not-reporting', 'the pair is process-local: none after a restart')
+        self.assertEqual(self.publisher().report, (AT, EVERY), 'saved contact survives; restored data is still unknown')
         self.assertEqual(self.ov.comms_view(self.holders(at(1)), self.ov.Messaging()).eligibility, 'unknown')
         self.applied(announced('unavailable', publication=2), at(2))
         self.assertEqual(self.report_age(at(3)), 'fresh', 'any accepted report restores contact')

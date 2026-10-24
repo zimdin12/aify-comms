@@ -9,7 +9,8 @@ Two layers, so the only clock comms keeps is visible in one place:
   - `comms_view` is pure over those holders and the messaging facts. It takes no clock that it ages anything against:
     aify-env alone decides `busy` (DECISIONS: "comms never times turns").
 
-Availability and busy are separate typed facts. Eligibility is known only when every holder of the agent is fresh and
+Task #5 lets a provably silent publisher yield only where a fresh peer on that machine lists the same agent.
+Availability and busy are separate typed facts. Eligibility is known only when every remaining holder is fresh and
 no publisher on its machine is unreadable; unknown withholds before busy and before steer.
 """
 from dataclasses import dataclass
@@ -76,12 +77,20 @@ def holders_of(binding, machine, agent_id):
     """The agent's holders, classified by receipt age at the binding's time. A failed binding is all unknown."""
     if binding.loss or binding.view is None:
         return Holders((), True)
-    holders, unreadable = [], False
+    candidates = []
     for (mid, _instance), publisher in binding.view.items():
         if mid != machine:
             continue
         availability = _availability(publisher, binding.at)
         rows = [r for r in publisher.rows if r.agent_id == agent_id]
+        candidates.append((publisher, availability, rows))
+    covered = any(availability == FRESH and rows for _, availability, rows in candidates)
+    holders, unreadable = [], False
+    for publisher, availability, rows in candidates:
+        # Task #5: ignore silence only where a live peer actually lists this agent. No retirement or generation
+        # ranking: an advancing report can rejoin immediately; missing cadence and invalid clocks never yield.
+        if covered and report_age(publisher, binding.at) == 'stale':
+            continue
         if availability not in (FRESH, 'stale') and not rows:
             unreadable = True  # its rows cannot be trusted to say the agent is absent
         holders += [Holder(availability, r.busy, r.state, r.lifetime, publisher.data_applied_at) for r in rows]

@@ -66,7 +66,7 @@ class Publisher:
     build: str | None = None  # of the last DATA publication: an unavailable one never changes it
     restored: bool = False  # loaded from the saved tables at start (SW1): never fresh until a complete snapshot
     # (received_at, report_every_ms) of the last report the ingest APPLIED, whatever its kind (decision 2). Contact
-    # only: it never makes data fresh. Process-local, so a restored publisher has none until its next report.
+    # only: it never makes data fresh. Saved for silence after restart; `restored` still prevents fresh data.
     report: tuple | None = None
 
 

@@ -162,14 +162,16 @@ def _plus_ms(iso, ms):
 
 
 def fresh_until(agent_row, binding):
-    """When the earliest fresh holder of the agent stops being fresh with no further report, or None when no holder is
-    fresh. A cached word built from fresh holders must be re-read by then: nothing else marks the change."""
-    machine, agent_id = _placement(agent_row)
+    """Next contact expiry on the agent's machine, or None. A cached word must recheck both loss of a fresh holder
+    and yielding of an unreadable silent peer; neither transition requires another publication."""
+    machine, _ = _placement(agent_row)
     if binding.loss or binding.view is None or not machine:
         return None
     ends = []
     for (mid, _), publisher in binding.view.items():
-        if mid != machine or not any(r.agent_id == agent_id for r in publisher.rows):
+        # Even a publisher with no readable row can hold this agent unknown. When its contact expires it may
+        # yield to a live holder, so a cached unknown must recheck at that boundary too.
+        if mid != machine:
             continue
         if report_age(publisher, binding.at) == 'fresh':
             received_at, every_ms = publisher.report

@@ -5,6 +5,7 @@ import asyncio
 
 from service.api_core import delivery_turns, partial_status_shadow as shadow, switched_view
 from service.api_core.shadow_provenance import is_build
+from service.api_core.report_age import is_report_interval
 
 _INGEST_LOCK = asyncio.Lock()
 import json
@@ -85,15 +86,10 @@ def _build(value):
     _require(is_build(value), 'expected build string')
 
 
-#: Decision 2: how often an aify-env reports in full, whole milliseconds from 1 s to 1 h.
-REPORT_EVERY_MS_BOUNDS = (1_000, 3_600_000)
-
-
 def _report_every(value):
     """Optional on every body but `retired`: absent is accepted (an aify-env from before decision 2), and a present
     value must be a whole number within the bounds. Never null."""
-    low, high = REPORT_EVERY_MS_BOUNDS
-    _require(type(value) is int and low <= value <= high, 'expected reportEveryMs within bounds')
+    _require(is_report_interval(value), 'expected reportEveryMs within bounds')
 
 
 def _record(record):
@@ -259,7 +255,7 @@ class AgentStateShadowStore:
                 if refusal:
                     await db.rollback()
                     return ApplyResult(False, refusal)
-                await self._write_cursor(db, key, body, digest)
+                await self._write_cursor(db, key, body, digest, applied_at)
                 if body['kind'] == 'retired':
                     await self._write_retirement(db, key, body, applied_at)
                 elif body['kind'] != 'unavailable':
@@ -305,15 +301,18 @@ class AgentStateShadowStore:
         finally:
             await db.close()
 
-    async def _write_cursor(self, db, key, body, digest):
+    async def _write_cursor(self, db, key, body, digest, applied_at):
         await db.execute('''INSERT INTO agent_state_shadow_publishers
-            (machine_id,instance,generation,incarnation_id,publication,digest,kind,inputs,reason)
-            VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(machine_id,instance) DO UPDATE SET
+            (machine_id,instance,generation,incarnation_id,publication,digest,kind,inputs,reason,
+             report_received_at,report_every_ms)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(machine_id,instance) DO UPDATE SET
             generation=excluded.generation,incarnation_id=excluded.incarnation_id,
             publication=excluded.publication,digest=excluded.digest,kind=excluded.kind,
-            inputs=excluded.inputs,reason=excluded.reason''',
+            inputs=excluded.inputs,reason=excluded.reason,
+            report_received_at=excluded.report_received_at,report_every_ms=excluded.report_every_ms''',
             (*key, body['generation'], body['incarnationId'], body['publication'], digest,
-             body['kind'], _json(body['inputs']), body.get('reason')))
+             body['kind'], _json(body['inputs']), body.get('reason'),
+             applied_at if body['kind'] != 'retired' else None, body.get('reportEveryMs')))
 
     async def _write_retirement(self, db, key, body, applied_at):
         """K holds nothing from now on: its rows go, and its data columns name the retirement."""

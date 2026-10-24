@@ -253,6 +253,21 @@ async def _migrate_status_shadow_windows(db: aiosqlite.Connection):
                          (E1_EVIDENCE_OWNERS,))
 
 
+PUBLISHER_CONTACT_MIGRATIONS = {
+    "report_received_at": "ALTER TABLE agent_state_shadow_publishers ADD COLUMN report_received_at TEXT",
+    "report_every_ms": "ALTER TABLE agent_state_shadow_publishers ADD COLUMN report_every_ms INTEGER",
+}
+
+
+async def _migrate_publisher_contact(db: aiosqlite.Connection):
+    """Keep announced silence limits across restart. Legacy rows get no guessed receipt or interval."""
+    cursor = await db.execute("PRAGMA table_info(agent_state_shadow_publishers)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in PUBLISHER_CONTACT_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def _migrate_agents_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agents)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -680,6 +695,7 @@ async def init_db(db_path: Path = None):
         await db.execute("PRAGMA journal_mode=WAL")
         await _apply_connection_pragmas(db)
         await db.executescript(SCHEMA)
+        await _migrate_publisher_contact(db)
         await _migrate_agents_table(db)
         await _migrate_dispatch_runs_table(db)
         await _migrate_messages_table(db)

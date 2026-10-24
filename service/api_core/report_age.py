@@ -14,6 +14,8 @@ from datetime import datetime
 #: "Three missed reports": the protocol's policy, here and nowhere else. That three intervals cover a quiet host's
 #: roughly two-interval gap between full reports is read from aify-env's code, not measured.
 MISSED_REPORTS = 3
+#: Whole milliseconds from 1 s to 1 h, shared by the ingest validator and the saved-contact reader.
+REPORT_EVERY_MS_BOUNDS = (1_000, 3_600_000)
 #: Today's fixed receipt limit, for the legacy readers only.
 LEGACY_RECEIPT_LIMIT_S = 180
 
@@ -40,12 +42,17 @@ def legacy_receipt_age(data_applied_at, at):
     return 'fresh' if seconds < LEGACY_RECEIPT_LIMIT_S else 'stale'
 
 
+def is_report_interval(value):
+    low, high = REPORT_EVERY_MS_BOUNDS
+    return type(value) is int and low <= value <= high
+
+
 def report_age(publisher, at):
     """'fresh' while fewer than MISSED_REPORTS announced intervals have passed since comms accepted the publisher's last
     report; 'stale' from then; 'not-reporting' when it never announced an interval, or its last report withdrew it;
     'future' or 'invalid-clock' as the clock dictates."""
     pair = getattr(publisher, 'report', None)
-    if pair is None or pair[1] is None:
+    if not isinstance(pair, tuple) or len(pair) != 2 or not is_report_interval(pair[1]):
         return 'not-reporting'
     received_at, every_ms = pair
     seconds = _elapsed_s(received_at, at)

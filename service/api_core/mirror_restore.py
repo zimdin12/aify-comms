@@ -4,8 +4,9 @@ The mirror is process-local; the tables are not. Without a load, every publisher
 absent publisher cannot make an agent unknown. With one, every non-retired publisher comes back as last-known data that
 is never fresh:
 
-  - Each publisher is `restored`, so the operational view reads its agents unknown until that publisher sends a complete
-    snapshot comms accepts. Completeness is not saved and is never inferred: a snapshot followed by changes and two
+  - Each publisher is `restored`, never fresh until its own accepted complete snapshot. Saved contact proves silence,
+    not fresh data: after three announced intervals it may yield where a live peer lists the same agent (task #5).
+    Completeness is not saved and is never inferred: a snapshot followed by changes and two
     changes publications leave the same rows, so the rows cannot say which history they came from.
   - A retired publisher stays absent. An unavailable one stays unavailable. A row or publisher the ingest validator
     refuses makes that publisher lost (unknown), never a failed start.
@@ -46,13 +47,22 @@ def restored_publisher(publisher, rows):
     records = tuple(restored_record(row['record_json'], (generation, incarnation, None, row['row_applied_at'], None))
                     for row in rows)
     return shadow.Publisher(generation, publisher['data_applied_at'], False, publisher['kind'] == 'unavailable',
-                            records, False, incarnation, publisher['data_publication'], None, True)
+                            records, False, incarnation, publisher['data_publication'], None, True,
+                            saved_report(publisher))
+
+
+def saved_report(publisher):
+    """Historical contact, not fresh data. A legacy row has neither receipt nor announced cadence."""
+    if 'report_received_at' not in publisher.keys() or not publisher['report_received_at']:
+        return None
+    return publisher['report_received_at'], publisher['report_every_ms']
 
 
 def lost_publisher(publisher):
     """A saved publisher whose rows cannot be read: lost, with no rows, keeping its saved coordinates."""
     return shadow.Publisher(publisher['data_generation'], publisher['data_applied_at'], False, False, (), True,
-                            publisher['data_incarnation_id'], publisher['data_publication'], None, True)
+                            publisher['data_incarnation_id'], publisher['data_publication'], None, True,
+                            saved_report(publisher))
 
 
 async def restore_mirror(connect):
