@@ -128,8 +128,15 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
             ["git", "-C", str(REPO), "ls-files", "-z"],
             capture_output=True, check=True, timeout=60,
         ).stdout.decode("utf-8").split("\0")
-        forbidden = {".env", "service/_service_spec.json", "service/_build_stamp.json"}
-        if "install.sh" not in tracked or forbidden.intersection(tracked):
+        # Build-owned ignored inputs come from their policy, not a second filename list.
+        cls.ignored_service_inputs = {
+            line.strip().removeprefix("/")
+            for line in (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
+            if line.strip().removeprefix("/").startswith("service/")
+        }
+        if ("install.sh" not in tracked or ".env" in tracked or not cls.ignored_service_inputs
+                or any(Path(relative).match(pattern)
+                       for relative in tracked for pattern in cls.ignored_service_inputs)):
             raise AssertionError("unsafe installer source list")
         for relative in filter(None, tracked):
             source = REPO / relative
@@ -257,8 +264,9 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         self.assertNotEqual(self.fixture_repo, REPO)
         self.assertEqual((self.fixture_repo / ".env").read_text(encoding="utf-8"),
                          "API_KEY=" + self.SYNTHETIC_KEY + "\n")
-        self.assertFalse((self.fixture_repo / "service" / "_service_spec.json").exists())
-        self.assertFalse((self.fixture_repo / "service" / "_build_stamp.json").exists())
+        for pattern in sorted(self.ignored_service_inputs):
+            with self.subTest(ignored_service_input=pattern):
+                self.assertFalse(list(self.fixture_repo.glob(pattern)), "a build-owned ignored input was copied")
         self.assertFalse((self.root / "blocked.log").exists(), "an unexpected platform operation was attempted")
 
     def test_THE_SEAL_FIRES_ON_A_LEAK_AND_NOT_ON_SOMEBODY_ELSES_WRITE(self):
