@@ -1,4 +1,4 @@
-"""A key already in `.env` never reached aify-env, and re-running the installer changed nothing.
+"""The standalone installer carries an existing synthetic key and records its launcher.
 
 THE DEFECT, measured 2026-09-02. `install.sh` resolved the service key on every run -- clients got
 it, because `scripts/api-key.sh` reads `.env` -- but the hand-off to aify-env's credential store sat
@@ -18,11 +18,15 @@ a static check on this would have passed the whole time the defect existed: the 
 present and correct, in a branch that never ran. The only thing that distinguishes the two is
 executing the path.
 
-IT RUNS THE REAL INSTALLER, SO TWO AT ONCE FAIL EACH OTHER. This is the only test here that executes
-`install.sh`, and two concurrent installs race over the same stub log and the same global state. It
-produced a false red twice on 2026-09-02, both times because a targeted `-k` run was started
-alongside a full sweep. If this file fails in the full suite and PASSES on its own, that is what you
-are looking at, not a defect.
+Each class runs from its own tracked-source copy, installed dependencies and synthetic .env.
+No checkout .env or gitignored build/spec is copied. Missing installed dependencies fail rather than make
+the credential cases look passed. The npm stub accepts local dependency maintenance only because
+the fixture already holds the installed tree; global operations and platform writes are denied.
+
+These cases cover --standalone, credential-carrier.sh and its credential status readback, not the
+default guided chain. That chain's handoff is covered by the bridge's
+a-plain-install-hands-off-to-the-chain-once.test.js; its connect/store ordering by aify-wrapper's
+connect-registry-and-launchers.test.js. No default-chain end-to-end claim is made here.
 
 SANDBOXED THREE WAYS, AND THE SANDBOX IS ASSERTED RATHER THAN ASSUMED. An earlier version set `HOME`
 and `AIFY_HOME` only -- and `install.sh` registers the MCP server by invoking `claude mcp add`, whose
@@ -31,9 +35,9 @@ rewrote the operator's REAL `~/.claude.json` with a server path inside this test
 directory, which `tearDown` then deleted; every later session found aify-comms pointing at nothing.
 
 So: `claude` and `aify-env` are both stubs on PATH, so the real CLIs are never reached;
-`HOME`, `USERPROFILE` and `AIFY_HOME` all point into the temp root; and the real config file is
-hashed before and after, with a restore-and-fail if it moved. A seal that is not checked is a seal
-that has already broken once.
+`HOME`, `USERPROFILE` and `AIFY_HOME` all point into the temp root. The real config file is searched
+only for this run's unique path and is never restored over another session's writes. Native config
+roots and inherited service/credential inputs are sealed as well.
 
 The stubs are what the assertions read: a credential carried is a credential COMMAND ISSUED, and the
 argv proves it.
@@ -49,8 +53,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-#: What the real `claude` would write. Hashed before and after, so a leak fails loudly instead of
-#: silently repointing the operator's MCP server at a directory this test is about to delete.
+#: Search the real config only for this fixture's path. Never restore another session's bytes.
 REAL_CLAUDE_CONFIG = Path.home() / ".claude.json"
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
@@ -60,6 +63,7 @@ INSTALL_SH = REPO / "install.sh"
 #: silently produced an empty write and a stub that looked like it had never been called.
 STUB = """#!/usr/bin/env bash
 echo "CALLED: $*" >> "{log}"
+if [ "$1 $2" = "credential set" ]; then cat > "{stdin}"; fi
 echo "aify-comms-testref.key"
 """
 
@@ -78,6 +82,7 @@ def bash() -> str | None:
 @unittest.skipIf(bash() is None, "bash is required to run install.sh")
 @unittest.skipUnless(INSTALL_SH.is_file(), "install.sh is missing")
 class InstallCarriesTheKeyTests(unittest.TestCase):
+    SYNTHETIC_KEY = "standalone-installer-fixture-not-an-operator-key"
     #: ONE INSTALLER RUN FOR THE WHOLE CLASS, because it is the same run every assertion reads.
     #: Executing `install.sh` costs about a minute, and this file ran it twice to ask two questions
     #: about one recorded behaviour -- which is the shape T1 exists to remove: cost without coverage.
@@ -85,9 +90,12 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
     #: evidence rather than mutable state.
     @classmethod
     def setUpClass(cls):
-        cls._tmp = tempfile.TemporaryDirectory()
+        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.addClassCleanup(cls._tmp.cleanup)
         cls.root = Path(cls._tmp.name)
         cls.log = cls.root / "calls.log"
+        cls.stdin = cls.root / "credential.stdin"
+        cls._copy_source()
         binaries = cls.root / "bin"
         binaries.mkdir()
         log = str(cls.log).replace(chr(92), "/")
@@ -95,9 +103,10 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         # redirection is an escape sequence rather than a directory.
         for name, body in (("aify-env", STUB), ("claude", CLAUDE_STUB)):
             stub = binaries / name
-            stub.write_text(body.format(log=log), encoding="utf-8", newline=chr(10))
+            stub.write_text(body.format(log=log, stdin=cls.stdin.as_posix()), encoding="utf-8", newline=chr(10))
             stub.chmod(0o755)
         cls.binaries = binaries
+        cls._stub_platform_commands()
         #: THE SEAL IS A SEARCH, NOT A HASH -- corrected 2026-09-03, and the old version was doing
         #: real damage. It recorded the file's BYTES and failed if they differed afterwards, on the
         #: premise that only `install.sh` could have changed them. That premise is false on this
@@ -110,7 +119,70 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         #: server entry pointing INSIDE this test's temp root, a path that did not exist until a
         #: moment ago. So that is what is searched for, and nothing else is touched.
         cls._leak_marker = str(cls.root).replace(chr(92), "/")
-        cls.result = cls._install() if (REPO / ".env").is_file() else None
+        cls.result = cls._install()
+
+    @classmethod
+    def _copy_source(cls):
+        cls.fixture_repo = cls.root / "repo"
+        tracked = subprocess.run(
+            ["git", "-C", str(REPO), "ls-files", "-z"],
+            capture_output=True, check=True, timeout=60,
+        ).stdout.decode("utf-8").split("\0")
+        forbidden = {".env", "service/_service_spec.json", "service/_build_stamp.json"}
+        if "install.sh" not in tracked or forbidden.intersection(tracked):
+            raise AssertionError("unsafe installer source list")
+        for relative in filter(None, tracked):
+            source = REPO / relative
+            if not source.resolve().is_relative_to(REPO.resolve()):
+                raise AssertionError("installer source escaped its checkout")
+            target = cls.fixture_repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        dependencies = REPO / "mcp" / "stdio" / "node_modules"
+        if not dependencies.is_dir():
+            raise AssertionError("run npm ci in mcp/stdio before the standalone installer tests")
+        shutil.copytree(dependencies, cls.fixture_repo / "mcp" / "stdio" / "node_modules")
+        (cls.fixture_repo / ".env").write_text(
+            "API_KEY=" + cls.SYNTHETIC_KEY + "\n", encoding="utf-8", newline="\n",
+        )
+
+    @classmethod
+    def _stub_platform_commands(cls):
+        # npm acquisition is outside this test. The real installed SDK and native addon still load.
+        prefix = cls.binaries
+        package = prefix / "node_modules" / "aify-env" / "bin"
+        package.mkdir(parents=True)
+        (package / "aify-env.mjs").write_text("#!/usr/bin/env node\n", encoding="utf-8", newline="\n")
+        npm = '#!/usr/bin/env bash\ncase "$*" in\n'
+        npm += '"root -g") printf \'%s\\n\' "' + (prefix / "node_modules").as_posix() + '";;\n'
+        npm += '"prefix -g") printf \'%s\\n\' "' + prefix.as_posix() + '";;\n'
+        npm += '"install --silent") exit 0;;\n*) echo "unexpected fixture npm operation" >&2; exit 97;;\nesac\n'
+        (prefix / "npm").write_text(npm, encoding="utf-8", newline="\n")
+        (prefix / "npm").chmod(0o755)
+        for name in ("powershell.exe", "pwsh.exe", "reg.exe", "icacls", "icacls.exe", "curl", "docker"):
+            stub = prefix / name
+            stub.write_text('#!/usr/bin/env bash\necho "' + name + '" >> "'
+                            + (cls.root / "blocked.log").as_posix() + '"\nexit 97\n',
+                            encoding="utf-8", newline="\n")
+            stub.chmod(0o755)
+
+    @classmethod
+    def _environment(cls, home=None):
+        home = Path(home) if home else cls.root
+        keep = {"SYSTEMROOT", "WINDIR", "COMSPEC", "PATH", "PATHEXT", "PROGRAMFILES",
+                "PROGRAMFILES(X86)", "PROGRAMDATA"}
+        env = {key: value for key, value in os.environ.items() if key.upper() in keep}
+        env["PATH"] = str(cls.binaries) + os.pathsep + env.get("PATH", "")
+        paths = {"HOME": home, "USERPROFILE": home, "APPDATA": home / "AppData/Roaming",
+                 "LOCALAPPDATA": home / "AppData/Local", "XDG_CONFIG_HOME": home / ".config",
+                 "TEMP": home / "tmp", "TMP": home / "tmp", "TMPDIR": home / "tmp",
+                 "AIFY_HOME": home / ".aify-comms"}
+        for key, path in paths.items():
+            path.mkdir(parents=True, exist_ok=True)
+            env[key] = str(path)
+        env["AIFY_ENV_FILE"] = str(cls.fixture_repo / ".env")
+        env["AIFY_SERVICE_REGISTRY"] = str(home / ".aify" / "services.json")
+        return env
 
     @classmethod
     def tearDownClass(cls):
@@ -155,19 +227,23 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
 
     @classmethod
     def _install(cls, *extra: str) -> subprocess.CompletedProcess:
-        env = dict(os.environ)
+        env = cls._environment()
         # POSIX-form PATH. A `C:/...` entry is silently ignored by this shell, so the stub is never
         # found and every probe falls through to the real binary -- which reads as "the installer did
         # not carry the key" no matter what the installer does.
         posix_bin = "/" + str(cls.binaries).replace(":", "").replace("\\", "/")
-        env["PATH"] = posix_bin + os.pathsep.replace(os.pathsep, ":") + env.get("PATH", "")
-        env["HOME"] = str(cls.root)
-        # USERPROFILE too: on Windows the `claude` CLI reads its config path from that, not HOME.
-        env["USERPROFILE"] = str(cls.root)
-        env["AIFY_HOME"] = str(cls.root / ".aify-comms")
+        env["PATH"] = posix_bin + ":" + os.environ.get("PATH", "")
+        probe = subprocess.run(
+            [bash(), "-c", "command -v aify-env; command -v claude; command -v npm; command -v intentionally-missing-installer-fixture-command"],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+        normalize = lambda text: text.replace(":", "").replace("\\", "/").lstrip("/").casefold()
+        expected = [normalize(str(cls.binaries / name)) for name in ("aify-env", "claude", "npm")]
+        if probe.returncode != 1 or list(map(normalize, probe.stdout.splitlines())) != expected:
+            raise AssertionError("fixture commands were not selected: " + probe.stdout)
         return subprocess.run(
-            [bash(), str(INSTALL_SH), "--client", "claude", "http://127.0.0.1:8800", *extra],
-            cwd=str(REPO), env=env, capture_output=True, text=True, timeout=900,
+            [bash(), str(cls.fixture_repo / "install.sh"), "--standalone", "--client", "claude", "http://127.0.0.2:1", *extra],
+            cwd=str(cls.fixture_repo), env=env, capture_output=True, text=True, timeout=900,
         )
 
     def calls(self) -> str:
@@ -175,6 +251,15 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
             return self.log.read_text(encoding="utf-8")
         except OSError:
             return ""
+
+    def test_the_standalone_fixture_owns_its_credential_inputs(self):
+        """A checkout's missing or poisoned ambient .env/spec cannot qualify this fixture."""
+        self.assertNotEqual(self.fixture_repo, REPO)
+        self.assertEqual((self.fixture_repo / ".env").read_text(encoding="utf-8"),
+                         "API_KEY=" + self.SYNTHETIC_KEY + "\n")
+        self.assertFalse((self.fixture_repo / "service" / "_service_spec.json").exists())
+        self.assertFalse((self.fixture_repo / "service" / "_build_stamp.json").exists())
+        self.assertFalse((self.root / "blocked.log").exists(), "an unexpected platform operation was attempted")
 
     def test_THE_SEAL_FIRES_ON_A_LEAK_AND_NOT_ON_SOMEBODY_ELSES_WRITE(self):
         """The seal's own control, added 2026-09-03 after it spent an unknown period firing wrongly.
@@ -216,35 +301,30 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         self.assertIn(str(self.binaries.name), result.stdout.replace("\\", "/"),
                       f"the stub is not what `aify-env` resolves to: {result.stdout.strip()!r}")
 
-    def test_a_key_already_in_env_is_carried_without_asking_for_one(self):
+    def test_standalone_carries_an_existing_key_without_asking_for_one(self):
         """THE DEFECT. No `--with-api-key`: the key is already on the host, and it must still reach
         the tier that needs it."""
-        if not (REPO / ".env").is_file():
-            self.skipTest(".env is absent, so there is no key for the installer to find")
         self.assertIsNotNone(self.result, "the installer did not run, so this proves nothing")
-        self.assertEqual(self.result.returncode, 0, f"installer failed: {self.result.stdout[-2000:]}")
+        self.assertEqual(self.result.returncode, 0, f"installer failed: {self.result.stdout[-2000:]}\n{self.result.stderr[-2000:]}")
         self.assertIn(
             "credential set --service aify-comms --stdin", self.calls(),
             "the installer did not hand the key to aify-env, so its advertisements will 401 and no "
             "environment will come online -- with nothing naming a credential anywhere",
         )
+        self.assertEqual(self.stdin.read_text(encoding="utf-8"), self.SYNTHETIC_KEY)
 
-    def test_it_also_reads_the_credential_back(self):
+    def test_standalone_also_reads_the_credential_back(self):
         """The carrier verifies through the public path rather than trusting its own write. A store
         that accepted the key and could not return it is the failure that leaves everything looking
         configured."""
-        if not (REPO / ".env").is_file():
-            self.skipTest(".env is absent")
         self.assertIn("credential status --service aify-comms", self.calls())
 
-    def test_the_install_records_its_launcher_so_a_connect_can_re_render_it(self):
+    def test_standalone_records_its_launcher_so_a_connect_can_re_render_it(self):
         """THE SAME INSTALLER RUN, a second question about it: does it leave the record `aify-wrapper connect` re-renders
         from? It wrote none until 2026-10-21, so a connect reported every launcher it rendered stale and left it on the old
         registry. The record must name the launcher natively (Node reads it), and replaying it must re-render that launcher
         for a changed registry while a launcher with no record is reported stale and left byte for byte."""
-        if self.result is None:
-            self.skipTest(".env is absent, so the installer did not run")
-        self.assertEqual(self.result.returncode, 0, f"installer failed: {self.result.stdout[-2000:]}")
+        self.assertEqual(self.result.returncode, 0, f"installer failed: {self.result.stdout[-2000:]}\n{self.result.stderr[-2000:]}")
         root = type(self).root
         records = root / ".aify" / "launchers"
         launcher = root / ".local" / "bin" / "claude-aify"
@@ -270,7 +350,7 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         replay = subprocess.run(
             ["node", "--input-type=module", "-e", script, str(wrapper / "lib" / "launcher-rerender.mjs"),
              str(launcher.parent), str(registry), str(wrapper)],
-            capture_output=True, text=True, timeout=300, env={**os.environ, "HOME": str(root), "USERPROFILE": str(root)})
+            capture_output=True, text=True, timeout=300, env=self._environment())
         self.assertEqual(replay.returncode, 0, replay.stderr)
         rows = {row["name"]: row["state"] for row in json.loads(replay.stdout)}
         self.assertEqual(rows, {"claude-aify": "re-rendered", "codex-aify": "stale"})
@@ -283,9 +363,9 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             out = Path(home) / "out"
             result = subprocess.run(
-                [bash(), str(INSTALL_SH), "--client", "claude", "http://127.0.0.2:1", "--emit-wrappers", out.as_posix()],
-                cwd=str(REPO), capture_output=True, text=True, timeout=600,
-                env={**os.environ, "HOME": home, "USERPROFILE": home, "AIFY_HOME": str(Path(home) / ".aify-comms")})
+                [bash(), str(self.fixture_repo / "install.sh"), "--client", "claude", "http://127.0.0.2:1", "--emit-wrappers", out.as_posix()],
+                cwd=str(self.fixture_repo), capture_output=True, text=True, timeout=600,
+                env=self._environment(home))
             self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
             self.assertTrue((out / "claude-aify").is_file(), "CONTROL: the hook rendered its launcher")
             self.assertFalse((Path(home) / ".aify" / "launchers").exists(), "--emit-wrappers wrote a render record")
