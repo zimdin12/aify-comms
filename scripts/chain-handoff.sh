@@ -6,10 +6,10 @@
 # THE CHAIN IS ENTERED ONCE. install.sh calls this only with neither `--acquire-only` nor `--assets-only` and with no
 # AIFY_INSTALL_CHAIN mark, and the chain calls install.sh back only in those two modes. So the chain runs once.
 #
-# EVERY REFUSAL COMES BEFORE ANY WRITE. Options the chain does not carry (`--with-hook`, `--mcp-transport`,
+# PRE-KEY REFUSALS. Options the chain does not carry (`--with-hook`, `--mcp-transport`,
 # `--env-endpoint`; install.sh passes them as WITH_HOOK, MCP_TRANSPORT and ENV_ENDPOINT_GIVEN) are refused first, then
-# aify-env's place is settled. Only after both is the key resolved, which can write .env (`--with-api-key` generates
-# one, WITH_API_KEY; an answer to the ask is kept), and only then is anything installed.
+# aify-env's place is settled and npm's write destinations checked. Only then is the key resolved, which can write
+# .env (`--with-api-key` generates one, WITH_API_KEY; an answer to the ask is kept), before anything is installed.
 #
 # WHERE THE CHAIN COMES FROM. `aify-env install`, run as its module in npm's global aify-env, never through the
 # `aify-env` command: an aify-env too old to know `install` must not be handed an argument it could misread as a
@@ -22,12 +22,12 @@
 # APPROVAL is the operator's: an artifact tuple the catalogue does not hold needs `--approve <digest>`, which an
 # unattended run passes as AIFY_INSTALL_APPROVE (digests separated by spaces), exactly as the refusal printed them.
 #
-# THE KEY never touches a file, argv or the chain's environment: resolved here by the installer's own resolver
+# THE CHAIN'S KEY INPUT is never a temporary file, argv or the chain's environment: resolved by the installer's resolver
 # (api-key-for-install.sh, beside this script), it reaches the chain on stdin (`--secret-stdin`). The chain and every installer it runs start without this service's
 # key variables, so a later registration can only name the published reference.
 #
-# Exit: the chain's status; 64 for options the chain does not carry; 78 when npm's global root is unknown or aify-env
-# here may not be replaced; 1 when the key cannot be resolved.
+# Exit: the chain's status; 64 for options the chain does not carry; 78 when npm's destinations cannot be established
+# as writable or aify-env here may not be replaced; 1 when the key cannot be resolved.
 set -uo pipefail
 
 CLIENT="${1:?client}"
@@ -103,6 +103,38 @@ if on_path="$(command -v aify-env 2>/dev/null)" && [ -n "$on_path" ]; then
     exit 78
   fi
 fi
+
+# Check the actual global root and bin directory, not the prefix's own write bit. Existing writable children may
+# live under a read-only parent. Missing destinations need a writable/searchable ancestor; this probe creates nothing.
+npm_destination_is_writable() {
+  local dir parent
+  dir="$(unix_path "$1")" && [ -n "$dir" ] || return 1
+  while [ ! -e "$dir" ] && [ ! -L "$dir" ]; do
+    parent="$(dirname "$dir")" && [ "$parent" != "$dir" ] || return 1
+    dir="$parent"
+  done
+  [ -d "$dir" ] && [ -w "$dir" ] && [ -x "$dir" ]
+}
+prefix="$(npm prefix -g 2>/dev/null)" && [ -n "$prefix" ] || {
+  echo "Could not ask npm for its global prefix; no key was resolved and nothing was installed." >&2
+  echo "  Check that npm runs here and its prefix is configured before rerunning." >&2
+  exit 78
+}
+# npm puts bins directly in the prefix on Windows and in its bin child on POSIX. Use Node's native platform/path.
+bin_root="$(node -e 'const p = require("node:path"); process.stdout.write(process.platform === "win32" ? process.argv[1] : p.join(process.argv[1], "bin"))' "$prefix")" && [ -n "$bin_root" ] || {
+  echo "Could not determine npm's global bin directory; no key was resolved and nothing was installed." >&2
+  exit 78
+}
+for destination in "$root" "$bin_root"; do
+  if ! npm_destination_is_writable "$destination"; then
+    echo "npm's global install destination is not a writable/searchable directory or has no writable/searchable existing parent: $destination" >&2
+    echo "  Global prefix: $prefix; global root: $root; global bin directory: $bin_root" >&2
+    echo '  Choose a writable user-owned NPM_CONFIG_PREFIX and add its npm bin directory to PATH, then rerun.' >&2
+    echo '  POSIX example: export NPM_CONFIG_PREFIX="$HOME/.local"; export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"' >&2
+    echo '  Windows: use a native user-directory path for NPM_CONFIG_PREFIX and add that prefix itself to PATH.' >&2
+    exit 78
+  fi
+done
 
 [ "${WITH_API_KEY:-false}" = true ] && KEY_MODE=--generate || KEY_MODE=
 KEY="$(bash "$HERE/api-key-for-install.sh" $KEY_MODE)" || exit 1

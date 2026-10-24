@@ -41,7 +41,7 @@ function cmdShim(from, to) {
  * bin in a comment and runs something else), or "foreign+link" (a foreign script, earlier on PATH, beside npm's
  * genuine linked bin). The fake `node` records the key variables it inherited and its stdin; `node -e` is real node.
  */
-function fakeBins(names, { env = "", aify = "", cmdShim: withCmdShim = true } = {}) {
+function fakeBins(names, { env = "", aify = "", cmdShim: withCmdShim = true, prefix: configuredPrefix } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-bin-"));
   const log = path.join(dir, "calls.log");
   fs.mkdirSync(path.join(dir, "scripts"));
@@ -49,7 +49,8 @@ function fakeBins(names, { env = "", aify = "", cmdShim: withCmdShim = true } = 
   fs.copyFileSync(HANDOFF, path.join(dir, "scripts", "chain-handoff.sh"));
   // The key resolver beside the handoff: records that it ran (and how), prints FAKE_KEY, exits RESOLVE_EXIT.
   fs.writeFileSync(path.join(dir, "scripts", "api-key-for-install.sh"), `echo "resolved $*" >> "${toBash(log)}"; printf '%s' "\${FAKE_KEY:-}"; exit \${RESOLVE_EXIT:-0}\n`);
-  const root = path.join(dir, "node_modules");
+  const prefix = configuredPrefix ?? dir;
+  const root = path.join(prefix, "node_modules");
   const pkgBin = path.join(root, "aify-env", "bin", "aify-env.mjs");
   const module = path.join(root, "aify-env", "bin", "aify-env-install.mjs");
   const plant = `mkdir -p "${toBash(path.dirname(module))}" && : > "${toBash(module)}" && : > "${toBash(pkgBin)}"`;
@@ -69,7 +70,7 @@ function fakeBins(names, { env = "", aify = "", cmdShim: withCmdShim = true } = 
   }
   for (const name of names) {
     const body = name === "npm"
-      ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; echo "\${NPM_PREFIX:-${toBash(dir)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "\${NPM_ROOT:-${toBash(root)}}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
+      ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; [ -n "\${NPM_PREFIX_EMPTY:-}" ] && exit 0; echo "\${NPM_PREFIX:-${toBash(prefix)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "\${NPM_ROOT:-${toBash(root)}}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
       : `${name === "node" ? `[ "$1" = -e ] && exec "${toBash(process.execPath)}" "$@"; ` : ""}echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; [ -t 0 ] || echo "${name}-stdin $(cat)" >> "${toBash(log)}"; exit \${FAKE_EXIT:-0}`;
     script(path.join(dir, name), body);
   }
@@ -123,6 +124,48 @@ test("the key is resolved after every refusal and discovery, generating one only
   const conflict = handoff(fakeBins(["npm", "node"]), { RESOLVE_EXIT: "1" });
   assert.equal(conflict.status, 1, "a key the resolver refuses stops the handoff");
   assert.ok(!conflict.calls.includes("npm install"), "aify-env was installed for a key the resolver refused");
+});
+
+for (const failure of ["NPM_PREFIX_FAIL", "NPM_PREFIX_EMPTY"]) test(`npm's prefix ${failure} is refused before key resolution`, () => {
+  const out = handoff(fakeBins(["npm", "node"], { env: "chain" }), { [failure]: "1", WITH_API_KEY: "true" });
+  assert.equal(out.status, 78, out.stderr);
+  assert.match(out.stderr, /Could not ask npm for its global prefix/);
+  assert.deepEqual(out.lines, [], "the resolver, installer or chain ran for an unknown prefix");
+});
+
+test("missing writable user destinations are not created by preflight", () => {
+  const prefix = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "handoff-user-")), "new prefix", "nested");
+  const bins = fakeBins(["npm", "node"], { prefix, cmdShim: false });
+  const resolver = path.join(bins.dir, "scripts", "api-key-for-install.sh");
+  fs.writeFileSync(resolver, `[ ! -e "${toBash(prefix)}" ] || exit 42\n${fs.readFileSync(resolver, "utf8")}`);
+  const out = handoff(bins);
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(out.lines[0], "resolved ", "a writable ancestor permits resolving the key normally");
+  assert.ok(fs.existsSync(bins.module), "CONTROL: the subsequent fake npm install creates its own destination");
+});
+
+test("non-root POSIX checks actual npm destinations, not just prefix permissions", {
+  skip: process.platform === "win32" || process.getuid() === 0 ? "requires non-root POSIX directory permissions" : false,
+}, async (t) => {
+  for (const field of ["root", "bin", "prefix-parent"]) for (const mode of field === "prefix-parent" ? [0o555] : [0o555, 0o666]) await t.test(`${field} ${mode.toString(8)}`, () => {
+    const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-permission-"));
+    const bins = fakeBins(["npm", "node"], { prefix, env: "chain", cmdShim: false });
+    fs.mkdirSync(path.join(prefix, "bin"));
+    const target = field === "root" ? path.join(prefix, "node_modules") : field === "bin" ? path.join(prefix, "bin") : prefix;
+    fs.chmodSync(target, mode);
+    try {
+      assert.throws(() => fs.accessSync(target, mode === 0o555 ? fs.constants.W_OK : fs.constants.X_OK), "CONTROL: this actor really lacks the selected directory access");
+      const out = handoff(bins);
+      if (field === "prefix-parent") {
+        assert.equal(out.status, 0, out.stderr);
+        assert.equal(out.lines[0], "resolved ", "CONTROL: existing writable root and bin directories need no write to their parent");
+      } else {
+        assert.deepEqual(out.lines, [], "an unwritable destination reached the key resolver or chain");
+        assert.equal(out.status, 78, out.stderr);
+        assert.match(out.stderr, /NPM_CONFIG_PREFIX[\s\S]*PATH/);
+      }
+    } finally { fs.chmodSync(target, 0o755); fs.rmSync(prefix, { recursive: true }); }
+  });
 });
 
 test("npm's global root unknown is a refusal, never a global install over what may be a protected link", () => {
@@ -252,7 +295,7 @@ test("a plain run hands off before the installer resolves, generates or stores a
   assert.deepEqual(ran("assets-only"), []);
 });
 
-test("through the installer itself, an uncarried option is refused before the real key resolver can persist a key; --standalone persists", () => {
+test("through the installer itself, early refusals precede real key persistence; --standalone persists", async (t) => {
   // The installer's main body, with the REAL resolver (api-key-for-install.sh, api-key.sh) and the real handoff
   // copied beside it, writing to an owned .env (AIFY_ENV_FILE). Only the credential store and the chain are stubs.
   const install = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
@@ -289,6 +332,23 @@ test("through the installer itself, an uncarried option is refused before the re
     assert.equal(seeded.status, 64);
     assert.equal(seeded.env, "OTHER=1\n", `${variable}: an existing .env was rewritten before the refusal`);
   }
+  fs.rmSync(envFile, { force: true });
+  for (const field of ["prefix", "root"]) await t.test(`invalid npm ${field} leaves owned key configuration unchanged`, () => {
+    const invalid = path.join(root, `not-a-${field}-directory`);
+    fs.writeFileSync(invalid, "not a directory\n");
+    const extra = { [field === "prefix" ? "NPM_PREFIX" : "NPM_ROOT"]: toBash(invalid) };
+    fs.rmSync(envFile, { force: true });
+    const absent = run("", extra);
+    assert.equal(absent.env, null, `${field}: the real resolver created .env before refusal`);
+    assert.equal(absent.status, 78, absent.stderr);
+    assert.match(absent.stderr, /NPM_CONFIG_PREFIX[\s\S]*PATH/);
+    assert.equal(absent.calls, "", `${field}: install, credential storage or chain ran`);
+    fs.writeFileSync(envFile, "OTHER=1\n");
+    const seeded = run("", extra);
+    assert.equal(seeded.env, "OTHER=1\n", `${field}: existing .env was rewritten`);
+    assert.equal(seeded.status, 78, seeded.stderr);
+    assert.equal(seeded.calls, "");
+  });
   fs.rmSync(envFile, { force: true });
   const standalone = run("standalone");
   assert.equal(standalone.status, 0, standalone.stderr);
