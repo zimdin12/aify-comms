@@ -91,7 +91,7 @@ def holders_of(binding, machine, agent_id):
         # ranking: an advancing report can rejoin immediately; missing cadence and invalid clocks never yield.
         if covered and report_age(publisher, binding.at) == 'stale':
             continue
-        if availability not in (FRESH, 'stale') and not rows:
+        if availability != FRESH and not rows:
             unreadable = True  # its rows cannot be trusted to say the agent is absent
         holders += [Holder(availability, r.busy, r.state, r.lifetime, publisher.data_applied_at) for r in rows]
     return Holders(tuple(holders), unreadable)

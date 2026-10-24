@@ -102,6 +102,27 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
         lost = shadow.Binding(current, at(61), loss=True)
         self.assertEqual(ov.holders_of(lost, MACHINE, AGENT), ov.Holders((), True))
 
+    def test_a_fresh_peer_must_list_this_agent_to_cover_its_stale_holder(self):
+        self.post('old', 0)
+        for publication, agents in enumerate(([], [idle('another-agent')]), 1):
+            with self.subTest(agents=agents):
+                self.post('live', 61, agents=agents, publication=publication)
+                holders, v = self.view(61)
+                self.assertEqual([(h.availability, h.applied_at) for h in holders.holders], [('stale', AT)])
+                self.assertEqual(v.last_known, ('online', AT), 'unrelated fresh contact cannot erase this record')
+
+    def test_a_stale_empty_publisher_is_unreadable_unless_covered(self):
+        self.post('old', 0, agents=[])
+        uncovered = dict(shadow.mirror.view())
+        self.post('live', 61)
+        holders, v = self.view(61)
+        self.assertFalse(holders.unreadable, 'the silent empty peer yields under real coverage')
+        self.assertEqual((v.status, v.eligibility), ('online', 'known'))
+        holders, v = self.view(61, view=uncovered)
+        self.assertEqual(holders.holders, ())
+        self.assertTrue(holders.unreadable, 'without coverage the non-fresh empty publisher is unreadable')
+        self.assertEqual((v.status, v.last_known, v.eligibility, v.busy), ('unknown', None, 'unknown', None))
+
     def test_only_an_advancing_accepted_report_changes_the_persisted_contact(self):
         first = self.post('old', 0)
         for value, reason in ((first, 'duplicate'), ({**first, 'generation': 9}, 'stale'),
