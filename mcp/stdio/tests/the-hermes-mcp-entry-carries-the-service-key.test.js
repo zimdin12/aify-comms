@@ -99,8 +99,14 @@ test("refresh preserves the owned MCP entry's explicit TEMP pins without borrowi
     patchHermesConfigFile(file, options);
     const once = fs.readFileSync(file, "utf8");
     const owned = once.slice(once.indexOf("  aify-comms:\n"));
-    assert.deepEqual(owned.split("\n").filter((line) => /^      (TEMP|TMP|TMPDIR):/.test(line)), pins,
+    const ownedLines = owned.split("\n");
+    assert.deepEqual(ownedLines.filter((line) => /^      (TEMP|TMP|TMPDIR):/.test(line)), pins,
       "all three explicit pins survive the refresh");
+    for (const [index, line] of ownedLines.entries()) {
+      if (!/^      (TEMP|TMP|TMPDIR):/.test(line)) continue;
+      const parent = ownedLines.slice(0, index).findLast((prior) => /^ {4}[^\s#][^:]*:/.test(prior));
+      assert.equal(parent, "    env:", `${line.trim()} must remain inside env:`);
+    }
     assert.ok(once.includes(other), "another server is unchanged");
     assert.ok(!owned.includes("/unrelated"), "another server's pin is not imported");
     assert.ok(!owned.includes("http://stale"), "the rest of the entry is still refreshed");
