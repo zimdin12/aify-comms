@@ -69,9 +69,14 @@ def register(ctx):
         f.write(json.dumps({"turn-start": ctx.name}) + "\\n")
 """
 
+# hermes-aify names aify-wrapper's hermes-file-activity.py in AIFY_FILE_ACTIVITY_HERMES_PLUGIN when the operator
+# opts a launch into file activity (dashboard #53); the loader treats it exactly like the turn-start module.
+FILE_ACTIVITY_PLUGIN = TURN_START_PLUGIN.replace("turn-start", "file-activity").replace("pre_llm_call", "post_tool_call")
+
 
 class HermesPluginHandsHerdrItsContext(unittest.TestCase):
-    def run_loader(self, herdr_plugin: str | None, gate: str = "1", turn_start: str | None = None) -> tuple[dict, list]:
+    def run_loader(self, herdr_plugin: str | None, gate: str = "1", turn_start: str | None = None,
+                   file_activity: str | None = None) -> tuple[dict, list]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "loader.py").write_text(thin_loader(), encoding="utf-8")
@@ -82,6 +87,9 @@ class HermesPluginHandsHerdrItsContext(unittest.TestCase):
             (root / "turn_start.py").write_text(TURN_START_PLUGIN, encoding="utf-8")
             if turn_start is not None:
                 env["AIFY_TURN_START_HERMES_PLUGIN"] = turn_start.replace("@", str(root / "turn_start.py"))
+            (root / "file_activity.py").write_text(FILE_ACTIVITY_PLUGIN, encoding="utf-8")
+            if file_activity is not None:
+                env["AIFY_FILE_ACTIVITY_HERMES_PLUGIN"] = file_activity.replace("@", str(root / "file_activity.py"))
             if herdr_plugin is not None:
                 path = root / "herdr_state.py"
                 if herdr_plugin:
@@ -139,6 +147,18 @@ class HermesPluginHandsHerdrItsContext(unittest.TestCase):
         result, calls = self.run_loader(HERDR_PLUGIN, turn_start="@.missing")
         self.assertEqual(calls, [{"ctx": "first"}, {"ctx": "second"}])
         self.assertTrue(result["patched"])
+
+    def test_the_file_activity_module_hermes_aify_names_is_imported_once_and_given_every_context(self) -> None:
+        result, calls = self.run_loader(HERDR_PLUGIN, file_activity="@")
+        self.assertEqual(calls, [{"ctx": "first"}, {"imported": "file-activity"}, {"file-activity": "first"},
+                                 {"ctx": "second"}, {"file-activity": "second"}])
+        self.assertEqual(result["first"], ["pre_llm_call", "post_tool_call"])
+
+    def test_no_file_activity_variable_never_imports_the_module(self) -> None:
+        for unset in (None, "", "   "):
+            with self.subTest(variable=unset):
+                result, calls = self.run_loader(HERDR_PLUGIN, file_activity=unset)
+                self.assertEqual(calls, [{"ctx": "first"}, {"ctx": "second"}])
 
 
 if __name__ == "__main__":

@@ -79,11 +79,13 @@ class _PatchFinder(importlib.abc.MetaPathFinder):
 
 
 # aify-wrapper's hermes plugins, by the variable hermes-aify names each in, and the module name each loads as:
-# the Herdr state hooks (only when its pane is claimed or aify-env assigned one), and the turn-start context
-# (only for an agent, aify-wrapper's hermes-turn-start.py).
+# the Herdr state hooks (only when its pane is claimed or aify-env assigned one), the turn-start context
+# (only for an agent, aify-wrapper's hermes-turn-start.py), and the file-activity producer (only when the launch
+# opted in with AIFY_FILE_ACTIVITY=1, aify-wrapper's hermes-file-activity.py).
 _WRAPPER_PLUGINS: dict[str, str] = {
     "AIFY_HERDR_HERMES_PLUGIN": "aify_herdr_state",
     "AIFY_TURN_START_HERMES_PLUGIN": "aify_turn_start",
+    "AIFY_FILE_ACTIVITY_HERMES_PLUGIN": "aify_file_activity",
 }
 _LOADED: dict[str, ModuleType] = {}
 
