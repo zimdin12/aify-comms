@@ -1467,7 +1467,7 @@ remove_hermes_notify_hook() {
 
 agent_state_hook_command() {
   # One resident state change, posted with the key the bridge resolves; the guard keeps plain sessions
-  # from starting node, and the fired time orders the background hooks (api_core/hook_event_order.py).
+  # from starting node, and aify-env orders the background hooks by the fired time.
   local script="$AIFY_BRIDGE_DIR/agent-state-event.mjs"
   printf '%s' 'if [ -n "${AIFY_AGENT_ID:-}" ] && { [ -n "${AIFY_COMMS_URL:-}" ] || { [ -n "${AIFY_ENV_INSTANCE:-}" ] && [ -n "${AIFY_LIFETIME:-}" ]; }; }; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-$(date +%s.%N 2>/dev/null)}" node "'"$script"'" '"$1"' >/dev/null 2>&1 || true; fi'
 }

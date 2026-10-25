@@ -27,7 +27,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
-import { __markControllerStart } from "./controller-activity.mjs";
 import { acquirePiSession, getPiSession } from "./pi-session-pool.mjs";
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 
@@ -97,11 +96,6 @@ export async function dispatchVirtualTerminalLine(agentId, lineBody) {
     onRuntimeState: () => {},
     onRefs: () => {},
   });
-  // Status gap A (2026-06-11, cross-harness audit): an operator-typed pi console turn ran
-  // with NO turn tracking (deliberately no dispatch_run row — but that also skipped the
-  // turn-busy heartbeat), so the agent read `online` for the whole turn. Registering the
-  // turn promise arms the existing 30s turn-busy re-pulse for its duration.
-  __markControllerStart(turnHandle.promise);
   return turnHandle.promise;
 }
 export function createVirtualTerminalSink(terminalId) {

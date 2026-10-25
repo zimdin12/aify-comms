@@ -12,7 +12,7 @@
 // So any hermes turn longer than 120s flips to `online` mid-turn.
 //
 // FIX: while the bridge KNOWS a turn is in flight, re-pulse turn_busy=true on
-// an interval (mirror turn-busy-heartbeat.js / liveness-heartbeat.js). The
+// an interval (mirror liveness-heartbeat.js). The
 // in-flight signal is OWNED BY THE BRIDGE — the pending chatStream promise
 // (channel) or the bounded post-submit window (managed-host) — NEVER the
 // server's DERIVED status. Re-pulsing off derived status is the 2026-05-23
@@ -24,7 +24,7 @@
 
 // Start an in-flight re-pulse beat. While `isInFlight()` returns truthy, call
 // `pulse()` every `intervalMs`. Returns a `stop()` that halts the beat. Mirrors
-// startTurnBusyHeartbeat but is intentionally a distinct, self-documenting unit
+// the old turn-busy heartbeat but is intentionally a distinct, self-documenting unit
 // for the hermes paths (its `isInFlight` is anchored on bridge-owned turn state,
 // not on a transcript-mtime probe).
 //

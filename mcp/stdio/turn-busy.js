@@ -5,7 +5,6 @@ export function agentHeartbeatPayload({
   turnBusy,
   turnRunId = "",
   turnRuntime = "",
-  firedAtUs,
 } = {}) {
   const body = {
     bridgeId: String(bridgeId || ""),
@@ -19,15 +18,12 @@ export function agentHeartbeatPayload({
     const runtime = String(turnRuntime || "").trim();
     if (runId) body.turnRunId = runId;
     if (runtime) body.turnRuntime = runtime;
-    // When this bridge observed the turn it reports (turn-event-stamp.mjs). A beat that starts a turn is
-    // ordered against the turn's ends by it, so an end observed earlier cannot close it (0.7.6 review, O2).
-    if (Number.isSafeInteger(firedAtUs) && firedAtUs > 0) body.firedAtUs = firedAtUs;
   }
   return body;
 }
 
 export function activeTurnHeartbeatPayload({
-  bridgeId = "", machineId = "", terminalId = "", activeRun = {}, firedAtUs,
+  bridgeId = "", machineId = "", terminalId = "", activeRun = {},
 } = {}) {
   return agentHeartbeatPayload({
     bridgeId,
@@ -36,6 +32,5 @@ export function activeTurnHeartbeatPayload({
     turnBusy: true,
     turnRunId: activeRun.runId || activeRun.id || "",
     turnRuntime: activeRun.runtime || "",
-    firedAtUs,
   });
 }

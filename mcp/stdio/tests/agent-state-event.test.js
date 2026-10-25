@@ -1,4 +1,5 @@
-// The hook-side poster for a resident's turn and approval moments, run as the real process.
+// The hook-side poster for a resident's turn and approval moments, run as the real process. Since 0.9.9 S2 it
+// posts to aify-env only, which owns turns; the comms routes it used to call accept and ignore.
 //
 // Every runtime hook used to curl `/turn-start` and `/turn-end` with no `X-API-Key`. Once the service
 // enforced a key those requests were answered 401 and discarded by `|| true`, so no resident hook event
@@ -16,9 +17,7 @@ import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sealedChildEnv } from "./_child-env.mjs";
-import { ENDPOINT_ENV_NAMES } from "../aify-service-endpoint.mjs";
 import { hookFiredAtUs, postAgentState } from "../agent-state-event.mjs";
-import { defaultMachineId } from "../machine-id.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "agent-state-event.mjs");
 
@@ -59,56 +58,12 @@ function run(args, env, { closeStdin = true } = {}) {
 
 const hookEnv = (url, extra = {}) => ({ AIFY_AGENT_ID: "hook-agent", AIFY_COMMS_URL: url, AIFY_API_KEY: "test-key", ...extra });
 
-test("the module still reads AIFY_SERVER_URL, the name this script bridges AIFY_COMMS_URL into", () => {
-  assert.ok(ENDPOINT_ENV_NAMES.includes("AIFY_SERVER_URL"), ENDPOINT_ENV_NAMES.join(","));
-});
-
-for (const [event, path, body] of [
-  ["turn-start", "/api/v1/agents/hook-agent/turn-start", {}],
-  ["turn-end", "/api/v1/agents/hook-agent/turn-end", {}],
-  ["blocked", "/api/v1/agents/hook-agent/status-event", { kind: "blocked" }],
-  ["unblocked", "/api/v1/agents/hook-agent/status-event", { kind: "unblocked" }],
-]) {
-  test(`${event} posts ${path} with the key, from a hook's environment`, async () => {
-    const s = await stub();
-    try {
-      const r = await run([event], hookEnv(s.url, { AIFY_HOOK_FIRED_AT: "1790451762.694110" }));
-      assert.equal(r.code, 0);
-      assert.equal(s.requests.length, 1, JSON.stringify(s.requests));
-      const [req] = s.requests;
-      assert.equal(req.method, "POST");
-      assert.equal(req.url, path);
-      assert.equal(req.key, "test-key", "the request must authenticate");
-      // No bridgeId, so the service takes a turn signal as the authoritative harness one. The stamp
-      // orders the background hooks' events: the shell time the hook command passed, and the host.
-      assert.deepEqual(JSON.parse(req.body), { ...body, firedAtUs: 1790451762694110, machineId: defaultMachineId() });
-      assert.equal(r.out, "", "a hook's stdout is parsed by codex; it must stay empty");
-      assert.equal(r.err, "");
-    } finally {
-      s.close();
-    }
-  });
-}
-
 test("the fired-at time is the shell's to the microsecond, in either decimal separator, else the process start", () => {
   assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.694110" }, 7), 1790451762694110);
   assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762,694111" }, 7), 1790451762694111);
   assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.5" }, 7), 1790451762500000);
   for (const unusable of [undefined, "", "   ", "soon", "0", "-5", "1.2.3", "99999999999999999999"]) {
     assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: unusable }, 7), 7, String(unusable));
-  }
-});
-
-test("an endpoint the module reads itself wins over AIFY_COMMS_URL", async () => {
-  const own = await stub();
-  const hook = await stub();
-  try {
-    await run(["turn-end"], hookEnv(hook.url, { AIFY_SERVER_URL: own.url }));
-    assert.equal(own.requests.length, 1);
-    assert.equal(hook.requests.length, 0);
-  } finally {
-    own.close();
-    hook.close();
   }
 });
 
@@ -137,20 +92,7 @@ test("refused, unknown, or identity-less: silent and exit 0", async () => {
       const r = await run(args, env);
       assert.deepEqual([r.code, r.out, r.err], [0, "", ""], `${args} ${JSON.stringify(env)}`);
     }
-    assert.equal(s.requests.length, 1, "only the valid event with an identity may reach the service");
-  } finally {
-    s.close();
-  }
-});
-
-test("a service that never answers and a stdin nobody closes cannot hold the hook", async () => {
-  const s = await stub({ hang: true });
-  try {
-    const r = await run(["blocked"], hookEnv(s.url), { closeStdin: false });
-    assert.equal(r.code, 0);
-    // The script gives up at 2s and exits by 2.5s; the margin is node start-up on a loaded machine.
-    // Without the bound this never exits, because neither the service nor stdin ever finishes.
-    assert.ok(r.ms < 4500, `took ${r.ms}ms`);
+    assert.equal(s.requests.length, 0, "a hook event never reaches the comms service (0.9.9 S2)");
   } finally {
     s.close();
   }
@@ -273,25 +215,44 @@ test("G5 rereads the descriptor per event and refuses malformed carriers without
   } finally { await first.close(); await second.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test("G5 either destination can fail without suppressing the other, and env redirects are not followed", async () => {
+test("G5 a hook event reaches aify-env only, and env redirects are not followed", async () => {
   const home = privateHome();
-  const service = await stub({ status: 401 });
+  const service = await stub();
   const target = await envServer();
   const redirect = await envServer(() => ({ status: 307, body: {}, headers: { location: target.url + "/stolen" } }));
   try {
     descriptor(home, target.url);
-    await run(["blocked"], hookEnv(service.url, privateEnv(home)));
-    assert.equal(target.requests.length, 1, "comms 401 suppressed env");
-    descriptor(home, target.url, { instance: "other" });
-    await run(["unblocked"], hookEnv(service.url, privateEnv(home)));
-    assert.equal(service.requests.length, 2, "invalid env suppressed comms");
+    for (const kind of ["turn-start", "blocked", "unblocked", "turn-end"]) {
+      const r = await run([kind], hookEnv(service.url, privateEnv(home)));
+      assert.deepEqual([r.code, r.out, r.err], [0, "", ""], kind);
+    }
+    assert.equal(target.requests.length, 4, "CONTROL: every event reached aify-env");
+    assert.equal(service.requests.length, 0, "a hook event reached the comms service");
     descriptor(home, redirect.url);
     await run(["turn-end"], privateEnv(home, { AIFY_AGENT_ID: "hook-agent" }));
     assert.equal(redirect.requests.length, 1);
-    assert.equal(target.requests.length, 1, "redirect forwarded identity");
+    assert.equal(target.requests.length, 4, "redirect forwarded identity");
   } finally { service.close(); await target.close(); await redirect.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test("G5 an aify-env that never answers and a stdin nobody closes cannot hold the hook", async () => {
+  const home = privateHome();
+  const held = [];
+  const server = createServer((req) => { held.push(req); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    descriptor(home, `http://127.0.0.1:${server.address().port}`);
+    const r = await run(["blocked"], privateEnv(home, { AIFY_AGENT_ID: "hook-agent" }), { closeStdin: false });
+    assert.equal(r.code, 0);
+    assert.equal(held.length, 1, "CONTROL: the event reached the endpoint that never answers");
+    // The script gives up at 2s and exits by 2.5s; the margin is node start-up on a loaded machine.
+    assert.ok(r.ms < 4500, `took ${r.ms}ms`);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("G5 managed codex and hermes MCP configs forward the host-minted binding", async (t) => {
   const { managedCodexConfigText } = await import("../runtimes-codex.js");

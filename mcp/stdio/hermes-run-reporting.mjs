@@ -25,7 +25,6 @@
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run and the wrappers relaunch.
 
 import { MACHINE_ID, RUNTIME } from "./hermes-env.mjs";
-import { turnEventStamp } from "./turn-event-stamp.mjs";
 
 // LOOKS LIKE A DUPLICATE OF `hermes-channel.js` AND MUST NOT BE MERGED WITH IT. That module declares
 // the same five names with byte-identical bodies — `channelBridgeId`, `reportTurnBusy`, `clearTurn`,
@@ -55,7 +54,6 @@ export async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {
     turnBusy: !!busy,
     turnRunId: runId,
     turnRuntime: RUNTIME,
-    ...turnEventStamp(),
   });
 }
 
@@ -69,7 +67,6 @@ export async function clearTurn(httpCall, agentId, { runId = "" } = {}) {
     bridgeId: channelBridgeId(agentId),
     turnRuntime: RUNTIME,
     ...(ending ? { runId: ending } : {}),
-    ...turnEventStamp(),
   });
 }
 

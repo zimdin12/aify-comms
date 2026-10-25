@@ -32,7 +32,7 @@ const LEAF = pathToFileURL(path.join(STDIO, "registration-tool.mjs")).href;
 // `status` is what the fake service answers `POST /api/v1/agents` with. The `/api/v1` prefix is not a
 // guess: a first version of this fixture matched `/agents` exactly, the POST fell through to the catch-all,
 // and the handler cheerfully reported `Registered "undefined"`. The probe is why the prefix is here.
-function register({ remote = true, status = 200, preArm = false, args = {}, env = {} } = {}) {
+function register({ remote = true, status = 200, args = {}, env = {} } = {}) {
   const store = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reg-test-"));
   // `{ agents: {} }`, not `{}`. `readAgents` guards a parse failure but not the SHAPE, so a valid-JSON file
   // of the wrong shape crashes the caller — which is what an empty-object fixture did here first.
@@ -60,10 +60,6 @@ function register({ remote = true, status = 200, preArm = false, args = {}, env 
     process.env.AIFY_SERVER_URL = ${remote} ? "http://127.0.0.2:" + srv.address().port : "";
     process.env.CLAUDE_MCP_SERVER_URL = "";
 
-    const detector = await import(${JSON.stringify(pathToFileURL(path.join(STDIO, "claude-turn-detector-state.mjs")).href)});
-    if (${preArm}) detector.armClaudeTurnEndDetector("reg-test-agent");
-    const armedBefore = detector.isClaudeTurnDetectorArmed();
-
     const { registerRegistrationTool } = await import(${JSON.stringify(LEAF)});
     const { z } = await import("zod");
 
@@ -85,7 +81,6 @@ function register({ remote = true, status = 200, preArm = false, args = {}, env 
     srv.close();
     process.stdout.write(JSON.stringify({
       tools: [...tools.keys()], loopCalls, text, error, requests,
-      armedBefore, armedAfter: detector.isClaudeTurnDetectorArmed(),
     }));
   `;
   try {
@@ -96,10 +91,8 @@ function register({ remote = true, status = 200, preArm = false, args = {}, env 
         CLAUDE_MCP_MESSAGES_DIR: store,
         AIFY_AGENT_ID: "reg-test-agent", AIFY_COMMS_AGENT_ID: "",
         AIFY_SESSION_HANDLE: "", AIFY_SESSION_MODE: "resident",
-        // EXPLICIT, because it decides whether the detector can arm at all. `__runtimeAdapter` is resolved
-        // from `AIFY_RUNTIME` at module load, and `armClaudeTurnEndDetector` refuses unless the adapter is
-        // claude-code. The first version of these tests inherited the ambient value — they passed only
-        // because this session happens to BE claude-code, and would have failed anywhere else.
+        // EXPLICIT: `__runtimeAdapter` is resolved from `AIFY_RUNTIME` at module load, so an inherited value
+        // would make these tests pass only on a machine whose session happens to be that runtime.
         AIFY_RUNTIME: "",
         // EVERY OTHER AMBIENT INPUT THIS HANDLER READS, pinned for the same reason and after the same
         // mistake. A reviewer running the suite on a live managed hermes agent inherits
@@ -184,38 +177,6 @@ test("LOCAL MODE REGISTERS WITHOUT STARTING IT, and without touching the network
   assert.deepEqual(r.requests, [], "local registration must make no HTTP requests");
 });
 
-test("REGISTERING ARMS THE TURN DETECTOR LATE when the wrapper never exported an identity", () => {
-  // 2026-07-14. A session launched without `--aify-agent` has no `AIFY_AGENT_ID` at boot, so the boot-time
-  // arm no-ops and the bridge has NO way to report turn state — the agent registers, messages and heartbeats
-  // perfectly while its status latches forever. `comms_register` is the moment the bridge learns who it is,
-  // and therefore the last chance to arm.
-  const r = register({ remote: true, env: { AIFY_RUNTIME: "claude-code" } });
-  assert.equal(r.armedBefore, false, "the fixture must start unarmed, or this proves nothing");
-  assert.equal(r.armedAfter, true, "registering must arm the turn-end detector");
-});
-
-test("…but NOT for a runtime that has no claude transcript to watch", () => {
-  // The non-invocation half. The detector reads a claude transcript tail; arming it for codex would start a
-  // watcher over a transcript that does not exist. `armClaudeTurnEndDetector` enforces this itself, and this
-  // asserts registration does not somehow route around it.
-  for (const runtime of ["codex", "hermes", ""]) {
-    const r = register({ remote: true, env: { AIFY_RUNTIME: runtime } });
-    assert.equal(r.armedAfter, false, `a ${runtime || "(none)"} bridge must not arm the claude detector`);
-    assert.equal(r.error, null, "…and must still register successfully");
-  }
-});
-
-test("arming is idempotent — a live detector is never replaced", () => {
-  // Registration guards with `!isClaudeTurnDetectorArmed()`, and `armClaudeTurnEndDetector` ALSO returns
-  // early when already armed. The double guard is stated rather than glossed: this test pins the OUTCOME
-  // (still armed, still working), not the register-side check, because removing that check alone is not
-  // observable — the owner's own guard still holds. A test claiming otherwise would be vacuous.
-  const r = register({ remote: true, preArm: true, env: { AIFY_RUNTIME: "claude-code" } });
-  assert.equal(r.armedBefore, true, "the fixture pre-armed it");
-  assert.equal(r.armedAfter, true, "…and it stays armed");
-  assert.equal(r.error, null, "re-registration over an armed detector must still succeed");
-});
-
 test("THE MODULE ASKS FOR THE LOOP AND DOES NOT OWN IT", () => {
   // The structural claim that makes the injection defensible rather than a trick to shrink a number. If any
   // of these appeared here, registration would have taken ownership of process lifecycle.
@@ -263,7 +224,6 @@ test("the module reaches only owned leaves", () => {
     // loaded, sent on registration so `aify-comms doctor`'s `bridge-current` can compare it to HEAD.
     "./bridge-build.mjs",
     "./bridge-instance.mjs",
-    "./claude-turn-detector-state.mjs",
     // REVIEWED, 2026-08-29. A PURE leaf that imports nothing: it answers whether this process may
     // claim environment ownership of the agent it is registering. It is here because the answer used
     // to be "always yes", and a managed agent's own sidecar was overwriting the environment bridge's

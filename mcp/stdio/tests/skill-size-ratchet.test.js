@@ -103,7 +103,7 @@ const CEILINGS = {
   "aify-comms-debug/references/hermes.md": 8_840,
   "aify-comms-debug/references/lifecycle.md": 6_455,
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 10_055,
+  "aify-comms-debug/references/status-model.md": 9_902,  // 0.9.9 S2: the claude detector paragraph, -153
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

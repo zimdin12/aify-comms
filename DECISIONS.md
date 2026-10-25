@@ -401,7 +401,7 @@ unblocked) and the Herdr pane-state hooks run in the background: `async` in Clau
 detached `node` or thread under hermes, whose hook runner has no background mode. Each event carries
 `firedAtUs`, the host clock in microseconds when its hook fired, and `machineId`. The service applies an
 event only from the agent's registered host, and only if it fired after the last one applied, with a
-same-microsecond tie going to turn-end (`service/api_core/hook_event_order.py`). `aify-herdr-state.sh`
+same-microsecond tie going to turn-end (the service's ordering, deleted in 0.9.9 S2 when aify-env took turns over). `aify-herdr-state.sh`
 reads its record, reports and records under one lock per pane, so pane reports cannot interleave.
 
 **Why.** On a saturated host (2026-09-26, a game on 65% of 32 cores) starting `sh` took 0.4-1.9 s and one
@@ -799,7 +799,7 @@ session without `AIFY_AGENT_ID` and `AIFY_COMMS_URL`.
 turn, and `Stop` fires early or more than once within one logical turn (Claude Code issue 54360) and
 around API retries, clearing the turn mid-work. `PostToolUse` cannot re-pin an idle agent, because it
 fires only on a real tool call: a tool call after a `Stop` means the turn was not over. The bridge's
-transcript detector (`claude-turn-end-detector.js`) still backstops both directions, and a missed
+transcript detector (deleted in 0.9.9 S2) still backstopped both directions, and a missed
 turn-end still self-heals at the single long ceiling. The reasoning is also in the comment inside
 `install_claude_turn_start_hook`.
 

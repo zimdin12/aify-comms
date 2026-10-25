@@ -251,6 +251,17 @@ def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-
     return time.monotonic() - started
 
 
+def _bind_env(home: Path, stub: _Stub, lifetime: str) -> dict:
+    """Point a hook at `stub` as its aify-env: the descriptor the poster reads, and the binding a launcher exports.
+    Since 0.9.9 S2 that is a hook event's only destination; its AIFY_COMMS_URL (`_run_hook` sets it to the same
+    stub) must receive nothing."""
+    folder = home / ".aify/env"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "hook-test.json").write_text(json.dumps({"url": stub.url, "instance": "hook-test",
+        "pid": os.getpid(), "startedAt": "2026-10-01T00:00:00.000Z"}))
+    return {"AIFY_ENV_INSTANCE": "hook-test", "AIFY_LIFETIME": lifetime}
+
+
 def _await_request(stub: _Stub, deadline: float = 10.0) -> None:
     """A hermes hook leaves `node` posting after it returns, so its request can land later."""
     end = time.monotonic() + deadline
@@ -641,51 +652,47 @@ def test_a_hermes_hook_returns_before_the_service_answers(installed):
     answers a second after the request arrives, inside the poster's own 2 s limit: a hook that waited on
     its post returns after the answer."""
     hermes = _hermes_hooks((installed / ".hermes" / "config.yaml").read_text())
-    stub = _Stub(answer_after=1.0)
+    stub = _Stub(answer_after=1.0, host="127.0.0.1")
     try:
-        _run_hook(hermes["pre_llm_call"][0], stub, installed)
+        extra = _bind_env(installed, stub, "7f3c9e2a-3333-4333-8333-333333333333")
+        _run_hook(hermes["pre_llm_call"][0], stub, installed, extra_env=extra)
         assert not stub.answered.is_set(), "the hook returned only after the service answered"
         _await_request(stub)
-        assert [path for path, _, _ in stub.requests] == ["/api/v1/agents/installed-hook/turn-start"]
+        assert [path for path, _, _ in stub.requests] == ["/agents/installed-hook/turn-event"]
     finally:
         stub.close()
 
 
-def test_the_written_commands_reach_the_service_with_the_key(installed):
+def test_the_written_commands_reach_aify_env_only_even_with_a_comms_url(installed):
+    """Every written hook posts its event to aify-env, and nothing to the comms URL it also carries: one stub
+    answers both, so an event that reached aify-env is the control that the stub can see a post at all."""
     claude = json.loads((installed / ".claude" / "settings.json").read_text())["hooks"]
     codex = json.loads((installed / ".codex" / "hooks.json").read_text())["hooks"]
     hermes = _hermes_hooks((installed / ".hermes" / "config.yaml").read_text())
     cases = [
-        (_one_aify(_commands(claude["PermissionRequest"]), "blocked"), "/status-event", {"kind": "blocked"}),
-        (_one_aify(_commands(claude["StopFailure"]), "turn-end"), "/turn-end", {}),
-        (_one_aify(_commands(claude["PostToolUse"]), "turn-start"), "/turn-start", {}),
-        (_one_aify(_commands(codex["Interrupt"]), "turn-end"), "/turn-end", {}),
-        (_one_aify(_commands(codex["PostToolUse"]), "unblocked"), "/status-event", {"kind": "unblocked"}),
-        (hermes["pre_llm_call"][0], "/turn-start", {}),
-        (hermes["on_session_end"][0], "/turn-end", {}),
-        (hermes["pre_approval_request"][0], "/status-event", {"kind": "blocked"}),
-        (hermes["post_approval_response"][0], "/status-event", {"kind": "unblocked"}),
+        (_one_aify(_commands(claude["PermissionRequest"]), "blocked"), "blocked"),
+        (_one_aify(_commands(claude["StopFailure"]), "turn-end"), "turn-end"),
+        (_one_aify(_commands(claude["PostToolUse"]), "turn-start"), "turn-start"),
+        (_one_aify(_commands(codex["Interrupt"]), "turn-end"), "turn-end"),
+        (_one_aify(_commands(codex["PostToolUse"]), "unblocked"), "unblocked"),
+        (hermes["pre_llm_call"][0], "turn-start"),
+        (hermes["on_session_end"][0], "turn-end"),
+        (hermes["pre_approval_request"][0], "blocked"),
+        (hermes["post_approval_response"][0], "unblocked"),
     ]
-    stub = _Stub()
+    stub = _Stub(host="127.0.0.1")
     try:
-        for command, route, body in cases:
+        extra = _bind_env(installed, stub, "7f3c9e2a-4444-4444-8444-444444444444")
+        for command, kind in cases:
             stub.requests.clear()
-            before = time.time() * 1_000_000
-            _run_hook(command, stub, installed)
+            _run_hook(command, stub, installed, extra_env=extra)
             _await_request(stub)
-            assert len(stub.requests) == 1, (command, stub.requests)
-            path, sent, key = stub.requests[0]
-            assert path == f"/api/v1/agents/installed-hook{route}", (command, path)
-            assert key == "hook-key", (command, "the hook request must authenticate")
-            sent = json.loads(sent)
-            # When the hook fired, in host microseconds, and on which host: they order the background
-            # hooks' events.
-            fired = sent.pop("firedAtUs")
-            assert isinstance(fired, int) and before - 1_000_000 <= fired <= time.time() * 1_000_000, (command, fired)
-            assert re.fullmatch(r"[a-z0-9_-]+:.+", sent.pop("machineId")), command
-            assert sent == body, (command, sent)
+            time.sleep(0.3)  # a second post, to comms, would land within the poster's own run
+            assert [(path, json.loads(body)["kind"], key) for path, body, key in stub.requests] == [
+                ("/agents/installed-hook/turn-event", kind, None)], (command, stub.requests)
         stub.requests.clear()
-        _run_hook(_one_aify(_commands(claude["PermissionRequest"]), "blocked"), stub, installed, agent_id="")
+        _run_hook(_one_aify(_commands(claude["PermissionRequest"]), "blocked"), stub, installed, agent_id="",
+                  extra_env=extra)
         assert stub.requests == [], "a plain session with no aify identity must post nothing"
     finally:
         stub.close()

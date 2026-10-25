@@ -40,7 +40,6 @@ import { writeAgentBindingFile } from "./binding-file.js";
 import { ACTIVE_RUNS, REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
-import { armClaudeTurnEndDetector, isClaudeTurnDetectorArmed } from "./claude-turn-detector-state.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
 import { AIFY_AGENT_ID, IS_MANAGED_DISPATCH } from "./launch-identity.mjs";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
@@ -218,23 +217,9 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
         } catch { /* best effort */ }
       }
 
-      // REGISTERING TURNS STATUS ON (2026-07-14). If the wrapper never exported
-      // AIFY_AGENT_ID (session launched without `--aify-agent`), the turn detector could not
-      // arm at boot and this bridge had NO way to ever report turn state — the agent would
-      // register, message and heartbeat perfectly while its status latched forever. But THIS
-      // call is the bridge learning who it is, so use it: claim the session id the hook
-      // captured before we had an identity, then arm the detector. Registering now does what
-      // an operator always assumed it did.
-      if (!isClaudeTurnDetectorArmed() && agentId) {
-        const claimed = claimCapturedClaudeSession(agentId);
-        if (armClaudeTurnEndDetector(agentId)) {
-          console.error(
-            `[aify] turn detection armed late for '${agentId}' via comms_register ` +
-            `(session started without --aify-agent${claimed ? "; session id claimed from the pid capture" : ""}). ` +
-            `Status will work from now on; relaunch with --aify-agent to arm it at boot.`,
-          );
-        }
-      }
+      // A session started without `--aify-agent` learns who it is here: key the Claude session id its hook
+      // captured before it had an identity to this agent. A no-op when one is already keyed.
+      if (agentId) claimCapturedClaudeSession(agentId);
 
       if (IS_REMOTE) {
         const r = await httpCall("POST", "/agents", agentData);

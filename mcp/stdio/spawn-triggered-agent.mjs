@@ -20,7 +20,6 @@
 
 import { randomUUID } from "crypto";
 
-import { __markControllerStart } from "./controller-activity.mjs";
 import { deliverMessage, readAgents, writeAgents } from "./local-store.mjs";
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
@@ -104,10 +103,6 @@ export function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject,
       onRefs: () => {},
     },
   });
-  // Plan 4 Task 13: track this controller's work promise so the turn-busy
-  // heartbeat fires while it's unresolved.
-  __markControllerStart(controller.promise);
-
   controller.promise
     .then(() => {})
     .catch((err) => {

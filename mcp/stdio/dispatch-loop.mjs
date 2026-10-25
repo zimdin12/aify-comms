@@ -18,7 +18,6 @@ import { httpCall, logTransientOrError } from "./aify-service-endpoint.mjs";
 import { reregisterAgentFromState } from "./auto-registration.mjs";
 import { ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
-import { __markControllerStart } from "./controller-activity.mjs";
 import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
 import { readManagedViaWrapperRuntimes } from "./managed-wrapper-cache.mjs";
@@ -289,9 +288,6 @@ export async function runDispatchPass({
     });
 
     ACTIVE_RUNS.set(agentId, { runId: run.id, runtime, controller });
-    // Plan 4 Task 13: track this controller's work promise so the
-    // turn-busy heartbeat fires while it's unresolved.
-    __markControllerStart(controller.promise);
     let turnBusyCleared = false;
     const clearTurnBusy = async () => {
       if (turnBusyCleared) return;

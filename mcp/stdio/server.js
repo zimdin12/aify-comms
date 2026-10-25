@@ -28,11 +28,9 @@ import {
   ACTIVE_RUNS,
   interruptActiveRuns,
 } from "./bridge-agent-state.mjs";
-import { anyControllerActive } from "./controller-activity.mjs";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
-import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-turn-detector-state.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import fs from "fs";
 import path from "path";
@@ -62,7 +60,6 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 import { defaultMachineId } from "./machine-id.mjs";
-import { turnEventStamp } from "./turn-event-stamp.mjs";
 
 import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
@@ -71,16 +68,10 @@ import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-sessi
 import { AIFY_AGENT_ID, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { localAgentNeedsDispatchHosting } from "./session-predicates.mjs";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
-import {
-  TURN_BUSY_HEARTBEAT_MS,
-  makeDefaultTurnBusyPoster,
-  startTurnBusyHeartbeat,
-} from "./turn-busy-heartbeat.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
-import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { AIFY_VERSION } from "./version.js";
 import { shouldSkipLoop } from "./loop-gate.mjs";
 import { main } from "./bridge-main.mjs";
@@ -177,52 +168,7 @@ const __stopHandleHeartbeat = IS_REMOTE && __isEntrypoint
     })
   : () => {};
 
-// Plan 4 Task 13 (2026-05-25): turn-busy heartbeat. While any controller's
-// start() promise is unresolved, POSTs turn_busy=1 every 30s to keep
-// server-side status fresh independent of pre_llm_call / PostToolUse hook
-// firing. Solves the operator-observed "working flapping to online during
-// long turns" issue. No-op when AIFY_AGENT_ID is unset (managed dispatch
-// bridges without an owning agent).
-//
-// The tracking moved to `controller-activity.mjs` in v0.5.4, which owns the promise
-// set and keeps it private behind `__markControllerStart` / `anyControllerActive`.
-// This comment named the collection directly until then.
-// Turn-busy heartbeat re-pulse — NATIVE RUNTIMES ONLY (codex/pi/hermes).
-//
-// pure-event-status change #4 (2026-06-02): the claude transcript-growth signal
-// was REMOVED from this heartbeat's isActive. It used to re-pulse turn_busy while
-// claude's transcript was growing, to hold 'working' through a long GENERATION
-// phase past the old short status window. With STATUS now PURE-EVENT (change #3),
-// turn_busy is set ONCE at turn START and stays set until the turn-END event — the
-// long ceiling holds it through a long generation with NO re-pulse needed, so the
-// transcript signal is no longer used to re-arm turn_busy. Instead the transcript
-// is read by the #1 turn-END DETECTOR (startClaudeTurnEndDetector below): its TAIL
-// STRUCTURE (last assistant message yielded to the user vs awaiting a tool) is
-// read as a turn-end, never as a turn_busy re-arm. This removal is the
-// anti-feedback-loop guarantee for claude: nothing on the claude path re-asserts
-// turn_busy from a derived/observed condition.
-//
-// isActive now keys ONLY on an in-flight native controller (codex/pi/hermes),
-// which is process truth (the controller's start() promise is unresolved) — not
-// derived status. claude has no such controller, so claude never triggers this
-// re-pulse; its liveness is carried by the unconditional liveness heartbeat
-// below, and its 'working' status by the pure-event turn_busy.
-// Started only in remote mode, same reasoning as the session-handle heartbeat above: its poster takes a
-// base URL and fetches it directly rather than through `httpCall`.
-const __stopTurnBusyHeartbeat = (!IS_REMOTE || !__isEntrypoint) ? () => {} : startTurnBusyHeartbeat({
-  agentId: AIFY_AGENT_ID,
-  intervalMs: 30_000,
-  // Active ONLY when a native runtime controller is mid-turn (codex/pi/hermes).
-  isActive: () => anyControllerActive(),
-  // Pass BRIDGE_INSTANCE_ID so the keep-alive also refreshes this bridge's
-  // bridge_instances.last_seen — without it a controller turn longer than the
-  // server's active-run bridge-stale window is reaped as a dead bridge
-  // mid-turn even though the turn is alive.
-  postFn: makeDefaultTurnBusyPoster(SERVER_URL, API_KEY, BRIDGE_INSTANCE_ID),
-});
-
-// A3 (status-liveness): unconditional liveness beat. Unlike the turn-busy
-// heartbeat above (gated on isActive), this fires for as long as the bridge
+// A3 (status-liveness): unconditional liveness beat. It fires for as long as the bridge
 // process lives so an idle-but-alive resident worker keeps its
 // bridge_instances.last_seen fresh and is not reaped as dead. Liveness-only
 // (no turnBusy field); the server ignores beats from a superseded bridge.
@@ -243,52 +189,6 @@ const __stopLivenessHeartbeat = !__isEntrypoint ? () => {} : startLivenessHeartb
   },
 });
 
-// Boot-time arm: the normal path (wrapper exported AIFY_AGENT_ID). When it did NOT,
-// this no-ops and the register handler arms us late — see armClaudeTurnEndDetector.
-armClaudeTurnEndDetector(AIFY_AGENT_ID);
-
-// CODEX turn-STATE via the rollout-tail detector (WS-4b, 2026-06-17). Resident codex
-// has ONLY the UserPromptSubmit/Stop hooks for turn state — inert on old CLIs, lost on
-// a dropped Stop — so a real turn could read `online` or latch `working` to the 30-min
-// ceiling (unlike claude's transcript detector / hermes's gateway detector). The codex
-// adapter's transcriptTail reads the active rollout's tail (process truth) and yields
-// the same structural summary the generic detector consumes, driving /turn-start /
-// /turn-end. Armed for codex regardless of mode (idempotent with managed's .finally
-// clear); transcriptTail returns null when no rollout is found, so the detector no-ops.
-let __stopCodexTurnDetector = () => {};
-if (
-  AIFY_AGENT_ID &&
-  __runtimeAdapter &&
-  __runtimeAdapter.name === "codex" &&
-  typeof __runtimeAdapter.transcriptTail === "function"
-) {
-  __stopCodexTurnDetector = startClaudeTurnEndDetector({
-    // PURE-EVENT (2026-06-19): 30s→5s, same rationale as the claude detector above — fast
-    // re-assert after a premature/dropped Stop now that the server grace is gone.
-    intervalMs: 5_000,
-    workingRefreshMs: 45_000,
-    readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
-    postTurnStart: async () => {
-      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        turnRuntime: "codex",
-        source: "bridge-codex-rollout-detector",
-        ...turnEventStamp(),
-      });
-    },
-    postTurnEnd: async () => {
-      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        turnRuntime: "codex",
-        source: "bridge-codex-rollout-detector",
-        ...turnEventStamp(),
-      });
-    },
-  });
-}
-
 // PROACTIVE gateway-liveness probe for RESIDENT hermes (status-liveness,
 // 2026-06-02). A hermes agent shows `available`/`online` whenever its gatewayUrl
 // is PRESENT (runtimes.js `gatewayOk = !!gatewayUrl`; server
@@ -307,7 +207,7 @@ if (
 let __stopGatewayProbe = () => {};
 if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
   __stopGatewayProbe = startGatewayLivenessProbe({
-    intervalMs: TURN_BUSY_HEARTBEAT_MS,
+    intervalMs: 30_000,
     threshold: Math.max(1, Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3)),
     probe: makeGatewayReachabilityProbe({ indexUrl: gatewayIndexUrlFromWs(AIFY_HERMES_GATEWAY_URL) }),
     reportDead: async ({ consecutiveFailures } = {}) => {
@@ -354,7 +254,6 @@ if (
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "hermes",
         source: "bridge-resident-gateway-detector",
-        ...turnEventStamp(),
       });
     },
     // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
@@ -364,7 +263,6 @@ if (
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "hermes",
         source: "bridge-resident-gateway-detector",
-        ...turnEventStamp(),
       });
     },
   });
@@ -416,12 +314,9 @@ function cleanupOnExit() {
     try { run?.controller?.interrupt?.("Bridge process exiting"); } catch { /* best effort */ }
   }
   try { __stopHandleHeartbeat(); } catch { /* best effort */ }
-  try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
   try { __stopLivenessHeartbeat(); } catch { /* best effort */ }
   try { __stopGatewayProbe(); } catch { /* best effort */ }
   try { __stopResidentHermesTurnDetector(); } catch { /* best effort */ }
-  try { stopClaudeTurnEndDetector(); } catch { /* best effort */ }
-  try { __stopCodexTurnDetector(); } catch { /* best effort */ }
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }

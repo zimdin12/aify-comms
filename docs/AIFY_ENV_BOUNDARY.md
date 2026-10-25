@@ -95,8 +95,7 @@ const proc = spawn(command, {…})            // piped stdio when node-pty is un
 **That is aify-env.** Beside it sit the files that are not:
 
     claude-console-prompts.js        claude-stop-gate.js
-    claude-turn-detector-state.mjs   hermes-gateway-turn-detector.js
-    hermes-turn-detector-callbacks.mjs
+    hermes-gateway-turn-detector.js  hermes-turn-detector-callbacks.mjs
 
 Turn detection, stop gating, steering. Hermes' `prompt.submit` interrupts where `session.steer`
 queues, and getting that backwards was a real bug here. **None of it is running a command.** It is

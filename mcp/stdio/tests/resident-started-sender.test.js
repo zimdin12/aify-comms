@@ -220,7 +220,7 @@ test("native startup bounds the env request and cannot retry to a service", asyn
   } finally { f.close(); }
 });
 
-test("existing four native turn events retain both destinations and never acknowledge startup", async () => {
+test("the four native turn events go to aify-env only and never acknowledge startup", async () => {
   const f = fixture();
   const firedAtUs = 1790451762694110;
   try {
@@ -232,14 +232,11 @@ test("existing four native turn events retain both destinations and never acknow
         routes: [envRoute, service], extra: { AIFY_SERVER_URL: "http://127.0.0.2:43124", AIFY_HOOK_FIRED_AT: "1790451762.694110" },
       });
       silent(result);
-      assert.equal(result.requests.length, 2, event);
       const envPost = result.requests.find(request => request.url === envRoute);
-      assert.deepEqual(envPost.body, { instance: "residents", lifetime: LIFETIME, kind: event, firedAtUs });
-      const servicePost = result.requests.find(request => request.url === service);
-      assert.ok(servicePost, "existing service destination retained");
-      assert.equal(servicePost.body.firedAtUs, firedAtUs);
-      assert.equal(servicePost.headers["X-API-Key"], "fixture-secret-must-not-leak");
-      assert.equal(servicePost.body.producer, undefined);
+      assert.deepEqual(envPost?.body, { instance: "residents", lifetime: LIFETIME, kind: event, firedAtUs }, event);
+      // Since 0.9.9 S2 the comms service is not a destination: aify-env owns turns.
+      assert.equal(result.requests.find(request => request.url === service), undefined, `${event} reached comms`);
+      assert.equal(result.requests.length, 1, event);
     }
   } finally { f.close(); }
 });

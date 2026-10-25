@@ -19,8 +19,7 @@
 // IT IS `let` BECAUSE IT STARTS null AND MAY BE ASSIGNED ONCE. Nothing outside this module reassigns it, and
 // the single assignment happens during this module's own evaluation, so every importer sees the final value.
 // The name keeps its `__` prefix: renaming would touch sixteen call sites for no behavioural reason, and it
-// reads oddly on an export — worth revisiting deliberately, not as a side effect of a relocation. Same call
-// as `__markControllerStart`.
+// reads oddly on an export — worth revisiting deliberately, not as a side effect of a relocation.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 

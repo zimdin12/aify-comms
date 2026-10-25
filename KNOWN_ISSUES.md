@@ -248,22 +248,6 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   the five claim long-polls read `http.disconnect` from `receive()` (`service/longpoll.py`): a caller
   that goes ends the wait, and no attempt runs after that. The attempt itself is one transaction of a
   few milliseconds, and a caller leaving inside it is not seen.
-- **A late turn-end is matched to its turn only once the bridge is reinstalled** (0.7.6 review O2).
-  `/turn-end` with a `runId` clears only when that run's turn is the open one in both
-  `agent_turn_state` and `agent_status_state`; hermes' `clearTurn` sends the run it ends. The claude
-  transcript, codex and resident-hermes detectors, hermes' clears and the heartbeat that starts a turn
-  now stamp `firedAtUs` and `machineId`, so `api_core/hook_event_order.py` orders them with the hooks.
-  An end carrying neither still clears whatever is open, which is every bridge installed before this,
-  and `turn-busy-heartbeat.js`'s keep-alive `/turn-start` is still unstamped. A stamp is taken when the
-  bridge posts, milliseconds after its read, so an end read just before a start and stamped just after
-  it still wins. A stamp from a bridge whose machine id differs from the agent's registered one is
-  refused, as a hook's is. Proven at the service and on the bridge's wire bodies in tests; not observed
-  on a live host.
-- **Every turn stamp is the host's wall clock, so a backward step of it can refuse an event** (0.7.6
-  review). An event fired after the clock stepped back carries a time below the last one applied and
-  is refused as out of order until the clock passes that time again; the refusal is logged
-  (`hook_event_order.py`). The review measured one 347 ms backward step in 150 s on a WSL host and none
-  in a 600 s run.
 - **Where the hook shell has no `$EPOCHREALTIME` and `date` has no `%N`** (macOS's BSD `date`, most
   busybox builds), the hook passes no usable time and `agent-state-event.mjs` falls back to when node
   started, 32-160 ms late, as every shell did before 0.7.6. The parser's rejection of `%N` left

@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // End-to-end test for claude-stop-gate.js (SECONDARY). Spawns the REAL gate process against a
-// stub turn-end server, exercising the full path: stdin parse → transcript tail read → classify
-// → suppress-or-POST. This is the coverage the pure-decision test can't give: it proves the
-// load-bearing FAIL-SAFE claim — on ended/missing/error the gate POSTs /turn-end; only a
+// stub aify-env turn-event receiver, exercising the full path: stdin parse → transcript tail read →
+// classify → suppress-or-POST. This is the coverage the pure-decision test can't give: it proves the
+// load-bearing FAIL-SAFE claim — on ended/missing/error the gate POSTs its turn-end; only a
 // confirmed in-flight tail suppresses (so it can never cause a stuck-`working`).
 //
-// Run: node --test mcp/stdio/claude-stop-gate.e2e.test.mjs
+// Since 0.9.9 S2 the turn-end goes to aify-env only (agent-state-event.mjs), through the descriptor
+// `~/.aify/env/<instance>.json` names, so the stub is that descriptor's endpoint in a private home.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,45 +24,57 @@ import { sealedChildEnv } from "./_child-env.mjs";
 // first execution; the coverage gate had been crediting `claude-stop-gate.js` as tested on the
 // strength of files nothing executed.
 const GATE = join(dirname(fileURLToPath(import.meta.url)), "..", "claude-stop-gate.js");
+const LIFETIME = "7f3c9e2a-2222-4222-8222-222222222222";
 const jl = (obj) => JSON.stringify(obj) + "\n";
 const ENDED = jl({ type: "assistant", message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "done" }] } });
 const INFLIGHT = jl({ type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "Bash" }] } });
 
-// Spawn the gate with a stub /turn-end server; resolve whether a POST arrived.
+// Spawn the gate with a stub turn-event receiver; resolve whether a turn-end arrived.
 function runGate({ transcript, badPath = false, noPath = false, onPost = () => {} }) {
   return new Promise((resolve) => {
     let posted = false;
     const server = createServer((req, res) => {
-      if (req.method === "POST" && /\/turn-end$/.test(req.url)) { posted = true; onPost(req); }
-      res.end("{}");
+      let text = "";
+      req.on("data", (c) => { text += c; });
+      req.on("end", () => {
+        if (req.method === "POST" && req.url === "/agents/gate-test/turn-event" && JSON.parse(text).kind === "turn-end") {
+          posted = true;
+          onPost(req, JSON.parse(text));
+        }
+        res.end("{}");
+      });
     });
-    // 127.0.0.2: a 127.0.0.1 endpoint makes the endpoint module add the real 127.0.0.1:8800 as a fallback.
-    server.listen(0, "127.0.0.2", () => {
+    server.listen(0, "127.0.0.1", () => {
       const port = server.address().port;
+      const home = mkdtempSync(join(tmpdir(), "aify-gate-home-"));
+      mkdirSync(join(home, ".aify", "env"), { recursive: true });
+      writeFileSync(join(home, ".aify", "env", "test.json"), JSON.stringify({
+        url: `http://127.0.0.1:${port}`, instance: "test", pid: process.pid, startedAt: "2026-10-01T00:00:00.000Z",
+      }));
       let transcriptPath = "";
       if (noPath) {
         transcriptPath = undefined;
       } else if (badPath) {
-        transcriptPath = join(tmpdir(), "aify-gate-nonexistent-" + port + ".jsonl");
+        transcriptPath = join(home, "aify-gate-nonexistent.jsonl");
       } else {
-        const dir = mkdtempSync(join(tmpdir(), "aify-gate-"));
-        transcriptPath = join(dir, "transcript.jsonl");
+        transcriptPath = join(home, "transcript.jsonl");
         writeFileSync(transcriptPath, transcript);
       }
       const child = spawn(process.execPath, [GATE], {
-        env: { ...sealedChildEnv(), AIFY_AGENT_ID: "gate-test", AIFY_COMMS_URL: `http://127.0.0.2:${port}`, AIFY_API_KEY: "gate-key" },
+        env: { ...sealedChildEnv(), HOME: home, USERPROFILE: home, AIFY_AGENT_ID: "gate-test",
+          AIFY_ENV_INSTANCE: "test", AIFY_LIFETIME: LIFETIME, AIFY_API_KEY: "gate-key" },
         stdio: ["pipe", "ignore", "ignore"],
       });
       child.stdin.end(JSON.stringify(noPath ? {} : { transcript_path: transcriptPath }));
       child.on("exit", () => {
         // The gate awaits its POST before exit, so by exit the stub has been hit (or not).
-        setTimeout(() => { server.close(); resolve(posted); }, 50);
+        setTimeout(() => { server.close(); rmSync(home, { recursive: true, force: true }); resolve(posted); }, 50);
       });
     });
   });
 }
 
-test("e2e: ended transcript → gate POSTs /turn-end", async () => {
+test("e2e: ended transcript → gate POSTs its turn-end", async () => {
   assert.equal(await runGate({ transcript: ENDED }), true);
 });
 
@@ -81,8 +94,11 @@ test("e2e: FAIL-SAFE — empty/garbage transcript → unknown → gate POSTs", a
   assert.equal(await runGate({ transcript: "not json\n{partial\n" }), true);
 });
 
-test("e2e: the gate's turn-end carries the key, or a keyed service refuses it", async () => {
-  let key;
-  assert.equal(await runGate({ transcript: ENDED, onPost: (req) => { key = req.headers["x-api-key"]; } }), true);
-  assert.equal(key, "gate-key");
+test("e2e: the gate's turn-end names its lifetime and carries no credential to aify-env", async () => {
+  let key = "unset";
+  let body;
+  assert.equal(await runGate({ transcript: ENDED, onPost: (req, sent) => { key = req.headers["x-api-key"]; body = sent; } }), true);
+  assert.equal(key, undefined, "the comms key must not reach aify-env");
+  assert.equal(body.lifetime, LIFETIME);
+  assert.equal(body.instance, "test");
 });

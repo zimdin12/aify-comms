@@ -1,4 +1,4 @@
-// Unconditional liveness beat. Distinct from turn-busy-heartbeat.js (which is
+// Unconditional liveness beat. Distinct from the turn-busy heartbeat (deleted in 0.9.9 S2; it was
 // gated on isActive): this fires for as long as the process lives so the
 // service can treat bridge last_seen as a true "alive now" signal. See
 // docs/superpowers/plans/2026-06-01-status-liveness-worker-hygiene.md.

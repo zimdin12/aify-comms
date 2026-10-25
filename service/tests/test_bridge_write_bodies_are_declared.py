@@ -303,7 +303,9 @@ class BridgeWriteBodyTests(unittest.TestCase):
         readable = [s for s in self.sites if s.keys is not None]
         # 70 -> 65 in 0.7.5: the removed dispatch and long-poll tools took two literal bodies with them
         # (a POST /dispatch and a per-message POST /read), leaving exactly 70 parsed.
-        self.assertGreater(len(readable), 65, f"only {len(readable)} bodies parsed as literals")
+        # 65 -> 60 in 0.9.9 S2: the claude and codex turn detectors and the hook poster's comms half went, as
+        # aify-env owns turns, leaving 64 parsed.
+        self.assertGreater(len(readable), 60, f"only {len(readable)} bodies parsed as literals")
         modelled = [
             s for s in readable if self.routes.get((s.method, s.path))
         ]

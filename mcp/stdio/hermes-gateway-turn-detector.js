@@ -1,6 +1,6 @@
 // Managed-hermes hook-independent turn-STATE detector (2026-06-02
 // fix/hermes-working-debounce). The hermes mirror of the CLAUDE bidirectional
-// detector pair (turn-end-detector.js + claude-turn-end-detector.js).
+// detector pair (turn-end-detector.js and the claude loop around it, deleted in 0.9.9 S2).
 //
 // WHY (the flap fix): the managed-hermes re-pulse probe (makeInFlightProbe in
 // hermes-managed-host.js) ended a turn on the FIRST gateway-idle read after

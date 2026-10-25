@@ -29,7 +29,6 @@ import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { defaultMachineId } from "./machine-id.mjs";
 import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
-import { hostNowUs } from "./turn-event-stamp.mjs";
 
 const MACHINE_ID = defaultMachineId();
 export function baseAgentHeartbeatFields(state = {}) {
@@ -46,7 +45,6 @@ export function currentTurnHeartbeatFields(state = {}, activeRun = null) {
   return activeTurnHeartbeatPayload({
     ...base,
     activeRun,
-    firedAtUs: hostNowUs(),
   });
 }
 
@@ -59,7 +57,6 @@ export async function reportTurnBusy(agentId, state = {}, { busy, runId = "", ru
       turnBusy: !!busy,
       turnRunId: runId,
       turnRuntime: runtime,
-      firedAtUs: hostNowUs(),
     }),
   );
 }

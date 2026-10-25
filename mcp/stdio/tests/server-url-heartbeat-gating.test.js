@@ -105,11 +105,12 @@ test("NO DEFAULT: with neither env var set the URL is EMPTY and IS_REMOTE is fal
   assert.equal(resolveEndpoint({ AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" }).url, "", "empty is not a URL");
 });
 
-test("the two DIRECT posters are started only when IS_REMOTE, and take the owned URL", () => {
+test("the DIRECT poster is started only when IS_REMOTE, and takes the owned URL", () => {
   // These bypass `httpCall` — they are handed a base URL and fetch it. So the guard has to be at the START,
   // not inside the callback: an empty base would make them throw on every tick instead of not running, since
   // `fetch` rejects a relative URL and the heartbeat wrapper swallows it.
-  for (const poster of ["makeDefaultHandlePoster", "makeDefaultTurnBusyPoster"]) {
+  // The turn-busy heartbeat was the second one until 0.9.9 S2 deleted it: aify-env owns turns.
+  for (const poster of ["makeDefaultHandlePoster"]) {
     const at = SERVER.indexOf(poster + "(");
     assert.ok(at > 0, `${poster} must still be wired up`);
     const call = SERVER.slice(at, SERVER.indexOf(")", at) + 1);
@@ -131,13 +132,9 @@ test("the two DIRECT posters are started only when IS_REMOTE, and take the owned
   assert.match(handleStart, /IS_REMOTE/, "the session-handle heartbeat must not start in local mode");
   assert.match(handleStart, /__isEntrypoint/,
     "the session-handle heartbeat must not start on IMPORT");
-
-  const turnStart = SERVER.match(/const __stopTurnBusyHeartbeat = ([^\n]*)/)?.[1] || "";
-  assert.match(turnStart, /IS_REMOTE/, "the turn-busy heartbeat must not start in local mode");
-  assert.match(turnStart, /__isEntrypoint/, "the turn-busy heartbeat must not start on IMPORT");
 });
 
-test("the nine callback guards ask IS_REMOTE — the question they meant", () => {
+test("the four callback guards ask IS_REMOTE — the question they meant", () => {
   // They read `!__serverUrl` and could not fire. Counted, because "some were converted" is the failure this
   // catches: a leftover would be a guard that still cannot fire, sitting next to seven that can.
   //
@@ -152,8 +149,8 @@ test("the nine callback guards ask IS_REMOTE — the question they meant", () =>
     converted += (src.match(/if \(!IS_REMOTE\) return;/g) || []).length;
     assert.doesNotMatch(src, /!__serverUrl\) return;/, "no guard anywhere may still test the deleted derivation");
   }
-  // NINE since 2026-10-01: the background-work reporter's post joined, written in the converted form.
-  assert.equal(converted, 9, `all nine guards must ask IS_REMOTE, found ${converted}`);
+  // NINE from 2026-10-01 to 0.9.9 S2, which deleted the claude detector's three and the codex detector's two.
+  assert.equal(converted, 4, `all four guards must ask IS_REMOTE, found ${converted}`);
 });
 
 test("IS_REMOTE's meaning for TOOLS is unchanged", () => {
@@ -166,7 +163,7 @@ test("IS_REMOTE's meaning for TOOLS is unchanged", () => {
     "IS_REMOTE is truthiness of the configured value, not validity — unchanged, and pinned as such");
 });
 
-test("cleanupOnExit still calls the same seven stoppers in the same order", () => {
+test("cleanupOnExit still calls its four stoppers in the same order", () => {
   // The reviewer parked the teardown-registry reshape, so today's explicit order must survive. The no-op
   // stoppers exist precisely so the non-started case keeps its slot.
   // The regex matches both the `__stopX` handles and the plain `stopX` operations, because the claude
@@ -176,11 +173,8 @@ test("cleanupOnExit still calls the same seven stoppers in the same order", () =
   const order = [...SERVER.matchAll(/^\s*try \{ (_{0,2}stop\w+)\(\); \}/gm)].map((m) => m[1]);
   assert.deepEqual(order, [
     "__stopHandleHeartbeat",
-    "__stopTurnBusyHeartbeat",
     "__stopLivenessHeartbeat",
     "__stopGatewayProbe",
     "__stopResidentHermesTurnDetector",
-    "stopClaudeTurnEndDetector",
-    "__stopCodexTurnDetector",
-  ], "teardown ORDER must be unchanged — the claude entry is now an operation, in the same slot");
+  ], "teardown ORDER must be unchanged; 0.9.9 S2 removed the turn-busy, claude and codex stoppers");
 });

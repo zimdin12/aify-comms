@@ -18,7 +18,6 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { defaultMachineId } from "./machine-id.mjs";
 
 const EVENTS = new Set(["turn-start", "turn-end", "blocked", "unblocked"]);
 
@@ -26,13 +25,13 @@ const TIMEOUT_MS = 2000;
 const HOOK_INPUT_MAX_BYTES = 64 * 1024;
 const SESSION_ID_MAX_BYTES = 1024;
 // This process's start on the WALL clock, in microseconds: the fallback when the hook command passed no
-// shell time. The same clock as $EPOCHREALTIME and the bridge's stamps (turn-event-stamp.mjs says why).
+// shell time, on the same clock as $EPOCHREALTIME.
 const STARTED_AT_US = Date.now() * 1000;
 
 /**
  * When the hook fired, in host microseconds. The hooks run in the background, so two events can reach
- * the service out of order, and the service applies them by this time and host (service/api_core/
- * hook_event_order.py). The hook command passes the shell's `$EPOCHREALTIME` as AIFY_HOOK_FIRED_AT,
+ * aify-env out of order, and it applies them by this time. The hook command passes the shell's
+ * `$EPOCHREALTIME` as AIFY_HOOK_FIRED_AT,
  * seconds with six decimals behind a `.` or a locale `,`, taken before `node` starts. It is parsed as
  * text so no microsecond is lost to a float.
  */
@@ -103,38 +102,9 @@ export async function postEnvResidentStarted(harness, payload, { env = process.e
   } catch { return false; }
 }
 
-/** Post independently to both owners. Existing readers still use the service's answer. */
+/** A turn event goes to aify-env only, which owns turns since the 0.9.8 switch (0.9.9 S2). */
 export async function postAgentState(event) {
-  const firedAtUs = hookFiredAtUs();
-  const [service] = await Promise.all([
-    postServiceAgentState(event, firedAtUs), postEnvAgentState(event, { firedAtUs }),
-  ]);
-  return service;
-}
-
-/** The old service post, unchanged apart from taking the shared event timestamp. */
-async function postServiceAgentState(event, firedAtUs) {
-  const agentId = String(process.env.AIFY_AGENT_ID || "").trim();
-  if (!EVENTS.has(event) || !agentId) return false;
-  if (!process.env.AIFY_SERVER_URL && process.env.AIFY_COMMS_URL) {
-    process.env.AIFY_SERVER_URL = process.env.AIFY_COMMS_URL;
-  }
-  try {
-    const { httpCall, IS_REMOTE } = await import("./aify-service-endpoint.mjs");
-    if (!IS_REMOTE) return false;
-    const id = encodeURIComponent(agentId);
-    const opts = { timeoutMs: TIMEOUT_MS };
-    const machineId = defaultMachineId();
-    // No bridgeId: that is what keeps a turn-start / turn-end the authoritative harness signal, since
-    // the service treats one carrying a bridgeId as a detector's and can refuse it. Each call is
-    // spelled out so the bridge write-body gate can read its path and body.
-    if (event === "turn-start") await httpCall("POST", `/agents/${id}/turn-start`, { firedAtUs, machineId }, opts);
-    else if (event === "turn-end") await httpCall("POST", `/agents/${id}/turn-end`, { firedAtUs, machineId }, opts);
-    else await httpCall("POST", `/agents/${id}/status-event`, { kind: event, firedAtUs, machineId }, opts);
-    return true;
-  } catch {
-    return false;
-  }
+  return postEnvAgentState(event);
 }
 
 const isEntrypoint = (() => {

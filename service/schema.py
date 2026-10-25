@@ -474,7 +474,8 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 
--- The host time of the last runtime-hook event applied for the agent (api_core/hook_event_order.py).
+-- The host time of the last runtime-hook event applied for the agent. Unwritten since 0.9.9 S2 (aify-env owns
+-- turns); S3 drops it.
 CREATE TABLE IF NOT EXISTS agent_hook_order (
     agent_id TEXT PRIMARY KEY,
     last_at INTEGER NOT NULL,

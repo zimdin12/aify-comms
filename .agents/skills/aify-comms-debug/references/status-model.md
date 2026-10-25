@@ -126,11 +126,9 @@ the contract both tables follow.
 
 ## What feeds the turn signal
 
-- **claude:** `UserPromptSubmit` and `PostToolUse` hooks POST `/turn-start`; `Stop` POSTs
-  `/turn-end` through `claude-stop-gate.js`, which suppresses a premature mid-turn Stop and posts
-  `/turn-end` on any doubt. The bridge transcript detector (`claude-turn-end-detector.js`) covers
-  channel-woken and scheduled turns that fire no hook, and re-asserts the proven direction every
-  45s (in-flight → `/turn-start`, ended → `/turn-end`).
+- **claude:** `UserPromptSubmit` and `PostToolUse` hooks post a turn start to aify-env; `Stop` posts the
+  end through `claude-stop-gate.js`, which suppresses a premature mid-turn Stop and posts on any doubt.
+  Since 0.9.9 S2 nothing posts turns to comms: its routes accept and ignore.
 - **codex:** hooks plus the app-server `turn/started` / `turn/completed` events.
 - **hermes:** `hermes-gateway-turn-detector.js` reads the gateway session status; idle must hold for
   several consecutive reads before it clears, because hermes' running flag blinks off between tool
