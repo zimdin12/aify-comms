@@ -1,7 +1,39 @@
 #!/usr/bin/env bash
-# The quick-start lines install.sh prints for <client> once an install completes. Moved out of install.sh,
-# which is held at a measured line ceiling, to pay for the guided-install modes (S2).
+# Client-specific closing guidance. install.sh reports completion only after its last assets action.
+# One argument preserves the quick-start-only form; the installer also supplies server URL and Windows state.
 CLIENT="${1:-}"
+if [ "${2+x}" = x ]; then
+  SERVER_URL="$2"
+  WINDOWS="${3:-0}"
+  if [ "$CLIENT" = "claude" ]; then
+    echo "Restart Claude Code for changes to take effect."
+    if [ -n "$SERVER_URL" ]; then
+      echo "For resident-session wakeups, start Claude with: claude-aify"
+      echo "  (wrapper installed at ~/.local/bin/claude-aify)"
+      if [ "$WINDOWS" = 1 ]; then
+        echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\claude-aify.cmd"
+      fi
+    else
+      echo "Local-only install: resident Claude wakeups are disabled because no shared server URL was provided."
+      echo "No claude-aify wrapper was installed."
+    fi
+  elif [ "$CLIENT" = "codex" ]; then
+    echo "Restart Codex for changes to take effect."
+    echo "For live resident wakeups, start Codex with: codex-aify"
+    echo "  (wrapper installed at ~/.local/bin/codex-aify)"
+    if [ "$WINDOWS" = 1 ]; then
+      echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\codex-aify.cmd"
+    fi
+  elif [ "$CLIENT" = "hermes" ]; then
+    echo "Restart Hermes Agent for changes to take effect."
+    echo "For resident-session wakeups, start Hermes with: hermes-aify"
+    echo "  (wrapper installed at ~/.local/bin/hermes-aify)"
+    if [ "$WINDOWS" = 1 ]; then
+      echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\hermes-aify.cmd"
+    fi
+  fi
+  echo ""
+fi
 echo "Quick start:"
 if [ "$CLIENT" = "codex" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\", appServerUrl=\"\$AIFY_CODEX_APP_SERVER_URL\")"

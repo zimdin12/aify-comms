@@ -2118,6 +2118,9 @@ DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
 } > "$DOCTOR_PATH"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
 install_windows_cmd_shim "aify-doctor" "$DOCTOR_BIN_DIR"
+if [ "$MODE" = assets-only ] && [ "$CLIENT" = claude ]; then
+  node "$(path_for_node "$AIFY_BRIDGE_DIR/node_modules/aify-wrapper/lib/channel-install.mjs")" install --bridge-dir "$(path_for_node "$AIFY_BRIDGE_DIR")"
+fi
 echo ""
 echo "=== Installation complete ==="
 # ALL THREE COMPONENTS, because this installer only ever installed one of them, and a host with no
@@ -2130,32 +2133,4 @@ echo "  Managed agents are hosted by aify-env. Check with 'aify-env doctor'; sta
 if is_git_bash_windows; then
   echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\aify-comms.cmd"
 fi
-if [ "$CLIENT" = "claude" ]; then
-  echo "Restart Claude Code for changes to take effect."
-  if [ -n "$SERVER_URL" ]; then
-    echo "For resident-session wakeups, start Claude with: claude-aify"
-    echo "  (wrapper installed at ~/.local/bin/claude-aify)"
-    if is_git_bash_windows; then
-      echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\claude-aify.cmd"
-    fi
-  else
-    echo "Local-only install: resident Claude wakeups are disabled because no shared server URL was provided."
-    echo "No claude-aify wrapper was installed."
-  fi
-elif [ "$CLIENT" = "codex" ]; then
-  echo "Restart Codex for changes to take effect."
-  echo "For live resident wakeups, start Codex with: codex-aify"
-  echo "  (wrapper installed at ~/.local/bin/codex-aify)"
-  if is_git_bash_windows; then
-    echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\codex-aify.cmd"
-  fi
-elif [ "$CLIENT" = "hermes" ]; then
-  echo "Restart Hermes Agent for changes to take effect."
-  echo "For resident-session wakeups, start Hermes with: hermes-aify"
-  echo "  (wrapper installed at ~/.local/bin/hermes-aify)"
-  if is_git_bash_windows; then
-    echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\hermes-aify.cmd"
-  fi
-fi
-echo ""
-bash "$SCRIPT_DIR/scripts/install-quickstart.sh" "$CLIENT"
+bash "$SCRIPT_DIR/scripts/install-quickstart.sh" "$CLIENT" "$SERVER_URL" "$(is_git_bash_windows && printf 1 || printf 0)"
