@@ -17,8 +17,9 @@ from dataclasses import dataclass
 
 from service.api_core import partial_status_shadow as shadow
 from service.api_core.report_age import report_age
-from service.api_core.view_owners import PROMOTABLE
 
+#: aify-env states a delivered run beside them promotes to `working` (the view's row 5).
+PROMOTABLE = ('idle', 'shell', 'starting', 'available')
 FRESH = 'fresh'  # the only availability a known answer is built from; every other class reads unknown
 # 'incomplete' is a publisher with no accepted complete snapshot. SW1's restored publishers read 'restored'.
 
@@ -61,7 +62,8 @@ class View:
     run_occupied: bool
 
 
-def _availability(publisher, at):
+def availability_of(publisher, at):
+    """One publisher's availability at `at`: lost, unavailable, restored, incomplete, or its report age (fresh first)."""
     if publisher.loss:
         return 'lost'
     if publisher.unavailable:
@@ -81,7 +83,7 @@ def holders_of(binding, machine, agent_id):
     for (mid, _instance), publisher in binding.view.items():
         if mid != machine:
             continue
-        availability = _availability(publisher, binding.at)
+        availability = availability_of(publisher, binding.at)
         rows = [r for r in publisher.rows if r.agent_id == agent_id]
         candidates.append((publisher, availability, rows))
     covered = any(availability == FRESH and rows for _, availability, rows in candidates)

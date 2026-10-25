@@ -31,7 +31,6 @@ from service.api_core.execution_mode import (
 )
 from service.api_core.live_process_probes import _resident_bridge_is_fresh
 from service.api_core.managed_env import _managed_environment_unavailable_reason
-from service.api_core import view_owners
 from service.api_core.records import _status_with_dispatch
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
@@ -104,7 +103,6 @@ async def _preflight_live_send_recipients(
             dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
         base_status = await _compute_agent_status(row, db)
         effective_status = _status_with_dispatch(base_status, dispatch_state)
-        view_owners.observe_promotion(row, base_status, effective_status, dispatch_state, 'preflight')  # S2c slice 5
 
         if effective_status in unavailable_statuses:
             hint = _dispatch_fix_hint(recipient_id, row, f'agent status is "{effective_status}"')

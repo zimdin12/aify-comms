@@ -33,19 +33,17 @@ class RestoreResult:
     unreadable: bool = False  # the tables could not be read: the mirror is quarantined
 
 
-def restored_record(record_json, origin):
+def restored_record(record_json):
     """One saved row as the mirror holds it, validated exactly as an ingest validates a published record."""
     record = json.loads(record_json)
     ingest._record(record)
-    return shadow.record_of(record, origin)
+    return shadow.record_of(record)
 
 
 def restored_publisher(publisher, rows):
     """A saved publisher and its rows as a restored mirror entry. Raises when any row is not a valid record."""
     generation, incarnation = publisher['data_generation'], publisher['data_incarnation_id']
-    # A row's own publication is not saved; its generation and incarnation are its publisher's data generation's.
-    records = tuple(restored_record(row['record_json'], (generation, incarnation, None, row['row_applied_at'], None))
-                    for row in rows)
+    records = tuple(restored_record(row['record_json']) for row in rows)
     return shadow.Publisher(generation, publisher['data_applied_at'], False, publisher['kind'] == 'unavailable',
                             records, False, incarnation, publisher['data_publication'], None, True,
                             saved_report(publisher))

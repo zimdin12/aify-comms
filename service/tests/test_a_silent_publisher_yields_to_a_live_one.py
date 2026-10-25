@@ -24,7 +24,6 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
     def setUp(self):
         super().setUp()
         for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
-                  patch.object(shadow, 'recorder', shadow.Recorder()),
                   patch.object(shadow, '_quarantined', False)):
             p.start()
             self.addCleanup(p.stop)

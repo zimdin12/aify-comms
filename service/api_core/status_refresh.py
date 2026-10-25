@@ -24,7 +24,7 @@ lookalike. Renaming it is a separate, operator-visible decision.
 
 from __future__ import annotations
 
-from service.api_core import partial_status_shadow as shadow, switched_view
+from service.api_core import switched_view
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -49,7 +49,6 @@ logger = logging.getLogger("aify_comms.api_v2")
 
 
 async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None, environments_by_machine=None, session_environment_by_agent=None, agent_row=None, status_signals=None):
-    shadow_binding = shadow.bind()
     # `agent_row` is the row the CALLER already holds, the same move `5c45ab44` made on the roster.
     # The batch caller below reads every agent row to decide who is stale; re-selecting each one here
     # is 1.0N round-trips for rows it is holding. Optional and falling back, because this function is
@@ -68,9 +67,7 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
         await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
     ).fetchone()
     if not row:
-        shadow.observe(shadow_binding, None, None, None, "refresh")
         return None
-    shadow_identity = shadow.association(row)
     settings = settings or await _load_settings(db)
     cache = await _compute_live_status_cache(db, row, settings=settings, now=now,
                                             status_signals=status_signals,
@@ -107,18 +104,16 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
         except Exception:
             logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)
     # THE WORD AFTER THE 0.9.8 SWITCH is the operational view's (plan page 3, SW5): aify-env's record, unknown first,
-    # the D8 rows and row 5. The legacy derivation above still runs, so its inputs stay current for the rollback and
-    # the shadow; it no longer decides what is served. A view that cannot be read serves `unknown`, never the legacy
-    # word as if aify-env had said it. The legacy word and its note are kept beside it (`legacy_status`,
-    # `legacy_reason`): what a rollback of the switch would serve, which the shadow keeps comparing with aify-env's
-    # until SW7 retires both.
+    # the D8 rows and row 5. The legacy derivation above still runs, so its inputs stay current for the rollback; it
+    # no longer decides what is served. A view that cannot be read serves `unknown`, never the legacy word as if
+    # aify-env had said it. The legacy word and its note are kept beside it (`legacy_status`, `legacy_reason`): what a
+    # rollback of the switch would serve, until 0.9.9 S3 retires both.
     cache["legacy_status"], cache["legacy_reason"] = cache.get("status"), cache.get("reason")
     try:
         cache = await switched_view.word_into(db, row, cache)
     except Exception:
         logger.exception("switched view failed for agent=%s; serving unknown", agent_id)
         cache.update(status="unknown", reason="comms could not read aify-env's record of this agent", last_known=None)
-    shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), cache["legacy_status"], "refresh")
     # Store in the in-memory cache — NOT the DB (was the write-storm source). No lock possible.
     _live_state_set(agent_id, cache)
     return cache

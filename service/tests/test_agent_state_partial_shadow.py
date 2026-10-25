@@ -1,149 +1,65 @@
-"""Partial shadow through accepted ingest and the actual status owners, offline only.
+"""The mirror through accepted ingest: what the operational view reads after each publication, offline only.
 
-AFTER THE 0.9.8 SWITCH the shadow observes the legacy word (what a rollback would serve) beside aify-env's, and the
-served word is the operational view's. These tests drive the owners with a stand-in database that answers every query
-with the agent row, which the view's own reads cannot use, so the view is replaced by one that agrees with the
-legacy word (`_view_agrees`): their subject is the observer, which must see each owner's legacy selection once and
-change nothing. The view itself is witnessed in test_the_switched_word_is_aify_envs.py."""
+0.9.9 S1 deleted the comparison observer these tests used to count. What stays is the ingest's own obligation: the
+mirror changes only after a commit, in commit order, and a failure after the commit leaves the publisher a known loss
+rather than a fresh lie. Each read is `availability_of` on the publisher the view builds every word from.
+"""
 import asyncio
-import json
 import sqlite3
 from contextlib import closing
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch
 
 from service.tests._base import FastApiTestCase
-from service.tests.test_agent_state_receiver import body, row, wire, AT
-from service.status_engine import StatusInputs
-from service.api_core import shadow_owners
+from service.tests.test_agent_state_receiver import body as receiver_body, row, wire, AT
+
+KEY = (' Host ', 'CaseSensitive')
 
 
-def inputs():
-    return StatusInputs(mode='managed', alive=True, in_turn=True, awaiting_input=False,
-                        worker_present=True, env_reachable=True, disabled=False,
-                        bridge_stale=False, has_live_session=True)
+def body(kind='snapshot', **extra):
+    """A publication that announces its interval, so its key reads `fresh` at AT."""
+    return receiver_body(kind, **{'reportEveryMs': 60_000, **extra})
 
 
-class PartialShadowTest(FastApiTestCase):
+class MirrorIngestTest(FastApiTestCase):
     def setUp(self):
         super().setUp()
         from service.api_core import partial_status_shadow as shadow
         self.shadow = shadow
         self.mirror = shadow.Mirror()
-        self.recorder = shadow.Recorder()
-        self.patches = [patch.object(shadow, 'mirror', self.mirror),
-                        patch.object(shadow, 'recorder', self.recorder),
-                        patch.object(shadow, 'clock', return_value=AT)]
-        for p in self.patches:
+        for p in (patch.object(shadow, 'mirror', self.mirror), patch.object(shadow, '_quarantined', False),
+                  patch.object(shadow, 'clock', return_value=AT)):
             p.start(); self.addCleanup(p.stop)
-        self.agent = {'id': 'alpha', 'machine_id': ' Host '}
-        self._view_agrees()
-
-    def _view_agrees(self):
-        """The served word equals the legacy one, with no last-known note (see the module docstring)."""
-        from service.api_core import operational_view, switched_view
-
-        async def word_into(db, agent_row, cache, dispatch_state=None):
-            cache['last_known'] = None
-            return cache
-
-        async def view_for(db, agent_row, dispatch_state=None, binding=None):
-            return operational_view.View(str(agent_row.get('status') or ''), None, True, 'known', False, False, False)
-
-        agrees = patch.multiple(switched_view, word_into=word_into, view_for=view_for)
-        agrees.start(); self.addCleanup(agrees.stop)
 
     def apply(self, value, at=AT, factory=None):
         from service.api_core.agent_state_shadow import AgentStateShadowStore
         return asyncio.run(AgentStateShadowStore(factory).apply(wire(value), at))
 
-    def counts(self, source=None):
-        status = self.recorder.report()['byPurpose']['status word']
-        return status['bySource'][source] if source else status['counts']
+    def availability(self):
+        from service.api_core.operational_view import availability_of
+        publisher = self.shadow.mirror.view().get(KEY)
+        return availability_of(publisher, AT) if publisher else None
 
-    def observe(self, actual='working', at=AT):
-        with patch.object(self.shadow, 'clock', return_value=at):
-            bound = self.shadow.bind()
-        self.shadow.observe(bound, self.agent, inputs(), actual, 'refresh')
-
-    def test_last_observations_are_named_detached_and_bounded(self):
-        self.apply(body())
-        from dataclasses import replace
-        value = replace(inputs(), config_defect='secret configuration')
-        bound = self.shadow.bind()
-        self.shadow.observe(bound, self.agent, value, 'working', 'refresh')
-        report = self.recorder.report()['byPurpose']['status word']
-        last = report.get('lastBySource')
-        self.assertIsNotNone(last, 'mandatory last redacted observations missing')
-        observation = last['refresh']['partial-agree']
-        self.assertEqual(observation['actual'], 'working')
-        self.assertEqual(observation['candidate'], 'working')
-        self.assertTrue(observation['inputs']['alive'])
-        self.assertTrue(observation['inputs']['config_defect'])
-        self.assertEqual(observation['inputs']['mode'], 'managed')
-        object.__setattr__(value, 'alive', False)
-        observation['inputs']['alive'] = False
-        self.assertTrue(self.recorder.report()['byPurpose']['status word']['lastBySource']['refresh']['partial-agree']['inputs']['alive'])
-        for _ in range(30): self.observe('online')
-        self.shadow.observe(bound, self.agent, None, 'stopped', 'refresh')
-        last = self.recorder.report()['byPurpose']['status word']['lastBySource']
-        self.assertEqual(sum(len(row) for row in last.values()), 15)
-        self.assertIsNone(last['refresh']['non-evaluation']['inputs'])
-        self.assertEqual(last['refresh']['partial-disagree']['actual'], 'online')
-        text = json.dumps(last)
-        for secret in ('alpha', 'secret configuration', 'CaseSensitive', 'real-old'):
-            self.assertNotIn(secret, text)
-
-    def test_disagreements_are_counted_by_source_mode_and_word_pair_for_triage(self):
-        # S1 of the status-switch plan: the counts say WHICH disagreements the fleet shows. Triage only;
-        # admission classes are input predicates (S2), never these keys.
-        self.apply(body())  # aify-env's record reads `working` for alpha
-        from dataclasses import replace
-        resident = replace(inputs(), mode='resident')
-        bound = self.shadow.bind()
-        for _ in range(2): self.shadow.observe(bound, self.agent, inputs(), 'online', 'refresh')
-        self.shadow.observe(bound, self.agent, replace(inputs(), background_work=True), 'online', 'refresh')
-        self.shadow.observe(bound, self.agent, inputs(), 'online', 'engine-status')
-        self.shadow.observe(bound, self.agent, resident, 'online', 'refresh')
-        self.shadow.observe(bound, self.agent, inputs(), 'blocked', 'refresh')
-        self.shadow.observe(bound, self.agent, inputs(), 'working', 'refresh')  # agrees: not counted
-        self.shadow.observe(bound, self.agent, None, 'stopped', 'refresh')  # non-evaluation: not counted
-        table = self.recorder.report()['byPurpose']['status word']['disagreementsByKey']
-        self.assertEqual([(r['source'], r['mode'], r['comms'], r['env'], r['count']) for r in table], [
-            ('refresh', 'managed', 'online', 'working', 3),
-            ('engine-status', 'managed', 'online', 'working', 1),
-            ('refresh', 'managed', 'blocked', 'working', 1),
-            ('refresh', 'resident', 'online', 'working', 1),
-        ], 'by count, then by key')
-        self.assertEqual(sum(r['count'] for r in table), self.counts()['partialDisagreed'])
-        self.assertTrue(table[0]['sample']['background_work'], 'the sample is the latest occurrence')
-        sample = table[3]['sample']
-        self.assertEqual(sample['mode'], 'resident')
-        sample['alive'] = False  # detached: the next report is unchanged
-        self.assertTrue(self.recorder.report()['byPurpose']['status word']['disagreementsByKey'][3]['sample']['alive'])
+    def stored_publication(self):
+        with closing(sqlite3.connect(self._db_path)) as db:
+            return db.execute('SELECT publication FROM agent_state_shadow_publishers').fetchone()[0]
 
     def test_prepare_failure_preserves_acceptance_and_invalidates_only_after_commit(self):
         self.apply(body())
         old = self.mirror.view()
         with patch.object(self.shadow, 'prepare', side_effect=RuntimeError('private prepare')):
             self.assertFalse(self.apply(body()).applied)
-            self.assertIs(self.mirror.view(), old)
+            self.assertIs(self.mirror.view(), old, 'a refused body touched the mirror')
             self.assertTrue(self.apply(body(publication=2)).applied)
-        self.observe()
-        self.assertEqual(self.counts()['unavailable'], 1)
-        self.assertEqual(self.recorder.report()['byPurpose']['status word']['unavailableByReason']['unknown-loss'], 1)
-        with closing(sqlite3.connect(self._db_path)) as db:
-            self.assertEqual(db.execute('SELECT publication FROM agent_state_shadow_publishers').fetchone()[0], 2)
+        self.assertEqual(self.availability(), 'lost')
+        self.assertEqual(self.stored_publication(), 2)
 
     def test_invalidation_failure_preserves_committed_result_without_fresh_lie(self):
         self.apply(body())
         with patch.object(self.mirror, 'feed', side_effect=RuntimeError('feed private')), \
              patch.object(self.mirror, 'invalidate', side_effect=RuntimeError('invalidate private')):
             self.assertTrue(self.apply(body(publication=2)).applied)
-        self.observe()
-        self.assertEqual(self.counts()['unavailable'], 1)
-        self.assertEqual(self.recorder.report()['byPurpose']['status word']['unavailableByReason']['unknown-loss'], 1)
-        with closing(sqlite3.connect(self._db_path)) as db:
-            self.assertEqual(db.execute('SELECT publication FROM agent_state_shadow_publishers').fetchone()[0], 2)
+        self.assertEqual(self.availability(), 'lost', 'the replacement mirror must not read fresh')
+        self.assertEqual(self.stored_publication(), 2)
 
     def test_concurrent_ingests_publish_in_actual_commit_order_before_close(self):
         from service.db import get_db
@@ -182,40 +98,7 @@ class PartialShadowTest(FastApiTestCase):
                 self.assertTrue(all(r.applied for r in results))
         asyncio.run(scenario())
         self.assertEqual(events, [('commit', 1), ('feed', 'working'), ('close', 1), ('connect', 2), ('commit', 2), ('feed', 'idle'), ('close', 2)])
-        self.assertEqual(self.mirror.view()[(' Host ', 'CaseSensitive')].rows[0].state, 'idle')
-
-    def test_hostile_view_and_projection_do_not_change_any_selected_outputs(self):
-        from service.api_core import status_refresh, status_broadcast, status_inputs
-        self.apply(body())
-        self.agent['status'] = 'online'
-        class DB:
-            async def execute(inner, *a): return inner
-            async def fetchone(inner): return self.agent
-        async def scenario():
-            for target in ('view', 'project_inputs'):
-                owner = self.mirror if target == 'view' else self.shadow
-                with patch.object(owner, target, side_effect=RuntimeError('private hostile')):
-                    cache = {'status': 'available', 'reason': 'unchanged fallback', 'status_inputs': inputs(), 'refresh_after': 'fixed'}
-                    with patch.object(status_refresh, '_compute_live_status_cache', AsyncMock(return_value=cache)):
-                        result = await status_refresh._refresh_agent_live_state(DB(), 'alpha', settings={'x': True})
-                        self.assertEqual((result['status'], result['reason'], result['refresh_after']), ('working', '', 'fixed'))
-                    with patch.object(status_broadcast, '_compute_live_status_cache', AsyncMock(return_value=dict(cache))), \
-                         patch.object(status_broadcast, '_load_settings', AsyncMock(return_value={'x': True})):
-                        await status_broadcast._broadcast_agent_status(self.ws, DB(), 'alpha')
-                    self.assertEqual(self.ws.broadcasts[-1][0][1], {'agentId': 'alpha', 'status': 'working', 'statusNote': '', 'lastKnown': None})
-                    with patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())) as get:
-                        self.assertEqual(await status_inputs.engine_status(DB(), self.agent), 'working')
-                        self.assertEqual(get.call_count, 1)
-                    error = ValueError('original derive')
-                    with patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())), \
-                         patch.object(status_inputs, 'derive', side_effect=error):
-                        with self.assertRaises(ValueError) as raised:
-                            await status_inputs.engine_status(DB(), self.agent)
-                        self.assertIs(raised.exception, error)
-        asyncio.run(scenario())
-        self.assertEqual(self.counts()['observed'], 8)
-        self.assertEqual(self.counts()['unavailable'], 8)
-        self.assertEqual(self.recorder.report()['byPurpose']['status word']['unavailableByReason']['unknown-loss'], 8)
+        self.assertEqual(self.mirror.view()[KEY].rows[0].state, 'idle')
 
     def test_pure_two_age_rows(self):
         from service.api_core.report_age import legacy_receipt_age
@@ -223,53 +106,37 @@ class PartialShadowTest(FastApiTestCase):
         for at, expected in rows:
             with self.subTest(at=at): self.assertEqual(legacy_receipt_age(AT, at), expected)
 
-    def test_actual_accept_feed_is_immutable_and_fresh_comparison_is_not_vacuous(self):
-        self.observe()
-        self.assertEqual(self.counts()['unavailable'], 1)
+    def test_accepted_feed_is_immutable_to_an_earlier_binding(self):
+        self.assertIsNone(self.availability(), 'CONTROL: nothing published yet')
         self.assertTrue(self.apply(body()).applied)
         bound = self.shadow.bind()
         self.apply(body(publication=2, agents=[dict(row(), state='idle')]))
-        self.shadow.observe(bound, self.agent, inputs(), 'working', 'refresh')
-        self.observe('working')
-        self.assertEqual(self.counts()['partialAgreed'], 1)
-        self.assertEqual(self.counts()['partialDisagreed'], 1)
-        self.assertEqual(self.mirror.view()[(' Host ', 'CaseSensitive')].rows[0].state, 'idle')
+        self.assertEqual(bound.view[KEY].rows[0].state, 'working', 'a binding taken before the feed changed under it')
+        self.assertEqual(self.mirror.view()[KEY].rows[0].state, 'idle')
         with self.assertRaises((AttributeError, TypeError)):
-            bound.view[(' Host ', 'CaseSensitive')] = None
-
-    def test_freshness_boundary_missing_invalid_future_and_unknown(self):
-        self.apply(body())
-        for at, expected in [('2026-10-07T09:02:59Z', 'partialAgreed'),
-                             ('2026-10-07T09:03:00Z', 'unavailable'),
-                             ('2026-10-07T08:59:59Z', 'unavailable'), ('bad', 'unavailable')]:
-            before = self.counts()[expected]; self.observe(at=at)
-            self.assertEqual(self.counts()[expected], before + 1)
-        self.apply(body(publication=2, agents=[])); self.observe()
-        self.apply(body(publication=3, agents=[dict(row(), state='unknown')])); self.observe()
-        self.apply(body(publication=4), at='bad'); self.observe()
-        self.assertEqual(self.counts()['partialCompared'], 1)
-        self.assertEqual(self.counts()['unavailable'], 6)
+            bound.view[KEY] = None
 
     def test_generation_completeness_unavailable_retention_removal_and_recovery(self):
-        self.apply(body('changes')); self.observe()
-        self.assertEqual(self.counts()['partialCompared'], 0)
-        self.apply(body(publication=2)); self.observe()
-        self.apply(body('unavailable', generation=20)); self.observe()
-        retained = self.mirror.view()[(' Host ', 'CaseSensitive')]
-        self.assertEqual(retained.data_applied_at, AT)
-        self.assertEqual(retained.rows[0].lifetime, 'real-old')
-        self.apply(body('changes', generation=20, publication=2)); self.observe()
-        self.assertEqual(self.counts()['partialCompared'], 1)
-        self.apply(body(generation=20, publication=3)); self.observe()
+        self.apply(body('changes'))
+        self.assertEqual(self.availability(), 'incomplete', 'a changes body alone completes nothing')
+        self.apply(body(publication=2))
+        self.assertEqual(self.availability(), 'fresh')
+        self.apply(body('unavailable', generation=20))
+        self.assertEqual(self.availability(), 'unavailable')
+        retained = self.mirror.view()[KEY]
+        self.assertEqual((retained.data_applied_at, retained.rows[0].lifetime), (AT, 'real-old'), 'unavailable keeps the data')
+        self.apply(body('changes', generation=20, publication=2))
+        self.assertEqual(self.availability(), 'incomplete', 'a new generation starts incomplete')
+        self.apply(body(generation=20, publication=3))
         self.apply(body('changes', generation=20, publication=4, agents=[row(lifetime='new')],
                         removed=[{'agentId': 'alpha', 'lifetime': 'real-old'}]))
         self.apply(body('changes', generation=20, publication=5, agents=[],
-                        removed=[{'agentId': 'alpha', 'lifetime': 'real-old'}])); self.observe()
-        self.assertEqual(self.counts()['partialCompared'], 3)
-        self.assertEqual(self.mirror.view()[(' Host ', 'CaseSensitive')].rows[0].lifetime, 'new')
+                        removed=[{'agentId': 'alpha', 'lifetime': 'real-old'}]))
+        self.assertEqual([r.lifetime for r in self.mirror.view()[KEY].rows], ['new'], 'a stale lifetime removes nothing')
         self.apply(body('changes', generation=20, publication=6, agents=[],
-                        removed=[{'agentId': 'alpha', 'lifetime': 'new'}])); self.observe()
-        self.assertEqual(self.counts()['unavailable'], 4)
+                        removed=[{'agentId': 'alpha', 'lifetime': 'new'}]))
+        self.assertEqual(self.mirror.view()[KEY].rows, ())
+        self.assertEqual(self.availability(), 'fresh', 'removal keeps the publisher complete')
 
     def test_refusal_rollback_and_postcommit_failure_do_not_lie_about_acceptance(self):
         from service.db import get_db
@@ -296,168 +163,7 @@ class PartialShadowTest(FastApiTestCase):
         with patch.object(self.mirror, 'feed', side_effect=broken):
             self.assertTrue(self.apply(body(publication=2), factory=factory).applied)
         self.assertEqual(events, ['commit', 'feed', 'close'])
-        self.observe(); self.assertEqual(self.counts()['unavailable'], 1)
-        self.assertEqual(self.recorder.report()['byPurpose']['status word']['unavailableByReason']['unknown-loss'], 1)
-        with closing(sqlite3.connect(self._db_path)) as db:
-            self.assertEqual(db.execute('SELECT publication FROM agent_state_shadow_publishers').fetchone()[0], 2)
-        self.apply(body(publication=3)); self.observe()
-        self.assertEqual(self.counts()['partialAgreed'], 1)
-
-    def test_actual_three_callers_capture_once_before_await_and_observe_selected_word(self):
-        from service.api_core import status_refresh, status_broadcast, status_inputs
-        self.apply(body())
-        async def gather(*args, **kwargs):
-            self.apply_in_loop = True
-            # Advance mirror and clock during acquisition. The caller must use entry binding.
-            self.mirror.invalidate((' Host ', 'CaseSensitive'))
-            return inputs()
-        async def cache(*args, **kwargs):
-            self.mirror.invalidate((' Host ', 'CaseSensitive'))
-            return {'status': 'available', 'reason': 'old note', 'status_inputs': inputs(),
-                    'refresh_after': 'fixed', 'updated_at': 'fixed'}
-        async def scenario():
-            class DB:
-                async def execute(self, *a): return self
-                async def fetchone(self): return self_agent
-            self_agent = self.agent
-            with patch.object(status_refresh, '_compute_live_status_cache', side_effect=cache), \
-                 patch.object(status_refresh, 'derive', wraps=status_refresh.derive) as derive:
-                result = await status_refresh._refresh_agent_live_state(DB(), 'alpha', settings={'x': True})
-                self.assertEqual(result['status'], 'working'); self.assertEqual(result['reason'], '')
-                self.assertEqual(result['refresh_after'], 'fixed'); self.assertEqual(derive.call_count, 1)
-            self.apply_projection()
-            with patch.object(status_broadcast, '_compute_live_status_cache', side_effect=cache), \
-                 patch.object(status_broadcast, '_load_settings', AsyncMock(return_value={'x': True})):
-                await status_broadcast._broadcast_agent_status(self.ws, DB(), 'alpha')
-            self.assertEqual(self.ws.broadcasts[-1][0][1], {'agentId': 'alpha', 'status': 'working', 'statusNote': '', 'lastKnown': None})
-            self.apply_projection()
-            with patch.object(status_inputs, '_gather_status_inputs', side_effect=gather) as get, \
-                 patch.object(status_inputs, 'derive', wraps=status_inputs.derive) as derive:
-                self.assertEqual(await status_inputs.engine_status(DB(), self.agent), 'working')
-                self.assertEqual(get.call_count, 1); self.assertEqual(derive.call_count, 1)
-        with patch.object(self.shadow, 'clock', return_value=AT) as clock:
-            asyncio.run(scenario()); self.assertEqual(clock.call_count, 3)
-        for source in ('refresh', 'cache-broadcast', 'engine-status'):
-            self.assertEqual(self.counts(source)['partialAgreed'], 1)
-
-    def apply_projection(self):
-        from service.api_core.agent_state_shadow import _decode, _validate
-        b = _decode(wire(body())); _validate(b)
-        self.mirror.feed(self.shadow.prepare(b, AT))
-
-    def test_fallback_manual_binding_observe_failures_and_original_exception(self):
-        from service.api_core import status_refresh, status_inputs
-        self.apply(body())
-        async def scenario():
-            cache = {'status': 'online', 'reason': 'original', 'status_inputs': inputs()}
-            with patch.object(status_refresh, '_compute_live_status_cache', AsyncMock(return_value=cache)), \
-                 patch.object(status_refresh, 'derive', side_effect=ValueError('derive original')):
-                result = await status_refresh._refresh_agent_live_state(None, 'alpha', agent_row=self.agent, settings={'x': 1})
-                self.assertIs(result, cache); self.assertEqual(result['reason'], 'original')
-            error = ValueError('same original')
-            with patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())), \
-                 patch.object(status_inputs, 'derive', side_effect=error):
-                with self.assertRaises(ValueError) as raised:
-                    await status_inputs.engine_status(None, self.agent)
-                self.assertIs(raised.exception, error)
-            with patch.object(self.shadow, 'clock', side_effect=RuntimeError('clock private')), \
-                 patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())) as get:
-                self.assertEqual(await status_inputs.engine_status(None, self.agent), 'working')
-                self.assertEqual(get.call_count, 1)
-            with patch.object(self.shadow.recorder, 'record', side_effect=RuntimeError('observe private')), \
-                 patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())):
-                self.assertEqual(await status_inputs.engine_status(None, self.agent), 'working')
-            with patch.object(status_refresh, '_compute_live_status_cache', AsyncMock(return_value={'status': 'stopped'})), \
-                 patch.object(status_refresh, 'derive') as derive:
-                self.assertEqual((await status_refresh._refresh_agent_live_state(None, 'alpha', agent_row=self.agent,
-                                                                              settings={'x': 1}))['status'], 'stopped')
-                derive.assert_not_called()
-        asyncio.run(scenario())
-        self.assertEqual(self.counts()['partialDisagreed'], 1)
-        self.assertEqual(self.counts()['nonEvaluation'], 1)
-        self.assertGreaterEqual(self.counts()['unavailable'], 1)
-
-    def test_read_only_report_auth_unknown_purposes_and_privacy(self):
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from service.main import APIKeyMiddleware
-        from service.routers.agent_state import router
-        self.apply(body()); self.observe()
-        app = FastAPI(); app.include_router(router, prefix='/api/v1')
-        app.add_middleware(APIKeyMiddleware, api_key='fixture-key')
-        before = self.recorder.report()
-        with TestClient(app) as client:
-            for headers in ({}, {'x-aify-agent-state-key': 'fixture-key'}):
-                self.assertEqual(client.get('/api/v1/agent-state/shadow-report', headers=headers).status_code, 401)
-            response = client.get('/api/v1/agent-state/shadow-report', headers={'X-API-Key': 'fixture-key'})
-            self.assertEqual(response.status_code, 200); self.assertEqual(response.json(), before)
-        self.assertEqual(before['scope'], 'partial-freshness-base-word')
-        self.assertFalse(before['coverageComplete']); self.assertEqual(before['qualification'], 'UNAVAILABLE')
-        self.assertEqual(len(before['byPurpose']), 10)
-        for name, value in before['byPurpose'].items():
-            if name != 'status word':
-                self.assertFalse(value['instrumented'])
-                self.assertTrue(all(v == shadow_owners.UNOBSERVED for v in value['variants'].values()))
-        text = json.dumps(before)
-        for secret in ('alpha', 'CaseSensitive', 'real-old', ' Host ', 'private', 'original'):
-            self.assertNotIn(secret, text)
-        counts = self.counts()
-        self.assertEqual(counts['observed'], counts['nonEvaluation'] + counts['evaluated'])
-        self.assertEqual(counts['evaluated'], counts['partialCompared'] + counts['unavailable'])
-
-    def test_association_is_detached_before_acquisition_and_ambiguity_is_unavailable(self):
-        from service.api_core import status_inputs
-        self.apply(body())
-        async def gather(*args, **kwargs):
-            self.agent['machine_id'] = 'changed after await'
-            return inputs()
-        with patch.object(status_inputs, '_gather_status_inputs', side_effect=gather):
-            self.assertEqual(asyncio.run(status_inputs.engine_status(None, self.agent)), 'working')
-        self.assertEqual(self.counts()['partialAgreed'], 1)
-        self.agent['machine_id'] = ' Host '
-        self.apply(body(instance='other'))
-        self.observe()
-        self.assertEqual(self.recorder.report()['byPurpose']['status word']['unavailableByReason']['ambiguous-association'], 1)
-
-    def test_engine_push_manual_and_missing_rows_are_non_evaluations(self):
-        from service.api_core import status_broadcast
-        self.agent.update(status='stopped', status_note='operator note')
-        class DB:
-            async def execute(inner, *args): return inner
-            async def fetchone(inner): return self.agent
-        class Missing(DB):
-            async def fetchone(inner): return None
-        async def scenario():
-            with patch.object(status_broadcast, 'engine_status', AsyncMock()) as engine, \
-                 patch.object(status_broadcast, '_load_settings', AsyncMock(return_value={'x': True})), \
-                 patch.object(self.shadow, 'clock') as clock:
-                await status_broadcast._broadcast_engine_status(self.ws, DB(), 'alpha')
-                self.assertEqual(self.ws.broadcasts[-1][0][1],
-                                 {'agentId': 'alpha', 'status': 'stopped', 'statusNote': 'operator note', 'lastKnown': None})
-                await status_broadcast._broadcast_engine_status(self.ws, Missing(), 'missing')
-                self.assertEqual(len(self.ws.broadcasts), 1)
-                engine.assert_not_called()
-                clock.assert_not_called()
-        asyncio.run(scenario())
-        self.assertEqual(self.counts('engine-status')['nonEvaluation'], 2)
-        self.assertEqual(self.counts('engine-status')['evaluated'], 0)
-        self.assertEqual(self.counts('engine-status')['partialCompared'], 0)
-
-    def test_missing_row_is_non_evaluation_and_engine_broadcast_does_not_duplicate(self):
-        from service.api_core import status_refresh, status_broadcast, status_inputs
-        self.apply(body())
-        self.agent['status'] = 'online'
-        class DB:
-            async def execute(inner, *args): return inner
-            async def fetchone(inner): return self.agent
-        async def scenario():
-            with patch.object(status_inputs, '_gather_status_inputs', AsyncMock(return_value=inputs())), \
-                 patch.object(status_broadcast, '_load_settings', AsyncMock(return_value={'x': True})):
-                await status_broadcast._broadcast_engine_status(self.ws, DB(), 'alpha')
-            class Missing(DB):
-                async def fetchone(inner): return None
-            self.assertIsNone(await status_refresh._refresh_agent_live_state(Missing(), 'missing'))
-        asyncio.run(scenario())
-        self.assertEqual(self.counts()['partialAgreed'], 1)
-        self.assertEqual(self.counts()['nonEvaluation'], 1)
-        self.assertEqual(self.counts('cache-broadcast')['observed'], 0)
+        self.assertEqual(self.availability(), 'lost')
+        self.assertEqual(self.stored_publication(), 2)
+        self.apply(body(publication=3))
+        self.assertEqual(self.availability(), 'fresh', "the key's next snapshot ends the loss")

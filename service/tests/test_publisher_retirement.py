@@ -1,48 +1,38 @@
 """A publisher that retires its key holds nothing from then on (B5, comms receiver half; plan rev3).
 
 aify-env sends `retired` under its own key, numbered after every body it published, at a clean shutdown that proved
-every lifetime it published ended. The receiver refuses any later body of that generation, deletes the key's rows,
-drops it from the mirror, and makes the fold forget every lineage baseline on that machine. It writes no delivery
-turn: proof that a publisher's workers ended clears no reporter's run. If dropping the key fails after the commit, K
-stays absent and every other publisher becomes a known loss that ends on its own next snapshot. Each witness keeps a
-sibling key alive beside the retired K, so a retirement that dropped everything could not pass for one that dropped K.
+every lifetime it published ended. The receiver refuses any later body of that generation, deletes the key's rows and
+drops it from the mirror. If dropping the key fails after the commit, K stays absent and every other publisher becomes a
+known loss that ends on its own next snapshot. Each witness keeps a sibling key alive beside the retired K, so a
+retirement that dropped everything could not pass for one that dropped K.
+
+What each agent reads is asked of the operational view (0.9.9 S1 removed the comparison these tests used to read):
+its holders' availability and the word they make.
 """
 import asyncio
 import sqlite3
 from contextlib import closing
 from unittest import mock
 
-from service.api_core import agent_state_shadow as receiver, delivery_turns as dt, partial_status_shadow as shadow
-from service.api_core.shadow_provenance import UNKNOWN_BUILD, builds_of
-from service.api_core.shadow_windows import next_reason
+from service.api_core import agent_state_shadow as receiver, operational_view as ov, partial_status_shadow as shadow
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_state_receiver import AT, body, row, wire
 
 MACHINE = ' Host '
 OTHER = ' Other '
 SHADOW_NOW = '2026-10-07T09:00:30Z'  # within the freshness window of AT
-STARTED = 1700000000000000
+EVERY_MS = 60_000  # the full-report interval each publication announces, so its key reads fresh at SHADOW_NOW
 
 
-def record(agent='alpha', lifetime='real-old', open_=True, started=STARTED, age_ms=None):
-    value = row(agent=agent, lifetime=lifetime)
-    value['turn'].update(open=open_, startedAtUs=started, lastEventAtUs=started)
-    if age_ms is not None:
-        value['turn']['ageMs'] = age_ms
-    return value
-
-
-def snapshot(instance, publication=1, *, agents=None, build=None, generation=10, machine=MACHINE, **one):
-    value = body(publication=publication, instance=instance, generation=generation, machineId=machine,
-                 agents=agents if agents is not None else [record(**one)])
-    if build:
-        value['build'] = build
-    return value
+def snapshot(instance, publication=1, *, agent='alpha', lifetime='real-old', generation=10, machine=MACHINE):
+    return body(publication=publication, instance=instance, generation=generation, machineId=machine,
+                agents=[row(agent=agent, lifetime=lifetime)], reportEveryMs=EVERY_MS)
 
 
 def changes(instance, publication, *, agents=(), removed=(), generation=10):
     return body(kind='changes', publication=publication, instance=instance, generation=generation,
-                machineId=MACHINE, agents=list(agents), removed=[dict(agentId=a, lifetime=l) for a, l in removed])
+                machineId=MACHINE, agents=list(agents), removed=[dict(agentId=a, lifetime=l) for a, l in removed],
+                reportEveryMs=EVERY_MS)
 
 
 def retired(instance, publication, generation=10, machine=MACHINE, **extra):
@@ -53,10 +43,10 @@ def retired(instance, publication, generation=10, machine=MACHINE, **extra):
 
 
 class Receiver:
-    """One comms receiver: its own database, mirror, fold and recorder. Two of them can disagree."""
+    """One comms receiver: its own database and mirror. Two of them can disagree."""
 
     def __init__(self, db_path):
-        self.db_path, self.mirror, self.fold, self.recorder = db_path, shadow.Mirror(), dt.DeliveryTurns(), shadow.Recorder()
+        self.db_path, self.mirror = db_path, shadow.Mirror()
 
     def __enter__(self):
         import aiosqlite
@@ -65,25 +55,21 @@ class Receiver:
             db = await aiosqlite.connect(self.db_path)
             db.row_factory = aiosqlite.Row
             return db
-        self._patches = [mock.patch.object(shadow, 'mirror', self.mirror), mock.patch.object(dt, 'FOLD', self.fold),
-                         mock.patch.object(shadow, 'recorder', self.recorder)]
-        for p in self._patches:
-            p.start()
+        self._patch = mock.patch.object(shadow, 'mirror', self.mirror)
+        self._patch.start()
         self.store = receiver.AgentStateShadowStore(connect)
         return self
 
     def __exit__(self, *exc):
         self.mirror = shadow.mirror  # a fallback may have replaced the module mirror; keep what it installed
-        for p in reversed(self._patches):
-            p.stop()
+        self._patch.stop()
 
 
 class PublisherRetirementTest(FastApiTestCase):
     def setUp(self):
         super().setUp()
-        self.mirror, self.fold, self.recorder = shadow.Mirror(), dt.DeliveryTurns(), shadow.Recorder()
-        for p in (mock.patch.object(shadow, 'mirror', self.mirror), mock.patch.object(dt, 'FOLD', self.fold),
-                  mock.patch.object(shadow, 'recorder', self.recorder), mock.patch.object(shadow, '_quarantined', False),
+        self.mirror = shadow.Mirror()
+        for p in (mock.patch.object(shadow, 'mirror', self.mirror), mock.patch.object(shadow, '_quarantined', False),
                   mock.patch.object(shadow, 'clock', return_value=SHADOW_NOW)):
             p.start(); self.addCleanup(p.stop)
 
@@ -91,7 +77,10 @@ class PublisherRetirementTest(FastApiTestCase):
         return asyncio.run((store or receiver.AgentStateShadowStore()).apply(wire(value), applied_at=at))
 
     def read(self, agent='alpha', machine=MACHINE):
-        return shadow.record_for(shadow.bind(), (machine, agent))
+        """(each holder's availability, sorted; whether a publisher there is unreadable; the word the view serves)."""
+        holders = ov.holders_of(shadow.bind(), machine, agent)
+        word = ov.comms_view(holders, ov.Messaging()).status
+        return tuple(sorted(h.availability for h in holders.holders)), holders.unreadable, word
 
     def sql(self, query, params=(), path=None):
         with closing(sqlite3.connect(path or self._db_path)) as db:
@@ -110,24 +99,11 @@ class PublisherRetirementTest(FastApiTestCase):
 
     def test_retired_removes_key_and_resolves_ambiguity(self):
         self.assertTrue(self.apply(snapshot('K')).applied)
-        self.assertTrue(self.apply(snapshot('K2', build='b2')).applied)
-        self.assertEqual(self.read(), (None, 'ambiguous-association'), 'CONTROL: two keys hold alpha')
+        self.assertTrue(self.apply(snapshot('K2')).applied)
+        self.assertEqual(self.read(), (('fresh', 'fresh'), False, 'unknown'), 'CONTROL: two keys hold alpha: ambiguous')
         self.assertTrue(self.apply(retired('K', 2)).applied)
-        found, reason = self.read()
-        self.assertIsNone(reason)
-        self.assertEqual(found.origin[4], 'b2', "alpha now reads K2's record")
+        self.assertEqual(self.read(), (('fresh',), False, 'working'), "alpha now reads K2's record alone")
         self.assertNotIn((MACHINE, 'K'), shadow.mirror.view())
-
-    def test_retired_key_contributes_no_build(self):
-        self.apply(snapshot('K', build='old-build'))
-        self.apply(snapshot('K2', build='b2'))
-        self.assertIn('old-build', builds_of(shadow.bind()), 'CONTROL: the key counts while it publishes')
-        shadow.recorder.provenance.take(shadow.bind())  # the open window's builds start from the mirror now
-        self.apply(retired('K', 2))
-        self.assertEqual(builds_of(shadow.bind()), frozenset({'b2'}))
-        builds, _, seed = shadow.recorder.provenance.take(shadow.bind())
-        self.assertEqual(builds, frozenset({'old-build', 'b2'}), 'a retirement applies no provenance to the open window')
-        self.assertEqual(seed, frozenset({'b2'}), 'the next window reseeds without K')
 
     def test_delayed_old_body_refused_after_retirement_and_refusal_renews_nothing(self):
         self.apply(snapshot('K', publication=1))
@@ -144,8 +120,8 @@ class PublisherRetirementTest(FastApiTestCase):
     def test_retired_cursor_survives_a_new_store(self):
         self.apply(snapshot('K', publication=1))
         self.apply(retired('K', 2))
-        with mock.patch.object(shadow, 'mirror', shadow.Mirror()), mock.patch.object(dt, 'FOLD', dt.DeliveryTurns()):
-            # A comms restart: a new store, an empty mirror and fold. The refusal is the database cursor's.
+        with mock.patch.object(shadow, 'mirror', shadow.Mirror()):
+            # A comms restart: a new store and an empty mirror. The refusal is the database cursor's.
             self.assertEqual(self.apply(snapshot('K', publication=5), store=receiver.AgentStateShadowStore()).reason,
                              'retired')
             self.assertNotIn((MACHINE, 'K'), shadow.mirror.view())
@@ -170,72 +146,12 @@ class PublisherRetirementTest(FastApiTestCase):
                                   headers={'content-type': 'application/json'})
         self.assertEqual(answer.status_code, 204, 'CONTROL: a well-formed retirement, a build included, is applied')
 
-    def test_retirement_writes_no_turn_or_origin(self):
-        self.apply(snapshot('K', open_=True))
-        turns, origins = dict(self.fold._turns), dict(self.fold._origin)
-        self.apply(retired('K', 2))
-        self.assertEqual((self.fold._turns, self.fold._origin), (turns, origins))
-
-    # ---- the fold forgets the whole machine [B5-1]
-
-    def test_retirement_forgets_withheld_lineage(self):
-        self.apply(snapshot('K', open_=True))
-        self.apply(snapshot('K2', open_=False))
-        self.assertEqual(self.fold.turn(MACHINE, 'alpha'), dt.NOTHING_KNOWN, 'CONTROL: two holders withhold')
-        self.apply(retired('K', 2))
-        self.apply(snapshot('K2', publication=2, open_=False))
-        self.assertNotEqual(self.fold.turn(MACHINE, 'alpha'), dt.CLOSED,
-                            "K2's closed turn read as the end of K's open one, which the fold never saw K2 hold")
-
-    def test_retirement_forgets_a_replaced_lineage(self):
-        self.apply(snapshot('K', lifetime='L1', open_=True))       # consumed: K alone holds alpha
-        self.apply(snapshot('K2', lifetime='L1', open_=False))     # withheld: two holders
-        self.apply(snapshot('K', publication=2, lifetime='L2', open_=True))  # K replaces A/L1 with A/L2
-        self.assertIn((MACHINE, 'alpha', 'L1'), self.fold._lineages, "CONTROL: K's L1 baseline is still held")
-        self.apply(retired('K', 3))
-        self.apply(snapshot('K2', publication=2, lifetime='L1', open_=False))
-        self.assertNotEqual(self.fold.turn(MACHINE, 'alpha'), dt.CLOSED, "an L1 baseline K replaced survived")
-
-    def test_retirement_forgets_a_removed_lineage(self):
-        self.apply(snapshot('K', lifetime='L1', open_=True))
-        self.apply(snapshot('K2', lifetime='L1', open_=False))
-        self.apply(changes('K', 2, removed=[('alpha', 'L1')]))     # K removes A/L1; K2 has not republished
-        self.assertIn((MACHINE, 'alpha', 'L1'), self.fold._lineages, "CONTROL: K's L1 baseline is still held")
-        self.apply(retired('K', 3))
-        self.apply(snapshot('K2', publication=2, lifetime='L1', open_=False))
-        self.assertNotEqual(self.fold.turn(MACHINE, 'alpha'), dt.CLOSED, "an L1 baseline K removed survived")
-
-    def test_retirement_keeps_an_unrelated_publisher_healthy(self):
-        # K3 on the same machine: beta/M closed, then open with an age, so its estimate is authoritative; a reporter
-        # opened the turn too. K4 on another machine holds gamma/N.
-        self.apply(snapshot('K3', agent='beta', lifetime='M', open_=False, started=STARTED - 10))
-        self.apply(snapshot('K3', publication=2, agent='beta', lifetime='M', open_=True, age_ms=1000))
-        self.fold.reporter(MACHINE, 'beta', True, 'run-b', 'owner', 1759827600.0)
-        self.apply(snapshot('K4', agent='gamma', lifetime='N', machine=OTHER))
-        self.apply(snapshot('K', agent='alpha'))
-        turn, origin = self.fold.turn(MACHINE, 'beta'), self.fold._origin.get((MACHINE, 'beta'))
-        expiry = self.fold.strict_expiry(MACHINE, 'beta', 'M', STARTED)
-        self.assertIsNot(expiry, dt.NOT_KNOWN, 'CONTROL: the estimate is authoritative before the retirement')
-
-        self.apply(retired('K', 2))
-
-        self.assertEqual(self.fold.turn(MACHINE, 'beta'), turn)
-        self.assertEqual(self.fold._origin.get((MACHINE, 'beta')), origin)
-        self.assertEqual(self.fold.strict_expiry(MACHINE, 'beta', 'M', STARTED), expiry)
-        self.assertIn((OTHER, 'gamma', 'N'), self.fold._lineages, "another machine's baseline survives")
-        self.assertNotIn((MACHINE, 'beta', 'M'), self.fold._lineages, "this machine's baselines are forgotten")
-        self.apply(snapshot('K3', publication=3, agent='beta', lifetime='M', open_=True))
-        self.assertIn((MACHINE, 'beta', 'M'), self.fold._lineages, 'the next publication of M is a first sight')
-        self.apply(snapshot('K3', publication=4, agent='beta', lifetime='M', open_=False))
-        self.assertEqual(self.fold.turn(MACHINE, 'beta'), dt.CLOSED, 'and the one after it, closed, writes CLOSED')
-
     # ---- a retire that fails after the commit [B5-3]
 
     def three_publishers(self):
-        self.apply(snapshot('K', build='bk'))
-        self.apply(snapshot('K2', agent='beta', build='b2'))
-        self.apply(snapshot('K3', agent='gamma', machine=OTHER, build='b3'))
-        self.recorder.take()  # start the loss accounting clean
+        self.apply(snapshot('K'))
+        self.apply(snapshot('K2', agent='beta'))
+        self.apply(snapshot('K3', agent='gamma', machine=OTHER))
 
     def test_failed_retire_leaves_k_absent_and_others_lost(self):
         self.three_publishers()
@@ -246,29 +162,20 @@ class PublisherRetirementTest(FastApiTestCase):
         for key in ((MACHINE, 'K2'), (OTHER, 'K3')):
             self.assertTrue(view[key].loss, key)
             self.assertEqual(view[key].rows, (), key)
-        self.assertIn(UNKNOWN_BUILD, builds_of(shadow.bind()))
-        self.assertEqual(self.read('beta'), (None, 'unknown-loss'))
-        builds, _, _ = shadow.recorder.provenance.take(shadow.bind())
-        self.assertIn(UNKNOWN_BUILD, builds)
-        _, lost, _ = shadow.recorder.take()
-        self.assertEqual(lost, frozenset({(MACHINE, 'K2'), (OTHER, 'K3')}))
+        self.assertEqual(self.read('beta'), ((), True, 'unknown'), "K2's agent is unknown: its publisher's rows are lost")
         self.assertEqual(self.cursor_kind('K'), ['retired'])
 
     def test_one_healthy_publisher_does_not_recover_the_rest(self):
         self.three_publishers()
         with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')):
             self.apply(retired('K', 2))
-        _, lost, _ = shadow.recorder.take()
-        self.apply(snapshot('K3', publication=2, agent='gamma', machine=OTHER, build='b3'))
-        self.assertIsNone(self.read('gamma', OTHER)[1], 'CONTROL: K3 compares again')
-        _, still = next_reason(flush_lost=False, versions_changed=False, in_loss=lost, lost_seen=frozenset(),
-                               healthy_seen=frozenset({(OTHER, 'K3')}))
-        self.assertEqual(still, frozenset({(MACHINE, 'K2')}), "K3's comparison recovered K2")
-        self.assertEqual(self.read('beta')[1], 'unknown-loss')
-        self.apply(changes('K2', 2, agents=[record(agent='beta')]))
-        self.assertEqual(self.read('beta')[1], 'unknown-knowledge', 'a changes body cannot complete a lost entry')
-        self.apply(snapshot('K2', publication=3, agent='beta', build='b2'))
-        self.assertIsNone(self.read('beta')[1], "K2's own snapshot recovers it")
+        self.apply(snapshot('K3', publication=2, agent='gamma', machine=OTHER))
+        self.assertEqual(self.read('gamma', OTHER), (('fresh',), False, 'working'), 'CONTROL: K3 is read again')
+        self.assertEqual(self.read('beta')[2], 'unknown', "K3's snapshot recovered K2")
+        self.apply(changes('K2', 2, agents=[row(agent='beta')]))
+        self.assertEqual(self.read('beta'), (('incomplete',), False, 'unknown'), 'a changes body cannot complete a lost entry')
+        self.apply(snapshot('K2', publication=3, agent='beta'))
+        self.assertEqual(self.read('beta'), (('fresh',), False, 'working'), "K2's own snapshot recovers it")
 
     def test_failed_retire_with_unreadable_view_is_sticky(self):
         self.three_publishers()
@@ -276,39 +183,28 @@ class PublisherRetirementTest(FastApiTestCase):
                 mock.patch.object(self.mirror, 'view', side_effect=RuntimeError('view lost')):
             self.assertTrue(self.apply(retired('K', 2)).applied)
         self.assertTrue(shadow.bind().loss)
-        self.assertTrue(self.apply(snapshot('K2', publication=2, agent='beta', build='b2')).applied,
-                        'a later publication still commits')
+        self.assertTrue(self.apply(snapshot('K2', publication=2, agent='beta')).applied, 'a later publication still commits')
         self.assertTrue(shadow.bind().loss, "one publisher's snapshot cannot rebuild a view with no key list")
 
     def reset_by_a_failed_invalidation(self, publication):
         """A committed K2 ingest whose projection cannot be prepared, on a mirror whose own invalidate raises: the
         existing `invalidate_safe` fallback replaces the mirror (review 2f9480fd's path)."""
         poisoned = shadow.mirror
-        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unpreparable')),                 mock.patch.object(poisoned, 'invalidate', side_effect=RuntimeError('invalidate broken')):
-            self.assertTrue(self.apply(snapshot('K2', publication=publication, agent='beta', build='b2')).applied,
+        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unpreparable')), \
+                mock.patch.object(poisoned, 'invalidate', side_effect=RuntimeError('invalidate broken')):
+            self.assertTrue(self.apply(snapshot('K2', publication=publication, agent='beta')).applied,
                             'the ingest still commits')
         self.assertIsNot(shadow.mirror, poisoned, 'CONTROL: the fallback replaced the mirror')
 
     def test_quarantine_survives_a_later_invalidation_reset(self):
         self.three_publishers()
-        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')),                 mock.patch.object(self.mirror, 'view', side_effect=RuntimeError('view lost')):
+        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')), \
+                mock.patch.object(self.mirror, 'view', side_effect=RuntimeError('view lost')):
             self.apply(retired('K', 2))
         self.reset_by_a_failed_invalidation(2)
-        self.assertTrue(self.apply(snapshot('K2', publication=3, agent='beta', build='b2')).applied)
+        self.assertTrue(self.apply(snapshot('K2', publication=3, agent='beta')).applied)
         self.assertTrue(shadow.bind().loss, 'a reset handed back a readable view: the quarantine escaped')
-        self.assertIn(UNKNOWN_BUILD, builds_of(shadow.bind()))
-        self.assertEqual(self.read('beta'), (None, 'unknown-loss'))
-
-    def test_an_unknown_population_loss_is_recorded_as_the_whole_view(self):
-        """Review 9fc557b3 (R3): with no key list the loss is the whole view's, recorded at once, before any observer."""
-        self.three_publishers()
-        with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')),                 mock.patch.object(self.mirror, 'view', side_effect=RuntimeError('view lost')):
-            self.apply(retired('K', 2))
-        _, lost, _ = shadow.recorder.take()  # before any observe/record
-        self.assertEqual(lost, frozenset({shadow.ALL_PUBLISHERS}))
-        reason, still = next_reason(flush_lost=False, versions_changed=False, in_loss=frozenset(), lost_seen=lost,
-                                    healthy_seen=frozenset())
-        self.assertEqual((reason, still), ('publication-loss', frozenset({shadow.ALL_PUBLISHERS})))
+        self.assertEqual(self.read('beta'), ((), True, 'unknown'))
 
     def test_a_reset_keeps_the_losses_already_known(self):
         """Review 9fc557b3 (R1 extension): an ordinary reset drops live knowledge but not a loss already recorded; K3's
@@ -319,9 +215,9 @@ class PublisherRetirementTest(FastApiTestCase):
         self.assertTrue(shadow.mirror.view()[(OTHER, 'K3')].loss, 'CONTROL: the failed retirement left K3 lost')
         self.reset_by_a_failed_invalidation(2)
         self.assertTrue(shadow.mirror.view()[(OTHER, 'K3')].loss, "the reset dropped K3's known loss")
-        self.assertEqual(self.read('gamma', OTHER), (None, 'unknown-loss'))
-        self.apply(snapshot('K3', publication=2, agent='gamma', machine=OTHER, build='b3'))
-        self.assertIsNone(self.read('gamma', OTHER)[1], "K3's own snapshot ends it")
+        self.assertEqual(self.read('gamma', OTHER)[2], 'unknown')
+        self.apply(snapshot('K3', publication=2, agent='gamma', machine=OTHER))
+        self.assertEqual(self.read('gamma', OTHER), (('fresh',), False, 'working'), "K3's own snapshot ends it")
 
     def test_a_reset_that_cannot_list_the_known_losses_fails_closed(self):
         """Review 07997643: when the reset cannot even read which losses are known, it must not treat that as none."""
@@ -329,35 +225,23 @@ class PublisherRetirementTest(FastApiTestCase):
         with mock.patch.object(shadow.Mirror, 'retire', side_effect=RuntimeError('mirror broken')):
             self.apply(retired('K', 2))
         self.assertFalse(shadow._quarantined, 'CONTROL: a known-before failure does not quarantine')
-        shadow.recorder.take()
         poisoned = shadow.mirror
-        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unpreparable')),                 mock.patch.object(poisoned, 'invalidate', side_effect=RuntimeError('invalidate broken')),                 mock.patch.object(poisoned, 'view', side_effect=RuntimeError('carry read broken')):
-            self.assertTrue(self.apply(snapshot('K2', publication=2, agent='beta', build='b2')).applied)
-        _, lost, _ = shadow.recorder.take()  # before any observer
-        with self.subTest('the unknown population is recorded as the whole view, before any observer'):
-            self.assertIn(shadow.ALL_PUBLISHERS, lost)
-        self.apply(snapshot('K2', publication=3, agent='beta', build='b2'))
-        with self.subTest("K3 stays lost until its own publication"):
-            self.assertEqual(self.read('gamma', OTHER), (None, 'unknown-loss'))
-
-    def test_a_forget_that_fails_after_the_removal_takes_the_same_fallback(self):
-        self.three_publishers()
-        with mock.patch.object(dt.DeliveryTurns, 'forget', side_effect=RuntimeError('fold broken')):
-            self.assertTrue(self.apply(retired('K', 2)).applied)
-        view = shadow.mirror.view()
-        self.assertNotIn((MACHINE, 'K'), view)
-        self.assertTrue(view[(MACHINE, 'K2')].loss and view[(OTHER, 'K3')].loss)
-        _, lost, _ = shadow.recorder.take()
-        self.assertEqual(lost, frozenset({(MACHINE, 'K2'), (OTHER, 'K3')}))
+        with mock.patch.object(shadow, 'prepare', side_effect=RuntimeError('unpreparable')), \
+                mock.patch.object(poisoned, 'invalidate', side_effect=RuntimeError('invalidate broken')), \
+                mock.patch.object(poisoned, 'view', side_effect=RuntimeError('carry read broken')):
+            self.assertTrue(self.apply(snapshot('K2', publication=2, agent='beta')).applied)
+        self.assertTrue(shadow._quarantined, 'the unknown population is the whole view')
+        self.apply(snapshot('K2', publication=3, agent='beta'))
+        self.assertEqual(self.read('gamma', OTHER)[2], 'unknown', 'K3 stays lost until its own publication')
 
     def test_without_quarantine_the_same_reset_recovers_on_a_snapshot(self):
         """CONTROL for the test above: the same reset with no quarantine, and K2's next snapshot recovers it."""
         self.three_publishers()
         self.reset_by_a_failed_invalidation(2)
-        self.assertEqual(self.read('beta'), (None, 'unknown-loss'), 'the reset left K2 lost')
-        self.assertTrue(self.apply(snapshot('K2', publication=3, agent='beta', build='b2')).applied)
+        self.assertEqual(self.read('beta')[2], 'unknown', 'the reset left K2 lost')
+        self.assertTrue(self.apply(snapshot('K2', publication=3, agent='beta')).applied)
         self.assertFalse(shadow.bind().loss)
-        self.assertIsNone(self.read('beta')[1])
+        self.assertEqual(self.read('beta'), (('fresh',), False, 'working'))
 
     # ---- rev3: the receiver's state, not the sender's outcome, says what happened
 
@@ -370,7 +254,7 @@ class PublisherRetirementTest(FastApiTestCase):
                 self.apply(retired('K', 2))
         self.assertEqual(self.sql_state(), stored, "K's cursor and rows are as they were")
         self.assertIn((MACHINE, 'K'), shadow.mirror.view())
-        self.assertEqual(self.read(), (None, 'ambiguous-association'))
+        self.assertEqual(self.read(), (('fresh', 'fresh'), False, 'unknown'), 'both keys still hold alpha')
 
     def test_committed_retirement_stands_without_its_ack(self):
         self.apply(snapshot('K'))

@@ -370,7 +370,7 @@ async def twin_refusal(db, agent_row) -> str:
     if agent_row is None:
         return ""
     resident = str(agent_row["session_mode"] or "").strip().lower() == "resident"
-    if (await _has_live_worker_for(db, agent_row, shadow_site='twin') if resident
+    if (await _has_live_worker_for(db, agent_row) if resident
             else await live_resident_session(db, agent_row["id"])):
         return ("a resident session of this agent is live, and a managed worker beside it would be a twin; "
                 "stop the resident first")

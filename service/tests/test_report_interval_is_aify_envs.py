@@ -39,7 +39,7 @@ class ReportIntervalIsAifyEnvs(FastApiTestCase):
         super().setUp()
         from service.api_core import operational_view, partial_status_shadow as shadow, report_age
         self.shadow, self.ov, self.age = shadow, operational_view, report_age
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()), patch.object(shadow, 'recorder', shadow.Recorder()),
+        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
                   patch.object(shadow, '_quarantined', False)):
             p.start()
             self.addCleanup(p.stop)

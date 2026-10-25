@@ -55,7 +55,6 @@ from service.api_core.managed_env import _managed_owning_environment_row
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _parsed_timestamp, _timestamp_sort_key
 from service.status_engine import WORKER_AT_REST_STATUSES, is_live_agent_status
-from service.api_core import view_owners
 from service.api_core.resume_command import _resume_command_for
 from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -82,7 +81,6 @@ async def _enforce_env_reachable_gate(
     agent_row=None,
     environments_by_machine=None,
     session_environment_by_agent=None,
-    association_row=None,
 ) -> dict[str, Any]:
     """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
     status must not outlive its owning ENVIRONMENT. The cached entry's `refresh_after` is
@@ -102,8 +100,6 @@ async def _enforce_env_reachable_gate(
     # prefix-tolerant for derived values like `offline (no wake path)`, and a status added next year
     # is covered by it without anyone remembering this line.
     live = is_live_agent_status(status)
-    # The status shadow's (S2c slice 5): `association_row` is diagnostic only and never replaces `agent_row`'s lookup.
-    view_owners.observe_live_count(association_row, live, 'gate', status)
     if not live:
         return payload
     if str(payload.get("sessionMode") or "").lower() != "managed":

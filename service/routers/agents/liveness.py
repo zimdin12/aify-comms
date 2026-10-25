@@ -16,7 +16,6 @@ from fastapi import HTTPException, Request
 
 from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.request_body import json_object_body
-from service.api_core import delivery_turns
 from service.api_core.background_work import record_background_work
 from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
@@ -251,12 +250,8 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # so a stale false from a superseded bridge/run cannot wipe a newer
         # active turn.
         turn_flip = False  # WS-1: did this heartbeat actually change turn_busy (working⇄ready)?
-        # The reporter's statement, detached before the helper may refuse it, reaches the delivery-turn fold only
-        # once this beat commits (status-switch S2c slice 2).
-        statement = delivery_turns.reporter_statement(body, bridge_id, now)
         turn_flip = await _apply_turn_busy_signal(db, agent_id, bridge_id, body, now, turn_flip)
         await db.commit()
-        delivery_turns.publish_reporter(agent_row["machine_id"], agent_id, statement)
         # WS-1 (2026-06-17): the /heartbeat turnBusy field is the DOMINANT turn signal for
         # managed runtimes, but it only invalidated the cache — the dashboard still waited its
         # ~60s poll to see the flip. Push it immediately, but ONLY on an actual working⇄ready

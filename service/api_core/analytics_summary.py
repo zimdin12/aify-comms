@@ -35,7 +35,7 @@ from service.api_core.status_signal_prefetch import PrefetchedStatusSignals
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
-from service.api_core import operational_view, view_owners
+from service.api_core import operational_view
 
 #: The messages a count admits: a direct message to someone, or a channel post.
 MESSAGE_WHERE = """
@@ -251,7 +251,6 @@ async def _agent_tallies(db) -> tuple[int, int, int]:
         # `online_agents` is the utilization denominator below. It also excluded `stale`,
         # a status this engine stopped producing, so that half guarded nothing.
         live = operational_view.counts_live(status)  # 0.9.8 switch: `unknown` is no evidence of a live worker
-        view_owners.observe_live_count(row, live, 'summary', status)  # the status shadow's (S2c slice 5); never raises
         if live:
             online_agents += 1
         if status.startswith("working"):

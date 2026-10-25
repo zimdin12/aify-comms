@@ -422,8 +422,6 @@ async def lifespan(app: FastAPI):
     CHANGE_FEED.attach(app.state.ws_manager)
     from service.status_push import periodic_status_push
     status_push_task = asyncio.create_task(periodic_status_push(app.state.ws_manager))
-    from service.api_core import shadow_windows
-    shadow_windows_task = asyncio.create_task(shadow_windows.run_periodic(shadow_windows.Versions(comms=config.build_short)))
 
     # Store config on app state
     app.state.config = config
@@ -489,7 +487,6 @@ async def lifespan(app: FastAPI):
             await status_push_task
         except asyncio.CancelledError:
             pass
-        await shadow_windows.stop(shadow_windows_task)
         pi_flip_task.cancel()
         try:
             await pi_flip_task

@@ -142,7 +142,7 @@ Neither reads ok.
 | `api-exposure` | an unauthenticated fleet listing that also returns live gateway tokens |
 | `external-keys` | `EXTERNAL_KEYS` that restrict nothing: no `API_KEY` is set, or the entry is malformed |
 | `client-api-key` | this host cannot authenticate against the service it points at, probed with the key it actually resolves |
-| `agent-state-shadow` | where aify-env's published status word disagrees with the service's own (`partial`), as diagnostic evidence for the 0.9 switch; never ok, since qualification stays unavailable |
+| `agent-state-publishers` | no aify-env publisher reports fresh, or one says it cannot read its own state; every status word is built from these (`agent-state-publishers-check.mjs`) |
 | `env-bridge` | no environment can claim a spawn now (it asks what `/spawn` asks: a fresh `metadata.bridgeLastSeen`), so dashboard-managed spawns cannot run |
 | `usage-openai` | the ChatGPT quota token works, proven by calling the API |
 

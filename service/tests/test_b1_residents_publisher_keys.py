@@ -55,7 +55,7 @@ class B1ResidentsPublisherKeysTest(FastApiTestCase):
         super().setUp()
         from service.api_core import partial_status_shadow as shadow
         self.shadow = shadow
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()), patch.object(shadow, 'recorder', shadow.Recorder()),
+        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
                   patch.object(shadow, 'clock', return_value=AT)):
             p.start()
             self.addCleanup(p.stop)
@@ -75,7 +75,9 @@ class B1ResidentsPublisherKeysTest(FastApiTestCase):
                 'SELECT instance, agent_id, record_json FROM agent_state_shadow_rows WHERE machine_id=?', (MACHINE,))}
 
     def decide(self, agent):
-        return self.shadow.compare(self.shadow.bind(), (MACHINE, agent))
+        """The word the operational view reads for the agent from the mirror: what the service serves."""
+        from service.api_core import operational_view as ov
+        return ov.comms_view(ov.holders_of(self.shadow.bind(), MACHINE, agent), ov.Messaging()).status
 
     def test_the_fixture_publishes_from_real_roles_on_home_qualified_keys(self):
         first, successor = self.body('first'), self.body('successor')
@@ -91,13 +93,13 @@ class B1ResidentsPublisherKeysTest(FastApiTestCase):
     def test_a_crash_hands_the_key_to_b_and_the_late_a_body_is_stale(self):
         key = self.body('first')['instance']
         self.assertTrue(self.apply('first').applied)
-        self.assertEqual(self.decide('res-r'), ('working', None), "A's snapshot is read")
+        self.assertEqual(self.decide('res-r'), 'working', "A's snapshot is read")
         self.assertTrue(self.apply('successor').applied)
         self.assertEqual(self.rows(), {(key, 'res-r'): 'idle'}, "B's snapshot is the key's only rows")
         late = self.apply('delayed')
         self.assertEqual((late.applied, late.reason), (False, 'stale'))
         self.assertEqual(self.rows(), {(key, 'res-r'): 'idle'}, "a late A body changed B's rows")
-        self.assertEqual(self.decide('res-r'), ('online', None), "the decision reads B's state, not A's")
+        self.assertEqual(self.decide('res-r'), 'online', "the decision reads B's state, not A's")
         again = self.apply('first')
         self.assertEqual((again.applied, again.reason), (False, 'stale'), "A's own snapshot, replayed, is stale too")
 
@@ -105,8 +107,8 @@ class B1ResidentsPublisherKeysTest(FastApiTestCase):
         self.assertTrue(self.apply('successor').applied)
         self.assertTrue(self.apply('managed').applied)
         self.assertEqual(self.rows(), {(self.body('successor')['instance'], 'res-r'): 'idle', ('default', 'worker-m'): 'working'})
-        self.assertEqual(self.decide('res-r'), ('online', None))
-        self.assertEqual(self.decide('worker-m'), ('working', None))
+        self.assertEqual(self.decide('res-r'), 'online')
+        self.assertEqual(self.decide('worker-m'), 'working')
 
     def test_two_homes_on_one_machine_keep_both_rows_at_equal_and_unequal_generations(self):
         for name in ('successor', 'equal', 'unequal'):
@@ -116,7 +118,7 @@ class B1ResidentsPublisherKeysTest(FastApiTestCase):
                                        (self.body('equal')['instance'], 'res-r2'): 'working',
                                        (self.body('unequal')['instance'], 'res-r3'): 'working'})
         self.assertEqual([self.decide(a) for a in ('res-r', 'res-r2', 'res-r3')],
-                         [('online', None), ('working', None), ('working', None)], 'each resident read from its own home')
+                         ['online', 'working', 'working'], 'each resident read from its own home')
         replay = self.apply('equal')
         self.assertEqual((replay.applied, replay.reason), (False, 'duplicate'), 'only its own key orders a body')
 

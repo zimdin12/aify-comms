@@ -19,8 +19,9 @@ def iso(moment):
 
 
 def record(busy, state='idle', lifetime='L1', turn_open=False, started_us=0, busy_if=(False, False), agent=AGENT):
-    clock = (turn_open, started_us, started_us)
-    return shadow.Record(agent, lifetime, state, (), clock, busy_if, ('running', True), busy=busy)
+    """The turn's clock and busy laws are accepted and dropped: since 0.9.9 S1 the mirror holds no turn timing at all,
+    so no test here can hand the view one, which is the no-comms-timer property by construction."""
+    return shadow.Record(agent, lifetime, state, busy)
 
 
 def publisher(*rows, applied=T0, complete=True, unavailable=False, loss=False, every=60_000):

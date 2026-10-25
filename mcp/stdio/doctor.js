@@ -48,7 +48,7 @@ import { checkApiExposure } from "./api-exposure-check.mjs";
 import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
 import { markFor } from "./doctor-mark.mjs";
 import { buildReport, summaryLine } from "./doctor-report.mjs";
-import { checkAgentStateShadow } from "./agent-state-shadow-check.mjs";
+import { checkAgentStatePublishers } from "./agent-state-publishers-check.mjs";
 import { readyReceipts, servingEnvEndpoint } from "./serving-env-endpoint.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
 import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
@@ -104,8 +104,8 @@ const BRIDGE_DIR = join(AIFY_HOME, "mcp", "stdio");
 const SERVER_URL = (process.env.AIFY_COMMS_URL || process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800").replace(/\/$/, "");
 
 const checks = [];
-const add = (id, ok, code, detail, fix = "", shadow) => checks.push({ id, ok, code, detail, ...(fix ? { fix } : {}), ...(shadow ? { shadow } : {}) });
-const skip = (id, detail, shadow, ok = true) => checks.push({ id, ok, code: "skipped", detail, ...(shadow ? { shadow } : {}) });
+const add = (id, ok, code, detail, fix = "") => checks.push({ id, ok, code, detail, ...(fix ? { fix } : {}) });
+const skip = (id, detail) => checks.push({ id, ok: true, code: "skipped", detail });
 
 const sh = (cmd, cmdArgs, cwd) => {
   try { return execFileSync(cmd, cmdArgs, { cwd: cwd || undefined, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
@@ -452,7 +452,7 @@ function checkSkillsInstalled() {
 
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService({ get, add, sh, repo, serverUrl: SERVER_URL, transportError: () => lastTransportError, portFate });
-await checkAgentStateShadow({ get, add, skip });
+await checkAgentStatePublishers({ get, add });
 // WHICH aify-env THE ENV ROWS ASK. The launcher bakes 8802, and a `herdr-aify env` daemon listens on
 // its own port -- so on 2026-09-13 three rows reported a healthy daemon as unreachable. Resolved once.
 // Every host asks: aify-env is the only spawner since v0.6.1 (v0.7, B4).

@@ -32,11 +32,9 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from service.api_core import view_owners
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.live_process_probes import (
-    PROBE_ERROR,
     _has_live_channel_sidecar,
     _has_live_terminal_session,
     channel_sidecar_state,
@@ -61,16 +59,10 @@ class _WorkerLiveness(NamedTuple):
     (_compute_live_status_cache) and the event engine (_gather_status_inputs)
     consume. The two reason flags are status-F1 / hermes-sidecar diagnostics the
     legacy reason text uses; they are NOT part of the engine's input contract.
-    `delivery` is the status shadow's (S2c slice 5): the delivery component this
-    agent's branch names ('sidecar', 'wrapper-child' or None) and what this probe
-    read of it -- True, False, PROBE_ERROR, or 'unread' when today's branch
-    short-circuited before asking. It changes nothing above.
     """
     has_live_worker: bool
     channel_managed_no_sidecar: bool
     channel_managed_no_console: bool
-    delivery: tuple = (None, None)
-    receipt: Any = None  # what this probe read, for the shadow's evidence (S2c-E E2); None if it could not be built
 
 
 def _channel_flag_enabled(runtime_config: Any) -> bool:
@@ -250,7 +242,6 @@ async def _worker_liveness_for(
     `agent_session_mode` the original computed inline.
     """
     has_live_worker = False
-    worker_row = channel_enabled = sidecar = console_live = child = view_owners.NOT_REACHED
     if live_session:
         worker_row = await (await db.execute(
             """
@@ -297,7 +288,6 @@ async def _worker_liveness_for(
     # orphan being reaped) from a genuinely dead sidecar — they need different
     # operator-facing reasons. Both still produce `available` (not deliverable).
     channel_managed_no_console = False
-    delivery, branch = (None, None), "none"
     runtime_for_delivery = _normalize_runtime(agent_row["runtime"] or "")
     if (
         agent_session_mode == "managed"
@@ -313,8 +303,7 @@ async def _worker_liveness_for(
         # (reaped by _reconcile_managed_worker_hygiene) → report `available`, never a
         # falsely-positive `online`. A live console with a dead sidecar is also not
         # deliverable → `available` (the original status-F1 intent, preserved).
-        sidecar, branch = await channel_sidecar_state(db, agent_row["id"]), "channel-console"
-        sidecar_live, delivery = sidecar is True, ("sidecar", sidecar)
+        sidecar_live = await channel_sidecar_state(db, agent_row["id"]) is True
         console_live = await _has_live_terminal_session(db, agent_row["id"])
         if sidecar_live and console_live:
             has_live_worker = True
@@ -330,14 +319,12 @@ async def _worker_liveness_for(
     elif (
         not has_live_worker
         and agent_session_mode == "managed"
-        and (channel_enabled := _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {})))
+        and _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {}))
     ):
         # Standalone channel-sidecar liveness for channel-flag runtimes that have
         # no wrapper PTY (hermes hermes-channel.js). Only fills in has_live_worker
         # when the PTY signal is absent — see ASYMMETRY(hermes) note above.
-        sidecar, branch = await channel_sidecar_state(db, agent_row["id"]), "channel-flag"
-        delivery = ("sidecar", sidecar)
-        if sidecar is True:
+        if await channel_sidecar_state(db, agent_row["id"]) is True:
             has_live_worker = True
         else:
             channel_managed_no_sidecar = True
@@ -355,26 +342,9 @@ async def _worker_liveness_for(
         # stays False → the agent flips to `available` mid-work even while its
         # console is live and heartbeating. The wrapper-child heartbeat is the
         # real deliverability proof, so honor it here.
-        child, branch = await wrapper_child_state(db, agent_row["id"]), "codex-child"
-        delivery = ("wrapper-child", child)
-        if child is True:
+        if await wrapper_child_state(db, agent_row["id"]) is True:
             has_live_worker = True
-    elif agent_session_mode == "managed":
-        delivery, branch = _unread_component(agent_row, runtime_for_delivery), "unread"
-    receipt = view_owners.liveness_receipt(agent_session_mode, live_session, worker_row, runtime_for_delivery,
-                                           channel_enabled, branch, sidecar, console_live, child)
-    return _WorkerLiveness(has_live_worker, channel_managed_no_sidecar, channel_managed_no_console, delivery, receipt)
-
-
-def _unread_component(agent_row, runtime: str) -> tuple:
-    """The delivery component a managed agent's branch would have asked had a terminal not already proved its worker,
-    by the branches' own precedence. Contained: it parses config today's branch did not reach."""
-    try:
-        if _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {})):
-            return ("sidecar", "unread")
-        return ("wrapper-child", "unread") if runtime == "codex" else (None, None)
-    except Exception:
-        return ("unknown", PROBE_ERROR)
+    return _WorkerLiveness(has_live_worker, channel_managed_no_sidecar, channel_managed_no_console)
 
 
 # v0.5.4: `_has_live_worker_for` came here rather than to `api_core/liveness.py` with its two siblings,
@@ -382,7 +352,7 @@ def _unread_component(agent_row, runtime: str) -> tuple:
 # here. It calls `_worker_liveness_for` in THIS module, and `channel_delivery` already imports `liveness`,
 # so the reverse direction is a cycle (caught at app startup, not by a test). This module's own subject
 # line already ends "...and whether a worker is live", so it was the right home anyway.
-async def _has_live_worker_for(db, agent_row, *, settings=None, shadow_site=None) -> bool:
+async def _has_live_worker_for(db, agent_row, *, settings=None) -> bool:
     """True when the agent has a LIVE serving worker (managed: console+sidecar /
     channel-sidecar / wrapper-child; resident: live tracked session/terminal).
 
@@ -399,8 +369,6 @@ async def _has_live_worker_for(db, agent_row, *, settings=None, shadow_site=None
     result = await _worker_liveness_for(
         db, agent_row, agent_session_mode=agent_session_mode, live_session=live_session
     )
-    if shadow_site:  # the status shadow's readiness comparison at that caller (S2c slice 5); never raises
-        await view_owners.observe_readiness(db, agent_row, result, shadow_site)
     return result.has_live_worker
 
 

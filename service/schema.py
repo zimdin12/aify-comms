@@ -16,58 +16,6 @@ fresh install and missing on every upgrade, which is the worst of both.
 """
 from __future__ import annotations
 
-#: Named apart from SCHEMA because `db._migrate_status_shadow_window_counts` creates it again: a table from before
-#: `variant` joined the primary key is rebuilt, and SQLite cannot change a primary key in place. `source` is the call
-#: site that computed today's answer (for the status word, its source).
-STATUS_SHADOW_WINDOW_COUNTS = """CREATE TABLE IF NOT EXISTS status_shadow_window_counts (
-    window_id INTEGER NOT NULL,
-    owner TEXT NOT NULL,
-    variant TEXT NOT NULL,
-    source TEXT NOT NULL,
-    name TEXT NOT NULL,
-    count INTEGER NOT NULL,
-    PRIMARY KEY (window_id, owner, variant, source, name),
-    FOREIGN KEY (window_id) REFERENCES status_shadow_windows(id)
-);
-"""
-
-#: The status shadow's disagreement evidence (S2c-E E1): one immutable item per disagreeing evaluation, the gaps where an
-#: item could not be kept, and a tombstone for every expired window that outlives its cascading delete.
-STATUS_SHADOW_EVIDENCE = """CREATE TABLE IF NOT EXISTS status_shadow_evidence (
-    window_id INTEGER NOT NULL,
-    boot_id TEXT NOT NULL,
-    seq INTEGER NOT NULL,
-    owner TEXT NOT NULL,
-    variant TEXT NOT NULL,
-    site TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    eval_at TEXT,
-    complete INTEGER NOT NULL,
-    payload BLOB NOT NULL,
-    PRIMARY KEY (window_id, seq),
-    FOREIGN KEY (window_id) REFERENCES status_shadow_windows(id)
-);
-CREATE TABLE IF NOT EXISTS status_shadow_evidence_gaps (
-    window_id INTEGER NOT NULL,
-    owner TEXT NOT NULL,
-    variant TEXT NOT NULL,
-    site TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    count INTEGER NOT NULL,
-    PRIMARY KEY (window_id, owner, variant, site, reason),
-    FOREIGN KEY (window_id) REFERENCES status_shadow_windows(id)
-);
-CREATE TABLE IF NOT EXISTS status_shadow_window_tombstones (
-    window_id INTEGER PRIMARY KEY,
-    comms_build TEXT,
-    wrapper_build TEXT,
-    opened_at TEXT,
-    closed_at TEXT,
-    close_reason TEXT,
-    summary TEXT NOT NULL,
-    deleted_at TEXT NOT NULL
-);
-"""
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
@@ -695,19 +643,6 @@ CREATE TABLE IF NOT EXISTS agent_state_shadow_rows (
         REFERENCES agent_state_shadow_publishers(machine_id, instance) ON DELETE CASCADE
 );
 
--- Status-switch plan S2a: the shadow comparison, persisted in windows bound to one version triple. Diagnostic
--- only: no status or delivery reader takes anything from these tables.
-CREATE TABLE IF NOT EXISTS status_shadow_windows (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    comms_build TEXT NOT NULL,
-    env_build TEXT,
-    wrapper_build TEXT,
-    opened_at TEXT NOT NULL,
-    flushed_at TEXT NOT NULL,
-    closed_at TEXT,
-    close_reason TEXT
-);
-""" + STATUS_SHADOW_WINDOW_COUNTS + STATUS_SHADOW_EVIDENCE + """
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,
     working_at TEXT NOT NULL,

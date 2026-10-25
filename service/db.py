@@ -11,7 +11,7 @@ from service.change_feed import CHANGE_FEED
 from service.db_pool import ConnectionPool
 from service.legacy_removal_receipt import legacy_removal_consequence
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
-from service.schema import SCHEMA, STATUS_SHADOW_WINDOW_COUNTS
+from service.schema import SCHEMA
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
@@ -224,33 +224,17 @@ AGENT_TURN_STATE_BACKFILLS = (
 )
 
 
-#: S2c-E E1: a window's evidence frontier and totals, and the process that recorded it.
-STATUS_SHADOW_WINDOW_MIGRATIONS = {
-    "flushed_seq": "ALTER TABLE status_shadow_windows ADD COLUMN flushed_seq INTEGER NOT NULL DEFAULT 0",
-    "evidence_rows": "ALTER TABLE status_shadow_windows ADD COLUMN evidence_rows INTEGER NOT NULL DEFAULT 0",
-    "evidence_bytes": "ALTER TABLE status_shadow_windows ADD COLUMN evidence_bytes INTEGER NOT NULL DEFAULT 0",
-    "boot_id": "ALTER TABLE status_shadow_windows ADD COLUMN boot_id TEXT",
-    # B6a: the env builds behind the window's counts, and the owners that read the delivery-turn fold. No backfill:
-    # a window from before them has neither recorded, so it reads incoherent and fold-unverified.
-    "env_builds": "ALTER TABLE status_shadow_windows ADD COLUMN env_builds TEXT",
-    "fold_unverified": "ALTER TABLE status_shadow_windows ADD COLUMN fold_unverified TEXT",
-}
+#: The status switch's comparison tables (0.9.9 S1, plan 2026-10-25-0.9.9-deletions.md): diagnostic only, read by
+#: nothing since the switch, dropped children first so no foreign key is left pointing at a dropped window.
+STATUS_SHADOW_COMPARISON_TABLES = (
+    "status_shadow_evidence", "status_shadow_evidence_gaps", "status_shadow_window_counts",
+    "status_shadow_window_counts_before_variant", "status_shadow_window_tombstones", "status_shadow_windows",
+)
 
 
-#: S2c-E E2: the evidence owners a window opened with. The windows E1 instrumented had exactly these three, so they
-#: get them literally, ONCE, in the step that adds the column; a NULL found later stays unknown, never repaired.
-E1_EVIDENCE_OWNERS = '["live counts","running-run promotion","status word"]'
-
-
-async def _migrate_status_shadow_windows(db: aiosqlite.Connection):
-    existing = {row[1] for row in await (await db.execute("PRAGMA table_info(status_shadow_windows)")).fetchall()}
-    for column, statement in STATUS_SHADOW_WINDOW_MIGRATIONS.items():
-        if column not in existing:
-            await db.execute(statement)
-    if "evidence_owners" not in existing:
-        await db.execute("ALTER TABLE status_shadow_windows ADD COLUMN evidence_owners TEXT")
-        await db.execute("UPDATE status_shadow_windows SET evidence_owners = ? WHERE boot_id IS NOT NULL",
-                         (E1_EVIDENCE_OWNERS,))
+async def _drop_status_shadow_comparison(db: aiosqlite.Connection):
+    for table in STATUS_SHADOW_COMPARISON_TABLES:
+        await db.execute(f"DROP TABLE IF EXISTS {table}")
 
 
 PUBLISHER_CONTACT_MIGRATIONS = {
@@ -585,22 +569,6 @@ AGENT_STATUS_STATE_BACKFILLS = (
 )
 
 
-async def _migrate_status_shadow_window_counts(db: aiosqlite.Connection):
-    """Status-switch S2c: a count is keyed by its owner's variant too. A table from before that is rebuilt once,
-    every row kept under the no-variant `-`, since SQLite cannot change a primary key in place."""
-    cursor = await db.execute("PRAGMA table_info(status_shadow_window_counts)")
-    if "variant" in {row[1] for row in await cursor.fetchall()}:
-        return
-    await db.execute("ALTER TABLE status_shadow_window_counts RENAME TO status_shadow_window_counts_before_variant")
-    await db.execute(STATUS_SHADOW_WINDOW_COUNTS)
-    cursor = await db.execute(
-        "SELECT window_id, owner, source, name, count FROM status_shadow_window_counts_before_variant")
-    await db.executemany(
-        "INSERT INTO status_shadow_window_counts (window_id, owner, variant, source, name, count) "
-        "VALUES (?, ?, '-', ?, ?, ?)", await cursor.fetchall())
-    await db.execute("DROP TABLE status_shadow_window_counts_before_variant")
-
-
 async def _migrate_agent_status_state_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agent_status_state)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -712,8 +680,7 @@ async def init_db(db_path: Path = None):
         await _migrate_definition_requests_table(db)
         await _migrate_agent_lifecycle_requests_table(db)
         await _migrate_agent_status_state_table(db)
-        await _migrate_status_shadow_window_counts(db)
-        await _migrate_status_shadow_windows(db)
+        await _drop_status_shadow_comparison(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)
         await _drop_retired_tables(db)

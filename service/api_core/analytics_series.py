@@ -18,7 +18,7 @@ from service.api_core.serialization import _iso_from_ms
 from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.status_refresh import _compute_agent_status
 from service.api_core.status_signal_prefetch import PrefetchedStatusSignals
-from service.api_core import operational_view, view_owners
+from service.api_core import operational_view
 from service.secret_redaction import redact_secrets
 
 async def _fleet_median_reply_minutes(db, run_where, run_params):
@@ -295,7 +295,6 @@ async def _build_online_agent_board(
             # MISCONFIGURED agent as live -- an agent the contract defines as one that can never
             # start -- and `online_count` is the denominator of fleet utilization below.
             live = operational_view.counts_live(status)  # 0.9.8 switch: `unknown` is no evidence of a live worker
-            view_owners.observe_live_count(row, live, 'series', status)  # the status shadow's (S2c slice 5); never raises
             if not live:
                 continue
             online_count += 1

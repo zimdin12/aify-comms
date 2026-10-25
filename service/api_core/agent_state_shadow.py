@@ -2,9 +2,9 @@
 from dataclasses import dataclass
 import hashlib
 import asyncio
+import re
 
-from service.api_core import delivery_turns, partial_status_shadow as shadow, switched_view
-from service.api_core.shadow_provenance import is_build
+from service.api_core import partial_status_shadow as shadow, switched_view
 from service.api_core.report_age import is_report_interval
 
 _INGEST_LOCK = asyncio.Lock()
@@ -80,10 +80,13 @@ def _decode(raw):
         raise InvalidPublication('invalid UTF8 JSON') from error
 
 
+BUILD = re.compile(r'[\x21-\x7e]{1,200}')
+
+
 def _build(value):
-    """B6a: an aify-env build, when published, is printable ASCII with no space, 1-200 characters (shadow_provenance's
-    grammar). An unknown build is omitted, never null."""
-    _require(is_build(value), 'expected build string')
+    """B6a: an aify-env build, when published, is printable ASCII with no space, 1-200 characters. An unknown build is
+    omitted, never null."""
+    _require(type(value) is str and BUILD.fullmatch(value) is not None, 'expected build string')
 
 
 def _report_every(value):
@@ -190,21 +193,16 @@ def _order(previous, body, digest):
 
 
 def _retire(key):
-    """After a retirement's commit (B5): K leaves the mirror and the fold forgets every lineage baseline on K's machine.
-    No provenance is applied and no delivery turn is written: a retirement observes no turn. If either step fails, K
-    stays absent and every other publisher becomes a known loss, each recovering on its own next snapshot."""
+    """After a retirement's commit (B5): K leaves the mirror. If that fails, K stays absent and every other publisher
+    becomes a known loss, each recovering on its own next snapshot."""
     try:
         before = shadow.mirror.view()
     except Exception:
         before = None
     try:
         shadow.mirror.retire(key)
-        delivery_turns.FOLD.forget(key[0])
     except Exception:
-        lost = shadow.retire_safe(key, before)
-        delivery_turns.FOLD.lose_everything()
-        shadow.recorder.provenance.applied(None)
-        shadow.recorder.lost(lost)
+        shadow.retire_safe(key, before)
 
 
 async def _expire_changed(db, before):
@@ -295,15 +293,6 @@ class AgentStateShadowStore:
                 shadow.mirror.renew_report(key, applied_at, body.get('reportEveryMs'))
             except Exception:
                 pass  # contact unrenewed reads as not-reporting or stale: never fresher than it is
-            if body['kind'] != 'unavailable' or projection is None:  # what this publication put into effect (B6a)
-                shadow.recorder.provenance.applied(projection)
-            # The delivery-turn fold reads the same committed publication, or loses what it knew (S2c slice 2). A mirror
-            # left unreadable by a failed retirement (B5) loses the fold too, rather than failing a committed apply.
-            try:
-                view = shadow.mirror.view()
-            except Exception:
-                view, projection = None, None
-            delivery_turns.publish_applied(projection, view)
             await _expire_changed(db, before)
             return ApplyResult(True)
         finally:

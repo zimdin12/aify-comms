@@ -22,7 +22,7 @@ triggered it -- the state change already happened, and the next poll will show i
 """
 from __future__ import annotations
 
-from service.api_core import partial_status_shadow as shadow, switched_view
+from service.api_core import switched_view
 
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _row_status_note
@@ -37,7 +37,6 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
     reconcile sweep or a full client refetch. Best-effort: never raise into the
     caller. Mirrors the single-agent GET status compute (_compute_live_status_cache).
     """
-    shadow_binding = shadow.bind()
     if ws is None:
         return
     try:
@@ -46,22 +45,19 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
             return
         row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not row:
-            shadow.observe(shadow_binding, None, None, None, "cache-broadcast")
             return
-        shadow_identity = shadow.association(row)
         settings = await _load_settings(db)
         cache = await _compute_live_status_cache(db, row, settings=settings)
         # PUSH/POLL PARITY after the 0.9.8 switch: the push serves the operational view's word, exactly as the poll
         # does (status_refresh), note and last-known included, over the same legacy word the poll derives first (its
-        # note blanked where the derivation disagrees). An unreadable view pushes `unknown`. The shadow keeps comparing
-        # the legacy word, the one a rollback would serve.
+        # note blanked where the derivation disagrees). An unreadable view pushes `unknown`.
         legacy = cache.get("status") or ""
         if legacy not in _MANUAL_STATUSES:
             try:
                 derived = derive(cache["status_inputs"])
                 if derived != legacy:
                     cache["reason"] = ""
-                cache["status"] = legacy = derived
+                cache["status"] = derived
             except Exception:
                 pass
         try:
@@ -69,7 +65,6 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
         except Exception:
             cache.update(status="unknown", reason="comms could not read aify-env's record of this agent", last_known=None)
         status, note = cache.get("status") or "", cache.get("reason") or ""
-        shadow.observe(shadow_binding, shadow_identity, cache.get("status_inputs"), legacy, "cache-broadcast")
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
             "status": status,
@@ -95,16 +90,13 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
             return
         row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not row:
-            shadow.observe(None, None, None, None, "engine-status")
             return
         settings = settings or await _load_settings(db)
         # Manual statuses (stop/disable) are operator overrides both paths honor
         # identically — surface the persisted status, not an engine derivation.
         manual = str(row["status"] or "").strip().lower()
-        if manual in _MANUAL_STATUSES:
-            shadow.observe(None, None, None, manual, "engine-status")
-        else:
-            await engine_status(db, row, settings=settings)  # the legacy derivation, for the shadow and the rollback
+        if manual not in _MANUAL_STATUSES:
+            await engine_status(db, row, settings=settings)  # the legacy derivation, for the rollback until S3
         # THE PUSHED WORD AFTER THE 0.9.8 SWITCH is the operational view's, the same one the poll serves: aify-env's
         # record, unknown first, the D8 rows (an undefined agent's operator stop among them) and row 5. An unreadable
         # view pushes `unknown`, never the legacy word.

@@ -32,7 +32,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         super().setUp()
         from service.api_core import mirror_restore, operational_view, partial_status_shadow as shadow
         self.shadow, self.ov, self.restore_module = shadow, operational_view, mirror_restore
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()), patch.object(shadow, 'recorder', shadow.Recorder()),
+        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
                   patch.object(shadow, '_quarantined', False), patch.object(shadow, 'clock', return_value=AT)):
             p.start()
             self.addCleanup(p.stop)
@@ -56,7 +56,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         return holders, self.ov.comms_view(holders, self.ov.Messaging())
 
     def availability(self, at=AT):
-        return self.ov._availability(self.shadow.mirror.view()[KEY], at)
+        return self.ov.availability_of(self.shadow.mirror.view()[KEY], at)
 
     def forget(self):
         """An empty database and mirror, between subtests."""
@@ -156,15 +156,13 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         self.assertTrue(self.apply(body('changes', publication=3, agents=[idle()]), at=AFTER).applied)
         self.assertEqual(self.availability(AFTER), 'restored', 'recovering from unavailable is not a snapshot')
 
-    def test_the_saved_generations_and_stamps_are_kept(self):
+    def test_the_saved_generations_are_kept(self):
         self.apply(body(agents=[row(), idle('beta', 'L-beta')]))
         self.apply(body('changes', publication=2, agents=[idle()]), at=LATER)
         self.restart()
         publisher = self.shadow.mirror.view()[KEY]
         self.assertEqual((publisher.generation, publisher.incarnation, publisher.publication, publisher.data_applied_at),
                          (10, 'boot', 2, LATER))
-        stamps = {r.agent_id: r.origin[3] for r in publisher.rows}
-        self.assertEqual(stamps, {'alpha': LATER, 'beta': AT}, 'each row keeps the time it was applied')
         self.assertEqual({r.agent_id: r.busy for r in publisher.rows}, {'alpha': False, 'beta': False})
 
     def test_a_generation_going_backwards_is_refused_after_a_restart_and_changes_nothing(self):
