@@ -26,6 +26,7 @@ cannot quietly become "whatever the last request did".
 from __future__ import annotations
 
 import ipaddress
+import json
 from urllib.parse import urlsplit
 
 #: Methods that cannot change state, so a browser NAVIGATION to them is not an attack.
@@ -137,6 +138,23 @@ def host_is_trusted(host: str, trusted_hosts=None) -> bool:
         return True
     named = {str(entry).strip().lower() for entry in (trusted_hosts or []) if str(entry).strip()}
     return name in (named or set()) or name in DEFAULT_TRUSTED_HOSTS
+
+
+def refusal_message(*, host: str = "", origin: str = "", allowed_origins=None, trusted_hosts=None) -> str:
+    """What a refused caller is told, by which rule refused it. PURE.
+
+    An untrusted Host with no operator-named origin is the Host rule, and its remedy is TRUSTED_HOSTS or an IP:
+    a fresh install that reached the service by hostname was told to edit CORS_ORIGINS, which admits nothing
+    for a program (2026-10-25). Every other refusal is about a browser page, and keeps that advice.
+    """
+    named = str(origin or "").strip().rstrip("/").lower() in _named_origins(allowed_origins)
+    if not named and not host_is_trusted(host, trusted_hosts):
+        name = _hostname_of(host) or str(host or "")
+        return json.dumps({"error": (
+            f'This service does not accept requests addressed to "{name}". Reach it by IP address or localhost, '
+            f"or add {name} to TRUSTED_HOSTS in its .env and restart it.")})
+    return ('{"error":"Cross-site browser requests are refused. If this is your own dashboard, add its origin to '
+            'CORS_ORIGINS in .env (it overrides config/service.json) and restart."}')
 
 
 def path_is_navigable(path: str) -> bool:

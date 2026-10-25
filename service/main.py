@@ -29,7 +29,7 @@ from service.api_core.external_keys import (
 )
 from service.api_core.browser_origin import (
     browser_request_is_allowed, effective_trusted_hosts, is_browser_navigation,
-    url_without_api_key,
+    refusal_message, url_without_api_key,
 )
 from service.routers import health, containers as containers_router, service_spec as service_spec_router
 from service.routers.api_v2 import router as api_router
@@ -156,7 +156,8 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
         return Response(
-            content='{"error":"Cross-site browser requests are refused. If this is your own dashboard, add its origin to CORS_ORIGINS in .env (it overrides config/service.json) and restart."}',
+            content=refusal_message(host=request.headers.get("host", ""), origin=request.headers.get("origin", ""),
+                                    allowed_origins=self.allowed_origins, trusted_hosts=self.trusted_hosts),
             status_code=403,
             media_type="application/json",
         )
