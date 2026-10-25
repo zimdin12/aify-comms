@@ -1,4 +1,5 @@
-"""Liveness and turn signals: heartbeat, turn start/end, ready, status events, leases.
+"""Liveness signals: heartbeat, ready, leases, and the legacy status events a launcher may still post (ignored since
+0.9.9 S2: aify-env owns turns).
 
 v0.5.2m, one surface of the agents package. Built with `domain_router()`;
 declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes the package.
@@ -19,9 +20,6 @@ from service.api_core.request_body import json_object_body
 from service.api_core.background_work import record_background_work
 from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
-from service.api_core.turn_busy_signal import _apply_turn_busy_signal
-from service.api_core.status_events import _apply_status_event
-from service.api_core.hook_event_order import accept_hook_event, hook_event_stamp
 from service.api_core.status_broadcast import _broadcast_engine_status
 from service.api_core.routing import domain_router
 
@@ -48,10 +46,7 @@ from service.routers.agents.shared import (
 )
 from service.api_core.agent_sessions import _adopt_live_resident_driver
 from service.api_core.nested_session_handback import reclaim_on_beat
-from service.status_engine import (
-    KNOWN_EVENT_KINDS as _KNOWN_STATUS_EVENT_KINDS,
-    is_known_event_kind as _is_known_status_event_kind,
-)
+from service.routers.agents.turn_boundaries import accept_and_ignore
 
 # Domain-local MODEL: defined in api_v2 rather than models.py, and its only user is the handler
 # below. It moves with the handler instead of becoming a cross-module import.
@@ -60,7 +55,7 @@ class AgentStatusEventRequest(BaseModel):
     runId: str | None = None
     bridgeId: str | None = None
     detail: str | None = None
-    firedAtUs: int | None = None  # when the hook fired, and on which host (api_core/hook_event_order.py)
+    firedAtUs: int | None = None  # when the hook fired, and on which host
     machineId: str | None = None
 
 
@@ -244,21 +239,8 @@ async def agent_heartbeat(agent_id: str, request: Request):
             if _cached_live and _cached_live.get("status") == "offline":
                 await _invalidate_agent_live_state(db, agent_id)
 
-        # Authoritative turn-busy signal (contract with the bridge). Missing
-        # "turnBusy" → liveness only (old-bridge safe). turnBusy=true: latest
-        # bridge wins. turnBusy=false: only the owning bridge+run may clear,
-        # so a stale false from a superseded bridge/run cannot wipe a newer
-        # active turn.
-        turn_flip = False  # WS-1: did this heartbeat actually change turn_busy (working⇄ready)?
-        turn_flip = await _apply_turn_busy_signal(db, agent_id, bridge_id, body, now, turn_flip)
+        # A `turnBusy` field from a bridge not yet relaunched is ignored: aify-env owns turns (0.9.9 S2).
         await db.commit()
-        # WS-1 (2026-06-17): the /heartbeat turnBusy field is the DOMINANT turn signal for
-        # managed runtimes, but it only invalidated the cache — the dashboard still waited its
-        # ~60s poll to see the flip. Push it immediately, but ONLY on an actual working⇄ready
-        # flip (not every 3s liveness/refresh beat), flag-gated to keep `old` unchanged.
-        if turn_flip:
-            settings = await _load_settings(db)
-            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         # THE BRIDGE RE-READS ITS RECORD ONLY WHEN THIS MOVES (service/api_core/agent_revision.py).
         record = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         return {"ok": True, "agentRevision": agent_revision(record) if record else ""}
@@ -306,40 +288,9 @@ async def post_claimer_lease(agent_id: str, request: Request):
 
 
 @router.post("/agents/{agent_id}/status-event")
-async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request: Request):
-    db = await get_db()
-    try:
-        row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        if not row:
-            raise HTTPException(404, f"Agent '{agent_id}' not found")
-        fired_at_us, machine_id = hook_event_stamp(req.model_dump())
-        if not await accept_hook_event(db, agent_id, fired_at_us=fired_at_us, machine_id=machine_id, kind=req.kind):
-            return {"ok": True, "agentId": agent_id, "kind": req.kind, "applied": False,
-                    "ignored": "out_of_order_hook_event"}
-        await _apply_status_event(db, agent_id, req.model_dump())
-        await _invalidate_agent_live_state(db, agent_id)  # pops the in-memory live-status cache
-        # The invalidate is an in-memory dict pop now (2026-06-18) — immediate, not tied to a
-        # commit. The commit below persists _apply_status_event's turn-state write.
-        await db.commit()
-        # Push the transition immediately so the dashboard updates the instant a turn
-        # starts/ends (proof-based engine is the only path).
-        settings = await _load_settings(db)
-        ws = await _get_ws(request)
-        await _broadcast_engine_status(ws, db, agent_id, settings=settings)
-        # ACCEPTED EITHER WAY, and SAID either way. A bridge may run a newer version than this
-        # service, so a kind we have never heard of is tolerated rather than rejected -- but it used
-        # to be tolerated in total silence: 200 OK, a row recording the kind, and no state change.
-        # `applied` is the difference between "we did what you asked" and "we filed your request".
-        applied = _is_known_status_event_kind(req.kind)
-        if not applied:
-            logger.warning(
-                "status-event kind %r from agent %s is not one this service applies (%s); "
-                "the event was recorded and no turn state changed",
-                req.kind, agent_id, ", ".join(_KNOWN_STATUS_EVENT_KINDS),
-            )
-        return {"ok": True, "agentId": agent_id, "kind": req.kind, "applied": applied}
-    finally:
-        await db.close()
+async def post_status_event(agent_id: str, req: AgentStatusEventRequest):
+    """A blocked / unblocked / turn event from a launcher not yet relaunched: accepted, applied nowhere."""
+    return {**await accept_and_ignore(agent_id), "kind": req.kind, "applied": False}
 
 
 @router.post("/agents/{agent_id}/console-working")

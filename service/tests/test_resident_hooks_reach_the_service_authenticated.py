@@ -679,7 +679,7 @@ def test_the_written_commands_reach_the_service_with_the_key(installed):
             assert key == "hook-key", (command, "the hook request must authenticate")
             sent = json.loads(sent)
             # When the hook fired, in host microseconds, and on which host: they order the background
-            # hooks' events (service/api_core/hook_event_order.py).
+            # hooks' events.
             fired = sent.pop("firedAtUs")
             assert isinstance(fired, int) and before - 1_000_000 <= fired <= time.time() * 1_000_000, (command, fired)
             assert re.fullmatch(r"[a-z0-9_-]+:.+", sent.pop("machineId")), command

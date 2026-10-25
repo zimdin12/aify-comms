@@ -9,8 +9,8 @@ THE MOVE WAS FORCED BY A REAL BLOCK, which is worth recording because "it belong
 would not have been enough to justify touching seven files. `agent_heartbeat`'s turn-busy branch
 could not be extracted at all while this lived in a router: an api_core leaf importing from
 `service.routers` is the cycle the layering exists to prevent, and injecting the function as a
-parameter would have hidden that rather than fixed it. See
-`service/api_core/turn_busy_signal.py`, which is the extraction this unblocked.
+parameter would have hidden that rather than fixed it. The extraction it unblocked, `turn_busy_signal`, was
+deleted in 0.9.9 S2 with the heartbeat's turn branch.
 
 IT COMMITS. That is inherited behaviour, not a new decision, and callers depend on it: the heartbeat
 path relies on this write being durable before its own later commit. A caller that needs the write

@@ -2711,99 +2711,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"turn-end event (turn_busy=0) must clear working instantly, no timer wait; {cache2}",
         )
 
-    def test_turn_end_event_flips_managed_hermes_off_working_immediately(self):
-        # WS5 Task 5.2 — Bug A (false-working): a managed hermes that finished its
-        # turn must flip OFF `working` the instant a real turn-END event arrives,
-        # NOT after the TURN_BUSY_STALE_SECONDS timer. The managed-host now observes
-        # the gateway session going idle and POSTs /turn-end; this proves the server
-        # honors that event with an IMMEDIATE transition (no 120s wait).
-        terminal_id = "term_hermes_turnend_busA"
-        self._seed_managed_hermes_with_attached_terminal("turnend-hermes", terminal_id)
-        self._stamp_live_channel_sidecar("turnend-hermes", runtime="hermes")  # live claimer
-        # Mid-turn: fresh turn_busy=1 → working.
-        now = _now()
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("turnend-hermes", "run-turnend-1", "channel-linux:test-host-turnend-hermes", "hermes", now),
-        )
-        # status_engine=new reads in_turn from agent_status_state (not agent_turn_state), so
-        # seed it too for the mid-turn precondition.
-        self._execute(
-            """
-            INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, last_event, last_event_at, updated_at)
-            VALUES (?, 'working', 1, 0, ?, 'turn_start', ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at, updated_at=excluded.updated_at
-            """,
-            ("turnend-hermes", "run-turnend-1", now, now),
-        )
-        asyncio.run(self._async_invalidate("turnend-hermes"))
-        agent = env_records.rollback_agent(self, "turnend-hermes")
-        self.assertEqual(agent["status"], "working", f"precondition: mid-turn → working; got {agent}")
-
-        # Turn-END event fires (gateway idle observed → /turn-end). turn_busy=0.
-        resp = self.client.post("/api/v1/agents/turnend-hermes/turn-end", json={
-            "bridgeId": "channel-linux:test-host-turnend-hermes",
-            "turnRuntime": "hermes",
-        })
-        self.assertEqual(resp.status_code, 200, resp.text)
-        # IMMEDIATE flip off working — no timer wait. turn_updated_at is still
-        # well within TURN_BUSY_STALE_SECONDS, so this can only pass if the EVENT
-        # (turn_busy=0), not the staleness timer, drives the transition.
-        agent = env_records.rollback_agent(self, "turnend-hermes")
-        self.assertNotEqual(agent["status"], "working", f"turn-end must flip OFF working immediately; got {agent}")
-        self.assertEqual(agent["status"], "online", f"finished managed hermes → online (deliverable); got {agent}")
-        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("turnend-hermes",))
-        self.assertEqual(int(tb["turn_busy"] or 0), 0, "turn-end clears turn_busy")
-
-    def test_turn_end_event_releases_queued_run_for_managed_hermes(self):
-        # WS5 Task 5.2 — Bug B (stranded queue, downstream of A): while the agent
-        # is mid-turn (turn_busy=1), a queueIfBusy comms_send QUEUES (does not fire
-        # immediately because the system thinks he's working). After the turn-END
-        # event clears turn_busy, the queue must no longer be blocked by a fake
-        # turn — the next queueIfBusy evaluation sees is_turn_busy=False and the
-        # run becomes deliverable. This proves the deadlock that left sends queued
-        # forever (because the turn never appeared to end) is broken by the event.
-        terminal_id = "term_hermes_turnend_busB"
-        self._seed_managed_hermes_with_attached_terminal("queue-hermes", terminal_id)
-        self._stamp_live_channel_sidecar("queue-hermes", runtime="hermes")
-        # Acquire a live claimer lease (WS5.1) so the target is deliverable (not deaf).
-        self.client.post("/api/v1/agents/queue-hermes/claimer-lease", json={
-            "action": "acquire", "bridgeId": "channel-linux:test-host-queue-hermes",
-        })
-        now = _now()
-        # Mid-turn: fresh turn_busy=1.
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("queue-hermes", "run-busy-1", "channel-linux:test-host-queue-hermes", "hermes", now),
-        )
-
-        # The mid-turn busy gate (queueIfBusy): with turn_busy fresh the target is
-        # considered busy → a send would queue rather than deliver now.
-        busy_before = self._turn_busy_gate_for("queue-hermes")
-        self.assertTrue(busy_before, "precondition: fresh turn_busy → mid-turn busy → queues")
-
-        # Turn-END event clears turn_busy.
-        resp = self.client.post("/api/v1/agents/queue-hermes/turn-end", json={
-            "bridgeId": "channel-linux:test-host-queue-hermes", "turnRuntime": "hermes",
-        })
-        self.assertEqual(resp.status_code, 200, resp.text)
-
-        # After turn-end the agent is NOT left working, AND the busy gate is clear
-        # so a queued run is now deliverable on the next claim.
-        busy_after = self._turn_busy_gate_for("queue-hermes")
-        self.assertFalse(busy_after, "turn-end must clear the mid-turn busy gate so the queue can drain")
-        asyncio.run(self._async_invalidate("queue-hermes"))
-        agent = self.client.get("/api/v1/agents/queue-hermes").json()["agent"]
-        self.assertNotEqual(agent["status"], "working", f"agent must not be left working after turn-end; got {agent}")
-
     def _turn_busy_gate_for(self, agent_id: str) -> bool:
         """The dispatcher's mid-turn busy check — by CALLING it, not by re-implementing it.
 
@@ -3021,38 +2928,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         after = self._fetchone("SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("sc-manager4",))
         self.assertEqual(int(after["turn_busy"] or 0), 1, "status read must not clear turn_busy")
         self.assertEqual(after["turn_updated_at"], before["turn_updated_at"], "status read must not re-stamp turn_busy")
-
-    def test_heartbeat_turnbusy_invalidates_live_state(self):
-        # FIX 1: a heartbeat that writes turn_busy must invalidate the live-state
-        # cache so working/idle reflects the flip immediately — not after the 60s
-        # sweep. (The /turn-start and /turn-end endpoints already invalidate.)
-        self._register("hb-turn-claude", runtime="claude-code", sessionMode="resident")
-        # Seed a fresh cached live_state entry with refresh_after far in the future.
-        status_cache._LIVE_STATE_CACHE["hb-turn-claude"] = {
-            "status": "online", "reason": "cached", "environment_id": "",
-            "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
-        }
-        # Pre-condition: the cache entry exists.
-        self.assertIsNotNone(
-            _live_state_get("hb-turn-claude"),
-            "precondition: live_state cache entry must exist before heartbeat",
-        )
-
-        resp = self.client.post(
-            "/api/v1/agents/hb-turn-claude/heartbeat",
-            json={
-                "bridgeId": "bridge-hb-1",
-                "turnBusy": True,
-                "turnRunId": "run-hb-1",
-                "turnRuntime": "claude-code",
-            },
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertIsNone(
-            _live_state_fresh("hb-turn-claude"),
-            "turnBusy heartbeat must invalidate the live_state cache entry (expire it, so the next read recomputes)",
-        )
 
     def test_channel_pending_reply_online_only_when_live(self):
         # FIX 3 (a): a managed claude with a channel_pending_reply run AND a LIVE

@@ -138,11 +138,8 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
         it -- which is the difference this file exists to detect.
         """
         from service.api_core.status_inputs import _now
-        started = self.client.post(
-            "/api/v1/agents/{}/status-event".format(agent_id),
-            json={"kind": "turn_start", "runId": "run-npo"},
-        )
-        self.assertEqual(started.status_code, 200, started.text)
+        # THE TURN ROW IS WRITTEN DIRECTLY: since 0.9.9 S2 the status-event route applies nothing (aify-env owns
+        # turns), and the legacy columns this file pins are still read by the prefetch until S3 removes them.
         # EVERY SEEDED COLUMN GETS A NON-DEFAULT VALUE, or the pinning below is vacuous for it: a
         # mutation replacing `subagents_at` with '' is invisible when the fixture leaves it '', and
         # the same for `awaiting_input` at 0. Both survived until these two lines existed.
@@ -153,9 +150,6 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
         background = self.client.post(
             "/api/v1/agents/{}/background-work".format(agent_id), json={"count": 1})
         self.assertEqual(background.status_code, 200, background.text)
-        blocked = self.client.post(
-            "/api/v1/agents/{}/status-event".format(agent_id), json={"kind": "blocked"})
-        self.assertEqual(blocked.status_code, 200, blocked.text)
 
         async def age_it():
             from service.db import get_db
@@ -168,9 +162,11 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
                 # `last_event_at` no longer makes a turn look old -- it makes it look like a turn
                 # that BEGAN recently and was last touched long ago, which is not stale at all.
                 await db.execute(
-                    "UPDATE agent_status_state SET in_turn = 1, last_event_at = ?, "
-                    "turn_started_at = ? WHERE agent_id = ?",
-                    (last_event_at or _now(), last_event_at or _now(), agent_id),
+                    "INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, "
+                    "last_event, last_event_at, turn_started_at) VALUES (?, 'working', 1, 1, 'run-npo', 'blocked', ?, ?) "
+                    "ON CONFLICT(agent_id) DO UPDATE SET in_turn = 1, awaiting_input = 1, turn_run_id = 'run-npo', "
+                    "last_event_at = excluded.last_event_at, turn_started_at = excluded.turn_started_at",
+                    (agent_id, last_event_at or _now(), last_event_at or _now()),
                 )
                 await db.commit()
                 row = await (await db.execute(

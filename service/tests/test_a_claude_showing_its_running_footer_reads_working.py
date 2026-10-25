@@ -23,7 +23,6 @@ from service.db import get_db
 from service.status_engine import derive
 from service.terminal_snapshot import drop_live_screen
 from service.tests._base import FastApiTestCase
-from service.tests.test_status_engine_integration import _seed_live_channel_worker
 
 #: Every screen opens with an escape: `feed_live_screen` keeps a terminal whose first chunk has none
 #: as a plain log and renders nothing, which would make every negative here pass vacuously.
@@ -42,6 +41,47 @@ PROSE = _SGR + "The run took (12s · 3 lines) and nothing else.\r\n" + _MODE_LIN
 #: Prose QUOTING a running footer, the whole shape included, on an idle screen. The rule matched it
 #: until the footer was anchored to a line opening with a spinner frame.
 QUOTED_FOOTER = _SGR + "⏺ The dot read online while the screen showed (49m 37s · ↓ 79.0k tokens).\r\n\r\n> \r\n"
+
+
+def _seed_live_channel_worker(db_path, env_id, aid, runtime="claude-code"):
+    """Seed a genuinely-live managed worker: a running session + an attached console
+    terminal_session + a FRESH channel-sidecar bridge heartbeat. status-F2 (2026-06-17)
+    made the engine gate the in-turn states (working/blocked) on worker liveness, so a
+    test asserting a managed agent reads `working` mid-turn must reflect the real
+    co-occurrence of a turn signal AND a live worker (claude/hermes managed `online`
+    REQUIRES BOTH a live console PTY and a live channel sidecar — _worker_liveness_for)."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    tid = f"term_{aid}"
+    c = sqlite3.connect(str(db_path))
+    try:
+        c.execute(
+            """INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace,
+                mode, owner_mode, terminal_id, terminal_status, spawn_spec_id,
+                spawn_request_id, status, started_at, last_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (f"sess_{aid}", aid, env_id, runtime, "/workspace/repo",
+             "managed-warm", "managed", tid, "attached", None, None, "running", now, now))
+        c.execute(
+            """INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id,
+                bridge_id, runtime, workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (tid, f"sess_{aid}", aid, env_id, "bridge-current", runtime,
+             "/workspace/repo", f"{runtime}-aify --aify-agent " + aid, "", "attached",
+             "dashboard", now, now, None, ""))
+        # The channel-sidecar heartbeat is the deliverability proof claude/hermes managed
+        # `online` requires (CHANNEL_SIDECAR_STALE_SECONDS window) — without it has_live_worker
+        # is False and the agent reads `available`, not `working`.
+        c.execute(
+            """INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode,
+                session_handle, terminal_id, bridge_kind, registered_at, last_seen, superseded_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (f"sidecar_{aid}", aid, "linux:test-host", runtime, "managed", "", tid,
+             "channel-sidecar", now, now, ""))
+        c.commit()
+    finally:
+        c.close()
 
 
 class TheFooterRuleTests(FastApiTestCase):
