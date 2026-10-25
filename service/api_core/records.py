@@ -352,12 +352,13 @@ def herdr_space_of(row) -> bool:
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None, *, live_reason: Optional[str] = None, outbound: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
-    # live_reason is the derived status reason from the in-memory cache (the live_state table
-    # was retired 2026-06-18). Fall back to the row's live_reason column (legacy/JOIN paths) or
-    # the raw status note. `status` carries the derived live status from the cache.
+    # live_reason is the served note from the in-memory cache (switched_view.served_note), and an EMPTY one is the
+    # answer: the row's status note records the last event written to the row ("Session handle set by
+    # bridge-heartbeat."), not why the agent has its word, so it is read only where no cache note exists at all
+    # (the legacy/JOIN paths). The operator's own note beside their stop comes through served_note (0.9.9 S3a).
     status_note = str(
-        (live_reason if live_reason is not None else (row["live_reason"] if "live_reason" in row.keys() else ""))
-        or _row_status_note(row) or ""
+        live_reason if live_reason is not None
+        else ((row["live_reason"] if "live_reason" in row.keys() else "") or _row_status_note(row)) or ""
     ).strip()
     base_status = str((row["live_status"] if "live_status" in row.keys() else "") or status or row["status"] or "idle").strip()
     # `ready` is an internal bridge/controller readiness bit. Keep it out of
