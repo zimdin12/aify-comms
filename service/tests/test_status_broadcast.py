@@ -228,14 +228,15 @@ class PushPollParityTests(StatusBroadcastTestCase):
         self.assertEqual(payload["status"], "working")
         self.assertEqual(payload["statusNote"], "")
 
-    def test_an_AGREEING_view_KEEPS_the_note(self):
-        """The other half. When the two agree the note still describes the status being pushed, and
-        dropping it would lose the only explanation the dashboard gets."""
+    def test_an_AGREEING_view_serves_its_own_note_not_the_legacy_one(self):
+        """The other half, reversed in 0.9.9 S3a. The legacy note used to survive wherever the legacy word happened
+        to equal the view's, so the note came from inputs the word no longer used; it is the view's now (empty for a
+        known word), on the poll and the push alike (switched_view.served_note)."""
         env_records.report(self, AGENT, state="offline")
         with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache):
             payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
-        self.assertEqual(payload["status"], "offline")
-        self.assertEqual(payload["statusNote"], "no heartbeat for 4 minutes")
+        self.assertEqual(payload["status"], "offline", "CONTROL: the words agree")
+        self.assertEqual(payload["statusNote"], "")
 
     def test_a_FAILING_view_pushes_unknown_never_the_legacy_word(self):
         """A view that cannot be read pushes `unknown` with why, as the poll serves it. The legacy word

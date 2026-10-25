@@ -119,6 +119,21 @@ def note_of(view):
     return 'aify-env has no current record of this agent'
 
 
+async def served_note(db, agent_row, view, inputs=None):
+    """The note beside the view's word, the same on the poll and the push: the operator's own note beside their stop,
+    comms' reason beside `misconfigured`, why an `unknown` is unknown, and otherwise nothing. No note comes from the
+    legacy cascade (0.9.9 S3a): it used to survive wherever the legacy word happened to equal the view's."""
+    from service.api_core.manual_status import _MANUAL_STATUSES
+    from service.api_core.records import _row_status_note
+
+    manual = str(agent_row['status'] or '').strip().lower()
+    if view.status == manual and manual in _MANUAL_STATUSES:
+        return _row_status_note(agent_row)
+    if view.status == 'misconfigured':
+        return await misconfigured_note(db, agent_row, inputs)
+    return note_of(view)
+
+
 async def misconfigured_note(db, agent_row, inputs=None):
     """Beside aify-env's `misconfigured`, the note comms has always built: why no start can reach this agent (an
     unlaunchable runtime, or a workspace outside the folders its environment starts in). aify-env publishes the word
@@ -144,10 +159,7 @@ async def word_into(db, agent_row, cache, dispatch_state=None):
     if dispatch_state is None and 'active_run_id' in cache:
         dispatch_state = dispatch_state_of(cache)
     view = await view_for(db, agent_row, dispatch_state, binding)
-    if view.status == 'misconfigured':
-        cache['reason'] = await misconfigured_note(db, agent_row, cache.get('status_inputs'))
-    elif view.status != cache.get('status'):
-        cache['reason'] = note_of(view)
+    cache['reason'] = await served_note(db, agent_row, view, cache.get('status_inputs'))
     cache['status'] = view.status
     cache['last_known'] = last_known_api(view)
     until = fresh_until(agent_row, binding)

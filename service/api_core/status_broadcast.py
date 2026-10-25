@@ -25,7 +25,6 @@ from __future__ import annotations
 from service.api_core import switched_view
 
 from service.api_core.manual_status import _MANUAL_STATUSES
-from service.api_core.records import _row_status_note
 from service.api_core.settings import _load_settings
 from service.api_core.status_inputs import _compute_live_status_cache, engine_status
 from service.status_engine import derive
@@ -102,13 +101,9 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
         # view pushes `unknown`, never the legacy word.
         try:
             view = await switched_view.view_for(db, row)
-            status, note, last_known = view.status, switched_view.note_of(view), switched_view.last_known_api(view)
-            # D8 row 1: the operator's stop, with the operator's own note, as the poll serves it. Only a real operator
-            # stop is that authority: a registration's raw word that happens to equal the view's word is not.
-            if status == manual and manual in _MANUAL_STATUSES:
-                note = _row_status_note(row)
-            elif status == "misconfigured":  # comms' own reason beside aify-env's word, as the poll serves it
-                note = await switched_view.misconfigured_note(db, row)
+            # The note the poll serves (switched_view.served_note): the operator's own beside their stop, comms'
+            # reason beside `misconfigured`, why an `unknown` is unknown.
+            status, note, last_known = view.status, await switched_view.served_note(db, row, view), switched_view.last_known_api(view)
         except Exception:
             status, note, last_known = "unknown", "comms could not read aify-env's record of this agent", None
         await ws.broadcast("agent_status", {
