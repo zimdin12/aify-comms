@@ -186,26 +186,17 @@ class StrandedReplyGuardWitness(_RunWorld):
 class TerminalWithoutBackingWitness(_ReminderWorld):
     """SW5 review R4. A terminal run whose live terminal backing is gone used to be reminded whatever the agent was
     doing. Its legacy no-backing judgment now only withdraws the run's own occupancy: busy and unknown still pause the
-    reminder, and a known idle agent is still reminded about it. The judgment is the legacy cache's, read here as a
-    controlled collaborator, exactly as the reviewer's parent run read it."""
+    reminder, and a known idle agent is still reminded about it. Since 0.9.9 S3b the judgment is
+    `terminal_run_hold`'s, read for real: the resident target has no session, so its terminal run has no backing."""
 
     def _terminal_remind(self, case: str, record: str) -> dict:
-        from unittest import mock
-
-        from service.api_core import dispatch_sweeps
-
         target, run_id = f"term-{case}", f"run-term-{case}"
         self._resident(target)
         self._reply_owed(run_id, sender="lead", target=target, age=600)
         self._exec("UPDATE dispatch_runs SET dispatch_mode = 'terminal', status = 'running' WHERE id = ?", (run_id,))
         if record != "none":
             env_records.report(self, target, busy=record == "busy")
-
-        async def no_backing(db, row, settings=None):
-            return {"status": "blocked", "reason": "Active run has no live terminal backing"}
-
-        with mock.patch.object(dispatch_sweeps, "_compute_live_status_cache", no_backing):
-            answer = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}&dryRun=true")
+        answer = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}&dryRun=true")
         self.assertEqual(answer.status_code, 200, answer.text)
         return answer.json()
 
@@ -215,3 +206,38 @@ class TerminalWithoutBackingWitness(_ReminderWorld):
                 result = self._terminal_remind(case, record)
                 self.assertEqual(([r["runId"] for r in result["reminded"]], [s["runId"] for s in result["skipped"]]),
                                  ([f"run-term-{case}"], []) if reminded else ([], [f"run-term-{case}"]), result)
+
+
+class TerminalAwaitingInputWitness(_ReminderWorld):
+    """The reminder sweep's other terminal fact (0.9.9 S3b, `terminal_run_hold`): a claude-code console showing a prompt
+    for the operator skips the reminder, since the agent cannot act on it until the operator answers. The same agent
+    with a quiet console is reminded, so the skip is the prompt's and not the setup's."""
+
+    def _console_remind(self, case: str, screen: str) -> dict:
+        target, run_id, terminal = f"console-{case}", f"run-console-{case}", f"term-console-{case}"
+        answer = self.client.post("/api/v1/agents", json={
+            "agentId": target, "role": "coder", "runtime": "claude-code", "sessionMode": "resident", "machineId": MACHINE})
+        self.assertEqual(answer.status_code, 200, answer.text)
+        now = "2026-10-25T20:00:00Z"
+        self._exec("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace, mode, owner_mode, "
+                   "terminal_id, terminal_status, status, started_at, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (f"sess-{case}", target, "", "claude-code", "/w", "resident", "resident", terminal, "attached",
+                    "running", now, now))
+        self._exec("INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, "
+                   "workspace, command, output, status, requested_by, created_at, updated_at) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (terminal, f"sess-{case}", target, "", "b", "claude-code", "/w", "claude-aify", screen, "attached",
+                    "test", now, now))
+        self._reply_owed(run_id, sender="lead", target=target, age=600)
+        self._exec("UPDATE dispatch_runs SET dispatch_mode = 'terminal', status = 'running' WHERE id = ?", (run_id,))
+        env_records.report(self, target, busy=False)
+        answer = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}&dryRun=true")
+        self.assertEqual(answer.status_code, 200, answer.text)
+        return answer.json()
+
+    def test_a_console_prompt_skips_the_reminder_and_a_quiet_console_does_not(self):
+        prompted = self._console_remind("prompt", "Finished. Overwrite existing file? (y/n) ")
+        self.assertEqual([(s["runId"], s["reason"]) for s in prompted["skipped"]],
+                         [("run-console-prompt", "target is blocked awaiting operator input")], prompted)
+        quiet = self._console_remind("quiet", "All done.\n")
+        self.assertNotIn("target is blocked awaiting operator input", [s["reason"] for s in quiet["skipped"]], quiet)

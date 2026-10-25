@@ -45,7 +45,7 @@ from service.api_core.reply_contract import (
 )
 from service.api_core.serialization import _row_require_reply
 from service.api_core.settings import _load_settings
-from service.api_core.status_inputs import _compute_live_status_cache
+from service.api_core.terminal_run_hold import terminal_run_hold
 from service.api_core.ws import _get_ws
 
 
@@ -249,16 +249,13 @@ async def _run_contract_reminders_once(
             and str(row["status"] or "").strip().lower() in {"claimed", "running"}
         ):
             agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
-            live_state = await _compute_live_status_cache(db, agent_row, settings=settings) if agent_row else {}
-            if str(live_state.get("status") or "").strip().lower() == "blocked":
-                live_reason = str(live_state.get("reason") or "").strip().lower()
-                if live_reason.startswith("awaiting console"):
-                    reason = "target is blocked awaiting operator input"
-                    skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
-                    await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
-                    continue
-                if "no live terminal backing" in live_reason:
-                    terminal_blocked_without_live_backing = True
+            hold = await terminal_run_hold(db, agent_row) if agent_row else None
+            if hold and hold.awaiting_input:
+                reason = "target is blocked awaiting operator input"
+                skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
+                await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
+                continue
+            terminal_blocked_without_live_backing = bool(hold and hold.no_backing)
 
         # OPERATOR DECISION R3 (DECISIONS 2026-10-21, adopted): after the 0.9.8 switch a reply-overdue reminder waits
         # while aify-env says the agent is busy with anything, or comms cannot read whether it is; it is sent once the
