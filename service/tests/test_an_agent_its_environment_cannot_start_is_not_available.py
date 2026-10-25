@@ -7,8 +7,8 @@ read `available`, and every start was refused.
 AFTER THE 0.9.8 SWITCH the served word is aify-env's. The rule is aify-env's to apply: an outside-roots definition
 publishes `misconfigured` (aify-env f704bcdf, the env-side correction SW5 review R5 asked for), with no reason on the
 wire. comms serves that word, never `available`, and keeps its own note beside it, since it holds both facts (the
-definition's workspace and the environment's advertised roots). The legacy derivation a rollback serves keeps its own
-witnesses below (env_records.rollback_agent).
+definition's workspace and the environment's advertised roots). So every roots witness below reads that note: what
+comms knows about where aify-env starts work, beside the word aify-env published.
 """
 from __future__ import annotations
 
@@ -76,9 +76,11 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         finally:
             db.close()
 
-    def status(self, agent_id):
-        agent = env_records.rollback_agent(self, agent_id)  # the legacy word and note, which a rollback serves
-        return agent["status"], agent.get("statusNote") or ""
+    def note(self, agent_id):
+        """comms' note beside the `misconfigured` aify-env publishes: why no start can reach the agent, or nothing."""
+        status, note = self._env_says(agent_id, "misconfigured")
+        self.assertEqual(status, "misconfigured")
+        return note
 
     def _env_says(self, agent_id, state):
         """What its host's aify-env publishes for this defined agent with no process: `available` (startable) or, for
@@ -96,31 +98,21 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         self.assertIn("Cannot be started:", note)
         self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
 
-    def test_the_note_is_kept_when_the_legacy_derivation_never_reached_misconfigured(self):
-        """The legacy inputs judge the defect only for an agent whose environment answers; with its heartbeat gone they
-        say `offline` and carry no defect, while aify-env still knows the definition is outside its roots. The note
-        must come from comms' own facts then too, not from the legacy word happening to agree."""
+    def test_the_note_is_kept_when_the_environment_heartbeat_is_stale(self):
+        """aify-env still knows the definition is outside its roots after its heartbeat to comms ages out; the note must
+        come from comms' stored facts then too."""
         db = sqlite3.connect(self._db_path)
         try:
             db.execute("UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = 'win32:host:default'")
             db.commit()
         finally:
             db.close()
-        self.assertNotEqual(self.status("outside")[0], "misconfigured", "CONTROL: the legacy word is not misconfigured")
-        status, note = self._env_says("outside", "misconfigured")
-        self.assertEqual(status, "misconfigured")
-        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", self.note("outside"))
 
     def test_CONTROL_inside_the_roots_serves_aify_envs_word_with_no_such_note(self):
         status, note = self._env_says("inside", "available")
         self.assertEqual(status, "available")
         self.assertNotIn("Cannot be started", note)
-
-    def test_a_workspace_outside_the_advertised_folders_is_not_available_and_says_why(self):
-        # `misconfigured` is the engine's word for an identity no start can reach until a human fixes it.
-        status, note = self.status("outside")
-        self.assertEqual(status, "misconfigured")
-        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
 
     def test_an_undefined_agent_is_not_judged_by_its_record_cwd(self):
         # aify-env never starts it, for its own reason; its record's cwd is no definition's workspace.
@@ -130,12 +122,7 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             db.commit()
         finally:
             db.close()
-        self.assertNotIn("outside the folder", self.status("outside")[1])
-
-    def test_one_inside_them_stays_available(self):
-        status, note = self.status("inside")
-        self.assertEqual(status, "available")
-        self.assertNotIn("outside the folder", note)
+        self.assertNotIn("outside the folder", self.note("outside"))
 
     def beat(self, **body):
         self.client.post("/api/v1/environments/heartbeat", json={
@@ -151,15 +138,14 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         finally:
             db.close()
         self.beat(cwdRoots=["C:/Docker/aify-comms"], runtimes=[])
-        self.assertEqual(self.status("outside")[0], "available")
+        self.assertNotIn("outside the folder", self.note("outside"))
 
     def test_a_bridge_beat_without_the_bound_keeps_it(self):
         self.beat(bridgeId="some-bridge", runtimes=[], metadata={})
-        self.assertEqual(self.status("outside")[0], "misconfigured", "a bridge heartbeat erased aify-env's bound")
-
+        self.assertIn("outside the folder", self.note("outside"), "a bridge heartbeat erased aify-env's bound")
 
     def test_aify_envs_own_heartbeat_body_carries_the_bound_the_status_reads(self):
-        """Both ends of the field: the body aify-env's daemon builds, posted as it is, makes the status judge."""
+        """Both ends of the field: the body aify-env's daemon builds, posted as it is, gives comms the bound."""
         repo = next((r for r in ENV_REPOS if (r / "lib" / "advertise.mjs").is_file()), None)
         if repo is None or shutil.which("node") is None:
             self.skipTest("no aify-env checkout with lib/advertise.mjs, or no node")
@@ -175,9 +161,9 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             db.commit()
         finally:
             db.close()
-        self.assertEqual(self.status("outside")[0], "available", "the control: no bound, no judgement")
+        self.assertNotIn("outside the folder", self.note("outside"), "the control: no bound, no judgement")
         self.client.post("/api/v1/environments/heartbeat", json={"id": "win32:host:default", **body}).raise_for_status()
-        self.assertEqual(self.status("outside")[0], "misconfigured")
+        self.assertIn("outside the folder", self.note("outside"))
 
 
 class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
@@ -205,16 +191,17 @@ class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
         finally:
             db.close()
         self.assertNotIn("environmentId", json.loads(state or "{}"), "the fixture is no longer an unbound agent")
-        agent = env_records.rollback_agent(self, "lead")  # the legacy word and note, which a rollback serves
-        return agent["status"], agent.get("statusNote") or ""
+        record = dict(env_records.startable("lead"), state="misconfigured", stateCause="config")
+        env_records.report(self, "lead", records={"lead": record})
+        agent = self.client.get("/api/v1/agents/lead").json()["agent"]
+        self.assertEqual(agent["status"], "misconfigured")
+        return agent.get("statusNote") or ""
 
-    def test_outside_the_folder_it_reads_misconfigured(self):
-        status, note = self.status_of("C:/work")
-        self.assertEqual(status, "misconfigured", note)
-        self.assertIn("outside the folder aify-env was started in (C:/allowed)", note)
+    def test_outside_the_folder_its_note_says_why(self):
+        self.assertIn("outside the folder aify-env was started in (C:/allowed)", self.status_of("C:/work"))
 
-    def test_inside_the_folder_it_stays_available(self):
-        self.assertEqual(self.status_of("C:/allowed/work")[0], "available")
+    def test_inside_the_folder_its_note_names_no_folder(self):
+        self.assertNotIn("outside the folder", self.status_of("C:/allowed/work"))
 
 
 class TheEnginePushKeepsTheReasonWhateverTheRegistrationSaid(FastApiTestCase):

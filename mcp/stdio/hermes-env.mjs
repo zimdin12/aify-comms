@@ -8,8 +8,7 @@
 // Moving them into the gateway would be worse in a quieter way: the host would then import its own machine
 // id from a module named after gateways.
 //
-// A constant with readers on both sides of a boundary belongs to neither of them. Same call as
-// `api_core/liveness.py` owning TURN_BUSY_BACKSTOP_SECONDS on the Python side.
+// A constant with readers on both sides of a boundary belongs to neither of them.
 //
 // Note what is NOT here: the gateway's own timeouts. Those have a single reader each, inside the gateway,
 // so they follow it. This module is for shared identity, not for every constant that exists.

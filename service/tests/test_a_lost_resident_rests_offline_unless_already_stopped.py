@@ -5,9 +5,9 @@ A resident closing its own CLI is not an operator stop. aify-env publishes such 
 exited (sc-manager and mc-manager, 2026-10-17/18). A stop already on the row predates the loss and is someone else's:
 it stays.
 
-THE STORED FIELDS ARE ASSERTED, NOT ONLY THE SERVED STATUS. Served status reads `stopped` when either marker is set
-(`status_inputs.py`), so a test that watched only the served word could not tell a kept `status` from a kept
-`launch_mode`. The status-only stop below is the case where losing the prior-stop guard shows.
+THE STORED FIELDS ARE ASSERTED. Either marker reads as a stop, so a test that watched only a served word could not
+tell a kept `status` from a kept `launch_mode`. The status-only stop below is the case where losing the prior-stop
+guard shows.
 
 NO SEND CHANGES. A message to a resident whose bridge is gone is stored without a run whether the row says `stopped`
 or `offline`; the disposition is asserted apart from status.
@@ -18,7 +18,6 @@ from __future__ import annotations
 import sqlite3
 
 from service.routers.api_v2 import router  # noqa: F401 -- the base builds the app from it
-from service.tests import env_records
 from service.tests._base import FastApiTestCase
 
 AGENT = "lost-resident"
@@ -57,9 +56,6 @@ class ALostResidentRestsOfflineUnlessAlreadyStopped(FastApiTestCase):
         finally:
             db.close()
 
-    def _served(self) -> str:
-        return env_records.rollback_word(self, AGENT)  # the legacy word, which a rollback of the 0.9.8 switch serves
-
     def _send(self) -> dict:
         response = self.client.post("/api/v1/messages/send", json={
             "from_agent": "dashboard", "to": AGENT, "type": "request", "subject": "ping", "body": "ping",
@@ -74,7 +70,6 @@ class ALostResidentRestsOfflineUnlessAlreadyStopped(FastApiTestCase):
         status, launch_mode, note = self._stored()
         self.assertEqual((status, launch_mode), ("offline", "detached"))
         self.assertIn(REASON, note)
-        self.assertEqual(self._served(), "offline")
 
     def test_a_send_to_the_lost_resident_is_stored_without_a_run_as_before(self):
         """The disposition, asserted apart from status: stored, no run, the wake reported as not started."""
@@ -98,7 +93,6 @@ class ALostResidentRestsOfflineUnlessAlreadyStopped(FastApiTestCase):
         self._execute("UPDATE agents SET status = 'stopped', launch_mode = 'detached' WHERE id = ?", (AGENT,))
         self.assertEqual(self._lost()["transition"], "resident_to_stopped")
         self.assertEqual(self._stored()[0], "stopped")
-        self.assertEqual(self._served(), "stopped")
 
     def test_CONTROL_a_launch_mode_only_stop_before_the_loss_keeps_todays_write(self):
         self._register()

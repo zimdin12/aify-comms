@@ -193,7 +193,7 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
     def test_the_scan_reaches_the_files_it_claims_to_cover(self):
         """A gate over an empty file list passes vacuously."""
         found = {_rel(p) for p in _source_files()}
-        self.assertIn("service/api_core/status_inputs.py", found)
+        self.assertIn("service/api_core/status_refresh.py", found)
         self.assertIn("service/db.py", found)
         self.assertNotIn("service/tests/test_no_new_oversized_source_file.py", found, "tests are out of scope")
 

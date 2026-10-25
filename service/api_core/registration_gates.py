@@ -41,24 +41,14 @@ DB ACCESS: `db` is passed in. No connection opened, no commit, no rollback.
 from __future__ import annotations
 
 import re
-import time
 from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from service.api_core.capabilities import (
-    _has_codex_live_app_server,
-    _managed_via_wrapper_for_runtime,
-)
-from service.api_core.live_process_probes import _has_live_terminal_session
-from service.api_core.managed_env import _managed_owning_environment_row
+from service.api_core.capabilities import _has_codex_live_app_server
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _parsed_timestamp, _timestamp_sort_key
-from service.status_engine import WORKER_AT_REST_STATUSES, is_live_agent_status
 from service.api_core.resume_command import _resume_command_for
-from service.clock import now as _now
-from service.env_status import environment_effective_status as _environment_effective_status
-from service.reconcilers.status_cache import _live_state_get
 
 
 #: Both separators. It matched only `C:/` until 2026-08-16, so the gate below refused `C:/repo` on a
@@ -71,147 +61,6 @@ _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
 
 def _machine_family(machine_id: Any) -> str:
     return str(machine_id or "").strip().split(":", 1)[0].lower()
-
-
-async def _enforce_env_reachable_gate(
-    payload: dict[str, Any],
-    db,
-    settings: dict[str, Any],
-    agent_id: str,
-    agent_row=None,
-    environments_by_machine=None,
-    session_environment_by_agent=None,
-) -> dict[str, Any]:
-    """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
-    status must not outlive its owning ENVIRONMENT. The cached entry's `refresh_after` is
-    keyed on heartbeat freshness, and nothing invalidates dependent agents when an env
-    bridge dies (env death is computed-on-read from last_seen age — there is no
-    transition event) — so a managed agent could keep serving cached `online`/`available`
-    for the full refresh window after its machine went dark. (Masked until today: the
-    read-path cache upserts were rolled back on close, hiding the staleness behind
-    constant recomputes.) Sibling of `_enforce_live_worker_gate`: when the cached status
-    claims the env is usable but the env row no longer reads online/degraded, recompute
-    fresh — the full derivation applies the offline policy."""
-    status = str(payload.get("status") or "").lower()
-    # DERIVED, NEVER LISTED. This was a hand-typed set of five, and `shell` -- added 2026-09-17 -- was
-    # never added to it, so a managed agent reading `shell` kept that status after its machine went
-    # dark and `send_preflight` accepted live sends to it (external review 2026-09-21, finding 3).
-    # `is_live_agent_status` is the owner of "does this status claim the agent is reachable", it is
-    # prefix-tolerant for derived values like `offline (no wake path)`, and a status added next year
-    # is covered by it without anyone remembering this line.
-    live = is_live_agent_status(status)
-    if not live:
-        return payload
-    if str(payload.get("sessionMode") or "").lower() != "managed":
-        return payload
-    env_id = str((payload.get("runtimeState") or {}).get("environmentId") or "").strip()
-    if not env_id:
-        # The binding may live on the session row instead of runtime_state — the cached
-        # live-state entry carries whichever environment the derivation actually used.
-        _ls = _live_state_get(agent_id)
-        env_id = str((_ls or {}).get("environment_id") or "").strip()
-    env_row = None
-    if env_id:
-        env_row = await (await db.execute(
-            "SELECT * FROM environments WHERE id = ?", (env_id,)
-        )).fetchone()
-    else:
-        # No quick binding anywhere — resolve the owning env the same way the offline
-        # derivation does (machine_id + runtime), so an agent with no session row and no
-        # runtime_state binding still gets gated against its real environment.
-        # The ROSTER already holds this row. `list_agents` selects every agent, then calls this
-        # gate per agent, and this branch re-selected the same row by id -- measured at 58 of the
-        # 285 statements one roster call issues for 50 agents. Each is an event-loop hop to
-        # aiosqlite's worker thread, which is what makes an indexed lookup cost milliseconds.
-        # Callers without the row in hand (the single-agent endpoint) pass nothing and still read.
-        if agent_row is None:
-            agent_row = await (await db.execute(
-                "SELECT * FROM agents WHERE id = ?", (agent_id,)
-            )).fetchone()
-        if agent_row is None:
-            return payload
-        env_row = await _managed_owning_environment_row(
-            db, agent_row, resolved_environment_id="",
-            environments_by_machine=environments_by_machine,
-            session_environment_by_agent=session_environment_by_agent,
-        )
-        if env_row is None:
-            return payload
-    offline_seconds = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
-    if env_row and _environment_effective_status(env_row, offline_seconds=offline_seconds) in {"online", "degraded"}:
-        return payload
-    # Env is gone but the cached status predates its death → correct it IN-MEMORY for this
-    # response. READ-ONLY (2026-06-18): the previous invalidate + _refresh_agent_live_state +
-    # commit ran on the hot read path per agent — a per-poll write storm that starved SQLite's
-    # single writer (`database is locked`, fleet-wide). A managed agent whose owning environment
-    # is not online/degraded is `offline` (the same conclusion _compute_live_status_cache's
-    # managed_env_bridge_offline branch reaches); set it here without persisting. The 60s
-    # reconcile sweep persists the correction (env death has no transition event, so the sweep
-    # is the durable re-derivation path).
-    env_label = env_id or "owning environment"
-    payload["status"] = "offline"
-    payload["statusRaw"] = "offline"
-    payload["statusNote"] = f'Environment "{env_label}" is offline; only its bridge can host this managed worker.'
-    return payload
-
-
-async def _enforce_live_worker_gate(
-    payload: dict[str, Any],
-    db,
-    settings: dict[str, Any],
-    agent_id: str,
-    *,
-    live_terminal_agents: set[str] | None = None,
-) -> dict[str, Any]:
-    """Plan 5 Section C (2026-05-25): downgrade cached `online` to `available`
-    for managed wrapper-backed agents that have no non-terminated
-    `terminal_sessions` row.
-
-    Why this lives at the read boundary (not in the cache):
-    `_compute_live_status_cache` already consults `terminal_sessions` when it
-    runs, but the cached entry's `refresh_after` is keyed on heartbeat
-    freshness via `_status_refresh_after` — NOT worker presence. When the
-    wrapper PTY exits but a parallel heartbeat keeps the agent alive (e.g.
-    another bridge polling the same agent), `refresh_after` stays in the
-    future and `_refresh_expired_agent_live_states` never re-validates.
-    Cached `status='online'` then persists indefinitely.
-
-    Observed 2026-05-25: graph-senior-dev (codex managed) —
-    `agent_live_state.status='online'` `terminal_id=''`
-    `updated_at=19:29:10Z` `refresh_after=19:30:28Z` (long past), but the
-    API still returned `online` because the cache row never fell behind a
-    fresh-enough heartbeat to trigger a recompute.
-
-    This gate is a final-step correction at the API boundary; it corrects this response only (see
-    the READ-ONLY note at the end). `live_terminal_agents` is the roster's one-query answer
-    (`_agents_with_live_terminal_sessions`); without it the gate asks for this one agent.
-    """
-    if payload.get("status") not in WORKER_AT_REST_STATUSES:
-        return payload
-    session_mode = str(payload.get("sessionMode") or "").lower()
-    if session_mode != "managed":
-        return payload
-    runtime = str(payload.get("runtime") or "").lower()
-    if not _managed_via_wrapper_for_runtime(settings, runtime):
-        return payload
-    if live_terminal_agents is not None:
-        if agent_id in live_terminal_agents:
-            return payload
-    elif await _has_live_terminal_session(db, agent_id):
-        return payload
-    payload["status"] = "available"
-    payload["statusRaw"] = "available"
-    payload["statusNote"] = "no-live-worker (Plan 5 read-path gate)"
-    # READ-ONLY (2026-06-18): the cache writeback was REMOVED. This gate runs on the hot
-    # read path (GET /agents | /agents/{id}) per agent; persisting the downgrade here meant
-    # up to N writes per roster poll, which starved SQLite's single writer and 503'd the
-    # fleet's claim/heartbeat writes (`database is locked`). The downgrade is computed
-    # in-memory for THIS response; the 60s reconcile sweep persists the same correction
-    # (it re-derives via _compute_live_status_cache, which applies the identical
-    # terminal_sessions check). A read re-running the gate is just a couple of cheap reads.
-    return payload
-
-
 
 
 def _validate_registration_cwd(
@@ -249,8 +98,6 @@ def _validate_registration_cwd(
                 'Use forward-slash drive-letter form like "C:/repo", not a "/mnt/..." WSL path.'
             ),
         )
-
-
 
 
 async def _enforce_driving_mode_switch_gate(req, row, normalized_runtime, normalized_session_mode) -> None:

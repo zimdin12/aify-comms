@@ -42,7 +42,6 @@ from service.terminal_snapshot import (
     render_live_screen as _render_live_terminal_screen,
     render_snapshot as _render_terminal_snapshot,
 )
-import sqlite3
 from service.api_core.tuning import _CONSOLE_TAIL_MAX_BYTES, _CONSOLE_TAIL_MAX_LINES
 from service.routers.agents.shared import logger
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES

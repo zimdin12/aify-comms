@@ -14,7 +14,10 @@ ever intended, the list is the record of what was chosen.
 
 ONE INTENDED CHANGE SINCE, before the extraction: main dropped the analytics message-total query (the
 tile is now the sum of the series it is shown with, review of 0.9.5, L7), so that one entry is gone from
-both analytics lists. Every other entry and both response bodies are as recorded.
+both analytics lists. 0.9.9 S3b deleted the legacy status derivation the roster's status compute ran, and
+with it nine reads per request (the session prefetch, the turn, status, console and activity batches, and each
+agent's delivered-reply and sidecar reads); those entries are gone from both lists. Every other entry and both
+response bodies are as recorded.
 
 THE INSTRUMENT is below the handler, not beside it: every `aiosqlite.Connection` statement, commit,
 rollback and close is logged in call order, tagged with the connection it ran on (`c1` is the first
@@ -704,7 +707,7 @@ PROOF_REFUSED_BODY = {'detail': 'environment heartbeat refused: machine win32:fr
            '~/.aify/host-secret was replaced, an operator resets it: POST '
            '/host-proofs/win32:freeze-host/reset'}
 
-#: status 200; 96 recorded calls
+#: status 200; 87 recorded calls
 ANALYTICS_HOUR_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORMAL;PRAGMA foreign_keys=ON;PRAGMA '
  'journal_size_limit=16777216;',
  'c1 SQL SELECT key, value FROM settings',
@@ -719,17 +722,6 @@ ANALYTICS_HOUR_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NOR
  'c1 SQL SELECT status, COUNT(*) as cnt FROM spawn_requests WHERE updated_at >= ? GROUP BY status | '
  '["<iso>"]',
  'c1 SQL SELECT * FROM agents',
- 'c1 SQL SELECT agent_id, environment_id FROM agent_sessions WHERE status IN (?, ?, ?, ?, ?) ORDER BY '
- 'last_seen DESC | ["cli-takeover", "recovering", "restarting", "running", "starting"]',
- 'c1 SQL SELECT agent_id, in_turn, awaiting_input, last_event_at, turn_started_at FROM agent_status_state '
- 'WHERE agent_id IN (?,?) | ["freeze-alpha", "freeze-beta"]',
- 'c1 SQL SELECT agent_id, working_at, subagents_at, background_at FROM agent_console_signal WHERE agent_id '
- 'IN (?,?) | ["freeze-alpha", "freeze-beta"]',
- 'c1 SQL SELECT agent_id, turn_busy, turn_runtime, turn_updated_at, ready, turn_started_at, turn_bridge_id '
- 'FROM agent_turn_state WHERE agent_id IN (?,?) | ["freeze-alpha", "freeze-beta"]',
- 'c1 SQL SELECT agent_id, activity_state, activity_reported_at FROM terminal_sessions WHERE agent_id IN '
- "(?,?) AND status IN (?,?,?,?,?) AND COALESCE(activity_state, '') != '' ORDER BY activity_reported_at DESC, "
- 'id DESC | ["freeze-alpha", "freeze-beta", "active", "attached", "idle", "running", "starting"]',
  'c1 SQL SELECT key, value FROM settings',
  'c1 SQL SELECT * FROM agent_sessions WHERE agent_id = ? AND status NOT IN (?, ?, ?, ?, ?, ?) ORDER BY CASE '
  "WHEN status IN ('running', 'recovering', 'restarting', 'cli-takeover') THEN 0 ELSE 1 END, last_seen DESC, "
@@ -738,12 +730,6 @@ ANALYTICS_HOUR_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NOR
  'claimed_at, started_at, claim_bridge_id FROM dispatch_runs WHERE target_agent = ? AND status IN '
  "('claimed', 'running') ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC LIMIT 1 | "
  '["freeze-alpha"]',
- 'c1 SQL SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at FROM '
- "dispatch_runs WHERE target_agent = ? AND status = 'delivered' AND execution_mode IN ('channel', "
- "'resident') AND require_reply = 1 ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC LIMIT 1 | "
- '["freeze-alpha"]',
- "c1 SQL SELECT last_seen FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar' AND "
- 'COALESCE(superseded_by, \'\') = \'\' ORDER BY last_seen DESC LIMIT 1 | ["freeze-alpha"]',
  'c1 SQL SELECT key, value FROM settings',
  'c1 SQL SELECT * FROM agent_sessions WHERE agent_id = ? AND status NOT IN (?, ?, ?, ?, ?, ?) ORDER BY CASE '
  "WHEN status IN ('running', 'recovering', 'restarting', 'cli-takeover') THEN 0 ELSE 1 END, last_seen DESC, "
@@ -752,12 +738,6 @@ ANALYTICS_HOUR_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NOR
  'claimed_at, started_at, claim_bridge_id FROM dispatch_runs WHERE target_agent = ? AND status IN '
  "('claimed', 'running') ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC LIMIT 1 | "
  '["freeze-beta"]',
- 'c1 SQL SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at FROM '
- "dispatch_runs WHERE target_agent = ? AND status = 'delivered' AND execution_mode IN ('channel', "
- "'resident') AND require_reply = 1 ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC LIMIT 1 | "
- '["freeze-beta"]',
- "c1 SQL SELECT last_seen FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar' AND "
- 'COALESCE(superseded_by, \'\') = \'\' ORDER BY last_seen DESC LIMIT 1 | ["freeze-beta"]',
  'c1 SQL SELECT status, last_seen FROM environments',
  "c1 SQL SELECT requested_at, status FROM dispatch_runs WHERE require_reply = 1 AND status IN ('queued', "
  "'claimed', 'running', 'delivered') AND COALESCE(result_message_id, '') = ''",
@@ -809,7 +789,7 @@ ANALYTICS_HOUR_BODY = {'agentLeaderboard': [{'agent': 'freeze-beta', 'completed'
  'successRate': 66.7,
  'workingAgents': 0}
 
-#: status 200; 96 recorded calls
+#: status 200; 87 recorded calls
 ANALYTICS_ALL_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORMAL;PRAGMA foreign_keys=ON;PRAGMA '
  'journal_size_limit=16777216;',
  'c1 SQL SELECT key, value FROM settings',
@@ -822,17 +802,6 @@ ANALYTICS_ALL_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORM
  'c1 SQL SELECT status, COUNT(*) as cnt FROM dispatch_runs GROUP BY status',
  'c1 SQL SELECT status, COUNT(*) as cnt FROM spawn_requests GROUP BY status',
  'c1 SQL SELECT * FROM agents',
- 'c1 SQL SELECT agent_id, environment_id FROM agent_sessions WHERE status IN (?, ?, ?, ?, ?) ORDER BY '
- 'last_seen DESC | ["cli-takeover", "recovering", "restarting", "running", "starting"]',
- 'c1 SQL SELECT agent_id, in_turn, awaiting_input, last_event_at, turn_started_at FROM agent_status_state '
- 'WHERE agent_id IN (?,?) | ["freeze-alpha", "freeze-beta"]',
- 'c1 SQL SELECT agent_id, working_at, subagents_at, background_at FROM agent_console_signal WHERE agent_id '
- 'IN (?,?) | ["freeze-alpha", "freeze-beta"]',
- 'c1 SQL SELECT agent_id, turn_busy, turn_runtime, turn_updated_at, ready, turn_started_at, turn_bridge_id '
- 'FROM agent_turn_state WHERE agent_id IN (?,?) | ["freeze-alpha", "freeze-beta"]',
- 'c1 SQL SELECT agent_id, activity_state, activity_reported_at FROM terminal_sessions WHERE agent_id IN '
- "(?,?) AND status IN (?,?,?,?,?) AND COALESCE(activity_state, '') != '' ORDER BY activity_reported_at DESC, "
- 'id DESC | ["freeze-alpha", "freeze-beta", "active", "attached", "idle", "running", "starting"]',
  'c1 SQL SELECT key, value FROM settings',
  'c1 SQL SELECT * FROM agent_sessions WHERE agent_id = ? AND status NOT IN (?, ?, ?, ?, ?, ?) ORDER BY CASE '
  "WHEN status IN ('running', 'recovering', 'restarting', 'cli-takeover') THEN 0 ELSE 1 END, last_seen DESC, "
@@ -841,12 +810,6 @@ ANALYTICS_ALL_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORM
  'claimed_at, started_at, claim_bridge_id FROM dispatch_runs WHERE target_agent = ? AND status IN '
  "('claimed', 'running') ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC LIMIT 1 | "
  '["freeze-alpha"]',
- 'c1 SQL SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at FROM '
- "dispatch_runs WHERE target_agent = ? AND status = 'delivered' AND execution_mode IN ('channel', "
- "'resident') AND require_reply = 1 ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC LIMIT 1 | "
- '["freeze-alpha"]',
- "c1 SQL SELECT last_seen FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar' AND "
- 'COALESCE(superseded_by, \'\') = \'\' ORDER BY last_seen DESC LIMIT 1 | ["freeze-alpha"]',
  'c1 SQL SELECT key, value FROM settings',
  'c1 SQL SELECT * FROM agent_sessions WHERE agent_id = ? AND status NOT IN (?, ?, ?, ?, ?, ?) ORDER BY CASE '
  "WHEN status IN ('running', 'recovering', 'restarting', 'cli-takeover') THEN 0 ELSE 1 END, last_seen DESC, "
@@ -855,12 +818,6 @@ ANALYTICS_ALL_SQL = ['c1 SCRIPT PRAGMA busy_timeout=5000;PRAGMA synchronous=NORM
  'claimed_at, started_at, claim_bridge_id FROM dispatch_runs WHERE target_agent = ? AND status IN '
  "('claimed', 'running') ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC LIMIT 1 | "
  '["freeze-beta"]',
- 'c1 SQL SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at FROM '
- "dispatch_runs WHERE target_agent = ? AND status = 'delivered' AND execution_mode IN ('channel', "
- "'resident') AND require_reply = 1 ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC LIMIT 1 | "
- '["freeze-beta"]',
- "c1 SQL SELECT last_seen FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar' AND "
- 'COALESCE(superseded_by, \'\') = \'\' ORDER BY last_seen DESC LIMIT 1 | ["freeze-beta"]',
  'c1 SQL SELECT status, last_seen FROM environments',
  "c1 SQL SELECT requested_at, status FROM dispatch_runs WHERE require_reply = 1 AND status IN ('queued', "
  "'claimed', 'running', 'delivered') AND COALESCE(result_message_id, '') = ''",

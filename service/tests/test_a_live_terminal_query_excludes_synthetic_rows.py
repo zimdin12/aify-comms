@@ -198,10 +198,10 @@ class LiveTerminalQueriesExcludeSyntheticRowsTests(unittest.TestCase):
 
     def test_most_of_the_population_carries_the_clause(self):
         """The gate rests on the clause being the NORM. If that ever stopped being true the finding
-        would be inverted -- six sites wrong rather than one -- and this test should say so rather
+        would be inverted -- most sites wrong rather than one -- and this test should say so rather
         than keep enforcing a minority convention."""
         carrying = sum(1 for _, _, excludes, _ in self.queries if excludes)
-        self.assertGreaterEqual(carrying, 5, (
+        self.assertGreater(2 * carrying, len(self.queries), (
             f"only {carrying} of {len(self.queries)} live-terminal queries exclude synthetic rows; "
             "the convention this gate enforces is no longer the majority one"
         ))

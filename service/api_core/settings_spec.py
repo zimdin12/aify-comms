@@ -199,11 +199,6 @@ SETTINGS: tuple[Setting, ...] = (
             unit="min", min=5, max=1440),
     Setting("queued_run_backstop_seconds", 180, "int", _X, "Fail a message no live agent can take or answer after",
             unit="s", min=60, max=3600),
-    # UNLIKE its neighbour above, this one has no early return: `api_core/status_inputs.py` applies
-    # `max(60, ...)` to every value, so a declared min of 30 was a number the panel accepted and the
-    # code silently doubled (review finding 12, and this half of it holds).
-    Setting("agent_offline_revalidate_seconds", 180, "int", _X, "Re-check an offline agent's status every",
-            unit="s", min=60, max=3600),
     Setting("dashboard_refresh_seconds", 15, "int", _X, "Dashboard poll while its live connection is down",
             unit="s", min=5, max=300),
     Setting("managed_via_wrapper", ["codex", "hermes"], "runtimes", _X, "Runtimes delivered through their console wrapper",

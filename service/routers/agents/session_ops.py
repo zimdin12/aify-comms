@@ -42,7 +42,6 @@ from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-import sqlite3
 from service.routers.agents.shared import logger
 
 router = domain_router()

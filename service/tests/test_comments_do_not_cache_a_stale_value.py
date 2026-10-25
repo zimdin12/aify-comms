@@ -22,7 +22,7 @@ this a gate rather than a finding — the same choice, for the same reason, as t
 
 Deliberately narrow. It only looks at comment lines, only at `NAME = number` / `NAME is number` /
 `NAME currently number`, and only for constants whose real value is a plain integer literal. A
-constant declared as an expression (`TURN_BUSY_BACKSTOP_SECONDS = 30 * 60`) is skipped rather than
+constant declared as an expression (`X_SECONDS = 30 * 60`) is skipped rather than
 guessed at, and "NAME was 5" is not matched at all, because a comment recording history is not making
 a claim about the present.
 """
@@ -96,7 +96,7 @@ def test_the_scanner_finds_the_constants_it_needs() -> None:
     # a legitimate change to the lease failed this control as well as the stale-comment test below,
     # and the second failure would say nothing the first did not -- a control that also asserts the
     # subject stops being a control.
-    for name in ("CONSOLE_WORKING_LEASE_SECONDS", "TURN_BUSY_STALE_SECONDS"):
+    for name in ("TERMINAL_MAX_COLS", "WS_CONNECTING_TIMEOUT_MS"):
         assert isinstance(values.get(name), int), f"{name} was not picked up as an integer constant"
 
 
@@ -106,8 +106,9 @@ def test_the_scanner_finds_the_prose_it_checks() -> None:
     claims = _claims()
     assert claims, "no comment states a constant value any more — the prose regex has stopped matching"
     cited = {name for _, _, name, _, _ in claims}
-    assert "CONSOLE_WORKING_LEASE_SECONDS" in cited or "TURN_BUSY_STALE_SECONDS" in cited, (
-        f"the known status-window comments are no longer found; cited={sorted(cited)}"
+    # The status-window comments this was written for went with their constants in 0.9.9 S3b.
+    assert "TERMINAL_MAX_COLS" in cited or "WS_CONNECTING_TIMEOUT_MS" in cited, (
+        f"the known terminal-size and connect-timeout comments are no longer found; cited={sorted(cited)}"
     )
 
 

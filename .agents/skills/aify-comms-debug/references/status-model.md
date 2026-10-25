@@ -1,16 +1,13 @@
 # aify-comms debug: Status: when the badge disagrees with reality, and what each state proves
 
-## CHECK THIS FIRST: `working` forever, or never `working` — the bridge has no agent id
+## CHECK THIS FIRST: never `working` — the bridge has no agent id
 
-**Symptom.** One agent stays `working` while idle and never self-heals, or (after a manual
-`/turn-end`) stays `online` while clearly working. Messaging, registration and heartbeats all look
-healthy, which is why this goes unnoticed for weeks.
+**Symptom.** One agent stays `online` while clearly working. Messaging, registration and
+heartbeats all look healthy, which is why this goes unnoticed for weeks.
 
 **Cause.** The wrapper was launched without an agent id, so `AIFY_AGENT_ID` is missing from the
-bridge's process. Every turn path is gated on it: the bridge turn detector never arms, and the
-`Stop`, `UserPromptSubmit` and `PostToolUse` hooks do nothing. The channel sidecar carries the id
-in its own config, so it still marks the turn busy (heartbeat `turnBusy`) on a wake and nothing
-ever clears it.
+bridge's process. Every turn path is gated on it: the `Stop`, `UserPromptSubmit` and `PostToolUse`
+hooks post nothing to aify-env, so aify-env never sees the turn.
 
 **Diagnose [host].** The database cannot show this; read the process environment. On Linux
 `aify-comms doctor` `agent-identity` does it for you, or:
@@ -38,58 +35,36 @@ claude-aify --aify-agent <agent-id> --resume <session-handle>
 Re-registering does not help (`AIFY_AGENT_ID` is read once at bridge boot), and neither does
 Claude Code's in-app `/resume` (same process, same env).
 
-## Managed agent reads `online` but nothing delivers, or `available` with a live Console
+## How the word is decided
 
-`online` means deliverable: a live console **and** a live, non-superseded claimer (the
-`claude-channel.js` sidecar for claude, the `hermes-managed-host.js` delivery loop for hermes, the
-wrapper-child bridge for codex). The read-time gates `_enforce_live_worker_gate` and
-`_enforce_env_reachable_gate` (`api_core/registration_gates.py`) enforce this.
+Since 0.9.8 the word is aify-env's. Each host's aify-env publishes a record per agent; comms
+mirrors it and serves the operational view (`service/api_core/operational_view.py`). First match
+wins:
 
-- `available` with a live Console: the claimer is down, so the note reads "No live channel sidecar
-  heartbeat (not deliverable)". Restart it with `comms_restart(agentId)`; a resident is relaunched
-  from its own terminal.
-- A live claimer with no console is a headless orphan. It reads `available` and
-  `_reconcile_managed_worker_hygiene` (`reconcilers/managed_workers.py`) reaps it on the 60s loop.
-- `offline` on every managed agent of one host: its environment is unreachable. Check
-  `aify-comms doctor` `env-bridge` and `aify-env doctor` [host]; restarting aify-env is [operator].
+1. An agent no host defines, stopped by the operator → `stopped`.
+2. A wake handle proven absent → `offline`.
+3. Any publisher on the agent's machine not fresh (no snapshot within three of its announced
+   intervals), unreadable, restored after a service restart, or incomplete → `unknown`, with the
+   last known word and its time beside it. Two fresh records of one agent also read `unknown`.
+4. Otherwise aify-env's state, promoted to `working` while a run comms delivered is running.
 
-## Agent reads idle but its queued work never delivers (deaf agent)
+Only three words carry a note: an operator stop (their note), `misconfigured` (comms' reason: a
+workspace outside the folder aify-env was started in, or a runtime it cannot launch) and
+`unknown` (why). Delivery follows the same facts: a claim withholds on `unknown`, holds or
+steers while aify-env says busy, and proceeds on known idle (`claim_decision`).
 
-**Symptom.** `online`/`available`, bridge alive, yet queued runs stay `queued`. A target without
-the `steer` capability gets no run at all, so it can look deaf to every dispatch.
+## The badge is wrong, or delivery stalls
 
-**Cause.** The delivery gates read the raw `agent_turn_state.turn_busy` flag, and only a turn-end
-clears it. `_clear_turn_busy_for_dead_bridges` skips hook-driven resident-claude turns
-(`turn_bridge_id='user-prompt-submit'`), and a killed harness or failed `Stop` hook leaves the flag
-set. `_turn_busy_holds_delivery` bounds it by `TURN_BUSY_BACKSTOP_SECONDS` (30 min), the same
-ceiling status uses, so it self-heals at 30 minutes.
-
-**Triage [host].**
-
-```bash
-docker exec aify-comms-service python -c "
-import sqlite3, glob
-c = sqlite3.connect(sorted(glob.glob('/data/*.db'))[-1])
-for r in c.execute('SELECT agent_id, turn_busy, turn_bridge_id, turn_updated_at FROM agent_turn_state WHERE turn_busy = 1'):
-    print(r)
-"
-```
-
-A row minutes old on a visibly idle agent is a latched flag. If it recurs for the same agent, fix
-that runtime's turn-end signal ("What feeds the turn signal" below), not the gate.
-
-## Managed claude's badge disagrees with its screen
-
-For a managed agent, a fresh aify-env screen observation (`host_activity.py`) decides the status
-ahead of the turn bookkeeping. Without one, the service's console lease (`console_working.py`,
-20s, stamped from the rendered screen) holds a long turn at `working`.
-
-- `online` while the Console shows the running footer: no fresh observation arrived. Check
-  `aify-comms doctor` `tier-version` and `aify-env doctor` `code-current` (old ones send none),
-  then whether the console streams (`comms_console_tail`).
-- `blocked` while generating: `_agent_awaiting_input` (`api_core/liveness.py`) matched a claude
-  permission, resume or compaction prompt on the rendered screen. Read the console tail to see
-  whether a prompt is really up.
+- `unknown` on every agent of a host: comms lost its aify-env. `aify-comms doctor`
+  `agent-state-publishers` names the publisher; `aify-env doctor` [host] says why. After a
+  service restart every agent reads `unknown` until each aify-env's next snapshot (under a minute).
+- A wrong word while its publisher is fresh: aify-env decided it. Compare the console
+  (`comms_console_tail`) with `aify-env doctor` [host]; the screen rules are aify-env's.
+- Queued work never delivers to an idle-looking agent: aify-env still says busy. Check the agent
+  has an id (first entry above), then aify-env's record of its turn.
+- `available` with a live Console, or a headless worker: aify-env's record of the worker;
+  `_reconcile_managed_worker_hygiene` (`reconcilers/managed_workers.py`) reaps a headless
+  orphan on the 60s loop.
 
 ## Status labels
 
@@ -105,26 +80,12 @@ the contract both tables follow.
 | `online` | Live worker, no turn in progress. The ready state: queued work delivers to it. |
 | `available` | Managed agent, host reachable, no live worker. The next send cold-starts one. |
 | `blocked` | The turn is waiting on operator input (a prompt or question), not generating. Liveness-gated like `working`. |
-| `offline` | Heartbeat gone (`agent_liveness_seconds`, default 90s), a resident whose bridge lease lapsed (`resident_lease_seconds`, default 150s), or a managed agent whose host environment is unreachable. |
+| `offline` | The worker is gone and aify-env cannot start it here: a resident whose session ended, or a managed agent whose host cannot run it now. |
 | `stopped` | Deliberately down: the operator disabled wake (`launch_mode='none'`), or a **resident** closed cleanly. A managed agent whose worker died is `available`, not `stopped`. |
-| `starting` | A spawn is running and its worker has not appeared yet. Leave it alone: a restart now kills the boot. A send queues until the worker arrives. Bounded by the spawn window, after which it falls back to `available`. |
+| `starting` | A spawn is running and its worker has not appeared yet. Leave it alone: a restart now kills the boot. A send queues until the worker arrives. |
 | `misconfigured` | The identity can never start (no spawn spec or host, no wake path, unknown runtime). A human must fix the config; sending will not help. |
 
-## How `derive()` decides
-
-`service/status_engine.py` `derive()` is the only status authority, a pure function of
-`StatusInputs`. First match wins:
-
-1. disabled → `stopped`; managed with its environment unreachable → `offline`.
-2. Managed, worker present, and a **fresh aify-env screen observation** (`host_activity.py`,
-   `HOST_ACTIVITY_FRESH_SECONDS`): working / blocked / shell / idle→`online`. An idle screen never
-   ends a turn the service still holds.
-3. In a turn and live → `working`, or `blocked` when the console awaits input.
-4. Managed: alive with a worker → `online`; host reachable → `misconfigured`, `online` (console
-   booting), `starting`, else `available`; otherwise `offline`.
-5. Resident: alive, live session, fresh bridge → `online`; else `misconfigured` or `offline`.
-
-## What feeds the turn signal
+## What feeds aify-env's turn signal
 
 - **claude:** `UserPromptSubmit` and `PostToolUse` hooks post a turn start to aify-env; `Stop` posts the
   end through `claude-stop-gate.js`, which suppresses a premature mid-turn Stop and posts on any doubt.
@@ -132,24 +93,15 @@ the contract both tables follow.
 - **codex:** hooks plus the app-server `turn/started` / `turn/completed` events.
 - **hermes:** `hermes-gateway-turn-detector.js` reads the gateway session status; idle must hold for
   several consecutive reads before it clears, because hermes' running flag blinks off between tool
-  calls. It runs for managed hermes and for any resident with `AIFY_HERMES_GATEWAY_URL` set.
-- **Backstop:** a turn with no end-event ages out 30 min after it began
-  (`TURN_BUSY_BACKSTOP_SECONDS`); one a live bridge owns lasts while its renewals keep coming.
-- **Console lease:** `service/api_core/console_working.py` stamps a 20s lease when the rendered
-  managed-claude screen shows the running footer. It holds a long turn at `working` when no fresh
-  aify-env observation is available.
+  calls. It still posts to comms, which ignores it until 0.9.10 moves hermes out of comms.
 
 Every one of these paths needs `AIFY_AGENT_ID` in the bridge's process. An agent stuck `working`
 or never `working` is usually that: see the first entry above.
 
-**`turn_busy` (delivery gate) and `in_turn` (status) are decoupled on purpose.** A reply sent
-mid-turn clears `turn_busy` so queued work can move, while `in_turn` clears only on a real turn-end.
-`turn_busy=0` with `in_turn=1` means "replied, still working", not a bug.
-
 ## Exits and sessions
 
-- A **resident** that exits cleanly POSTs `/agents/{id}/resident-lost` and reads `stopped` within
-  seconds. A crashed resident reads `offline` once its lease lapses.
+- A **resident** that exits cleanly POSTs `/agents/{id}/resident-lost` and rests `offline`: closing
+  its own CLI is not an operator stop, so a stop already on its row is the only `stopped` kept.
 - A **managed** agent reaching that endpoint (its hermes gateway died, for example) rests
   cold-startable at `available`, so the next send spawns a fresh worker. Ownership never switches
   between managed and resident by itself.

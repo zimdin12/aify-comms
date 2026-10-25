@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from service.api_core.status_signal_prefetch import status_signals_or_live
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state
 
@@ -81,19 +80,3 @@ async def record_host_activity(db, terminal, activity) -> str:
     if agent_id:
         await invalidate_agent_live_state(db, agent_id)
     return agent_id
-
-
-async def host_activity_for(db, agent_id: str, *, now_epoch: float | None = None,
-                            status_signals=None) -> tuple[str, bool, str]:
-    """(state, fresh, reported_at) of the newest observation on this agent's active terminals.
-
-    ("", False, "") when there is none. Both StatusInputs producers call this, so they cannot
-    disagree about it; the reconcile sweep passes its prefetched signals so the fleet is read once.
-    """
-    row = await status_signals_or_live(status_signals).host_activity(db, str(agent_id))
-    if not row:
-        return "", False, ""
-    if now_epoch is None:
-        now_epoch = datetime.now(timezone.utc).timestamp()
-    reported_at = str(row["activity_reported_at"] or "")
-    return str(row["activity_state"] or ""), _fresh(reported_at, now_epoch), reported_at

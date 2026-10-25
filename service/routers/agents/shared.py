@@ -12,7 +12,6 @@ from typing import Any
 from service.api_core.capabilities import (  # re-exported for this package's modules
     _managed_via_wrapper_for_runtime,
 )
-import sqlite3
 
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 
@@ -32,21 +31,10 @@ from service.api_core.tuning import (
 )
 
 
-# _apply_status_event moved to service/api_core/status_events.py in v0.5.4 — it had seven
-# router importers and depends only on the clock and the pure status engine, and a router
-# declaring it blocked every api_core leaf that needed it.
-
-
 # _broadcast_agent_status moved to service/api_core/status_broadcast.py in v0.5.4.
 
 
 # _broadcast_engine_status moved to service/api_core/status_broadcast.py in v0.5.4.
-
-
-# _enforce_env_reachable_gate moved to service/api_core/registration_gates.py in v0.5.4.
-
-
-# _enforce_live_worker_gate moved to service/api_core/registration_gates.py in v0.5.4.
 
 
 # _fresh_same_mode_bridge_conflict moved to service/api_core/registration_gates.py in v0.5.4, then on to

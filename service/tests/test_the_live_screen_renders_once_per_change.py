@@ -1,8 +1,8 @@
 """A live screen is rendered once per change, and never served stale.
 
 MEASURED 2026-09-18: the service sat at 119% CPU with 67% of its samples inside `_LiveScreen.render`.
-The prompt check and the console-working check run on every output chunk, and every status refresh
-renders each agent's screen again, so one chatty idle console cost several full renders of its screen
+The prompt check and the console-working check ran on every output chunk, and every status refresh
+rendered each agent's screen again, so one chatty idle console cost several full renders of its screen
 and history per second, and a keystroke typed into a dashboard console waited up to 3 s behind them.
 The render is now reused until the screen changes. A cache like that has one way to be wrong -- an
 old screen served after new output -- so both sides are pinned here.

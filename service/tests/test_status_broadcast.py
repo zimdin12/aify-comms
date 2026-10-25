@@ -12,8 +12,8 @@ and the source of both failure modes here, neither of which raises:
   * a push that overrides a MANUAL status — an operator explicitly stopped the agent, and a
     derivation quietly undoes it in the UI while the persisted row still says stopped.
 
-There are two functions because there are two status paths, and they are deliberately not merged:
-each pushes exactly what its corresponding READ returns.
+There are two functions, named for the moment that calls them; since 0.9.9 S3b both push the one word the poll
+serves (the operational view's), so every contract below holds for both.
 
 BEST-EFFORT MEANS SWALLOWING EVERYTHING, which is correct — the state change already happened and
 the next poll will show it — and it is also what makes every bug here silent. The tests below
@@ -162,22 +162,11 @@ class ManualStatusTests(StatusBroadcastTestCase):
                     (note, AGENT))
 
     def test_the_polled_path_pushes_a_manual_status_UNCHANGED(self):
-        """The derivation is skipped entirely. Deriving over it would show the agent as online
-        seconds after the operator stopped it, while the row still says stopped — the UI and the
-        database disagreeing about an action the operator took deliberately.
-
-        BOTH the cache and `derive` are forced, and it took two attempts to make this test able to
-        fail. Forcing only `derive` was not enough: for a stopped agent the real
-        `_compute_live_status_cache` returns no usable `status_inputs`, so the derivation raises
-        inside its own `try` and the status stays "stopped" whether the manual guard is there or
-        not. The mutation survived a test that looked like it covered it."""
-        async def fake_cache(db, row, settings=None):
-            return {"status": "stopped", "reason": "stopped by the operator", "status_inputs": {}}
-
+        """aify-env says the agent is busy; the operator stopped it. Pushing aify-env's word would show it
+        working seconds after the stop, while the row still says stopped."""
+        env_records.report(self, AGENT, busy=True)
         self._stop()
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", fake_cache), \
-             mock.patch.object(status_broadcast, "derive", return_value="working"):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
+        payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
         self.assertEqual(payload["status"], "stopped")
 
     def test_the_engine_path_carries_the_operators_own_NOTE(self):
@@ -188,17 +177,11 @@ class ManualStatusTests(StatusBroadcastTestCase):
         self.assertEqual(payload["statusNote"], "stopped: hit its usage limit")
 
     def test_a_manual_status_is_recognised_CASE_INSENSITIVELY_by_the_engine_path(self):
-        """It lower-cases the persisted value before the membership test. A row written as
-        `Stopped` by any other writer must not slip past into a derivation.
-
-        Also needs a disagreeing engine: a stopped row derives to "stopped" anyway, so without this
-        the un-lower-cased version passes and the `.lower()` reads as covered."""
-        async def fake_engine(db, row, settings=None):
-            return "online"
-
+        """A row written as `STOPPED` by any other writer must not slip past into aify-env's word. aify-env
+        reports the agent busy, so an un-lower-cased guard pushes `working`."""
+        env_records.report(self, AGENT, busy=True)
         self._write("UPDATE agents SET status = 'STOPPED' WHERE id = ?", (AGENT,))
-        with mock.patch.object(status_broadcast, "engine_status", fake_engine):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_engine_status))
+        payload = self._only_payload(self._push(status_broadcast._broadcast_engine_status))
         self.assertEqual(payload["status"], "stopped")
 
     def test_an_ORDINARY_status_is_not_treated_as_manual(self):
@@ -214,40 +197,15 @@ class ManualStatusTests(StatusBroadcastTestCase):
 class PushPollParityTests(StatusBroadcastTestCase):
     """The polled path serves the operational view's word (0.9.8 switch), and the note has to follow the status."""
 
-    async def _legacy_cache(self, db, row, settings=None):
-        return {"status": "offline", "reason": "no heartbeat for 4 minutes", "status_inputs": {}}
-
-    def test_a_DISAGREEING_view_BLANKS_the_note(self):
-        """The 2026-07-10 review point, and the subtlest line in the module. The cached note
-        describes the legacy status; if aify-env's word replaces it, the note now explains a status
-        nobody is being shown. Sending it would produce a push whose own two fields contradict each
-        other."""
-        env_records.report(self, AGENT, busy=True)
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
-        self.assertEqual(payload["status"], "working")
-        self.assertEqual(payload["statusNote"], "")
-
-    def test_an_AGREEING_view_serves_its_own_note_not_the_legacy_one(self):
-        """The other half, reversed in 0.9.9 S3a. The legacy note used to survive wherever the legacy word happened
-        to equal the view's, so the note came from inputs the word no longer used; it is the view's now (empty for a
-        known word), on the poll and the push alike (switched_view.served_note)."""
-        env_records.report(self, AGENT, state="offline")
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
-        self.assertEqual(payload["status"], "offline", "CONTROL: the words agree")
-        self.assertEqual(payload["statusNote"], "")
-
     def test_a_FAILING_view_pushes_unknown_never_the_legacy_word(self):
-        """A view that cannot be read pushes `unknown` with why, as the poll serves it. The legacy word
-        beside it is not aify-env's, so it is never pushed as if it were."""
+        """A view that cannot be read pushes `unknown` with why, never a word comms made up. aify-env
+        published `offline`, so a push that fell back to anything stored would not read `unknown`."""
         env_records.report(self, AGENT, state="offline")
 
         async def boom(*_args, **_kwargs):
             raise RuntimeError("unreadable mirror")
 
-        with mock.patch.object(status_broadcast, "_compute_live_status_cache", self._legacy_cache), \
-             mock.patch.object(status_broadcast.switched_view, "word_into", boom):
+        with mock.patch.object(status_broadcast.switched_view, "view_for", boom):
             payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
         self.assertEqual(payload["status"], "unknown")
         self.assertEqual(payload["statusNote"], "comms could not read aify-env's record of this agent")
@@ -263,48 +221,6 @@ class EngineStatusPathTests(StatusBroadcastTestCase):
         payload = self._only_payload(self._push(status_broadcast._broadcast_engine_status))
         self.assertEqual(payload["status"], "online")
         self.assertEqual(payload["statusNote"], "")
-
-    def test_SETTINGS_PASSED_IN_are_reused_rather_than_reloaded(self):
-        """Callers hand settings in precisely to avoid a second load on a hot path — the turn
-        boundaries push on every turn start and end. Reloading anyway would make the parameter a
-        lie and put a query back where one was removed."""
-        seen = {}
-
-        async def fake_engine(db, row, settings=None):
-            seen["settings"] = settings
-            return "online"
-
-        sentinel = {"agent_liveness_seconds": 4242}
-        with mock.patch.object(status_broadcast, "engine_status", fake_engine), \
-             mock.patch.object(status_broadcast, "_load_settings",
-                               mock.Mock(side_effect=AssertionError("settings were reloaded"))):
-            self._push(status_broadcast._broadcast_engine_status, settings=sentinel)
-        self.assertIs(seen["settings"], sentinel)
-
-    def test_settings_are_LOADED_when_the_caller_supplies_none(self):
-        """The other direction: the parameter is optional, and a caller that has not already loaded
-        them must not push a status derived from nothing."""
-        seen = {}
-
-        async def fake_engine(db, row, settings=None):
-            seen["settings"] = settings
-            return "online"
-
-        with mock.patch.object(status_broadcast, "engine_status", fake_engine):
-            self._push(status_broadcast._broadcast_engine_status)
-        self.assertIsInstance(seen["settings"], dict)
-        self.assertTrue(seen["settings"], "no settings were loaded")
-
-
-class ManualStatusOwnerTests(unittest.TestCase):
-    def test_the_manual_set_is_READ_FROM_ITS_OWNER_not_copied(self):
-        """One owner, never a copy. A second copy of this set would let a status be manual in one
-        path and derivable in the other — the operator's stop honoured on the poll and undone on
-        the push."""
-        from service.api_core.manual_status import _MANUAL_STATUSES
-
-        self.assertIs(status_broadcast._MANUAL_STATUSES, _MANUAL_STATUSES)
-
 
 if __name__ == "__main__":
     unittest.main()

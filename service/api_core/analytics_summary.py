@@ -26,12 +26,10 @@ from service.api_core.analytics_series import (
     _monthly_message_series,
 )
 from service.api_core.liveness import _agent_wake_mode
-from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.reply_contract import reply_reminder_minutes
 from service.api_core.serialization import _iso_from_ms
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _compute_agent_status
-from service.api_core.status_signal_prefetch import PrefetchedStatusSignals
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.env_status import _ENVIRONMENT_HEARTBEAT_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -211,40 +209,12 @@ async def _agent_tallies(db) -> tuple[int, int, int]:
     live_agents = 0
     online_agents = 0
     working_agents = 0
-    # Built ONCE for the whole loop, not once per agent. Every status below resolves the same
-    # two questions, and both answers are constant across a single request: the owning
-    # environment depends on machine_id alone, and the session environment is one table read for
-    # the whole fleet. Measured 2026-08-26 by counting aiosqlite execute() calls through one
-    # GET /api/v1/analytics on a COLD live-state cache: 463 round-trips at 24 agents, of which
-    # `SELECT * FROM environments WHERE machine_id = ?` and `SELECT environment_id FROM
-    # agent_sessions ...` were 48 each and `SELECT * FROM agents WHERE id = ?` 24 -- five per
-    # agent, re-reading answers this request already had. `GET /api/v1/agents` was given the same
-    # request-scoped dicts in fab4204c and the reconcile sweep a sweep-scoped pair; this is the
-    # third caller of the same derivation and the last one still asking per agent.
-    #
-    # `agent_row=row` is safe HERE specifically: these rows come from the `SELECT * FROM agents`
-    # four lines above, which is the same query the refresh would issue for itself.
-    environments_by_machine: dict = {}
-    session_environment_by_agent = await load_session_environment_by_agent(db)
-    # ONE PREFETCH for the whole loop. Three of the four batch parameters were already
-    # threaded here; `status_signals` was not, so this endpoint paid `agent_status_state`
-    # and `agent_console_signal` per agent -- the same two the pulse board stopped
-    # re-reading. Measured: 7.0 round-trips per agent before.
-    status_signals = None
-    if len(agent_rows) > 1:
-        status_signals = await PrefetchedStatusSignals.load(db, [r["id"] for r in agent_rows])
+    # `agent_row=row` is safe HERE specifically: these rows come from the `SELECT * FROM agents` above.
     for row in agent_rows:
         mode = _agent_wake_mode(row)
         if mode != "message-only" and mode != "disabled":
             live_agents += 1
-        status = await _compute_agent_status(
-            row,
-            db,
-            environments_by_machine=environments_by_machine,
-            session_environment_by_agent=session_environment_by_agent,
-            agent_row=row,
-            status_signals=status_signals,
-        )
+        status = await _compute_agent_status(row, db, agent_row=row)
         # THROUGH THE DECLARED PARTITION. This read `not offline and not stale`, which
         # counts a STOPPED agent as online -- measured live, /analytics reported 30 while
         # /analytics/pulse reported 27 on a fleet with exactly 3 stopped agents, and

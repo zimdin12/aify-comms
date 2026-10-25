@@ -104,40 +104,5 @@ class ResidentHermesMissingHandleStatusTests(FastApiTestCase):
             f"dot-driving statusRaw must be in the unreachable family so it agrees with the label; got {raw!r}",
         )
 
-    # ---- regression: a genuinely-live resident hermes is unchanged ----
-    def test_resident_hermes_with_gateway_url_is_live_bound(self):
-        # Fresh bridge + usable gatewayUrl → wake-mode hermes-live. This is a
-        # wakeable resident and must NOT be downgraded to stale by the fix.
-        self._register_resident_hermes(
-            "hermes-live", runtime_config={"gatewayUrl": self.GATEWAY_URL}
-        )
-        info = env_records.rollback_agent(self, "hermes-live")  # the legacy word, which a rollback serves
-        self.assertEqual(
-            info["wakeMode"], "hermes-live",
-            f"precondition: gatewayUrl present → hermes-live; got {info['wakeMode']!r}",
-        )
-        self.assertNotEqual(
-            info["status"], "stale",
-            "a fresh-bridge resident hermes WITH a usable gatewayUrl must not be marked stale",
-        )
-        self.assertIn(
-            info["status"], {"available", "online", "ready", "idle"},
-            f"a live-bound resident hermes should be available/online; got {info['status']!r}",
-        )
-
-    def test_resident_hermes_with_gateway_url_but_silent_bridge_is_offline(self):
-        # Proof-based (2026-06-18): a live-bound resident hermes whose bridge heartbeat has
-        # gone silent is OFFLINE (the heartbeat going away is the proof it's gone; no 'stale').
-        self._register_resident_hermes(
-            "hermes-livestale", runtime_config={"gatewayUrl": self.GATEWAY_URL}
-        )
-        self._age_resident_bridge("hermes-livestale", minutes=20)
-        info = env_records.rollback_agent(self, "hermes-livestale")  # the legacy word, which a rollback serves
-        self.assertEqual(
-            info["status"], "offline",
-            f"a live-bound resident hermes with a silent bridge must be offline; got {info['status']!r}",
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -42,12 +42,6 @@ REPO = Path(__file__).resolve().parent.parent.parent
 
 #: Each known site, with why it is safe. A site NOT listed here has not been reasoned about.
 RULINGS = {
-    ("service/api_core/status_inputs.py", "_gather_status_inputs", "env_reachable"): (
-        "Bound under `if mode == \"managed\":` and read under a SECOND `if mode == \"managed\":` a few "
-        "lines later. The two conditions are textually identical, so the second block runs exactly "
-        "when the first did. The safest of the four, and the only one where the implication is "
-        "visible without reading the surrounding derivations."
-    ),
     ("service/routers/dispatch_messages/messages.py", "send_message", "prefer_steer"): (
         "Bound inside `if req.trigger:` and read inside a later guard that only holds when a trigger "
         "was requested. This is the exact name and shape that broke the suite when a v0.5.4 "

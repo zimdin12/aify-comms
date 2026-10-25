@@ -134,9 +134,6 @@ logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
 
 
-# _turn_busy_holds_delivery moved to service/api_core/claim_gating.py in v0.5.4.
-
-
 # Was a borrow shim: the owner lived in the control plane, which a router cannot import at
 # module level without a cycle. It moved to service/longpoll.py in v0.5.4 — the module that
 # already owned the other waiter registry — so a plain import works.

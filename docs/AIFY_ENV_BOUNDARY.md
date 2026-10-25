@@ -62,11 +62,11 @@ model out of aify-env's core after it was added there to unblock a fleet, and th
 carry one.
 
 What follows from it today: aify-comms' plugin vendors Herdr's per-runtime screen rules and reports
-working / idle / blocked for the managed terminals it runs; this service stores the report
-(`service/api_core/host_activity.py`) and uses a fresh one for a managed agent's status. The
-service's own screen code stays as it is for now: `console_prompts.py` answers dialogs, and the
-`console_working.py` footer lease is the fallback for an aify-env that sends no observation. The
-lease can be retired once every supported aify-env sends one.
+working / idle / blocked for the managed terminals it runs. Since the 0.9.8 switch the status word is
+aify-env's own; this service still stores the report (`service/api_core/host_activity.py`) but reads it
+nowhere, and the store goes in 0.9.9 S3c. Of the service's own screen code, `console_prompts.py` still
+answers dialogs; the `console_working.py` footer lease, the fallback for an aify-env that sent no
+observation, was deleted in 0.9.9 S3b.
 
 ### `aify-comms` on PATH is a verifier
 

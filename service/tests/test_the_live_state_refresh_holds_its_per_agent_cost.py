@@ -1,9 +1,10 @@
 r"""The unbounded live-state refresh costs a fixed number of DB round-trips per agent, and it is held.
 
-WHY THIS EXISTS. `service/api_core/status_signal_prefetch.py` records a measurement taken on
-2026-08-27: the reconcile sweep's unbounded refresh cost 7.0 round-trips per added agent, which that
-change took to 5.0. Re-measured on 2026-08-29 with the same method it was **10.0**, and this change
-takes it to 9.0.
+WHY THIS EXISTS. A measurement taken on 2026-08-27 (recorded in the status-signal prefetch, deleted in
+0.9.9 S3b): the reconcile sweep's unbounded refresh cost 7.0 round-trips per added agent, which that
+change took to 5.0. Re-measured on 2026-08-29 with the same method it was **10.0**, and that change took
+it to 9.0. 0.9.9 S3b deleted the legacy derivation the refresh ran, and with it every per-agent read but
+two: the agent's current session and its active run (`status_entry`).
 
 Whatever the two figures are measuring differently, the direction is not in doubt: nothing was
 watching the number, so it moved. That is the defect this file fixes -- not the queries, the absence
@@ -26,10 +27,11 @@ import asyncio
 from service.db import get_db
 from service.tests._base import FastApiTestCase
 
-#: MEASURED 2026-08-29, three identical runs: 5 agents -> 50 round-trips, 20 -> 185. Exactly 9.0 per
-#: added agent. Not rounded up, and not a comfortable margin -- the same convention as the repo's
-#: other ceilings, so adding a per-agent read fails here rather than being absorbed.
-ROUND_TRIPS_PER_AGENT = 9.0
+#: MEASURED 2026-10-25 (0.9.9 S3b), three identical runs: 5 agents -> 11 round-trips, 20 -> 41. Exactly 2.0
+#: per added agent, down from 9.0 (2026-08-29: 5 -> 50, 20 -> 185). Not rounded up, and not a comfortable
+#: margin -- the same convention as the repo's other ceilings, so adding a per-agent read fails here
+#: rather than being absorbed.
+ROUND_TRIPS_PER_AGENT = 2.0
 
 SMALL_FLEET = 5
 LARGE_FLEET = 20
@@ -99,8 +101,8 @@ class TheLiveStateRefreshHoldsItsPerAgentCost(FastApiTestCase):
             f"the unbounded live-state refresh now costs {rate:.1f} DB round-trips per agent, above "
             f"the recorded {ROUND_TRIPS_PER_AGENT} ({SMALL_FLEET} agents -> {small} round-trips, "
             f"{LARGE_FLEET} -> {large}). A per-agent read added to the status path costs one "
-            "round-trip per agent on every reconcile pass, forever. Batch it into "
-            "PrefetchedStatusSignals, or raise this number in the same commit and say what it buys."
+            "round-trip per agent on every reconcile pass, forever. Batch it across the fleet, or "
+            "raise this number in the same commit and say what it buys."
         ))
 
     def test_a_ceiling_paid_down_is_TIGHTENED_rather_than_left_slack(self):

@@ -126,7 +126,6 @@ Not done, not scheduled; kept so they can be picked later. Each was checked agai
 - The Linux-only `bridge-running` doctor check is retired (V0.2 WS-3).
 - The dormant containers subsystem (`service/containers/`, about 1,067 lines) is kept or deleted:
   the operator's decision (V0.2 WS-10).
-- `_compute_live_status_cache` (457 lines) gets its own plan before it is split (2026-08 roadmap).
 - The dead delivery-receipt prefix checks in `api_core/dispatch_state.py` go (2026-08 roadmap).
 - `_resolve_live_console_terminal` agrees with itself about `stopping` (V0.2 N3).
 - Launching an unknown agent id says it created a new agent (V0.2); it registers silently now.

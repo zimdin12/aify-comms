@@ -119,7 +119,7 @@ def note_of(view):
     return 'aify-env has no current record of this agent'
 
 
-async def served_note(db, agent_row, view, inputs=None):
+async def served_note(db, agent_row, view):
     """The note beside the view's word, the same on the poll and the push: the operator's own note beside their stop,
     comms' reason beside `misconfigured`, why an `unknown` is unknown, and otherwise nothing. No note comes from the
     legacy cascade (0.9.9 S3a): it used to survive wherever the legacy word happened to equal the view's."""
@@ -130,18 +130,17 @@ async def served_note(db, agent_row, view, inputs=None):
     if view.status == manual and manual in _MANUAL_STATUSES:
         return _row_status_note(agent_row)
     if view.status == 'misconfigured':
-        return await misconfigured_note(db, agent_row, inputs)
+        return await misconfigured_note(db, agent_row)
     return note_of(view)
 
 
-async def misconfigured_note(db, agent_row, inputs=None):
+async def misconfigured_note(db, agent_row):
     """Beside aify-env's `misconfigured`, the note comms has always built: why no start can reach this agent (an
     unlaunchable runtime, or a workspace outside the folders its environment starts in). aify-env publishes the word
     with no reason on the wire; comms holds both facts, the definition's workspace and the environment's advertised
-    roots, so the note is comms' own (0.9.2 fix C). The legacy inputs already carry it when they were gathered; else
-    it is read once, only for this word."""
-    defect = str(getattr(inputs, 'config_defect', '') or '')
-    if not defect and db is not None:
+    roots, so the note is comms' own (0.9.2 fix C). It is read only for this word."""
+    defect = ''
+    if db is not None:
         from service.api_core.liveness import _agent_config_defect
 
         try:
@@ -152,14 +151,13 @@ async def misconfigured_note(db, agent_row, inputs=None):
 
 
 async def word_into(db, agent_row, cache, dispatch_state=None):
-    """Put the view's word into a status-cache entry the legacy derivation built: the status, its note, A7's
-    last-known note, and a refresh time no later than the moment a fresh holder goes stale. The legacy inputs stay in
-    the entry for the shadow's observers; the word is the view's alone."""
+    """Put the view's word into a status-cache entry (`status_entry`): the status, its note, A7's last-known note,
+    and a refresh time no later than the moment a fresh holder goes stale."""
     binding = shadow.bind()
     if dispatch_state is None and 'active_run_id' in cache:
         dispatch_state = dispatch_state_of(cache)
     view = await view_for(db, agent_row, dispatch_state, binding)
-    cache['reason'] = await served_note(db, agent_row, view, cache.get('status_inputs'))
+    cache['reason'] = await served_note(db, agent_row, view)
     cache['status'] = view.status
     cache['last_known'] = last_known_api(view)
     until = fresh_until(agent_row, binding)

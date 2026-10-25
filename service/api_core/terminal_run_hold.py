@@ -37,10 +37,10 @@ async def terminal_run_hold(db, agent_row) -> TerminalHold:
         return TerminalHold(no_backing=True, awaiting_input=False)
     if _normalize_runtime(str(agent_row["runtime"] or "")) != "claude-code":
         return TerminalHold(no_backing=False, awaiting_input=False)
-    return TerminalHold(no_backing=False, awaiting_input=await _prompt_hint(db, terminal_id) != "")
+    return TerminalHold(no_backing=False, awaiting_input=await _terminal_prompt(db, terminal_id) != "")
 
 
-async def _prompt_hint(db, terminal_id: str) -> str:
+async def _terminal_prompt(db, terminal_id: str) -> str:
     """The console's input prompt, from the live screen, else the stored tail (the live screen is empty after a
     restart, which is what the tail is for). An unreadable terminal reads as no prompt."""
     try:

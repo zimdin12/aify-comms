@@ -115,7 +115,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.definition_staleness import report_definition_staleness
     from service.clock import now as _clock_now
     from service.api_core.status_refresh import _refresh_expired_agent_live_states
-    from service.api_core.managed_env import load_session_environment_by_agent
     from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 
     db = await _get_db()
@@ -325,28 +324,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # dashboard is actively polling — e.g. a transient env-offline blip
         # sticking for 10+ minutes. Recomputes only rows whose refresh_after
         # has passed, so it is cheap.
-        # ONE cache for this sweep. `_managed_owning_environment_row` falls back to a lookup keyed
-        # on machine_id ALONE, and this pass asks it twice per agent -- measured 2.0N, against a
-        # sweep that costs 44 + 17N round-trips and, unlike the roster, is UNCAPPED: the roster
-        # refreshes at most LIST_AGENTS_REFRESH_LIMIT live states per call, this passes limit=None
-        # and recomputes every agent every 60s.
-        #
-        # Safe on the same terms as the request-scoped dict in `list_agents`, not by analogy with
-        # it: the resolver's docstring requires a cache no longer-lived than its caller's loop, a
-        # dict created here dies when this sweep returns, and one sweep issues ZERO writes to
-        # `environments` -- asserted, not argued.
-        #
-        # It also makes the pass SELF-CONSISTENT. The 2.0N separate reads can straddle a heartbeat,
-        # so today two agents in one sweep can disagree about the same environment; a snapshot
-        # taken once cannot.
-        environments_by_machine: dict = {}
-        # The SECOND map the roster already builds, for the same reason and on the same terms: the
-        # resolver falls back to a per-agent `ORDER BY last_seen DESC LIMIT 1` when it is absent, and
-        # this pass asks it twice per agent. One query instead of 2N -- and a PRELOAD rather than a
-        # cache: built before the work and never written during it.
-        session_environment_by_agent = await load_session_environment_by_agent(db)
-        await _refresh_expired_agent_live_states(db, environments_by_machine=environments_by_machine,
-                                               session_environment_by_agent=session_environment_by_agent)
+        await _refresh_expired_agent_live_states(db)
         await db.commit()
         # A host's definitions going stale is the clock's doing, so no write announces it (P0 C11).
         definition_staleness_moved = await report_definition_staleness(db, _clock_now())

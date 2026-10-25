@@ -18,6 +18,11 @@ kept as evidence. Last reviewed 2026-10-13.
   The operator's ruling: do not reset or hand off the agent for this. A fix belongs in Hermes, whose desktop app
   already pages its resume (`defer_history`) where the TUI does not. Reporting it upstream is the operator's call.
 - A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (sc-coder-gpt, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
+- **A resident claude with background shells reads `online`, not `shell`** (the operator's ask of 2026-10-01). Its
+  bridge counted background work from the transcript and posted the count to comms only; since the 0.9.8 switch the
+  word is aify-env's, which lists `backgroundShells` as waiting on Herdr forwarding (D10). 0.9.9 S3b deleted the
+  unread count route and the reporter S2b had already unwired. Managed agents keep `shell`: aify-env reads it from
+  their screen. Restoring it for residents is aify-env's (the count would have to reach its record).
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 
@@ -320,9 +325,6 @@ work. Each was observed under a mutation or by reading; none has been seen misbe
 
 - **`_row_capabilities` raises `AttributeError` on a hermes row whose `runtime_config` is JSON
   `null`.** Whether a real row can ever hold `null` there is unchecked.
-- **A comment in `service/api_core/status_inputs.py` says a test pins `resident_bridge_stale = True`.**
-  None does: removing that line leaves every test green.
-- **The `PrefetchedStatusSignals.load` prefetch in `service/routers/analytics.py` is reached by no test.**
 - **The `orphan_messages.py` docstring calls `m.to_agent IS NOT NULL` load-bearing.** Dropping it
   alone changes no result.
 - **`_managed_via_wrapper_for_runtime`'s pi branch never changes the answer**, because pi already

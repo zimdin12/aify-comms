@@ -23,16 +23,9 @@ them movable under the reviewer's rule for DB-touching helpers rather than pure 
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 
-from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
-from service.api_core.terminal_text import (
-    _terminal_prompt_hint_from_raw,
-    _terminal_prompt_hint_from_screen,
-)
-from service.terminal_snapshot import live_screen_text
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 from service.api_core.settings import _load_settings
 from service.api_core.capabilities import (
@@ -53,7 +46,6 @@ from service.api_core.live_process_probes import (
 )
 
 
-CONSOLE_WORKING_LEASE_SECONDS = 20
 async def _claimer_lease_row(db, agent_id: str):
     """WS5 Task 5.1: fetch the agent's single claimer-lease row (or None when no
     lease has EVER been recorded). Returns the raw row so callers can distinguish
@@ -70,25 +62,6 @@ async def _claimer_lease_row(db, agent_id: str):
     except Exception:
         return None
 
-
-async def _console_working_lease_fresh(db, agent_id: str) -> bool:
-    """True when the agent's console-working spinner lease (agent_console_signal.working_at)
-    is within CONSOLE_WORKING_LEASE_SECONDS. Both StatusInputs builders OR this (gated on a
-    live worker) into in_turn so the spinner-driven `working` is identical on the served
-    byproduct path AND the WS-push path (_gather_status_inputs) — without this, /console-working
-    pushes `online` while the next poll serves `working` (push/poll flicker)."""
-    if db is None:
-        return False
-    try:
-        row = await (await db.execute(
-            "SELECT working_at FROM agent_console_signal WHERE agent_id = ?", (agent_id,)
-        )).fetchone()
-    except Exception:
-        return False
-    if not row:
-        return False
-    seen = _iso_to_epoch(str((row["working_at"] if "working_at" in row.keys() else "") or "").strip())
-    return bool(seen and datetime.now(timezone.utc).timestamp() - seen <= CONSOLE_WORKING_LEASE_SECONDS)
 
 # ---------------------------------------------------------------------------------------------------
 # v0.5.4 slice 10 completes the family. ROADMAP's post-v0.5 item named six predicates; four came in
@@ -158,22 +131,10 @@ async def _has_recorded_claimer_lease(db, agent_id: str) -> bool:
     return await _claimer_lease_row(db, agent_id) is not None
 
 
-# v0.5.4: `TURN_BUSY_BACKSTOP_SECONDS` arrived from the control plane, as a NEUTRAL owner rather than a
-# follower — four carrier readers remain (three in `_compute_live_status_cache`, one in
-# `_gather_status_inputs`), so no single consumer owns it.
-#
-# It belongs with the liveness thresholds because it IS one, and because the invariant attached to it is
-# cross-module: it must equal the status engine's `in_turn` clamp. When those disagreed, queued work
-# stranded and agents went permanently DEAF — a turn_busy delivery gate that never expired. Two readers
-# agreeing is only meaningful while there is exactly one declaration, which is why this is a move and
-# never a copy.
 
-TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
-
-
-# v0.5.4: moved out of the control plane with `_has_live_worker_for`, its reader there. It is READ ON BOTH
-# SIDES — `_compute_live_status_cache` still uses it — so this is a deliberate owner chosen by subject
-# rather than by direction, and `api_core/status_inputs.py` imports it.
+# v0.5.4: moved out of the control plane with `_has_live_worker_for`, its reader there. Its readers are on
+# both sides (`channel_delivery`, `routers/sessions.py`), so this is an owner chosen by subject rather than
+# by direction.
 #
 # IT SITS BESIDE `LIVE_SESSION_STATUSES` (imported above from api_core/tuning.py) ON PURPOSE, and the
 # two are NOT the same set. That one is the WIDER session-row liveness set the reconcilers use; this one is
@@ -267,64 +228,6 @@ async def _agent_liveness(db, agent_id: str, *, agent_row=None) -> dict[str, boo
         except Exception:
             out["resident_bridge_fresh"] = False
     return out
-
-# Two status INPUTS that were left in the control plane, moved here in v0.5.4. Both answer a
-# question about one agent from the database, which is what every function above them does:
-# `_agent_awaiting_input` reads the live console, `_agent_config_defect` reads the identity. The
-# second calls `_agent_wake_mode` declared above, so this is where its closure already was.
-async def _agent_awaiting_input(db, agent_id: str) -> bool:
-    """WS-5 (2026-06-17): True when the agent's live console tail looks like it is
-    awaiting operator input/a decision (the `_terminal_awaiting_input_hint` signal).
-
-    This is the engine input that makes `blocked` reachable under status_engine=new:
-    derive() returns `blocked` for `in_turn AND live AND awaiting_input`. Callers gate
-    the call on in_turn (a turn must be in flight for `blocked` to apply), so the
-    terminal read happens only for the few agents currently mid-turn. Both StatusInputs
-    build sites (_gather_status_inputs and the _compute_live_status_cache byproduct)
-    call THIS helper so they derive the same value (the byproduct-parity promise)."""
-    if db is None:
-        return False
-    try:
-        row = await (await db.execute(
-            f"""
-            SELECT id, output, cols, runtime FROM terminal_sessions
-            WHERE agent_id = ?
-              AND status IN {TERMINAL_LIVE_FILTER_SQL}
-              AND id NOT LIKE 'vterm_%'
-            ORDER BY updated_at DESC LIMIT 1
-            """,
-            (agent_id,),
-        )).fetchone()
-    except Exception:
-        return False
-    if not row:
-        return False
-    # The screen patterns below model Claude Code's interactive permission,
-    # resume, and compaction prompts. Hermes/Codex/Pi terminal output includes
-    # the model's own prose; phrases such as "which option" or "say the word"
-    # there are ordinary output, not proof that the harness is waiting for an
-    # operator. Their controllers report turn state through native events.
-    if _normalize_runtime(str(row["runtime"] or "")) != "claude-code":
-        return False
-    keys = row.keys()
-    # THE LIVE SCREEN FIRST. `_terminal_prompt_hint_from_raw`'s whole job is raw -> screen -> hint,
-    # and `terminal_snapshot` is already holding that screen in memory, fed by the same output the
-    # stored tail is written from. Reading it here skips a pyte reconstruction of up to 64 KB on
-    # every status refresh, not just a database read.
-    #
-    # THE TAIL REMAINS THE FALLBACK, and has to: the live screen is a process global, so it is empty
-    # for every terminal this process has not seen since it started. That is the case the stored tail
-    # exists to cover, and dropping it would make status wrong for a window after each restart rather
-    # than merely slower.
-    terminal_id = str(row["id"]) if "id" in keys else ""
-    live = live_screen_text(terminal_id) if terminal_id else None
-    if live is not None:
-        return bool(_terminal_prompt_hint_from_screen(f"agent:{agent_id}", live))
-    return bool(_terminal_prompt_hint_from_raw(
-        f"agent:{agent_id}",
-        row["output"] if "output" in keys else "",
-        row["cols"] if "cols" in keys else 0,
-    ))
 
 
 async def _agent_config_defect(db, agent_row, mode: str, *, missing_handle: bool = False) -> str:

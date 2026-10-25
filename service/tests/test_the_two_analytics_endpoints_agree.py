@@ -31,7 +31,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import aiosqlite
 
 from service.tests import env_records
 from service.tests._base import FastApiTestCase
@@ -39,9 +38,6 @@ from service.tests._base import FastApiTestCase
 
 class TheTwoAnalyticsEndpointsAgree(FastApiTestCase):
     LEGACY_SETTINGS = {"managed_via_wrapper": ["codex", "hermes"]}
-
-    #: The two reads the prefetch answers once for a whole loop.
-    BATCHED_TABLES = ("FROM agent_status_state", "FROM agent_console_signal")
 
     def setUp(self):
         super().setUp()
@@ -108,35 +104,6 @@ class TheTwoAnalyticsEndpointsAgree(FastApiTestCase):
         for i in range(4):
             self._register(f"an-live-{i}")
         self.assertEqual(self._online("/api/v1/analytics"), 4)
-
-    def test_the_batched_tables_are_read_once_for_the_whole_loop(self):
-        """The other half of the same fix: this loop threaded three of four batch parameters and
-        omitted `status_signals`, so it paid both reads per agent. Measured before: 7.0 round-trips
-        per agent (123 at 6 agents, 165 at 12, 249 at 24). After: 5.0."""
-        for i in range(6):
-            self._register(f"an-live-{i}")
-        self._clear_cache()
-
-        calls = []
-        orig = aiosqlite.Connection.execute
-
-        async def spy(self, sql, *a, **k):
-            calls.append(" ".join(str(sql).split()))
-            return await orig(self, sql, *a, **k)
-
-        aiosqlite.Connection.execute = spy
-        try:
-            response = self.client.get("/api/v1/analytics")
-        finally:
-            aiosqlite.Connection.execute = orig
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(calls, "POSITIVE CONTROL: the endpoint made zero round-trips")
-        for table in self.BATCHED_TABLES:
-            hits = [c for c in calls if table in c]
-            self.assertEqual(
-                len(hits), 1,
-                f"{table} was read {len(hits)} times for 6 agents; it must be one batched read",
-            )
 
     def test_the_retired_stale_status_is_not_what_decides_this(self):
         """The dead half of the old condition. `stale` is not in the vocabulary -- the contract says

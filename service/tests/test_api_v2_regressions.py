@@ -20,7 +20,6 @@ from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
 from service.api_core.live_process_probes import _has_live_channel_sidecar
-from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 # REPOINTED AT OWNERS in v0.5.4. Every name below used to be reached as `api_v2.X` through
@@ -28,7 +27,6 @@ from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
 # is what made three patches in this file silently inert, and it kept pass-through imports alive in
 # a module that should not have had any. The module is gone since v0.7.0.
 from service.api_core.dispatch_runs import _create_dispatch_runs
-from service.api_core.status_inputs import _compute_live_status_cache
 from service.clock import now as _now
 from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
 from service.reconcilers.terminal_controls import _reconcile_ended_terminal_controls
@@ -79,7 +77,6 @@ from service import terminal_write_queue
 # v0.5.2l: dispatch run serialization moved into the dispatch+messages package.
 from service.api_core.records import _serialize_dispatch_run_row
 
-from service.routers.dispatch_messages import shared as dispatch_shared  # v0.5.3: owner of _turn_busy_holds_delivery
 # v0.5.2m: the agent console handler moved, and each module owns its OWN binding -- patching
 # api_v2 would no longer reach it and the test would exercise the happy path while claiming
 # to force a rendered screen.
@@ -982,52 +979,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(by_id["wsl:test-host:default"]["status"], "online")
         self.assertEqual(by_id["windows:test-host:default"]["status"], "offline")
 
-    def test_managed_agent_status_follows_environment_not_child_heartbeat(self):
-        self._heartbeat_environment(
-            id="wsl:test-host:default",
-            bridgeId="env-bridge",
-            machineId="wsl-Ubuntu:test-host",
-        )
-        self._register(
-            "managed-coder",
-            role="coder",
-            runtime="codex",
-            machineId="wsl-Ubuntu:test-host",
-            cwd="/workspace/project",
-            launchMode="managed",
-            sessionMode="managed",
-            capabilities=["managed-run", "resume", "interrupt", "steer", "spawn"],
-            status="active",
-        )
-        self._execute(
-            "UPDATE agents SET runtime_state = ? WHERE id = ?",
-            (
-                json.dumps({
-                    "bridgeInstanceId": "env-bridge",
-                    "environmentId": "wsl:test-host:default",
-                    "threadId": "thread-1",
-                }),
-                "managed-coder",
-            ),
-        )
-        self._execute(
-            "UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = ?",
-            ("wsl:test-host:default",),
-        )
-
-        # Stale managed Codex MCP children can outlive the real environment
-        # bridge. Their heartbeat must not make the teammate look reachable.
-        heartbeat = self.client.post(
-            "/api/v1/agents/managed-coder/heartbeat",
-            json={"bridgeId": "orphan-child-mcp"},
-        )
-        self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = env_records.rollback_agent(self, "managed-coder")
-        self.assertEqual(agent["statusRaw"], "offline")
-
     def test_lost_resident_bridge_rests_offline_until_manual_switch(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",
@@ -1698,42 +1649,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(terminal["status"], "stopped")
         self.assertIn("still active", terminal["output"])
 
-    def test_attached_console_without_active_run_reports_active_not_working(self):
-        # Corrected semantic (supersedes B1): an attached console with NO
-        # tracked active run is reachable but NOT "working". Long-lived
-        # managed consoles emit ambient output even while idle, so console
-        # attachment/byte-activity must never by itself mean "working" —
-        # otherwise idle agents show "working" forever. It must be "active".
-        session_id = self._create_running_session(terminal=True)
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/console/start",
-            json={"requestedBy": "dashboard"},
-        )
-        self.assertEqual(started.status_code, 200, started.text)
-        terminal_id = started.json()["terminal"]["id"]
-        attached = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={"bridgeId": "bridge-current", "output": "$ ", "status": "attached"},
-        )
-        self.assertEqual(attached.status_code, 200, attached.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
-
-        # And once the console goes quiet (activity backdated past the console-active window,
-        # cached status dropped so the read recomputes) it is still reachable and still `online`:
-        # attachment alone never means working, fresh output or not.
-        self._execute(
-            "UPDATE terminal_sessions SET updated_at = ? WHERE id = ?",
-            ("2020-01-01T00:00:00Z", terminal_id),
-        )
-        status_cache._LIVE_STATE_CACHE.pop("console-agent", None)
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
-
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
         status_cache._LIVE_STATE_CACHE["cached-agent"] = {
@@ -1748,12 +1663,12 @@ class ApiV2RegressionTests(FastApiTestCase):
         # name in ONE module's namespace and every caller had resolved its own binding at import
         # time, AND the list handler stopped calling that function at all — so the guard could not
         # fire whatever it was aimed at, and the test asserted only the cached value.
-        # `list_agents` calls `_refresh_expired_agent_live_states`, which recomputes through
-        # `_compute_live_status_cache` ONLY for entries past their refresh_after. Patching that is
-        # live: verified by flipping the seeded entry to an expired refresh_after, which turns the
-        # 200 below into a 500 as the AssertionError surfaces through the handler.
+        # `list_agents` calls `_refresh_expired_agent_live_states`, which rebuilds through
+        # `status_entry` ONLY for entries past their refresh_after (0.9.9 S3b; the legacy cascade before).
+        # Patching that is live: verified by flipping the seeded entry to an expired refresh_after, which
+        # turns the 200 below into a 500 as the AssertionError surfaces through the handler.
         with patch.object(
-            status_refresh, "_compute_live_status_cache",
+            status_refresh, "status_entry",
             side_effect=AssertionError("read path should use cached live status, not recompute"),
         ):
             listed = self.client.get("/api/v1/agents")
@@ -2216,126 +2131,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             ),
         )
 
-    def test_managed_hermes_online_requires_live_channel_sidecar(self):
-        # WS3 Task 3.1: a managed hermes is `online` ONLY when BOTH a live
-        # console PTY AND a live channel-sidecar (the actual claimer) exist.
-        # Pre-WS3, a live console PTY ALONE manufactured `online` (the deaf-but-
-        # online bug). With hermes now in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES the
-        # both-required gate applies: live console + STALE sidecar → available;
-        # both live → online.
-        terminal_id = "term_hermes_online_console"
-        self._seed_managed_hermes_with_attached_terminal("online-hermes", terminal_id)
-
-        # DEAF, not booting (2026-06-05): age the console and register a sidecar FOR it that then
-        # went stale — a genuinely deaf worker that must stay `available`. (A FRESH console whose
-        # sidecar has never registered is BOOTING → online; this test guards the DEAF case — a
-        # sidecar last-seen AFTER the console started, then died.)
-        _old = (datetime.now(timezone.utc) - timedelta(minutes=40)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        _stale = (datetime.now(timezone.utc) - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._execute("UPDATE terminal_sessions SET created_at = ? WHERE agent_id = ?", (_old, "online-hermes"))
-        self._execute(
-            """
-            INSERT OR REPLACE INTO bridge_instances (
-                id, agent_id, machine_id, runtime, session_mode, session_handle,
-                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            ("channel-linux:test-host-online-hermes", "online-hermes", "linux:test-host", "hermes",
-             "managed", "", "", "channel-sidecar", _stale, _stale, "", None),
-        )
-
-        # Live `attached` console with a DEAD (registered-then-stale) channel-sidecar → not a
-        # live claimer → available (NOT online).
-        asyncio.run(self._async_invalidate("online-hermes"))
-        agent = env_records.rollback_agent(self, "online-hermes")
-        self.assertNotEqual(agent["status"], "online", agent)
-        self.assertEqual(agent["status"], "available", agent)
-
-        # Now add a fresh channel-sidecar heartbeat → live claimer → online.
-        self._stamp_live_channel_sidecar("online-hermes", runtime="hermes")
-        asyncio.run(self._async_invalidate("online-hermes"))
-        agent = env_records.rollback_agent(self, "online-hermes")
-        self.assertEqual(agent["status"], "online", agent)
-
-    def test_managed_codex_online_from_fresh_wrapper_child_bridge(self):
-        # FIX B3 (2026-06-03): a managed CODEX whose console terminal row has been
-        # failed (the B1/B2 transient-close scenario, where the terminal-liveness
-        # check no longer proves has_live_worker) must STILL read deliverable, not
-        # `available`, when a fresh non-superseded `managed-wrapper-child` bridge is
-        # heartbeating — that wrapper-child IS the live console's in-session
-        # aify-comms claimer. Mirrors the hermes channel-sidecar gate.
-        agent_id = "online-codex"
-        terminal_id = "term_codex_failed_console"
-        now = _now()
-        self._heartbeat_environment(
-            id="linux:test-host:default",
-            bridgeId="bridge-current",
-            machineId="linux:test-host",
-            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-        )
-        self._register(agent_id, runtime="codex", sessionMode="managed")
-        self._execute(
-            "UPDATE agents SET session_mode='managed', runtime='codex', session_handle=? WHERE id = ?",
-            ("codex-managed-handle-1", agent_id),
-        )
-        # agent_sessions row bound to a console terminal that has since FAILED —
-        # the post-transient-close state where the terminal-liveness check yields
-        # no live worker.
-        self._execute(
-            """
-            INSERT INTO agent_sessions (
-                id, agent_id, environment_id, runtime, workspace, mode,
-                owner_mode, terminal_id, terminal_status,
-                spawn_spec_id, spawn_request_id, status,
-                started_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                f"sess_{agent_id}", agent_id, "linux:test-host:default", "codex",
-                "/workspace/repo", "managed-warm", "managed", terminal_id, "failed",
-                None, None, "running", now, now,
-            ),
-        )
-        self._execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime,
-                workspace, command, output, status, requested_by,
-                created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                terminal_id, f"sess_{agent_id}", agent_id, "linux:test-host:default",
-                "bridge-current", "codex", "/workspace/repo",
-                "codex-aify --aify-agent " + agent_id, "", "failed", "dashboard",
-                now, now, now, "transient app-server close",
-            ),
-        )
-
-        # No managed-wrapper-child bridge yet → no live claimer → available.
-        asyncio.run(self._async_invalidate(agent_id))
-        agent = env_records.rollback_agent(self, agent_id)
-        self.assertEqual(agent["status"], "available", agent)
-
-        # Fresh non-superseded managed-wrapper-child heartbeat → live claimer → online.
-        self._execute(
-            """
-            INSERT OR REPLACE INTO bridge_instances (
-                id, agent_id, machine_id, runtime, session_mode, session_handle,
-                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                f"mwc-{agent_id}", agent_id, "linux:test-host", "codex", "managed",
-                "codex-managed-handle-1", terminal_id, "managed-wrapper-child",
-                now, now, "", None,
-            ),
-        )
-        asyncio.run(self._async_invalidate(agent_id))
-        agent = env_records.rollback_agent(self, agent_id)
-        self.assertNotEqual(agent["status"], "available", agent)
-        self.assertEqual(agent["status"], "online", agent)
-
     def test_host_reported_dead_pty_marks_row_stopped_and_invalidates(self):
         # WS4 Task 4.2 (server side): the OWNING environment bridge is the only
         # thing that can probe a local PID. When it reports a console PTY's
@@ -2433,28 +2228,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             {"run_ghost_recent", "run_ghost_queued", "run_live_old"},
             surviving,
         )
-
-    def test_managed_claude_online_requires_live_console(self):
-        # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
-        # console PTY AND a live channel-sidecar exist. A live sidecar with NO
-        # console is a headless orphan worker → `available`, never `online`.
-        terminal_id = "term_online_console"
-        self._seed_managed_claude_with_attached_terminal("online-claude", terminal_id)
-        self._stamp_live_channel_sidecar("online-claude")  # fresh sidecar
-        # Live `attached` console + fresh sidecar → online.
-        asyncio.run(self._async_invalidate("online-claude"))
-        agent = env_records.rollback_agent(self, "online-claude")
-        self.assertEqual(agent["status"], "online", agent)
-
-        # Now stop the console terminal, leaving ONLY the fresh sidecar.
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
-            (terminal_id,),
-        )
-        asyncio.run(self._async_invalidate("online-claude"))
-        agent = env_records.rollback_agent(self, "online-claude")
-        self.assertNotEqual(agent["status"], "online", agent)
-        self.assertEqual(agent["status"], "available", agent)
 
     def test_managed_hygiene_reaps_each_orphan_ONCE(self):
         """A second sweep over the SAME orphan must not repeat the reap.
@@ -2556,177 +2329,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(result["orphan_workers_still_orphaned"], 1, result)
 
     # --- status-truthfulness bug fixes (2026-06-01) ---
-
-    def _async_compute_live_status(self, agent_id: str):
-        """Drive _compute_live_status_cache directly and return the cache dict."""
-        async def _run():
-            db = await get_db()
-            try:
-                row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-                return await _compute_live_status_cache(db, row)
-            finally:
-                await db.close()
-        return asyncio.run(_run())
-
-    def test_managed_with_reachable_env_and_orphaned_session_stays_available(self):
-        # STATUS POLICY (2026-06-04, sc-coder regression): a MANAGED agent whose
-        # previous worker died — leaving an orphaned, NON-live session row owned by
-        # an OLD bridge that differs from the current env bridge — must rest at
-        # `available` when its owning environment is ONLINE (it is lazy-autostartable).
-        # It must NOT be demoted to `offline`: managed `offline` is reserved for
-        # disabled/stopped OR an unreachable environment. Before the fix the
-        # "env bridge no longer owns the active session" branch (not gated by
-        # session_mode) flipped this managed agent offline.
-        # ONLINE owning environment whose CURRENT bridge ("env-bridge-current")
-        # differs from the orphaned session's owner bridge below.
-        self._heartbeat_environment(
-            id="windows:test:default", machineId="win32:test", os="windows", kind="windows",
-            bridgeId="env-bridge-current",
-            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-        )
-        self._register("mgr-orphan-avail", runtime="hermes", sessionMode="managed")
-        now = _now()
-        # Orphaned, NON-live session row owned by an OLD (now-dead) worker bridge,
-        # bound to the SAME environment whose CURRENT bridge is "env-bridge-current".
-        self._execute(
-            """
-            INSERT INTO agent_sessions (
-                id, agent_id, environment_id, runtime, workspace, mode,
-                owner_mode, owner_bridge_id, spawn_spec_id, spawn_request_id,
-                status, started_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "sess-orphan-avail", "mgr-orphan-avail", "windows:test:default", "hermes",
-                "/workspace/repo", "managed-warm", "managed", "worker-bridge-OLD",
-                None, None, "stopped", now, now,
-            ),
-        )
-        cache = self._async_compute_live_status("mgr-orphan-avail")
-        self.assertEqual(
-            cache["status"], "available",
-            f"managed agent with reachable env + orphaned session must be available, not offline: {cache}",
-        )
-
-    def test_working_via_turnbusy_has_short_refresh_after(self):
-        # FIX 2: when `working` is derived from a fresh turn_busy (NOT an active
-        # run), refresh_after is clamped to the turn-busy self-heal window so a
-        # DROPPED turn-end self-heals at the single long ceiling instead of the
-        # 5-30min heartbeat windows.
-        #
-        # WS5 Task 5.2/5.3 (2026-06-02): this test encoded the OLD 120s timer-driven
-        # self-heal as the PRIMARY transition. That role is replaced: the turn-END
-        # EVENT (POST /turn-end) is now the primary off-working transition (and it
-        # invalidates the cache immediately — see
-        # test_turn_end_event_flips_managed_hermes_off_working_immediately). The
-        # refresh_after clamp is now the DROPPED-event backstop, so it sits at the
-        # long TURN_BUSY_BACKSTOP_SECONDS ceiling, not 120s. Assertion updated to
-        # the backstop window accordingly (justified: it encoded the superseded
-        # timer-as-primary behavior).
-        self._register("tb-refresh-claude", runtime="claude-code", sessionMode="resident")
-        # Stamped 29 minutes ago: still inside the 30-minute ceiling (so `working`), with the
-        # deadline one minute out -- EARLIER than the liveness refresh (last_seen + 90s) the cache
-        # would otherwise pick, so only the clamp brings refresh_after under the limit. Stamped
-        # `now`, the unclamped value was already under it and this test could not fail.
-        now = _iso_from_ms(int((datetime.now(timezone.utc).timestamp() - 29 * 60) * 1000))
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("tb-refresh-claude", "run-tb-1", "bridge-tb-1", "claude-code", now),
-        )
-        cache = self._async_compute_live_status("tb-refresh-claude")
-        self.assertEqual(cache["status"], "working", cache)
-        limit = _iso_add_seconds(now, liveness.TURN_BUSY_BACKSTOP_SECONDS)
-        self.assertTrue(cache["refresh_after"], cache)
-        self.assertLessEqual(
-            cache["refresh_after"], limit,
-            f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+backstop ({limit}); cache={cache}",
-        )
-
-
-    def test_status_is_pure_event_long_ceiling_not_short_window(self):
-        # pure-event-status change #3: STATUS is now PURE-EVENT. A turn started by
-        # a start event with NO re-pulse must stay `working` well past the old 120s
-        # window (the short window no longer decides status — the turn-END EVENT
-        # does, and a dropped event self-heals only at the single LONG ceiling).
-        # An explicit /turn-end still clears it INSTANTLY (the event is primary).
-        #
-        # Anti-feedback-loop: status is derived from turn_busy; nothing here
-        # re-arms turn_busy from that derived status.
-        self.assertGreaterEqual(
-            liveness.TURN_BUSY_BACKSTOP_SECONDS, 30 * 60,
-            "STATUS backstop must be the single LONG ceiling (>=30m), not the short claim window",
-        )
-        self.assertGreater(
-            liveness.TURN_BUSY_BACKSTOP_SECONDS, TURN_BUSY_STALE_SECONDS,
-            "status backstop (long) must be DECOUPLED from the short claim window (120s)",
-        )
-        self._heartbeat_environment()
-        self._register(
-            "pure-event-claude",
-            runtime="claude-code",
-            sessionMode="resident",
-            launchMode="detached",
-            sessionHandle="claude-pure-event",
-            bridgeId="bridge-pure-event",
-            machineId="linux:test-host",
-            capabilities=["resident-run", "resume", "interrupt"],
-            runtimeConfig={"channelEnabled": True},
-        )
-        # Keep the resident bridge FRESH (alive agent) so liveness backstops don't
-        # fire — this isolates the turn_busy → status path.
-        self._execute(
-            "UPDATE bridge_instances SET last_seen=? WHERE id=?",
-            (_now(), "bridge-pure-event"),
-        )
-        # turn_busy set by a START event, aged PAST the old 120s window but well
-        # WITHIN the long ceiling, with NO re-pulse.
-        aged = _iso_from_ms(int(
-            (datetime.now(timezone.utc).timestamp() - (TURN_BUSY_STALE_SECONDS + 90)) * 1000
-        ))
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("pure-event-claude", "run-pure-event", "bridge-pure-event", "claude-code", aged),
-        )
-        cache = self._async_compute_live_status("pure-event-claude")
-        self.assertEqual(
-            cache["status"], "working",
-            f"past the OLD 120s window but within the long ceiling → still working (no flap); {cache}",
-        )
-        # An explicit turn-END event clears it INSTANTLY (event is primary).
-        self._execute(
-            "UPDATE agent_turn_state SET turn_busy = 0 WHERE agent_id = ?",
-            ("pure-event-claude",),
-        )
-        cache2 = self._async_compute_live_status("pure-event-claude")
-        self.assertNotEqual(
-            cache2["status"], "working",
-            f"turn-end event (turn_busy=0) must clear working instantly, no timer wait; {cache2}",
-        )
-
-    def _turn_busy_gate_for(self, agent_id: str) -> bool:
-        """The dispatcher's mid-turn busy check — by CALLING it, not by re-implementing it.
-
-        This used to hand-roll `SELECT turn_busy ... == 1`, which made the test pass whatever
-        production did AND let it silently drift: once the real gate gained the anti-strand
-        ceiling (b6601ac) the copy no longer described the code it was named after. Delegate to
-        the shared helper so this test exercises the real predicate and cannot diverge again.
-        """
-        async def _run():
-            db = await get_db()
-            try:
-                return await claim_gating._turn_busy_holds_delivery(db, agent_id)
-            finally:
-                await db.close()
-
-        return asyncio.run(_run())
 
     # --- send-deadlock fix (2026-06-02): channel/resident steer past turn_busy ---
 
@@ -2873,27 +2475,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         serialized = _serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
         self.assertTrue(serialized["steerIfBusy"])
 
-    def test_rr0_channel_delivery_completion_clears_turn_busy(self):
-        # SEND DEADLOCK (fix 2): when the channel bridge marks an rr=0
-        # channel/resident delivery COMPLETED, the recipient's turn_busy (which
-        # the delivery re-pulse stamped) must be cleared — an info/response wake
-        # is not sustained work — so the next queued send finds an open gate.
-        self._register_resident_channel_claude("sc-manager2", bridge_id="bridge-sc-manager2")
-        # rr=0 channel run mid-delivery; its delivery re-pulsed turn_busy onto it.
-        self._seed_queued_dispatch_run("run_rr0_done", "sc-manager2", execution_mode="channel", require_reply=0)
-        self._execute("UPDATE dispatch_runs SET status='claimed' WHERE id = ?", ("run_rr0_done",))
-        self._seed_fresh_turn_busy("sc-manager2", "run_rr0_done", "channel-linux:test-host-sc-manager2")
-        self.assertTrue(self._turn_busy_gate_for("sc-manager2"), "precondition: turn_busy fresh")
-
-        resp = self.client.patch(
-            "/api/v1/dispatch/runs/run_rr0_done",
-            json={"status": "completed", "summary": "Delivered and completed by channel bridge"},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("sc-manager2",))
-        self.assertEqual(int(tb["turn_busy"] or 0), 0, "rr=0 channel delivery completion must clear turn_busy")
-        self.assertFalse(self._turn_busy_gate_for("sc-manager2"), "busy gate is now open so the queue can drain")
-
     def test_rr0_delivery_completion_does_not_clear_while_other_rr1_in_flight(self):
         # ANTI-FEEDBACK-LOOP / safety: an rr=0 completion must NOT clear
         # turn_busy while ANOTHER require_reply=1 channel/resident run is still
@@ -2914,77 +2495,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("sc-manager3",))
         self.assertEqual(int(tb["turn_busy"] or 0), 1, "must NOT clear turn_busy while a real rr=1 turn is still open")
-
-    def test_turn_busy_not_rearmed_from_derived_status(self):
-        # ANTI-FEEDBACK-LOOP invariant: computing derived status for a mid-turn
-        # agent must never WRITE/RE-ARM turn_busy — only the bridge sets it and
-        # only an event/backstop/clear clears it. Reading status must leave
-        # turn_busy exactly as the bridge left it (still 1, same updated_at).
-        self._register_resident_channel_claude("sc-manager4", bridge_id="bridge-sc-manager4")
-        self._seed_fresh_turn_busy("sc-manager4", "run_status_probe", "channel-linux:test-host-sc-manager4")
-        before = self._fetchone("SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("sc-manager4",))
-        cache = self._async_compute_live_status("sc-manager4")
-        self.assertEqual(cache["status"], "working", cache)
-        after = self._fetchone("SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("sc-manager4",))
-        self.assertEqual(int(after["turn_busy"] or 0), 1, "status read must not clear turn_busy")
-        self.assertEqual(after["turn_updated_at"], before["turn_updated_at"], "status read must not re-stamp turn_busy")
-
-    def test_channel_pending_reply_online_only_when_live(self):
-        # FIX 3 (a): a managed claude with a channel_pending_reply run AND a LIVE
-        # worker (live console PTY + live sidecar) reads `online` (awaiting reply).
-        terminal_id = "term_pending_live"
-        self._seed_managed_claude_with_attached_terminal("pending-live-claude", terminal_id)
-        self._stamp_live_channel_sidecar("pending-live-claude")  # live worker
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_pending_live_1", None, "dashboard", "pending-live-claude",
-                "start_if_possible", "channel", "request", "owed question",
-                "answer please", "normal", "delivered", 1, "2026-05-21T00:00:00Z",
-            ),
-        )
-        asyncio.run(self._async_invalidate("pending-live-claude"))
-        agent = env_records.rollback_agent(self, "pending-live-claude")
-        self.assertEqual(agent["status"], "online", agent)
-        self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
-
-    def test_channel_pending_reply_not_online_when_worker_dead(self):
-        # FIX 3 (b): same pending reply but NO live worker (managed claude with a
-        # live sidecar but a DEAD/stopped console) must NOT be upgraded to
-        # `online` — a dead worker that owes a reply reads available/stale/offline,
-        # never online (visible-TUI truthfulness).
-        terminal_id = "term_pending_dead"
-        self._seed_managed_claude_with_attached_terminal("pending-dead-claude", terminal_id)
-        self._stamp_live_channel_sidecar("pending-dead-claude")  # sidecar alive...
-        # ...but the console PTY is dead → managed claude has no live worker.
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
-            (terminal_id,),
-        )
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_pending_dead_1", None, "dashboard", "pending-dead-claude",
-                "start_if_possible", "channel", "request", "owed question",
-                "answer please", "normal", "delivered", 1, "2026-05-21T00:00:00Z",
-            ),
-        )
-        asyncio.run(self._async_invalidate("pending-dead-claude"))
-        agent = env_records.rollback_agent(self, "pending-dead-claude")
-        self.assertNotEqual(agent["status"], "online", agent)
-        self.assertIn(agent["status"], {"available", "stale", "offline"}, agent)
 
     def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
         """Stamp a fresh, far-future cached live_state entry so a test can
@@ -3103,38 +2613,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             _live_state_fresh("cs-pi"),
             "console-stop reconcile must invalidate the live_state cache entry (expire it, so the next read recomputes)",
         )
-
-    def test_orphan_reason_says_no_console_not_no_sidecar(self):
-        # FIX 3 (#166): the status-F1 block must distinguish the headless-orphan case
-        # (LIVE sidecar, DEAD console) from the genuine dead-sidecar case. The orphan
-        # case must NOT claim "no live channel sidecar" — it must mention the console.
-        terminal_id = "term_reason_orphan"
-        self._seed_managed_claude_with_attached_terminal("reason-orphan-claude", terminal_id)
-        self._stamp_live_channel_sidecar("reason-orphan-claude")  # sidecar IS alive
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
-            (terminal_id,),
-        )
-        cache = self._async_compute_live_status("reason-orphan-claude")
-        self.assertEqual(cache["status"], "available", cache)
-        reason = (cache.get("reason") or "").lower()
-        self.assertIn("console", reason, f"orphan reason must mention the console; got {reason!r}")
-        self.assertNotIn(
-            "no live channel sidecar", reason,
-            f"orphan reason must NOT claim a dead sidecar; got {reason!r}",
-        )
-
-        # The genuine dead-sidecar case still says sidecar.
-        self._seed_managed_claude_with_attached_terminal("reason-deadsc-claude", "term_reason_deadsc")
-        # No _stamp_live_channel_sidecar → sidecar is dead. Console also stopped.
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
-            ("term_reason_deadsc",),
-        )
-        cache2 = self._async_compute_live_status("reason-deadsc-claude")
-        self.assertEqual(cache2["status"], "available", cache2)
-        reason2 = (cache2.get("reason") or "").lower()
-        self.assertIn("sidecar", reason2, f"dead-sidecar reason must mention the sidecar; got {reason2!r}")
 
     def test_env_disable_invalidates_bound_agents(self):
         # FIX 4: the env-disable control path sets bound agents `offline` but must
@@ -4512,7 +3990,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 self.assertEqual(contract["require_reply"], 1)
                 listed = self.client.get("/api/v1/agents")
                 self.assertEqual(listed.status_code, 200, listed.text)
-                self.assertEqual(env_records.rollback_word(self, agent_id), "working")
 
                 session = self._fetchone(
                     "SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?",
@@ -4805,7 +4282,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
                 self.assertEqual(run["status"], "running")
                 self.assertFalse(run["finished_at"])
-                self.assertEqual(env_records.rollback_word(self, agent_id), "working")
 
 
     def test_terminal_end_closes_active_claude_terminal_run(self):
@@ -4842,11 +4318,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(run["status"], "cancelled")
         self.assertTrue(run["finished_at"])
-        agent = env_records.rollback_agent(self, "console-agent")
-        # Terminal ended → no live worker → status = available (was
-        # "online" under the legacy active-only taxonomy; post-Phase-2
-        # available is the precise label when no worker is running).
-        self.assertEqual(agent["status"], "available")
+        agent = self.client.get("/api/v1/agents/console-agent").json()["agent"]
         self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_unthreaded_completion_info_links_active_claude_terminal_run(self):
@@ -4962,7 +4434,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(repaired["status"], "failed")
         self.assertIn("no bridge owner", repaired["summary"])
         self.assertTrue(repaired["finished_at"])
-        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
     def test_message_send_to_managed_claude_replaces_legacy_raw_channel_terminal(self):
         session_id = self._create_running_session(
@@ -5194,7 +4665,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(delivered.status_code, 200, delivered.text)
         listed_active_after_delivery = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active_after_delivery.status_code, 200, listed_active_after_delivery.text)
-        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
         reply = self.client.post(
             "/api/v1/messages/send",
@@ -5215,7 +4685,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(closed["finished_at"])
         listed_active = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active.status_code, 200, listed_active.text)
-        self.assertEqual(env_records.rollback_word(self, "console-agent"), "online")
 
     def test_terminal_control_claim_orders_start_before_input_with_same_timestamp(self):
         # Ordering is a PTY-path concern; exercise it on a runtime that still
@@ -10148,87 +9617,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(attach_body["sessionId"], "sess_pi_console_new")
         self.assertEqual(attach_body["agentId"], "pi-console-agent")
 
-    def test_channel_and_resident_route_delivered_awaiting_reply_shows_online_not_working(self):
-        # Status-split (2026-05-31): a channel- or resident-route delivered+require_reply run
-        # with NO fresh turn_busy and NO active run means the turn ENDED — the
-        # agent is IDLE but owes a reply. That is `online` with an awaiting-reply
-        # reason, NOT orange `working`. (Previously this was forced to "working",
-        # which the operator reported as "blink when the agent isn't working".)
-        # `working` is reserved for a fresh turn_busy (claude Stop hook clears it
-        # on turn-end) or a claimed/running run. The open reply contract is
-        # surfaced via the reason + handled by the reminder loop.
-        self._heartbeat_environment(
-            id="env_channel_busy",
-            bridgeId="bridge-channel-busy",
-            machineId="linux:channel-busy",
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["claude-code"],
-        )
-        for execution_mode in ("channel", "resident"):
-            with self.subTest(execution_mode=execution_mode):
-                agent_id = f"{execution_mode}-claude"
-                run_id = f"run_{execution_mode}_busy_1"
-                self._register(agent_id, runtime="claude-code", sessionMode="resident")
-                # status_engine=new: a resident's liveness is its bridge freshness; stamp a live
-                # channel-sidecar (proof-of-life) so it reads online (not stale) like under old.
-                self._stamp_live_channel_sidecar(agent_id)
-
-                # Baseline: no runs → not working.
-                agent_response = self.client.get(f"/api/v1/agents/{agent_id}")
-                self.assertEqual(agent_response.status_code, 200, agent_response.text)
-                self.assertNotEqual(agent_response.json()["agent"]["status"], "working")
-
-                # Seed a delivered dispatch_run awaiting reply on this route.
-                self._execute(
-                    """
-                    INSERT INTO dispatch_runs (
-                        id, message_id, from_agent, target_agent, dispatch_mode,
-                        execution_mode, message_type, subject, body, priority, status,
-                        require_reply, requested_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        run_id,
-                        None,
-                        "dashboard",
-                        agent_id,
-                        "start_if_possible",
-                        execution_mode,
-                        "request",
-                        "deep question",
-                        "think hard about this",
-                        "normal",
-                        "delivered",
-                        1,
-                        "2026-05-21T00:00:00Z",
-                    ),
-                )
-                # Invalidate cache so the next read recomputes against the new run.
-                asyncio.run(self._async_invalidate(agent_id))
-
-                awaiting_response = self.client.get(f"/api/v1/agents/{agent_id}")
-                self.assertEqual(awaiting_response.status_code, 200, awaiting_response.text)
-                awaiting_payload = env_records.rollback_agent(self, agent_id)
-                # online (idle, reachable) — NOT working — with the open-reply contract in the reason.
-                self.assertEqual(awaiting_payload["status"], "online", awaiting_payload)
-                self.assertIn("awaiting reply", (awaiting_payload.get("statusNote") or "").lower())
-
-                # Reply lands → run completes → no longer awaiting.
-                self._execute("UPDATE dispatch_runs SET status = 'completed' WHERE id = ?", (run_id,))
-                asyncio.run(self._async_invalidate(agent_id))
-                idle_response = self.client.get(f"/api/v1/agents/{agent_id}")
-                self.assertEqual(idle_response.status_code, 200, idle_response.text)
-                self.assertNotEqual(idle_response.json()["agent"]["status"], "working")
-                self.assertNotIn("awaiting reply", (idle_response.json()["agent"].get("statusNote") or "").lower())
-
     async def _async_invalidate(self, agent_id: str):
         from service.db import get_db as _get_db
         db = await _get_db()
@@ -10288,41 +9676,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertTrue(asyncio.run(self._async_resident_bridge_fresh("res-claude")),
                         "a live channel-sidecar proves the idle resident is alive → not stale")
-
-    async def _async_is_turn_busy_fresh(self, agent_id):
-        from service.db import get_db as _get_db
-        db = await _get_db()
-        try:
-            # Retargeted at _turn_busy_state in v0.2. The old `_is_turn_busy_fresh`
-            # wrapper this called had ZERO production call sites — its docstring
-            # claimed "callers that only need the boolean use it" and none did — so it
-            # was deleted. The FRESHNESS SEMANTICS it asserted are real and belong to
-            # _turn_busy_state, which every live caller reaches, so the assertions
-            # below are kept verbatim and simply point one layer down.
-            fresh, _run_id = await _turn_busy_state(db, agent_id)
-            return fresh
-        finally:
-            await db.close()
-
-    def test_is_turn_busy_fresh_shared_busy_predicate(self):
-        # holistic status review Finding 2 (2026-05-31): "busy" must be
-        # hasActiveRun OR fresh turn_busy. This locks the turn_busy half so the
-        # reminder loop (and any consumer) defers for a mid-turn agent that has no
-        # tracked dispatch run (e.g. a resident claude on its own turn).
-        self._register("tb-agent", runtime="claude-code", sessionMode="resident",
-                       machineId="linux:test-host", bridgeId="tb-b1", capabilities=["resident-run"])
-        # No turn_busy row → not busy.
-        self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")))
-        now = _now()
-        self._execute(
-            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("tb-agent", 1, "", "", "claude-code", now, 1),
-        )
-        self.assertTrue(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")), "fresh turn_busy=1 → busy")
-        self._execute("UPDATE agent_turn_state SET turn_updated_at='2020-01-01T00:00:00Z' WHERE agent_id='tb-agent'")
-        self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")), "stale turn_busy → not busy")
-        self._execute("UPDATE agent_turn_state SET turn_busy=0, turn_updated_at=? WHERE agent_id='tb-agent'", (now,))
-        self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")), "turn_busy=0 → not busy")
 
     def test_prune_superseded_bridges_reclaims_only_aged_superseded(self):
         # holistic-review F4: superseded bridge_instances rows were never deleted
@@ -11673,9 +11026,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             (json.dumps({"virtualTerminal": True, "virtualTerminalId": "vterm_stop_1"}), "stop-pi"),
         )
         asyncio.run(self._async_invalidate("stop-pi"))
-        before = env_records.rollback_agent(self, "stop-pi")
-        self.assertEqual(before["status"], "online", before)
-
         # Stop the worker.
         response = self.client.post("/api/v1/agents/stop-pi/stop-worker", json={})
         self.assertEqual(response.status_code, 200, response.text)
@@ -11707,233 +11057,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotIn("virtualTerminalId", rs)
         self.assertNotIn("virtualTerminal", rs)
 
-        # Derived status flips to available.
-        after = env_records.rollback_agent(self, "stop-pi")
-        self.assertEqual(after["status"], "available", after)
-
-    def test_managed_wrapper_attached_terminal_counts_as_online_at_read_gate(self):
-        # Hermes/Codex managed-via-wrapper PTYs settle at status='attached'
-        # after a turn completes. The read-path no-live-worker gate must treat
-        # that as live, otherwise the dashboard shows `available` while the
-        # visible wrapper terminal is still running and claimable.
-        self.client.put("/api/v1/settings", json={"managed_via_wrapper": ["hermes"]})
-        self._heartbeat_environment(
-            id="env_wrapper_gate",
-            bridgeId="bridge-wrapper-gate",
-            machineId="win32:wrapper-gate",
-            os="win32",
-            kind="windows",
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["hermes"],
-            runtimes=[
-                {
-                    "runtime": "hermes",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
-                }
-            ],
-        )
-        self._register(
-            "taxonomy-hermes-wrapper",
-            runtime="hermes",
-            sessionMode="managed",
-            sessionHandle="hermes-handle-1",
-            machineId="win32:wrapper-gate",
-            status="active",
-        )
-        fresh = _now()
-        self._execute(
-            """
-            INSERT INTO agent_sessions (
-                id, agent_id, environment_id, runtime, workspace, mode,
-                owner_mode, owner_bridge_id, terminal_id, terminal_status,
-                terminal_command, terminal_workspace, process_id, session_handle,
-                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
-                telemetry, status, started_at, last_seen, ended_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "sess_wrapper_gate_1",
-                "taxonomy-hermes-wrapper",
-                "env_wrapper_gate",
-                "hermes",
-                "C:/repo",
-                "managed-warm",
-                "managed",
-                "bridge-wrapper-gate",
-                "term_wrapper_gate_1",
-                "attached",
-                "hermes-aify --aify-agent taxonomy-hermes-wrapper --resume hermes-handle-1",
-                "C:/repo",
-                "12345",
-                "hermes-handle-1",
-                "",
-                None,
-                None,
-                "{}",
-                "{}",
-                "running",
-                fresh,
-                fresh,
-                None,
-            ),
-        )
-        self._execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime,
-                workspace, command, status, requested_by, created_at, updated_at,
-                stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "term_wrapper_gate_1",
-                "sess_wrapper_gate_1",
-                "taxonomy-hermes-wrapper",
-                "env_wrapper_gate",
-                "bridge-wrapper-gate",
-                "hermes",
-                "C:/repo",
-                "hermes-aify --aify-agent taxonomy-hermes-wrapper --resume hermes-handle-1",
-                "attached",
-                "dashboard",
-                fresh,
-                fresh,
-                None,
-                "",
-            ),
-        )
-
-        agent = env_records.rollback_agent(self, "taxonomy-hermes-wrapper")
-        self.assertEqual(agent["status"], "online", agent)
-
-    def test_reply_landing_clears_turn_busy_for_channel_route(self):
-        # claude-channel.js pulses turn_busy=true on every delivery and
-        # relies on the 120s stale window for cleanup. That's too slow
-        # after the reply lands — the operator wants status to flip back
-        # to "active" immediately when the agent finishes. Server-side
-        # _mark_dispatch_run_answered now clears turn_busy when the last
-        # in-flight channel-or-resident require_reply run for the agent
-        # closes.
-        self._heartbeat_environment(
-            id="env_clear_busy",
-            bridgeId="bridge-clear-busy",
-            machineId="linux:clear-busy",
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["claude-code"],
-        )
-        self._register("clearer-claude", runtime="claude-code", sessionMode="resident")
-        self._stamp_live_channel_sidecar("clearer-claude")  # status_engine=new resident proof-of-life
-        # Seed: dashboard's original message → a delivered+require_reply run
-        # → a fresh turn_busy=true pulse. Message must exist BEFORE the
-        # dispatch_run row that FKs to it.
-        self._execute(
-            """
-            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "msg_clearer_1",
-                "dashboard",
-                "clearer-claude",
-                "direct",
-                "request",
-                "ask",
-                "body",
-                "normal",
-                0,
-                None,
-                1779394000000,
-            ),
-        )
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_clearer_1",
-                "msg_clearer_1",
-                "dashboard",
-                "clearer-claude",
-                "start_if_possible",
-                "channel",
-                "request",
-                "ask",
-                "body",
-                "normal",
-                "delivered",
-                1,
-                "2026-05-21T00:00:00Z",
-            ),
-        )
-        # FRESH turn_busy (not a stale fixed date) so `before` is genuinely
-        # `working` via the turn_busy branch — the path this test exercises.
-        # (Post status-split, a stale turn_busy would fall through to the
-        # idle-awaiting-reply `online` state, which is a different code path.)
-        now = _now()
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("clearer-claude", "run_clearer_1", "bridge-clear-busy", "claude-code", now),
-        )
-        # status_engine=new reads in_turn from agent_status_state; seed it for the `before`
-        # working precondition (the reply-landing clear below clears it via _clear_status_state_in_turn).
-        self._execute(
-            """
-            INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, last_event, last_event_at, updated_at)
-            VALUES (?, 'working', 1, 0, ?, 'turn_start', ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at, updated_at=excluded.updated_at
-            """,
-            ("clearer-claude", "run_clearer_1", now, now),
-        )
-        asyncio.run(self._async_invalidate("clearer-claude"))
-        before = env_records.rollback_agent(self, "clearer-claude")
-        self.assertEqual(before["status"], "working", before)
-
-        # Reply lands.
-        reply = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "clearer-claude",
-                "to": "dashboard",
-                "type": "response",
-                "subject": "answered",
-                "body": "Here is the answer.",
-                "inReplyTo": "msg_clearer_1",
-            },
-        )
-        self.assertEqual(reply.status_code, 200, reply.text)
-
-        # turn_busy (the claim/send-queue gate) must have been auto-cleared — this is the
-        # send-deadlock fix and it is UNCHANGED by the pure-event decoupling.
-        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("clearer-claude",))
-        self.assertEqual(int(tb["turn_busy"] or 0), 0, "expected turn_busy auto-cleared after reply closed the delivered run")
-
-        # PURE-EVENT DECOUPLING (2026-06-19): a reply landing is NOT a turn-end — the channel
-        # contract requires the agent to send its reply mid-turn — so the DERIVED STATUS must STAY
-        # `working` until a real turn-end (bridge detector / Stop / heartbeat-false). Clearing it
-        # here was the working→online→working flicker. in_turn stays set; only turn_busy (queue
-        # gate) cleared above.
-        after = env_records.rollback_agent(self, "clearer-claude")
-        self.assertEqual(after["status"], "working", after)
-        st = self._fetchone("SELECT in_turn FROM agent_status_state WHERE agent_id = ?", ("clearer-claude",))
-        self.assertEqual(int(st["in_turn"] or 0), 1, "reply-landed must NOT clear the status in_turn signal")
 
     def test_pi_session_state_reports_bridge_ownership_for_watchdog(self):
         # Phase 4: omp-aify queries this before exec'ing OMP. When no virtual

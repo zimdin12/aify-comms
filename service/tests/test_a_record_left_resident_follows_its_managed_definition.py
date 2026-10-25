@@ -13,7 +13,6 @@ import sqlite3
 from unittest import mock
 
 from service.clock import now
-from service.tests import env_records
 from service.tests._base import FastApiTestCase
 from service.tests.defined_agents import STORE, _defined_on, definition_entry
 from service.tests.test_agent_definition_push import snapshot_digest
@@ -92,28 +91,26 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         status_cache._LIVE_STATE_CACHE.pop("lead", None)
         self.addCleanup(status_cache._LIVE_STATE_CACHE.pop, "lead", None)
         self.sql("UPDATE agents SET last_seen = ? WHERE id = 'lead'", (now(),))
-        served = self.served()
+        self.client.get("/api/v1/agents").raise_for_status()
         entry = status_cache._live_state_fresh("lead")
         self.assertIsNotNone(entry, "CONTROL: the primed entry is fresh, so only an expiry makes the list re-derive it")
-        return served, entry
-
-    def served(self):
-        agent = env_records.rollback_agent(self, "lead")  # the legacy word, which a rollback of the 0.9.8 switch serves
-        return agent["status"], agent.get("statusNote")
+        return entry
 
     def test_the_followed_record_is_served_at_once_not_after_its_cache_times_out(self):
         """llama-manager, 2026-10-20 10:36Z: the record followed its definition at the push, but the cached resident
-        answer ("Resident bridge heartbeat is gone") was served until the entry's own refresh time, ~2.5 min later."""
-        before, _ = self.prime_a_fresh_resident_cache()
-        self.assertEqual(before[0], "offline", "CONTROL: a resident record with nothing alive reads offline")
+        answer ("Resident bridge heartbeat is gone") was served until the entry's own refresh time, ~2.5 min later.
+        The switch must expire the entry, so the next read rebuilds it from the managed record."""
+        from service.reconcilers import status_cache
+
+        entry = self.prime_a_fresh_resident_cache()
         self.push()
         self.assertEqual(self.mode(), "managed", "CONTROL: the push switched the record")
-        self.assertEqual(self.served()[0], "available",
-                         "the cached resident 'offline' was served after the record followed its managed definition")
+        self.assertIsNot(status_cache._live_state_fresh("lead"), entry,
+                         "the cached resident entry was still served after the record followed its managed definition")
 
     def test_a_push_that_switches_nothing_leaves_the_cache_alone(self):
         self.bridge("sidecar-1", "channel-sidecar")  # a live sidecar keeps the resident
-        _, entry = self.prime_a_fresh_resident_cache()
+        entry = self.prime_a_fresh_resident_cache()
         self.push()
         self.assertEqual(self.mode(), "resident", "CONTROL: nothing switched")
         from service.reconcilers import status_cache

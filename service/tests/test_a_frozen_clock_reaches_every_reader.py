@@ -27,24 +27,24 @@ from service.tests.frozen_clock import clock_bindings, frozen_service_clock
 
 class AFrozenClockReachesEveryReaderTests(unittest.TestCase):
     def test_the_freeze_reaches_the_binding_the_status_path_actually_reads(self):
-        """Named, not counted. `status_inputs._now` is the one that stamps `updated_at`, and it is
-        the one three years of freezing this path never touched."""
-        import service.api_core.status_inputs as status_inputs
+        """Named, not counted. The binding that stamps `updated_at` is the one three years of freezing this
+        path never touched: `status_inputs._now` then, `status_entry._now` since 0.9.9 S3b."""
+        import service.api_core.status_entry as status_entry
         import service.api_core.status_refresh as status_refresh
 
         with frozen_service_clock() as frozen:
-            self.assertEqual(frozen, status_inputs._now())
+            self.assertEqual(frozen, status_entry._now())
             self.assertEqual(frozen, status_refresh._now())
             self.assertEqual(frozen, clock.now())
 
     def test_every_binding_is_restored_afterwards(self):
-        import service.api_core.status_inputs as status_inputs
+        import service.api_core.status_entry as status_entry
 
-        before = status_inputs._now
+        before = status_entry._now
         with frozen_service_clock():
-            self.assertIsNot(status_inputs._now, before)
-        self.assertIs(status_inputs._now, before)
-        self.assertIs(status_inputs._now, clock.now)
+            self.assertIsNot(status_entry._now, before)
+        self.assertIs(status_entry._now, before)
+        self.assertIs(status_entry._now, clock.now)
 
     def test_a_module_imported_inside_the_block_is_frozen_too(self):
         """`service.clock.now` itself is patched, so a late import binds the frozen function rather
@@ -52,7 +52,7 @@ class AFrozenClockReachesEveryReaderTests(unittest.TestCase):
         the test body -- would silently escape the freeze."""
         with frozen_service_clock() as frozen:
             import importlib
-            module = importlib.reload(importlib.import_module("service.api_core.status_inputs"))
+            module = importlib.reload(importlib.import_module("service.api_core.status_entry"))
             self.assertEqual(frozen, module._now())
         importlib.reload(module)
         self.assertIs(module._now, clock.now)
@@ -62,15 +62,15 @@ class AFrozenClockReachesEveryReaderTests(unittest.TestCase):
         works, which is the whole failure this replaces."""
         bindings = clock_bindings()
         self.assertGreaterEqual(len(bindings), 3, f"only {len(bindings)} clock bindings found")
-        self.assertIn("service.api_core.status_inputs", bindings)
+        self.assertIn("service.api_core.status_entry", bindings)
 
     def test_a_freeze_that_would_reach_almost_nothing_REFUSES(self):
         """And leaves the clock alone when it refuses. A helper that half-applied a freeze and then
         raised would be worse than one that never ran."""
-        import service.api_core.status_inputs as status_inputs
+        import service.api_core.status_entry as status_entry
 
         original_floor = frozen_clock._MINIMUM_BINDINGS
-        before = status_inputs._now
+        before = status_entry._now
         frozen_clock._MINIMUM_BINDINGS = 10_000
         try:
             with self.assertRaises(AssertionError):
@@ -78,7 +78,7 @@ class AFrozenClockReachesEveryReaderTests(unittest.TestCase):
                     self.fail("the block ran despite the freeze refusing")
         finally:
             frozen_clock._MINIMUM_BINDINGS = original_floor
-        self.assertIs(status_inputs._now, before, "a refused freeze left a module patched")
+        self.assertIs(status_entry._now, before, "a refused freeze left a module patched")
         self.assertIs(clock.now, before, "a refused freeze left service.clock patched")
 
     def test_the_frozen_value_can_be_chosen(self):

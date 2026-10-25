@@ -1,16 +1,9 @@
-"""`_agent_awaiting_input` and `_agent_config_defect` — the two status inputs, called directly.
+"""`_agent_config_defect`, called directly: the reason comms gives beside aify-env's `misconfigured`.
 
-NEITHER HAD A TEST THAT CALLED IT. Both were only ever exercised through the status pipeline, so the
-suite could tell you the pipeline still returned *a* status but not that these returned the right one.
-They moved out of the control plane in v0.5.4 and this is the focused test that move owed.
-
-They matter more than their size suggests. `_agent_config_defect` exists because the two fallthroughs
-it feeds used to report a status that quietly PROMISES RECOVERY — a managed identity with nothing to
-spawn from said `available` ("just send to it, it will cold-start") and a resident with no wake handle
-said `offline` ("not here right now"). Both false, in the direction that costs an operator the most:
-they go hunting a delivery bug that does not exist. `_agent_awaiting_input` is the input that makes
-`blocked` reachable at all, since derive() returns `blocked` only for `in_turn AND live AND
-awaiting_input`.
+It reaches the served note through `switched_view.misconfigured_note`. It exists because the two fallthroughs it
+fed used to report a status that quietly PROMISED RECOVERY: a managed identity with nothing to spawn from said
+`available` and a resident with no wake handle said `offline`. Its sibling `_agent_awaiting_input` went in 0.9.9 S3b
+with the legacy derivation, the only thing that read it.
 
 WHAT THE MOVE PUT AT RISK, and why one case below looks odd. `_agent_config_defect` contains
 
@@ -27,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from service.api_core.liveness import _agent_awaiting_input, _agent_config_defect
+from service.api_core.liveness import _agent_config_defect
 
 
 class FakeCursor:
@@ -118,56 +111,6 @@ class AgentConfigDefectTests(unittest.TestCase):
             run(_agent_config_defect(None, agent_row(), "managed", missing_handle=True)),
             "",
         )
-
-
-class AgentAwaitingInputTests(unittest.TestCase):
-    def test_no_db_is_not_awaiting(self):
-        self.assertFalse(run(_agent_awaiting_input(None, "agent-a")))
-
-    def test_a_failing_query_is_not_awaiting(self):
-        """Fails CLOSED. An agent must never be reported blocked because the database was busy."""
-        db = FakeDb(raises=True)
-        self.assertFalse(run(_agent_awaiting_input(db, "agent-a")))
-
-    def test_no_live_terminal_is_not_awaiting(self):
-        self.assertFalse(run(_agent_awaiting_input(FakeDb(row=None), "agent-a")))
-
-    def test_a_non_claude_runtime_is_never_awaiting_even_with_a_prompt_on_screen(self):
-        """The deliberate runtime narrowing. Hermes/Codex/Pi terminal output contains the model's own
-        prose, where "which option" is ordinary text rather than proof the harness wants an operator."""
-        row = {"output": "which option do you want? (y/n)", "cols": 100, "runtime": "hermes"}
-        self.assertFalse(run(_agent_awaiting_input(FakeDb(row=row), "agent-a")))
-
-    def test_a_claude_terminal_with_no_prompt_marker_is_not_awaiting(self):
-        row = {"output": "just some ordinary build output\nnothing to decide here", "cols": 100, "runtime": "claude-code"}
-        self.assertFalse(run(_agent_awaiting_input(FakeDb(row=row), "agent-a")))
-
-    def test_the_same_prompt_under_a_DIFFERENT_agent_id_is_not_served_from_cache(self):
-        """`_terminal_prompt_hint_from_raw` caches on a key the caller builds from the agent id. If
-        that key were ever dropped, one agent's hint would answer for another — the failure mode a
-        shared cache always risks, and one no negative case would reveal.
-
-        Its first assertion is also the ANTI-VACUITY case for this class: every other case expects
-        False, so a `_agent_awaiting_input` broken into `return False` would satisfy all of them."""
-        prompt = {"output": "Overwrite existing file? (y/n) ", "cols": 100, "runtime": "claude-code"}
-        quiet = {"output": "ordinary build output, nothing to decide", "cols": 100, "runtime": "claude-code"}
-        self.assertTrue(run(_agent_awaiting_input(FakeDb(row=prompt), "agent-one")))
-        self.assertFalse(
-            run(_agent_awaiting_input(FakeDb(row=quiet), "agent-two")),
-            "a second agent with a quiet terminal must not inherit the first agent's hint",
-        )
-
-    def test_it_queries_only_live_terminals_and_excludes_virtual_ones(self):
-        """The query shape is load-bearing: a dead terminal's last screen would strand the agent in
-        `blocked`, and a virtual RPC terminal has no operator to wait for."""
-        db = FakeDb(row=None)
-        run(_agent_awaiting_input(db, "agent-a"))
-        self.assertEqual(len(db.queries), 1)
-        sql = db.queries[0]
-        self.assertIn("terminal_sessions", sql)
-        self.assertIn("vterm_", sql, "virtual terminals must be excluded")
-        for status in ("starting", "attached", "running", "active", "idle", "recovering"):
-            self.assertIn(status, sql, f"live status {status!r} must be in the terminal filter")
 
 
 class RelocationGuardTests(unittest.TestCase):

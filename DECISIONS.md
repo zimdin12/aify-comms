@@ -805,6 +805,8 @@ turn-end still self-heals at the single long ceiling. The reasoning is also in t
 
 ## Delivery gates read raw `turn_busy`, bounded by one ceiling that status shares (2026-07-26, revised 2026-08-30)
 
+**SUPERSEDED (0.9.8 switch; the code deleted in 0.9.9 S3b).** Delivery holds on aify-env's published `busy`, and comms keeps no turn clock (`operational_view.claim_decision`, DECISIONS: "comms never times turns"). The gate, the ceiling and both constants below are gone; the text follows as history.
+
 The two delivery gates, the send-time queue decision in `send_message` and the turn-busy gate in
 `/dispatch/claim`, read the RAW `agent_turn_state.turn_busy` flag, not derived status and not a short
 freshness window: an explicit queue must mean exactly "after this turn", and re-deriving it through

@@ -38,32 +38,6 @@ class ResidentBridgeLivenessTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def test_raw_resident_registration_without_bridge_is_reported_stale_and_not_dispatchable(self):
-        self._register_resident_hermes("target")
-        self._register_resident_hermes("sender", bridgeId="bridge-sender", machineId="win32:test-host")
-
-        # Proof-based (2026-06-18): a resident with no live bridge is OFFLINE (was 'stale').
-        self.assertEqual(env_records.rollback_word(self, "target"), "offline")  # the legacy word, which a rollback of the 0.9.8 switch serves
-
-        send = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "sender",
-                "to": "target",
-                "type": "request",
-                "subject": "ping",
-                "body": "hello",
-                "trigger": True,
-            },
-        )
-        self.assertEqual(send.status_code, 200, send.text)
-        body = send.json()
-        assert_stored_unwoken(self, body, "target")  # 0.9.8 (Steven, 2026-10-16), flipped from a refusal
-        self.assertEqual(body.get("dispatchRuns") or [], [])
-        not_started = (body.get("notStarted") or [{}])[0]
-        self.assertEqual(not_started.get("recipientStatus"), "offline")
-        self.assertIn("Restart the visible resident wrapper", not_started.get("fix", ""))
-
     def test_resident_registration_with_current_bridge_remains_dispatchable(self):
         self._register_resident_hermes("target", bridgeId="bridge-target", machineId="win32:test-host")
 

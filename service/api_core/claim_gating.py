@@ -12,13 +12,6 @@ deliberate and worth preserving: a claim that silently returns "no work" is indi
 claim blocked by a stale console owner, a not-yet-ready wrapper terminal, a superseded bridge, or a
 turn-busy hold. Every one of those was diagnosed from production by reading the reason it produced.
 
-TURN_BUSY_BACKSTOP_SECONDS IS A SAFETY BOUND, not a tuning value, and it lives in
-`api_core/liveness.py` with the other liveness thresholds rather than here. It MUST equal the status
-engine's `in_turn` clamp: when the two disagreed, queued work stranded and agents went permanently DEAF
-because a turn_busy gate never expired. It has four carrier readers (three in the status cache, one in
-`_gather_status_inputs`), so it is a neutral owner, and the invariant only holds because there is exactly
-one of it.
-
 DB ACCESS: `db` is passed in throughout. No connection opened, no commit, no rollback — every one of
 these is a QUESTION, and the caller that acts on the answer owns the transaction. That separation is what
 lets the claim funnel keep BEGIN IMMEDIATE to itself.
@@ -29,40 +22,18 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.dispatch_text import _MERGED_DISPATCH_HEADER
 from service.api_core.events import _append_terminal_event
-from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
-from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 
 from service.api_core.runtime import _normalize_runtime
-from service.api_core.serialization import _dedupe_preserve, _json_loads_or
+from service.api_core.serialization import _dedupe_preserve
 from service.api_core.settings import _load_settings
-from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
+from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import DispatchClaimRequest
-
-
-#: How far ahead of us a bridge's `last_seen` may be and still count as a live heartbeat.
-#:
-#: NOT ZERO, deliberately. `aify-comms doctor`'s `env-bridge` check once reported every environment
-#: dead because the CONTAINER clock ran 4.1 seconds ahead of the host, so every fresh heartbeat
-#: looked future-dated -- a false RED produced by exactly the "reject anything in the future" rule
-#: that looks obviously correct. The real defect a bound is needed for is a WILDLY wrong stamp: a
-#: `last_seen` hours ahead satisfies `> now - stale` for ever, so a dead bridge would renew a lease
-#: permanently. Two minutes separates ordinary skew from a stamp nothing legitimate produces.
-BRIDGE_CLOCK_SKEW_TOLERANCE_SECONDS = 120
-
-
-
-
-
-
 
 
 def _dispatch_source_message_ids(row) -> list[str]:
@@ -109,8 +80,6 @@ def _dispatch_source_message_ids(row) -> list[str]:
             for match in re.finditer(r"^MessageId:[ \t]*(\S+)[ \t]*$", body, re.MULTILINE)
         )
     return _dedupe_preserve([message_id for message_id in ids if message_id])
-
-
 
 
 async def _dispatch_conversation_context(db, row, *, limit: int = 8) -> list[dict[str, Any]]:
@@ -289,197 +258,6 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
     return None
 
 
-async def _turn_lease_is_renewable(db, agent_id: str, bridge_id: str) -> bool:
-    """`turn_lease_renewal` as today's gates read it: an unreadable bridge state is False, the strict anchor."""
-    try:
-        return await turn_lease_renewal(db, agent_id, bridge_id) == "verified"
-    except Exception:
-        # Unreadable bridge state is not evidence of a live claim. Fall back to the strict anchor,
-        # which is the safe direction: it releases work rather than stranding it.
-        return False
-
-
-async def turn_lease_renewal(db, agent_id: str, bridge_id: str) -> str:
-    """Is something INDEPENDENTLY OBSERVABLE still claiming this turn? 'verified' or 'negative'; a failed read raises,
-    so a reader that must not mistake an error for a known negative can tell them apart (status-switch S2c).
-
-    'verified' only when `turn_bridge_id` names a bridge row that exists, belongs to THIS agent, and has
-    heartbeated inside the same staleness window the dead-bridge sweep uses. Ownership is checked
-    because matching on id alone would let any live bridge on the host renew any agent's turn.
-
-    The hook marker and the empty owner are not bridges and can never be verified, which is exactly
-    why they get the strict anchor instead of a renewable lease.
-    """
-    owner = str(bridge_id or "").strip()
-    if not owner or owner == "user-prompt-submit":
-        return "negative"
-    row = await (await db.execute(
-        """
-        SELECT 1 FROM bridge_instances
-        WHERE id = ? AND COALESCE(agent_id, '') = ?
-          -- SUPERSEDED IS NOT AN OWNER, and a superseded bridge can still be beating:
-          -- supersession is a server-side fact and a replaced bridge is never told it lost, so
-          -- it keeps heartbeating and re-stamping. Existence plus freshness alone would let the
-          -- one thing that marks it as no longer the owner be the one thing this never reads.
-          -- Same clause as the live-wrapper predicate in `agent_sessions.py`.
-          AND COALESCE(superseded_by, '') = ''
-          AND datetime(last_seen) > datetime('now', ?)
-          -- ...and not WILDLY ahead of us. `> now - stale` is satisfied for ever by a stamp
-          -- hours in the future, so a bad write would make a dead bridge renewable permanently.
-          -- The tolerance is what keeps ordinary container/host skew from reading as bogus.
-          AND datetime(last_seen) <= datetime('now', ?)
-        """,
-        (
-            owner, agent_id,
-            f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds",
-            f"+{BRIDGE_CLOCK_SKEW_TOLERANCE_SECONDS} seconds",
-        ),
-    )).fetchone()
-    return "verified" if row is not None else "negative"
-
-
-@dataclass(frozen=True)
-class BusyDecision:
-    """Today's delivery-hold answer, and the ownership question it asked on the way: the owner it queried (stripped)
-    and what it learned, 'verified', 'negative' or 'error'. Both None when it never reached the question.
-    `receipt` is what it read, for the status shadow's evidence (S2c-E E2); None when it could not be built."""
-    holds: bool
-    owner: Optional[str] = None
-    renewal: Optional[str] = None
-    receipt: Optional[dict] = None
-
-
-TURN_COLUMNS = ("turn_busy", "turn_started_at", "turn_updated_at", "turn_bridge_id")
-
-
-def _turn_receipt(read, row=None, **facts):
-    """The values the decision read: 'no-row', 'read-error', or the row's columns as read, plus any clock and renewal
-    it reached. Contained: a receipt that cannot be built is None, and the decision stands unchanged."""
-    try:
-        receipt = dict(read=read, **facts)
-        if row is not None:
-            keys = row.keys()
-            receipt.update({name: row[name] if name in keys else None for name in TURN_COLUMNS})
-        return receipt
-    except Exception:
-        return None
-
-
-async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
-    return (await turn_busy_decision(db, agent_id)).holds
-
-
-async def turn_busy_decision(db, agent_id: str) -> BusyDecision:
-    """True when the RAW turn_busy flag may still hold delivery back.
-
-    The delivery gates (send-time queue decision + /dispatch/claim) key on the raw
-    harness signal on purpose: "explicit queue" means exactly "after this turn", and
-    re-deriving that through status or a short window is what made queued sends land
-    mid-turn (#236). So this helper does NOT reinterpret the signal — it only applies
-    the SAME anti-strand ceiling the status engine already applies to `in_turn`
-    (TURN_BUSY_BACKSTOP_SECONDS, see the constant's own note).
-
-    Why a ceiling is required (regression found 2026-07-26): the gates are pure-raw,
-    but nothing guarantees turn_busy is ever cleared.
-      * The dead-bridge sweeper (_clear_turn_busy_for_dead_bridges) deliberately
-        SKIPS turn_bridge_id IN ('', 'user-prompt-submit') — i.e. every hook-driven
-        resident-claude turn — and skips any turn whose bridge is still alive.
-      * A missed turn-END (killed harness, hook error, or a transcript classifier
-        that keeps reading in-flight) therefore latches turn_busy=1 permanently.
-    Past the ceiling, status ALREADY stops reporting `working` (derive() clamps
-    in_turn in both the push and poll paths). Holding delivery past that point makes
-    the two disagree permanently: the dashboard shows an idle agent whose queued work
-    can never be claimed. For a target WITHOUT `steer` the claim gate returns early,
-    so that agent goes permanently deaf to every dispatch.
-
-    THE CEILING MEASURES FROM WHEN THE TURN BEGAN, and the sentence that used to stand
-    here is why it has to. It read: "A genuinely long turn is unaffected: the bridge turn
-    detectors KEEP-FRESH re-stamp turn-start, so turn_updated_at keeps advancing for as
-    long as real work runs. Only an ABANDONED flag ages out." The second half does not
-    follow from the first. An abandoned flag ages out only if nothing is still stamping
-    it — and the things that stamp it run on TIMERS, not on whether work is real.
-
-    MEASURED 2026-08-30, on the operator's fleet. A managed hermes agent held every queued
-    dispatch for 38 minutes. Its `pre_llm_call` hook POSTs /turn-start before every model
-    call, so two reads 45s apart showed turn_updated_at advancing 18:23:11Z → 18:23:56Z:
-    the age this function computed was permanently ~45s and the 1800s ceiling never fired.
-    The dead-bridge sweep could not rescue it either — it deliberately skips the hook
-    marker the agent was stamped with, to avoid wiping genuine hook-driven turns (#233).
-    Both nets were down at once, each for its own good reason.
-
-    The same shape was found and patched once before, narrowly: a superseded claude
-    turn-detector re-stamping every 45s, closed in `turn_boundaries.py` by refusing that
-    one poster. Naming posters does not scale, and the hook is deliberately exempt there.
-    Anchoring to `turn_started_at` — written on the not-busy→busy transition and untouched
-    for the rest of the turn — retires the class: no re-stamp can move it, so the bound
-    holds regardless of who is beating.
-
-    ONLY A VERIFIABLE RENEWAL MAY EXTEND A TURN. The distinction is WHO SAID SO, not how
-    long ago, and it is what lets both failures be avoided at once:
-
-      * `turn_bridge_id` names a bridge row that EXISTS, belongs to this agent, and is
-        heartbeating -> the lease renews against `turn_updated_at`, exactly as it always
-        did. Something independently observable is still claiming the turn, so a re-stamp
-        is evidence, and the turn holds for as long as the renewals keep coming.
-      * Anything else — the hook marker, an empty owner, a bridge that is gone or stale ->
-        the strict anchor, measured from `turn_started_at`. Nothing checkable is claiming
-        this turn, so re-stamps prove nothing.
-
-    That asymmetry is exactly why the hook defeated the old ceiling: it re-stamped the
-    column the bound was measured against while naming an owner that is not a bridge at
-    all, so there was never anything to check the claim against.
-
-    AN EARLIER VERSION OF THIS DOCSTRING WAS WRONG TWICE and the corrections are the
-    reason the shape above exists. It said a long turn was "still unaffected" — it was
-    not; a hard start-anchored bound cut off a 47-minute review that really was running.
-    And it said the status engine "has ALREADY stopped reporting `working`" past the
-    ceiling, so releasing merely made the two agree. It has not: the `in_turn` clamp
-    (`status_inputs.py:95`, `:519`) ages against `agent_status_state.last_event_at`, which
-    the SAME hook refreshes. Delivery and status DISAGREE on that path, and moving status
-    onto the same evidence is still open — see Row 8 in
-    `docs/superpowers/plans/2026-08-30-v0.6.1-roadmap.md`.
-    """
-    try:
-        row = await (await db.execute(
-            "SELECT turn_busy, turn_updated_at, turn_started_at, turn_bridge_id "
-            "FROM agent_turn_state WHERE agent_id = ?",
-            (agent_id,),
-        )).fetchone()
-    except Exception:
-        # Unreadable turn state must never block delivery — better to deliver.
-        return BusyDecision(False, receipt=_turn_receipt("read-error"))
-    if not row:
-        return BusyDecision(False, receipt=_turn_receipt("no-row"))
-    if not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
-        return BusyDecision(False, receipt=_turn_receipt("row", row))
-    # Prefer the START anchor; fall back to the last-touch column for rows written before the anchor
-    # existed. The fallback is deliberately NOT "release when unanchored": that would deliver
-    # mid-turn to every legacy agent at once. Boot backfills the anchor, so the fallback is a
-    # transitional path, not the steady state.
-    _keys = row.keys()
-    _started = _iso_to_epoch(str((row["turn_started_at"] if "turn_started_at" in _keys else "") or ""))
-    _touched = _iso_to_epoch(str(row["turn_updated_at"] or ""))
-    _owner = str((row["turn_bridge_id"] if "turn_bridge_id" in _keys else "") or "")
-
-    # THE POLICY LIVES IN ONE PLACE NOW. The status clamp asked the same question with different
-    # rules -- everything cut at 30 minutes, with no notion of a verified renewal -- so a working
-    # agent with a live bridge kept its work while the dashboard said it had stopped after thirty
-    # minutes. `turn_liveness_policy.turn_is_still_live` is the single answer; this
-    # function still owns the OWNERSHIP question, because that needs the database.
-    try:
-        _renewal = await turn_lease_renewal(db, agent_id, _owner)
-    except Exception:
-        _renewal = "error"  # read as today always has: not renewable
-    _now = datetime.now(timezone.utc).timestamp()  # the one clock read, after the renewal, as always
-    holds = turn_is_still_live(
-        started_epoch=_started,
-        touched_epoch=_touched,
-        renewable=_renewal == "verified",
-        now_epoch=_now,
-        strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
-    )
-    return BusyDecision(holds, _owner.strip(), _renewal,
-                        _turn_receipt("row", row, nowEpoch=_now, owner=_owner.strip(), renewal=_renewal))
 # v0.5.4: `_mark_dispatch_source_messages_read` arrived from the control plane. It is the one WRITE in
 # this module, and it is here because `_dispatch_source_message_ids` — which decides what to mark — is
 # already here: separating the question from the single act that consumes its answer would put a

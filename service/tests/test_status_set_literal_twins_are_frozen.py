@@ -106,7 +106,6 @@ FROZEN: dict[str, dict] = {
         "owner": "service/api_core/liveness.py",
         "values": ["cli-takeover", "recovering", "restarting", "running", "starting"],
         "hardcoded_in": [
-            "service/api_core/managed_env.py",
             "service/api_core/reconcilable_runs_query.py",
         ],
     },
@@ -227,10 +226,10 @@ class StatusSetLiteralTwinsTests(unittest.TestCase):
         twins = _literal_twins(sources, named)
         claiming = sorted(name for name, entry in FROZEN.items() if entry["hardcoded_in"])
         self.assertEqual(sorted(twins), claiming, "the constant list itself drifted")
-        #: MEASURED after the 2026-08-29 payment: 11 twin sites across four constants, down from 25.
-        #: A floor, not a target -- it goes DOWN when a set is paid off, and lowering it is part of
-        #: making that payment rather than a separate decision.
-        self.assertGreaterEqual(sum(len(v) for v in twins.values()), 11)
+        #: MEASURED after the 2026-08-29 payment: 11 twin sites across four constants, down from 25; 10
+        #: since 0.9.9 S3b deleted managed_env's. A floor, not a target -- it goes DOWN when a set is
+        #: paid off, and lowering it is part of making that payment rather than a separate decision.
+        self.assertGreaterEqual(sum(len(v) for v in twins.values()), 10)
 
     def test_the_twin_detector_fires_on_a_fixture(self):
         fixture = [("service/fake.py", "Q = \"SELECT 1 WHERE s IN ('a','b')\"\n")]

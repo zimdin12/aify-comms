@@ -36,10 +36,11 @@ mean is somewhat higher and unknown above that point.
 
 WHAT THIS FILE DOES NOT DO IS FIX THAT, and the reason is worth recording so the next person does not
 spend an afternoon rediscovering it. The obvious remedy -- write the durable tail less often and let
-the live screen serve reads in between -- is not a tuning change. EIGHT modules touch
-`terminal_sessions.output` directly, seven of them reading it, and two of those are on the status
-path: `api_core/status_inputs.py` and `reconcilers/terminal_runs.py` parse the stored tail for
-idle-prompt hints. Making that column stale
+the live screen serve reads in between -- is not a tuning change. EIGHT modules touched
+`terminal_sessions.output` directly when this was written, seven of them reading it, and two of those
+decide what a run is doing: `api_core/terminal_run_hold.py` (the legacy status derivation's read until
+0.9.9 S3b) and `reconcilers/terminal_runs.py` parse the stored tail for idle-prompt hints. Making that
+column stale
 by a second makes the input that decides whether an agent is idle stale by a second, which is the
 flapping this repo spent months removing.
 

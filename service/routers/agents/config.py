@@ -34,7 +34,6 @@ from service.api_core.settings import _load_settings
 from service.env_status import live_environment_bridge_ids
 from service.db import get_db
 from service.clock import now as _now
-import sqlite3
 from service.routers.agents.shared import logger
 from service.api_core.request_body import json_object_body
 from service.api_core.operator_authz import recorded_operator_actor

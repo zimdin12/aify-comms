@@ -10,13 +10,10 @@ resident turns, so nothing clears it. Queued work then strands forever and an ag
 goes permanently deaf. Every fix in that area has been a BOUND on how long a raw signal may hold, so
 the code that reads the signal and the code that ages it belong in one readable place.
 
-`TURN_BUSY_STALE_SECONDS` came with `_turn_busy_state` — its only reader, measured. Note it is NOT the
-same bound as `TURN_BUSY_BACKSTOP_SECONDS`: the status engine's `in_turn` clamp reads that one and the
-delivery gate must agree with the clamp exactly. This line used to add "which stays in the control
-plane", which stopped being true when that constant landed in `api_core/liveness.py` — and the two
-bounds now meet in this file, because v0.5.4 moved the status engine's READ of `agent_turn_state`
-here as `_status_turn_signals`. Both readers of the same row, ageing it against different ceilings,
-are finally adjacent.
+THE READS ARE GONE (0.9.9 S3b). The turn-busy hold, the status engine's `in_turn` signal and the two
+ceilings that aged them went with the legacy derivation: since the 0.9.8 switch the word and the delivery
+hold are aify-env's. What remains are the two clears, writers of a row nothing reads, which go with the
+table in S3c.
 
 DB ACCESS: `db` passed in, no connection opened, no commit, no rollback — each joins its caller's
 transaction.
@@ -24,48 +21,10 @@ transaction.
 
 from __future__ import annotations
 
-from service.api_core.status_signal_prefetch import status_signals_or_live
 
 import time
-from datetime import datetime, timezone
 
-from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
-from service.api_core.turn_liveness_policy import turn_is_still_live
-# `claim_gating` does not import this module, so this is a plain edge and not a cycle -- checked
-# rather than assumed, because a function-scope import here would hide the dependency from the
-# layering tests that read module imports.
-from service.api_core.claim_gating import (
-    _turn_lease_is_renewable,
-)
-from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
-
-
-TURN_BUSY_STALE_SECONDS = 120
-
-
-async def _turn_busy_state(db, agent_id: str) -> tuple[bool, str]:
-    """Return (fresh, turn_run_id) for the agent's agent_turn_state row.
-
-    `fresh` is True when turn_busy=1 was updated within TURN_BUSY_STALE_SECONDS.
-    `turn_run_id` is the run the bridge attributed that turn-busy pulse to (''
-    when unknown). Callers wanting only the boolean ignore the run id;
-    the reminder loop needs the run id so it can tell a GENUINE other-work
-    turn_busy apart from a delivered-run's OWN delivery re-pulse (which would
-    otherwise make a handoff skip its own reminder forever — deadlock)."""
-    try:
-        row = await (await db.execute(
-            "SELECT turn_busy, turn_run_id, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
-            (agent_id,),
-        )).fetchone()
-    except Exception:
-        return (False, "")
-    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
-        return (False, "")
-    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
-    fresh = bool(seen and time.time() - seen <= TURN_BUSY_STALE_SECONDS)
-    run_id = str((row["turn_run_id"] if "turn_run_id" in row.keys() else "") or "")
-    return (fresh, run_id)
 
 
 async def _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent: str, exclude_run_id: str) -> bool:
@@ -155,102 +114,3 @@ async def _clear_status_state_in_turn(db, agent_id: str) -> None:
         "WHERE agent_id = ? AND in_turn = 1",
         (now, now, agent_id),
     )
-
-
-async def _status_turn_signals(db, agent_row, *, status_signals=None):
-    """Read `agent_turn_state` for the STATUS engine: is a turn open, and is the agent ready.
-
-    Extracted from `_compute_live_status_cache` (`api_core/status_inputs.py`) in v0.5.4, which
-    was the largest function in the repo at 432 lines.
-
-    IT IS A TWIN OF `_turn_busy_state` ABOVE AND THE DIFFERENCE IS THE POINT. Both read the same
-    row and both age the signal, but against DIFFERENT bounds: that one uses
-    `TURN_BUSY_STALE_SECONDS`, this one `TURN_BUSY_BACKSTOP_SECONDS`, which is the long
-    wall-clock ceiling for a DROPPED turn-end event rather than a re-pulse cadence. This
-    module's own docstring already warned the two bounds are not interchangeable; putting the
-    readers side by side is what makes that visible instead of a sentence nobody reaches.
-
-    All four values are initialised here, so the caller passes none of them in — the block
-    returns the defaults unchanged on every path where the row is missing or the signal stale.
-    """
-    # Authoritative mid-turn signal pushed by the bridge (contract). Fresh
-    # turn_busy=1 means the runtime is executing a turn right now → working,
-    # even when the dispatch row is delivered/ambiguous. Stale is treated as
-    # not-busy, and the bound is TURN_BUSY_BACKSTOP_SECONDS — see below, and see
-    # the docstring above on why it is NOT TURN_BUSY_STALE_SECONDS. This comment
-    # named the short bound until 2026-08-16: it travelled here with the block
-    # when `_status_turn_signals` was extracted from `_compute_live_status_cache`,
-    # where the surrounding prose was about `_turn_busy_state`. Naming the wrong
-    # one of the pair, four lines under a docstring warning they are not
-    # interchangeable, points the next reader at exactly the swap the suite
-    # rejects (test_status_is_pure_event_long_ceiling_not_short_window).
-    turn_busy = False
-    turn_runtime = ""
-    turn_updated_at = ""
-    # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
-    # handshake-complete signal. It remains an internal readiness bit; the
-    # public idle-live status is `online` so operators do not see both
-    # `ready` and `available` as competing positive states.
-    turn_state_ready = False
-    _tb_row = None
-    _tb_renewable = None
-    try:
-        # Read through the signal source rather than inline, so a batch refresh can hand this the
-        # row it already loaded. An absent source READS -- `status_signals_or_live` fails closed, and
-        # the live reader issues exactly the query that used to be here.
-        _tb = await status_signals_or_live(status_signals).turn_state(db, agent_row["id"])
-        _tb_row = _tb
-        if _tb:
-            if int(_tb["turn_busy"] or 0) == 1:
-                # THE SAME POLICY DELIVERY USES. This aged `turn_updated_at` -- the MOVING column --
-                # against the 30-minute ceiling and had no start anchor at all, so the hermes hook
-                # re-stamping before every model call kept `working` alive for ever here even after
-                # both anchored readers had let go. It was the third reader of this question and the
-                # last one still carrying the original defect.
-                _keys = _tb.keys()
-                _started = _iso_to_epoch(str(
-                    (_tb["turn_started_at"] if "turn_started_at" in _keys else "") or ""))
-                _touched = _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
-                _now = datetime.now(timezone.utc).timestamp()
-
-                def _verdict(renewable):
-                    return turn_is_still_live(
-                        started_epoch=_started, touched_epoch=_touched, renewable=renewable,
-                        now_epoch=_now, strict_seconds=TURN_BUSY_BACKSTOP_SECONDS)
-
-                # STRICT FIRST, and pay for the ownership query ONLY when it would change the
-                # answer. This runs per agent on a batch status refresh, and the prefetch module
-                # beside it exists precisely to stop per-agent round-trips. The shortcut is exact
-                # because the policy is monotone: verifying a lease can add liveness and never
-                # remove it, which is asserted directly over its input grid.
-                _live = _verdict(False)
-                if not _live:
-                    _owner = str((_tb["turn_bridge_id"] if "turn_bridge_id" in _keys else "") or "")
-                    if _owner:
-                        _tb_renewable = await _turn_lease_is_renewable(db, agent_row["id"], _owner)
-                        _live = _verdict(_tb_renewable)
-                if _live:
-                    turn_busy = True
-                    turn_runtime = str(_tb["turn_runtime"] or "").strip()
-                    turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
-            # PURE-EVENT (2026-06-19): the turn-end GRACE (#224, 20s) was REMOVED. It held
-            # `working` for 20s after turn_busy cleared to mask a managed claude's premature/
-            # duplicate Stop hooks — a TIME-BASED hold that (a) stacked on the hermes bridge's
-            # 9s idle-debounce to show "working" ~30s after a real idle (operator-reported), and
-            # (b) is exactly the time-decay the status engine must not have. The flap is now
-            # fixed AT THE SOURCE: the bridge turn detectors (hermes gateway / claude transcript)
-            # only clear turn_busy on EVENT-confirmed end, and run fast enough to re-assert a
-            # premature clear within a tick. Status here is pure-event: turn_busy=1 (within the
-            # far 30-min wedged-bridge backstop) AND live → working; otherwise online.
-            try:
-                turn_state_ready = int(_tb["ready"] or 0) == 1
-            except (IndexError, KeyError):
-                # Pre-migration row (column absent on a foreign DB schema).
-                turn_state_ready = False
-    except Exception:
-        turn_busy = False
-        turn_state_ready = False
-    # The row and the renewal verdict travel OUT, so the in_turn clamp downstream does not
-    # re-read one or repeat an ownership query this function has already paid for. Recomputing
-    # them would also risk two answers to one question inside a single refresh.
-    return turn_busy, turn_runtime, turn_updated_at, turn_state_ready, _tb_row, _tb_renewable

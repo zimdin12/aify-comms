@@ -1,16 +1,16 @@
-"""Claude's turn footer, read one way: the rules both readers of it use (2026-10-14 audit, S3).
+"""Claude's turn footer, read one way (2026-10-14 audit, S3).
 
-`console_working.py` asks whether claude is working now; `terminal_text.py`'s awaiting-input guard asks
-where the last turn footer ends, so it reads only what came after it. Each kept its own copy, and they
-drifted: the guard never learned the current running footer, so a working claude's scrollback prose read
-as a live question. The rules live here; `TURN_FOOTER` is built from them, never written out again.
+`terminal_text.py`'s awaiting-input guard asks where the last turn footer ends, so it reads only what came
+after it. A second reader (`console_working.py`, deleted in 0.9.9 S3b with the lease it stamped) kept its
+own copy, and they drifted: the guard never learned the current running footer, so a working claude's
+scrollback prose read as a live question. The rules live here; `TURN_FOOTER` is built from them, never
+written out again.
 """
 
 from __future__ import annotations
 
 import re
 
-from service.api_core.console_prompts import plain_text
 
 #: The running footer: an elapsed timer and a live token counter inside one pair of brackets,
 #: `✻ Actualizing… (49m 37s · ↓ 79.0k tokens)`. A completed row renders `+3 tool uses · ↓ 12.1k
@@ -33,9 +33,3 @@ TURN_FOOTER = re.compile(
     "|".join(f"(?:{rule.pattern})" for rule in (RUNNING_FOOTER, INTERRUPT_FOOTER, FINISHED_FOOTER)),
     re.MULTILINE | re.I,
 )
-
-
-def shows_claude_working(screen: str) -> bool:
-    """Whether the screen shows claude in a turn now: a running or an interrupt-style footer."""
-    text = plain_text(screen)
-    return bool(RUNNING_FOOTER.search(text) or INTERRUPT_FOOTER.search(text))

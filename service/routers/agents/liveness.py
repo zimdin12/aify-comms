@@ -17,7 +17,6 @@ from fastapi import HTTPException, Request
 
 from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.request_body import json_object_body
-from service.api_core.background_work import record_background_work
 from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
 from service.api_core.status_broadcast import _broadcast_engine_status
@@ -39,7 +38,6 @@ from service.db import get_db
 from service.reconcilers.status_cache import _live_state_get
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-import sqlite3
 from service.routers.agents.shared import (
     _record_claimer_lease,
     logger,
@@ -291,72 +289,3 @@ async def post_claimer_lease(agent_id: str, request: Request):
 async def post_status_event(agent_id: str, req: AgentStatusEventRequest):
     """A blocked / unblocked / turn event from a launcher not yet relaunched: accepted, applied nowhere."""
     return {**await accept_and_ignore(agent_id), "kind": req.kind, "applied": False}
-
-
-@router.post("/agents/{agent_id}/console-working")
-async def agent_console_working(agent_id: str, request: Request):
-    """Spinner-gated working lease from the managed-claude console PTY.
-
-    The host bridge POSTs this while the claude TUI working footer
-    ("esc to interrupt" / "<glyph> <verb> for <time>") is visible. It stamps a
-    short TTL lease that is OR'd into derived `working` — additive, never clears
-    turn_busy, self-expires when the spinner stops. This closes the
-    "online while thinking" under-report the per-completed-message transcript
-    cannot see. Idempotent best-effort.
-    """
-    now = _now()
-    db = await get_db()
-    try:
-        agent_row = await (await db.execute(
-            "SELECT id FROM agents WHERE id = ?", (agent_id,)
-        )).fetchone()
-        if not agent_row:
-            raise HTTPException(404, f'Agent "{agent_id}" not found')
-        body = await json_object_body(request, lenient=True)
-        subagents = bool(body.get("subagents"))
-        await db.execute(
-            "INSERT INTO agent_console_signal (agent_id, working_at, subagents_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(agent_id) DO UPDATE SET working_at = excluded.working_at, "
-            "subagents_at = CASE WHEN ? THEN excluded.working_at ELSE '' END",
-            (agent_id, now, now if subagents else "", 1 if subagents else 0),
-        )
-        # Invalidate the in-memory live-status cache (a dict pop now, 2026-06-18 — immediate,
-        # not tied to the commit) so the next read recomputes the spinner-driven to-working.
-        await _invalidate_agent_live_state(db, agent_id)
-        await db.commit()
-        # Push the working lease immediately so the spinner-driven to-working shows without
-        # the ~60s poll wait.
-        settings = await _load_settings(db)
-        await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
-    finally:
-        await db.close()
-    return {"ok": True}
-
-
-@router.post("/agents/{agent_id}/background-work")
-async def agent_background_work(agent_id: str, request: Request):
-    """A resident bridge's count of background shells and agents still running from its session.
-
-    Above zero it stamps a short lease the bridge refreshes while the work runs; zero clears it.
-    `derive()` reads the lease as `shell` for a resident idle at its prompt
-    (`api_core/background_work.py`).
-    """
-    body = await json_object_body(request, lenient=True)
-    count = body.get("count")
-    # A COUNT, NOT A FLAG. `True` is an int in Python, so it is refused by name: a body that sent a
-    # boolean was written against a different contract than this one.
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        raise HTTPException(422, "count must be a whole number of background tasks, 0 or more")
-    db = await get_db()
-    try:
-        agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        if not agent_row:
-            raise HTTPException(404, f'Agent "{agent_id}" not found')
-        await record_background_work(db, agent_id, count, _now())
-        await _invalidate_agent_live_state(db, agent_id)
-        await db.commit()
-        settings = await _load_settings(db)
-        await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
-    finally:
-        await db.close()
-    return {"ok": True, "count": count}

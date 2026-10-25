@@ -30,7 +30,6 @@ from service.api_core.message_store import _get_unread_count_map
 from service.db_errors import _is_lock_error
 from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.api_core.agent_sessions import _agent_tombstone
-from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.dispatch_state import _get_dispatch_state_map
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.settings import _load_settings
@@ -65,22 +64,6 @@ async def list_agents(request: Request):
     db = await get_db()
     try:
         settings = await _load_settings(db)
-        # ONE cache for this request, created before the FIRST phase that resolves an environment.
-        # `_managed_owning_environment_row` falls back to a lookup keyed on machine_id alone, so a
-        # roster of agents sharing a host asks the same question repeatedly.
-        #
-        # It used to be created between the two phases, which is why it only ever served one of
-        # them: measured at 50 agents, the machine lookup ran 17 times -- 16 of those from the
-        # live-state refresh below, which runs FIRST and had no cache to consult.
-        #
-        # Safe to share across both phases because nothing in this request writes `environments`;
-        # that is asserted end-to-end by test_the_roster_never_writes_what_it_caches.py, and the
-        # ceiling itself by test_the_roster_looks_up_an_environment_once.py.
-        environments_by_machine: dict = {}
-        # One query for every agent's live-session environment binding, instead of one per agent --
-        # and built HERE, above the refresh, for the reason the dict above is: the live-state refresh
-        # runs first and resolved the same binding per agent because this map did not exist yet.
-        session_environment_by_agent = await load_session_environment_by_agent(db)
         # The cache refresh/repair below is BEST-EFFORT: a SELECT never takes SQLite's write
         # lock (WAL), so when the single writer is briefly contended we serve slightly-stale
         # cached rows instead of 503ing the whole roster — a 503 here broke the dashboard load
@@ -90,8 +73,6 @@ async def list_agents(request: Request):
             repaired_active_runs = await _repair_unusable_active_runs(db)
             refreshed_live_states = await _refresh_expired_agent_live_states(
                 db, settings=settings, limit=LIST_AGENTS_REFRESH_LIMIT,
-                environments_by_machine=environments_by_machine,
-                session_environment_by_agent=session_environment_by_agent,
             )
             if repaired_active_runs or refreshed_live_states:
                 await db.commit()
