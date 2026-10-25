@@ -45,3 +45,26 @@ it is unchecked.
   - Positive control: an injected 50 ms delay shows up in the right hop and in no other.
 - **Decision:** fix the hop holding the largest share of the slow cases. If no hop holds a majority, report that
   instead of choosing one.
+
+## First cut, 2026-10-25: the comms leg is not where the lag is
+
+This was measured in a disposable service pair: the same image, an empty DB, a synthetic key. A script posted the way
+aify-env posts (one in flight per terminal, at least 100 ms apart), and two websocket clients acted as tabs, with
+timestamps carried inside the output.
+
+- **Comms leg** (POST start to frame on a socket, p95). L1 quiet: 9-10 ms. L2 spinner: 9 ms. L3 nine busy terminals
+  (about 100 posts/s, 3x the live rate measured on 10-13): 33-42 ms. That meets the pre-registered "comms is not the lag"
+  bound (p95 ≤ 50 ms at L3 in all three attempts).
+  - Positive control: with the CPUs saturated, L2 rose from 9 to 47 ms.
+- **Browser.** The real Dashboard Next ran in a headless Chromium on that sandbox, socket connected, with every
+  terminal's frames passing through realtime-socket. Main-thread drift stayed at timer granularity (max 16 ms) at L3.
+  - Positive control: a 120 ms block showed as 113 ms of drift.
+  - The long-task observer is blind in that browser, so its zeros are not evidence.
+  - No console was mounted, so the xterm write was not measured.
+- **aify-env.** The 100 ms window is leading-edge: an echo into an idle terminal posts at once, and one into a
+  terminal that is already streaming waits up to 100 ms.
+
+No hop holds the slow cases here, so no fix is chosen. A reproduction now needs what the sandbox lacks: the live host
+under real load, the live DB's size, a mounted console, and the operator's browser. Next would be a timestamped run on
+the live console while the operator reports a lag, if they want one. Probe, raw results and controls:
+~/reviews/aify/console-lag-2026-10-25/ (README.md pre-registered the decision before any result).
