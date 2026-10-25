@@ -44,6 +44,7 @@ export function usagePreflightLines(verdict, { json = false } = {}) {
   const r = verdict || {};
   if (json) return [JSON.stringify(r)];
   if (r.ok) return [`  [usage] OK — ${r.message}`];
+  if (r.code === "not-set-up") return [`  [usage] ${r.message}`];
   const lines = ["", `  [usage] WARNING — ${r.message}`];
   if (r.detail) lines.push(`  [usage] ${r.detail}`);
   lines.push("  [usage] Everything else works; only the OpenAI quota panel is affected.");

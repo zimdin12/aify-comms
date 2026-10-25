@@ -502,7 +502,8 @@ export async function fetchCodexUsage({ readLatestRollout = defaultReadLatestRol
 //
 // Returns { ok, code, message, detail }. Codes:
 //   ok                 - token found AND the usage API accepted it
-//   no-token           - no OpenAI token in any codex/hermes store (codex not installed / not logged in)
+//   not-set-up         - no codex/hermes store exists at all; the quota is optional, so doctor skips it
+//   no-token           - a store exists but carries no OpenAI token (codex logged out, hermes-only pointer)
 //   rejected           - a token was found but the API refused it (expired -> `codex login` again)
 //   unreachable        - could not reach the API (offline / blocked); says nothing about the token
 export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHermesAuth, fetchImpl = globalThis.fetch } = {}) {
@@ -512,6 +513,16 @@ export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHerme
     authText = readHermesAuth() || "";
     token = extractOpenAiToken(authText);
   } catch { token = null; }
+  // No store at all is a host that never set the quota up -- a Claude-only client -- not a broken login.
+  if (!token && !authText) {
+    return {
+      ok: false,
+      code: "not-set-up",
+      message: "OpenAI/ChatGPT quota is not set up on this host (no codex or hermes login). It is optional; Claude agents do not use it.",
+      detail: "To show ChatGPT quota in the dashboard, install the codex CLI and run `codex login`. Searched: "
+        + openAiAuthCandidates().join(", "),
+    };
+  }
   if (!token) {
     return {
       ok: false,

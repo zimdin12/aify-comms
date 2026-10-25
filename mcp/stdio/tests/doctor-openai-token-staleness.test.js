@@ -19,6 +19,7 @@ import {
   openAiRefreshLooksBroken,
   openAiTokenExpiry,
   openAiUsageVerdict,
+  usageDoctorRow,
 } from "../openai-usage-check.mjs";
 import { hasOpenAiRefreshToken, openAiLastRefreshEpoch } from "../usage-collector.js";
 
@@ -235,15 +236,19 @@ test("checkOpenAiUsageAccess: expired with NO refresh token fails", async () => 
   assert.equal(r.code, "expired-no-refresh");
 });
 
-test("doctor surfaces a non-ok OK code instead of collapsing it to 'connected'", async () => {
+test("doctor surfaces a non-ok OK code instead of collapsing it to 'connected'", () => {
   // The stale-token message is the whole point of the fix; doctor.js used to overwrite it.
-  const { readFileSync } = await import("node:fs");
-  const source = readFileSync(new URL("../doctor.js", import.meta.url), "utf8");
-  const at = source.indexOf('add("usage-openai"');
-  assert.ok(at > 0);
-  const block = source.slice(Math.max(0, at - 700), at + 200);
-  assert.match(block, /code === "ok" \? "OpenAI\/ChatGPT quota is connected" : r\.message/,
-    "an ok-but-noteworthy verdict must keep its own message");
+  assert.deepEqual(usageDoctorRow({ ok: true, code: "stale-token", message: "renews on next use", detail: "run codex" }),
+    { ok: true, code: "stale-token", detail: "renews on next use", fix: "run codex" });
+  assert.equal(usageDoctorRow({ ok: true, code: "ok", message: "x" }).detail, "OpenAI/ChatGPT quota is connected");
+});
+
+test("a host with no codex or hermes login skips the optional quota row; a login that lost its token still fails", () => {
+  // A Claude-only client read FAIL here and looked broken (fresh-install report, 2026-10-25).
+  assert.deepEqual(usageDoctorRow({ ok: false, code: "not-set-up", message: "not set up", detail: "codex login" }),
+    { skipped: true, detail: "not set up" });
+  assert.deepEqual(usageDoctorRow({ ok: false, code: "no-token", message: "no token", detail: "codex login" }),
+    { ok: false, code: "no-token", detail: "no token", fix: "codex login" });
 });
 
 // ── refresh-token detection must stay scoped to the OpenAI subtree ───────────────────

@@ -327,6 +327,7 @@ test("an elevated gateway is reported through the CHECK, and a listing that fail
   failing.deps.listListeners = () => { throw new Error("netstat failed"); };
   await checkGatewayOrphans(failing.deps);
   assert.equal(failing.calls.added[0][2], "unknown-all", "a listing that failed read as no hidden listener");
+  assert.match(failing.calls.added[0][3], /listening ports could not be read \(netstat failed\)/, "the unknown did not name why the ports could not be read");
 });
 
 test("a service that does not answer is unknown too", () => {

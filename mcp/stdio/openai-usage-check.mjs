@@ -165,3 +165,17 @@ export function openAiUsageVerdict({
     fix: "Retry; if it persists, re-authenticate with `codex login`.",
   };
 }
+
+/**
+ * The doctor's `usage-openai` row for a checkOpenAiUsageAccess verdict. Not every OK is the same OK:
+ * `stale-token` is green on purpose but keeps its own message (reviewer catch, 2026-08-09). A host with
+ * no codex or hermes store never set the optional quota up, so the row is skipped rather than failed.
+ */
+export function usageDoctorRow(r) {
+  if (r.code === "not-set-up") return { skipped: true, detail: r.message };
+  if (r.ok) {
+    const code = r.code || "ok";
+    return { ok: true, code, detail: code === "ok" ? "OpenAI/ChatGPT quota is connected" : r.message, fix: r.detail || "" };
+  }
+  return { ok: false, code: r.code, detail: r.message, fix: r.detail };
+}

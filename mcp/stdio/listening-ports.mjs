@@ -89,7 +89,7 @@ export function imageName(pid, { platform = process.platform, run = nodeSpawnSyn
 
 const PROBES = Object.freeze({
   win32: { command: "netstat", args: ["-ano", "-p", "TCP"], parse: parseNetstatListeners },
-  linux: { command: "ss", args: ["-ltnpH"], parse: parseSsListeners },
+  linux: { command: "ss", args: ["-ltnpH"], parse: parseSsListeners, providedBy: "iproute2" },
   darwin: { command: "lsof", args: ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"], parse: parseLsofListeners },
 });
 
@@ -101,6 +101,9 @@ export function listListeners({ platform = process.platform, run = nodeSpawnSync
   const probe = PROBES[platform];
   if (!probe) throw new Error(`no listening-socket probe for ${platform}`);
   const res = run(probe.command, probe.args, { encoding: "utf8", windowsHide: true, timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+  if (res?.error?.code === "ENOENT") {
+    throw new Error(`${probe.command} is not on PATH${probe.providedBy ? ` (install ${probe.providedBy})` : ""}`);
+  }
   if (!res || res.error || res.status !== 0) {
     throw new Error(`${probe.command} failed: ${res?.error?.code || res?.error?.message || `status ${res?.status}`}`);
   }

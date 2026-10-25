@@ -46,6 +46,9 @@ test("a listing that failed THROWS: a caller deciding a port is free must not be
   for (const res of [null, { status: 1, stdout: "" }, { status: null, error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }), stdout: "  TCP    127.0.0.1:9273    0.0.0.0:0    LISTENING    1" }]) {
     assert.throws(() => listListeners({ platform: "win32", run: () => res }), /netstat failed/);
   }
+  // A container with no iproute2 has no `ss` (fresh-install report, 2026-10-25): say which tool is missing.
+  const enoent = { status: null, error: Object.assign(new Error("spawn ss ENOENT"), { code: "ENOENT" }) };
+  assert.throws(() => listListeners({ platform: "linux", run: () => enoent }), /ss is not on PATH \(install iproute2\)/);
   assert.throws(() => listListeners({ platform: "sunos", run: () => ({ status: 0, stdout: "" }) }), /no listening-socket probe/);
   const twice = "  TCP    0.0.0.0:9273    0.0.0.0:0    LISTENING    7\r\n  TCP    [::]:9273    [::]:0    LISTENING    7\r\n";
   assert.deepEqual(listListeners({ platform: "win32", run: () => ({ status: 0, stdout: twice }) }), [{ port: 9273, pid: 7 }], "one socket per port and pid");

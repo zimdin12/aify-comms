@@ -55,6 +55,14 @@ test("a non-default install is honoured via the tool's OWN env var", () => {
   }
 });
 
+test("no codex or hermes store at all reads as not set up, which is optional, not a missing token", async () => {
+  const r = await checkOpenAiUsageAccess({ readHermesAuth: () => "" });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "not-set-up");
+  assert.match(r.message, /optional/);
+  assert.match(r.detail, /codex login/);
+});
+
 test("preflight: codex missing / not logged in -> actionable warning, not silence", async () => {
   const hermesPointer = JSON.stringify({ version: 1, active_provider: "openai-codex" });
   const r = await checkOpenAiUsageAccess({ readHermesAuth: () => hermesPointer });

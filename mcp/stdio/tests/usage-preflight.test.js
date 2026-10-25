@@ -38,6 +38,11 @@ const BAD = {
   detail: "Looked in ~/.codex/auth.json.",
 };
 
+test("a host with no OpenAI login prints one line and no WARNING: the quota is optional", () => {
+  const out = collect({ ok: false, code: "not-set-up", message: "OpenAI quota is not set up here (optional).", detail: "codex login" });
+  assert.equal(out, "  [usage] OpenAI quota is not set up here (optional).");
+});
+
 function collect(verdict, options) {
   return usagePreflightLines(verdict, options).join("\n");
 }

@@ -168,10 +168,10 @@ export function gatewayOwners(portMarkers) {
  * a service that did not answer, and no readable markers each make the answer unknown rather than
  * clean.
  */
-export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgentIds = null, agents = null, unreadable = null, sessions = null } = {}) {
+export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgentIds = null, agents = null, unreadable = null, sessions = null, portsError = "" } = {}) {
   const missing = [];
   if (gateways === null) missing.push("the process table could not be read");
-  if (unreadable === null) missing.push("the listening ports could not be read");
+  if (unreadable === null) missing.push(`the listening ports could not be read${portsError ? ` (${portsError})` : ""}`);
   if (owners === null) missing.push("the gateway port markers could not be read");
   if (loopAgentIds === null) missing.push("the delivery loops could not be enumerated");
   if (agents === null) missing.push("the service did not answer");
@@ -286,10 +286,12 @@ export async function checkGatewayOrphans({ get, add, listProcesses, listListene
   }
 
   let unreadable = null;
+  let portsError = "";
   try {
     if (gateways !== null && owners !== null) unreadable = unreadableListeners({ listeners: listListeners(), rows, gateways, owners, imageOf });
-  } catch {
+  } catch (error) {
     unreadable = null;
+    portsError = String(error?.message || error);
   }
 
   // One read per claimed gateway. A count that could not be read stays null, and the rules above decide.
@@ -305,6 +307,6 @@ export async function checkGatewayOrphans({ get, add, listProcesses, listListene
   const body = await get("/api/v1/agents");
   const agents = body && body.agents && typeof body.agents === "object" ? body.agents : null;
 
-  const verdict = gatewayOrphanVerdict({ gateways, owners, loopAgentIds, agents, unreadable, sessions });
+  const verdict = gatewayOrphanVerdict({ gateways, owners, loopAgentIds, agents, unreadable, sessions, portsError });
   return add("gateway-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
