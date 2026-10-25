@@ -209,15 +209,23 @@ def _retire(key):
 
 async def _expire_changed(db, before):
     """The served word is the operational view's (0.9.8 switch). Every agent on a machine whose publishers this
-    publication changed re-reads it on the next poll, not only the agents the publication names: an unavailable, lost,
-    retired or recovered publisher changes what every agent on its machine can be known as (SW5 review R2). A failure
-    here leaves words to their own refresh times, never a committed apply undone."""
+    publication changed is re-derived, not only the agents the publication names: an unavailable, lost, retired or
+    recovered publisher changes what every agent on its machine can be known as (SW5 review R2). A failure here leaves
+    words to their own refresh times, never a committed apply undone.
+
+    RE-DERIVED NOW, not on the next read. The cache announces a word that moved (`_live_state_set`), so the dashboard
+    hears a stop when aify-env publishes it; left to the next read it waited out the dashboard's poll (the operator,
+    2026-10-25: "when i kill/stop agent then i see that agent be in old status for some time")."""
+    from service.api_core.status_refresh import _refresh_expired_agent_live_states
+
     try:
         try:
             after = shadow.mirror.view()
         except Exception:
             after = None
-        await switched_view.expire_machines(db, switched_view.changed_machines(before, after))
+        expired = await switched_view.expire_machines(db, switched_view.changed_machines(before, after))
+        if expired:
+            await _refresh_expired_agent_live_states(db, agent_ids=expired)
     except Exception:
         pass
 

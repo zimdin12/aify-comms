@@ -35,7 +35,8 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
             value['reportEveryMs'] = every
         if kind == 'unavailable':
             value.pop('agents', None)
-        with patch('service.clock.now', return_value=at(seconds)):
+        # Every clock reads the publication's moment: the ingest now re-derives the words it expired, through the view's clock.
+        with patch('service.clock.now', return_value=at(seconds)), patch.object(shadow, 'clock', return_value=at(seconds)):
             response = self.client.post('/api/v1/agent-state', content=wire(value),
                                         headers={'content-type': 'application/json'})
         self.assertEqual(response.status_code, 204, response.text)

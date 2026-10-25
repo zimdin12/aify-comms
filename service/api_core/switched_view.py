@@ -194,19 +194,22 @@ def changed_machines(before, after):
 
 async def expire_machines(db, machines):
     """The cached words of every agent registered on these machines are re-derived on their next read; every cached word
-    when the machines cannot be told (None)."""
+    when the machines cannot be told (None). Returns the agent ids it expired."""
     from service.reconcilers.status_cache import _LIVE_STATE_CACHE
 
     if machines is None:
-        expire_words(list(_LIVE_STATE_CACHE))
-        return
+        ids = list(_LIVE_STATE_CACHE)
+        expire_words(ids)
+        return ids
     machines = sorted(m for m in machines if m)
     if not machines:
-        return
+        return []
     marks = ','.join('?' * len(machines))
     rows = await (await db.execute(
         f"SELECT id FROM agents WHERE TRIM(COALESCE(machine_id, '')) IN ({marks})", machines)).fetchall()
-    expire_words(str(row['id']) for row in rows)
+    ids = [str(row['id']) for row in rows]
+    expire_words(ids)
+    return ids
 
 
 def expire_words(agent_ids):
