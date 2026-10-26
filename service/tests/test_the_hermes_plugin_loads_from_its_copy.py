@@ -83,12 +83,17 @@ def test_CONTROL_without_the_copy_the_shim_says_it_failed(tmp_path: Path) -> Non
     assert "shim load failed: No module named 'aify_hermes_plugin'" in loaded.stderr, loaded.stderr
 
 
-def test_an_install_root_that_is_the_checkout_keeps_its_source(tmp_path: Path) -> None:
+@pytest.mark.parametrize("spelling", ["checkout", "CHECKOUT"])
+def test_an_install_root_that_is_the_checkout_keeps_its_source(tmp_path: Path, spelling: str) -> None:
     # AIFY_HOME may be the checkout (copy_bridge_to_native_dir skips its copy then); removing the destination first
-    # deleted the package it was about to copy (review of f3489835).
+    # deleted the package it was about to copy (review of f3489835). A Windows case alias is the same directory under
+    # another spelling, which a path-string comparison kept apart (review of 67c81119).
     checkout = tmp_path / "checkout"
     shutil.copytree(ROOT / "integrations" / "hermes-aify-plugin", checkout / "integrations" / "hermes-aify-plugin")
-    copy, shim = _install_plugin(tmp_path, script_dir=checkout, native_base=checkout)
+    native_base = tmp_path / spelling
+    if not native_base.exists():
+        pytest.skip("this filesystem is case-sensitive, so the alias is another directory")
+    copy, shim = _install_plugin(tmp_path, script_dir=checkout, native_base=native_base)
     assert (copy / "aify_hermes_plugin" / "bootstrap.py").is_file(), "the install deleted its own source"
     assert "shim load failed" not in _load_shim(shim).stderr
 

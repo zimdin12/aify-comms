@@ -286,7 +286,7 @@ copy_bridge_to_native_dir() {
   # every install (exact mirror) so fixes flow; self-contained for repo-less
   # clients. Skip the copy if the repo IS already the native dir (dev on ext4).
   local src="$SCRIPT_DIR/mcp/stdio"
-  if [ "$(cd "$src" 2>/dev/null && pwd -P)" = "$(cd "$AIFY_BRIDGE_DIR" 2>/dev/null && pwd -P 2>/dev/null)" ] && [ -d "$AIFY_BRIDGE_DIR" ]; then
+  if [ "$src" -ef "$AIFY_BRIDGE_DIR" ]; then
     echo "  Bridge already at native dir ($AIFY_BRIDGE_DIR); skipping copy."
     return 0
   fi
@@ -425,8 +425,9 @@ refresh_plugin_snapshot() {
     return 0
   fi
   # A plugin dir that IS this checkout (a symlink to the repo) would have its own service/ and mcp/
-  # deleted by the loop below before they were copied from (v0.7 docs review). Compare physical paths.
-  if [ "$(cd "$dst" && pwd -P)" = "$(cd "$SCRIPT_DIR" && pwd -P)" ]; then
+  # deleted by the loop below before they were copied from (v0.7 docs review). `-ef` compares the directory itself:
+  # path strings keep a Windows case alias apart (review of 67c81119).
+  if [ "$dst" -ef "$SCRIPT_DIR" ]; then
     echo "  Skipped $label plugin refresh: $dst is this checkout."
     return 0
   fi
@@ -1155,7 +1156,7 @@ install_hermes_plugin() {
   local plugin_src="$AIFY_NATIVE_BASE/integrations/hermes-aify-plugin"
   local plugin_from="$SCRIPT_DIR/integrations/hermes-aify-plugin"
   # AIFY_HOME may be the checkout itself (as copy_bridge_to_native_dir allows): then the copy IS the source.
-  if [ "$(cd "$plugin_from" && pwd -P)" != "$(cd "$plugin_src" 2>/dev/null && pwd -P)" ]; then
+  if ! [ "$plugin_from" -ef "$plugin_src" ]; then
     rm -rf "${plugin_src:?}" && mkdir -p "$plugin_src" && cp -R "$plugin_from/." "$plugin_src/"
   fi
   if hermes_runtime_is_native_windows; then
