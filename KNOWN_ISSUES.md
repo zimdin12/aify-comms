@@ -17,6 +17,11 @@ kept as evidence. Last reviewed 2026-10-13.
   through its gateway, and comms shows it reading and replying. Restarting it or changing its model does not help.
   The operator's ruling: do not reset or hand off the agent for this. A fix belongs in Hermes, whose desktop app
   already pages its resume (`defer_history`) where the TUI does not. Reporting it upstream is the operator's call.
+- **A hermes TUI stays disconnected when its gateway is recovered onto another port by aify-env** (comms-senior-dev,
+  2026-10-26). A recovery reuses the TUI's token, and without aify-env its port (aify-wrapper b4b0d8f), so the
+  TUI's retries reach the replacement. When aify-env must give a different port because the old one is busy, delivery
+  recovers but the TUI keeps retrying its launch URL and shows the connection lost; a relaunch reattaches it. Kept
+  deliberately: refusing that recovery would report a working agent lost.
 - A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (sc-coder-gpt, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
 - **A resident claude with background shells reads `online`, not `shell`** (the operator's ask of 2026-10-01). Its
   bridge counted background work from the transcript and posted the count to comms only; since the 0.9.8 switch the
