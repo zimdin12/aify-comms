@@ -17,6 +17,8 @@ import logging
 from contextvars import ContextVar
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
 
 from service.config import get_config
 # Every comms_* tool now lives in one of these modules and is REGISTERED here rather than declared
@@ -52,7 +54,18 @@ client_name_var: ContextVar[str] = ContextVar("client_name", default="unknown")
 
 # Create MCP server instance
 config = get_config()
-mcp_server = FastMCP(config.name)
+# STATELESS, JSON (0.9.11): each `/mcp/http` call stands alone, so a service rebuild costs a connected agent
+# nothing; a stateful session would answer 404 to every agent after each deploy.
+# NO HOST ALLOW-LIST: FastMCP's default refuses any Host but localhost (421), which locks out an agent that
+# reaches this service by another name (WSL, another PC). The API-key middleware authenticates every request,
+# and a DNS-rebinding page holds no key: the dashboard's cookie belongs to the service's own origin.
+mcp_server = FastMCP(
+    config.name,
+    stateless_http=True,
+    json_response=True,
+    streamable_http_path="/http",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 # ---------------------------------------------------------------------------
 # Service Tools
@@ -170,17 +183,14 @@ _register_management_tools(mcp_server)
 
 
 def setup_mcp_server(app):
-    """Mount the MCP server onto the FastAPI app."""
+    """Mount both MCP transports onto the FastAPI app, and return the Streamable HTTP lifetime.
+
+    One mount for both: a mount owns its whole prefix, so a second one under `/mcp` would never be reached.
+    The caller enters the returned context for the app's lifetime; Streamable HTTP refuses requests without it.
+    """
     _bind_container_app(app)
     cfg = get_config()
-
-    # Get the SSE app from FastMCP
-    sse_app = mcp_server.sse_app()
-
-    # Mount under the configured prefix
-    app.mount(cfg.mcp_path_prefix, sse_app)
-
-    logger.info(
-        f"MCP SSE server mounted at {cfg.mcp_path_prefix}/ "
-        f"- Connect at {cfg.mcp_path_prefix}/sse"
-    )
+    http_app = mcp_server.streamable_http_app()
+    app.mount(cfg.mcp_path_prefix, Starlette(routes=[*mcp_server.sse_app().routes, *http_app.routes]))
+    logger.info(f"MCP mounted at {cfg.mcp_path_prefix}/http (Streamable HTTP) and {cfg.mcp_path_prefix}/sse")
+    return mcp_server.session_manager.run()

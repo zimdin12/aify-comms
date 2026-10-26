@@ -8,7 +8,7 @@ import json
 import logging
 import sys
 import time
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
@@ -451,7 +451,8 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Container manager init failed: {e}")
 
-    # Mount MCP server if enabled
+    # Mount MCP server if enabled. `mcp_lifetime` holds the Streamable HTTP session manager open until shutdown.
+    mcp_lifetime = AsyncExitStack()
     if config.mcp_enabled:
         try:
             import importlib.util
@@ -459,12 +460,11 @@ async def lifespan(app: FastAPI):
             _spec = importlib.util.spec_from_file_location("sse_server", _sse_path)
             _mod = importlib.util.module_from_spec(_spec)
             _spec.loader.exec_module(_mod)
-            _mod.setup_mcp_server(app)
-            logger.info(f"MCP SSE at {config.mcp_path_prefix}/sse")
+            await mcp_lifetime.enter_async_context(_mod.setup_mcp_server(app))
         except Exception as e:
             # WARNING, not info. A transport that failed to mount is not the same as one nobody
             # configured, and reading it as routine is how this stayed broken unmeasured.
-            logger.warning(f"MCP SSE server FAILED to mount at {config.mcp_path_prefix}/sse: {e}")
+            logger.warning(f"MCP server FAILED to mount at {config.mcp_path_prefix}: {e}")
 
     # v0.4 C3 — the ntfy drain task. It owns the network and the timeout so no request path ever
     # does. `start()` is a no-op when AIFY_NTFY_URL is unset, which is the default, so an operator
@@ -479,6 +479,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await mcp_lifetime.aclose()
         await ntfy_relay.stop()
         reconcile_task.cancel()
         try:
