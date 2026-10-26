@@ -33,6 +33,7 @@ import {
   startHermesGatewayTurnDetector,
 } from "./hermes-gateway-turn-detector.js";
 import { buildGatewayTurnCallbacks } from "./hermes-turn-detector-callbacks.mjs";
+import { postEnvAgentState } from "./agent-state-event.mjs";
 import {
   MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
@@ -505,6 +506,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // dispatch re-pulse window (~15min) never expires turn_busy → `online` while working.
     // Mirrors the re-pulse cadence (45s), comfortably under the 120s server stale window.
     workingRefreshMs: REPULSE_MS,
+    onTurnEdge: (kind, firedAtUs) => postEnvAgentState(kind, { firedAtUs }),
   });
 
   let totalProcessed = 0;

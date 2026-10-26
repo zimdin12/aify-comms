@@ -311,3 +311,46 @@ test("G5 a descriptor's explicit default HTTP port is still a valid loopback end
     assert.equal(reached, "http://127.0.0.1/agents/hook-agent/turn-event");
   } finally { globalThis.fetch = saved; fs.rmSync(home, { recursive: true, force: true }); }
 });
+
+// 0.9.10: a hermes turn reaches aify-env. The gateway detector's edges go to the real env host through the real
+// poster, ungated: a prompt typed into a managed hermes is not a dispatched turn, and comms' gate must not hide it.
+test("a hermes gateway turn, typed rather than dispatched, opens and closes the turn in the real env host", async () => {
+  const sibling = siblingCheckout("aify-env", "lib/agent-turn-events.mjs");
+  assert.ok(sibling.dir, `Set AIFY_ENV_REPO: ${sibling.looked}`);
+  const { AgentStateHost } = await import(pathToFileURL(join(sibling.dir, "lib/agent-state-host.mjs")));
+  const { AgentTurnEvents } = await import(pathToFileURL(join(sibling.dir, "lib/agent-turn-events.mjs")));
+  const { startHermesGatewayTurnDetector } = await import("../hermes-gateway-turn-detector.js");
+  const home = privateHome();
+  const startedUs = Date.now() * 1000;
+  const host = new AgentStateHost({ aifyHome: join(home, ".aify"), instance: "test", nowUs: () => Date.now() * 1000,
+    probe: () => new Map([[123, { alive: true, createdAtUs: startedUs - 2000000, commandLine: "/owned/hermes-aify" }]]) });
+  host.boot();
+  host.startManaged({ agentId: "hermes-agent", lifetime: LIFETIME, instance: "test", harness: "hermes", pid: 123,
+    launcher: "/owned/hermes-aify", writtenAtUs: startedUs - 1000000 });
+  const facts = { mode: "managed", definition: "valid", stoppedByOperator: false };
+  const receiver = new AgentTurnEvents({ host, instance: "test" });
+  const env = await envServer(body => receiver.receive("hermes-agent", body));
+  descriptor(home, env.url);
+  const reads = ["idle", "working", "working", "idle", "idle", "idle"];
+  const states = [];
+  const stop = startHermesGatewayTurnDetector({ intervalMs: 5, idleDebounce: 3, workingRefreshMs: 0, idleRefreshMs: 0,
+    readGatewayStatus: async () => reads.shift() ?? "idle", postTurnEnd: async () => {},
+    postTurnStart: async () => assert.fail("a typed turn is not dispatched: the comms post stays gated"),
+    shouldFireTurnStart: () => false,
+    onTurnEdge: async (kind, firedAtUs) => {
+      await poster.postEnvAgentState(kind, { env: privateEnv(home, { AIFY_AGENT_ID: "hermes-agent" }), firedAtUs });
+      states.push(host.current("hermes-agent", facts).state);
+    } });
+  try {
+    for (const deadline = Date.now() + 5000; states.length < 2 && Date.now() < deadline;) await new Promise(r => setTimeout(r, 5));
+    assert.deepEqual(states, ["working", "idle"], "the typed turn reads working, then idle, in aify-env");
+    assert.deepEqual(env.requests.map(r => r.body.kind), ["turn-start", "turn-end"]);
+  } finally { stop(); await env.close(); fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test("both hermes detectors, managed and resident, send their edges to aify-env", () => {
+  for (const file of ["hermes-delivery-loop.mjs", "server.js"]) {
+    const source = fs.readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", file), "utf8");
+    assert.match(source, /onTurnEdge: \(kind, firedAtUs\) => postEnvAgentState\(kind, \{ firedAtUs \}\)/, file);
+  }
+});

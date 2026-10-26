@@ -93,7 +93,7 @@ the contract both tables follow.
 - **codex:** hooks.
 - **hermes:** `hermes-gateway-turn-detector.js` reads the gateway session status; idle must hold for
   several consecutive reads before it clears, because hermes' running flag blinks off between tool
-  calls. It still posts to comms, which ignores it until 0.9.10 moves hermes out of comms.
+  calls. Each start and end goes to aify-env since 0.9.10, typed turns included.
 
 Every one of these paths needs `AIFY_AGENT_ID` in the bridge's process. An agent stuck `working`
 or never `working` is usually that: see the first entry above.

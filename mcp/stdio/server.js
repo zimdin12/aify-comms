@@ -72,6 +72,7 @@ import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
+import { postEnvAgentState } from "./agent-state-event.mjs";
 import { AIFY_VERSION } from "./version.js";
 import { shouldSkipLoop } from "./loop-gate.mjs";
 import { main } from "./bridge-main.mjs";
@@ -265,6 +266,7 @@ if (
         source: "bridge-resident-gateway-detector",
       });
     },
+    onTurnEdge: (kind, firedAtUs) => postEnvAgentState(kind, { firedAtUs }),
   });
 }
 

@@ -123,6 +123,9 @@ export function startHermesGatewayTurnDetector({
   // session["running"]=True, does NOT re-fire /turn-start and flap the agent to
   // `working` while it is idle-to-the-user (2026-07-10 live-reproduced flap).
   shouldFireTurnStart = () => true,
+  // aify-env's turn signal (0.9.10): every start and end EDGE, ungated, with the time the edge was seen. A typed
+  // prompt is a turn here too, and aify-env needs no keep-alive. The comms posts above are ignored since 0.9.9 S2a.
+  onTurnEdge = null,
 }) {
   const noop = () => {};
   if (
@@ -203,6 +206,13 @@ export function startHermesGatewayTurnDetector({
       return;
     }
     if (!directive || stopped) return;
+    if (typeof onTurnEdge === "function") {
+      try {
+        await onTurnEdge(directive === "start" ? "turn-start" : "turn-end", Date.now() * 1000);
+      } catch {
+        /* best-effort, like the posts below */
+      }
+    }
     if (directive === "start") {
       inFlight = true;
       clearAccumMs = 0;
