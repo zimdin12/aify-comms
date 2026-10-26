@@ -323,7 +323,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     intervalMs: GATEWAY_PROBE_MS,
     threshold: GATEWAY_PROBE_THRESHOLD,
     probe: makeGatewayReachabilityProbe({
-      indexUrl: gatewayIndexUrlFromWs(host.wsUrl),
+      // Read per probe: a recovery below replaces `host`, possibly on another port.
+      indexUrl: () => gatewayIndexUrlFromWs(host.wsUrl),
       fetchImpl,
     }),
     reportDead: async ({ consecutiveFailures } = {}) => {

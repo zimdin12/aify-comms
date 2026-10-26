@@ -281,13 +281,15 @@ export function gatewayIndexUrlFromWs(wsUrl) {
 }
 
 
+// `indexUrl` may be a function, read on every probe: the delivery loop's gateway can be replaced by a
+// recovery on another port (0.9.10), and a URL captured at bring-up would keep probing the dead one.
 export function makeGatewayReachabilityProbe({
   indexUrl,
   fetchImpl = (typeof fetch !== "undefined" ? fetch : undefined),
   timeoutMs = GATEWAY_PROBE_TIMEOUT_MS,
 } = {}) {
   return async function probe() {
-    const url = String(indexUrl || "").trim();
+    const url = String((typeof indexUrl === "function" ? indexUrl() : indexUrl) || "").trim();
     if (!url || typeof fetchImpl !== "function") return { alive: false };
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = controller
