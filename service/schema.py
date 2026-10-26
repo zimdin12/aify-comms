@@ -585,8 +585,9 @@ CREATE TABLE IF NOT EXISTS lifecycle_launches (
     FOREIGN KEY (request_id) REFERENCES agent_lifecycle_requests(id)
 );
 
--- G8a shadow ingest only. No FK to authoritative agents or status tables.
-CREATE TABLE IF NOT EXISTS agent_state_shadow_publishers (
+-- What each host's aify-env last published (api_core/agent_state_ingest.py), read back by the restart restore. No FK to
+-- agents: a publisher may name an agent this service has not seen. Named agent_state_shadow_* until 0.9.9 S3c.
+CREATE TABLE IF NOT EXISTS agent_state_publishers (
     machine_id TEXT NOT NULL,
     instance TEXT NOT NULL,
     generation INTEGER NOT NULL,
@@ -605,16 +606,15 @@ CREATE TABLE IF NOT EXISTS agent_state_shadow_publishers (
     report_every_ms INTEGER,
     PRIMARY KEY (machine_id, instance)
 );
-CREATE TABLE IF NOT EXISTS agent_state_shadow_rows (
+CREATE TABLE IF NOT EXISTS agent_state_rows (
     machine_id TEXT NOT NULL,
     instance TEXT NOT NULL,
     agent_id TEXT NOT NULL,
     lifetime TEXT,
     record_json TEXT NOT NULL,
-    row_applied_at TEXT NOT NULL,
     PRIMARY KEY (machine_id, instance, agent_id),
     FOREIGN KEY (machine_id, instance)
-        REFERENCES agent_state_shadow_publishers(machine_id, instance) ON DELETE CASCADE
+        REFERENCES agent_state_publishers(machine_id, instance) ON DELETE CASCADE
 );
 
 

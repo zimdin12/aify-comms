@@ -199,14 +199,14 @@ async def _drop_status_shadow_comparison(db: aiosqlite.Connection):
 
 
 PUBLISHER_CONTACT_MIGRATIONS = {
-    "report_received_at": "ALTER TABLE agent_state_shadow_publishers ADD COLUMN report_received_at TEXT",
-    "report_every_ms": "ALTER TABLE agent_state_shadow_publishers ADD COLUMN report_every_ms INTEGER",
+    "report_received_at": "ALTER TABLE agent_state_publishers ADD COLUMN report_received_at TEXT",
+    "report_every_ms": "ALTER TABLE agent_state_publishers ADD COLUMN report_every_ms INTEGER",
 }
 
 
 async def _migrate_publisher_contact(db: aiosqlite.Connection):
     """Keep announced silence limits across restart. Legacy rows get no guessed receipt or interval."""
-    cursor = await db.execute("PRAGMA table_info(agent_state_shadow_publishers)")
+    cursor = await db.execute("PRAGMA table_info(agent_state_publishers)")
     existing = {row[1] for row in await cursor.fetchall()}
     for column, statement in PUBLISHER_CONTACT_MIGRATIONS.items():
         if column not in existing:
@@ -283,6 +283,25 @@ RETIRED_TABLES = ("agent_live_state", "agent_turn_state", "agent_status_state", 
 RETIRED_COLUMNS = {
     "terminal_sessions": ("activity_state", "activity_rule", "activity_observed_at", "activity_reported_at"),
 }
+
+
+#: The agent-state tables' names before 0.9.9 S3c, from when they sat beside the legacy status as a comparison.
+RENAMED_TABLES = {"agent_state_shadow_publishers": "agent_state_publishers", "agent_state_shadow_rows": "agent_state_rows"}
+
+
+async def _rename_agent_state_tables(db: aiosqlite.Connection):
+    """Carry an existing database's saved publications to the new names, BEFORE the schema creates them empty.
+
+    The parent goes first: SQLite rewrites the child's foreign key to follow it. `row_applied_at` goes too: written
+    by every publication since S1 and read by nothing. Idempotent: a database with the new names is left alone.
+    """
+    names = {row[0] for row in await (await db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")).fetchall()}
+    for old, new in RENAMED_TABLES.items():
+        if old in names and new not in names:
+            await db.execute(f"ALTER TABLE {old} RENAME TO {new}")
+    rows = {row[1] for row in await (await db.execute("PRAGMA table_info(agent_state_rows)")).fetchall()}
+    if "row_applied_at" in rows:
+        await db.execute("ALTER TABLE agent_state_rows DROP COLUMN row_applied_at")
 
 
 async def _drop_retired_tables(db: aiosqlite.Connection):
@@ -556,6 +575,7 @@ async def init_db(db_path: Path = None):
     async with aiosqlite.connect(_db_path) as db:
         await db.execute("PRAGMA journal_mode=WAL")
         await _apply_connection_pragmas(db)
+        await _rename_agent_state_tables(db)
         await db.executescript(SCHEMA)
         await _migrate_publisher_contact(db)
         await _migrate_agents_table(db)

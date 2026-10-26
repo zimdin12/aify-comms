@@ -1,10 +1,10 @@
-"""Bounded G6/G7 publication ingest. These tables confer no current-state authority."""
+"""Bounded G6/G7 publication ingest: each aify-env's publication validated, ordered and saved for the restart restore."""
 from dataclasses import dataclass
 import hashlib
 import asyncio
 import re
 
-from service.api_core import partial_status_shadow as shadow, switched_view
+from service.api_core import agent_state_mirror as state_mirror, switched_view
 from service.api_core.report_age import is_report_interval
 
 _INGEST_LOCK = asyncio.Lock()
@@ -196,13 +196,13 @@ def _retire(key):
     """After a retirement's commit (B5): K leaves the mirror. If that fails, K stays absent and every other publisher
     becomes a known loss, each recovering on its own next snapshot."""
     try:
-        before = shadow.mirror.view()
+        before = state_mirror.mirror.view()
     except Exception:
         before = None
     try:
-        shadow.mirror.retire(key)
+        state_mirror.mirror.retire(key)
     except Exception:
-        shadow.retire_safe(key, before)
+        state_mirror.retire_safe(key, before)
 
 
 async def _expire_changed(db, before):
@@ -218,7 +218,7 @@ async def _expire_changed(db, before):
 
     try:
         try:
-            after = shadow.mirror.view()
+            after = state_mirror.mirror.view()
         except Exception:
             after = None
         expired = await switched_view.expire_machines(db, switched_view.changed_machines(before, after))
@@ -232,7 +232,7 @@ def _json(value):
     return json.dumps(value, ensure_ascii=True, separators=(',', ':'))
 
 
-class AgentStateShadowStore:
+class AgentStateStore:
     """Own the connection and transaction, including cursor and data publication."""
 
     def __init__(self, connection_factory=None):
@@ -242,7 +242,7 @@ class AgentStateShadowStore:
         body = _decode(document)
         _validate(body)
         try:
-            projection = shadow.prepare(body, applied_at)
+            projection = state_mirror.prepare(body, applied_at)
         except Exception:
             projection = None
         digest = hashlib.sha256(document).hexdigest()
@@ -256,7 +256,7 @@ class AgentStateShadowStore:
                 await db.execute('BEGIN IMMEDIATE')
                 key = (body['machineId'], body['instance'])
                 previous = await (await db.execute(
-                    'SELECT * FROM agent_state_shadow_publishers WHERE machine_id=? AND instance=?', key)).fetchone()
+                    'SELECT * FROM agent_state_publishers WHERE machine_id=? AND instance=?', key)).fetchone()
                 refusal = _order(previous, body, digest)
                 if refusal:
                     await db.rollback()
@@ -271,7 +271,7 @@ class AgentStateShadowStore:
                 await db.rollback()
                 raise
             try:
-                before = shadow.mirror.view()
+                before = state_mirror.mirror.view()
             except Exception:
                 before = None
             if body['kind'] == 'retired':
@@ -281,16 +281,16 @@ class AgentStateShadowStore:
             # Outside transaction rollback handling, before the next await including close.
             try:
                 if projection is None:
-                    shadow.invalidate_safe(key)
+                    state_mirror.invalidate_safe(key)
                 else:
-                    shadow.mirror.feed(projection)
+                    state_mirror.mirror.feed(projection)
             except Exception:
-                shadow.invalidate_safe(key)
+                state_mirror.invalidate_safe(key)
                 projection = None
             # Contact (decision 2): this applied, advancing, non-retired body renews the publisher's report pair, after
             # its data step so the pair is this body's. Refused, duplicate, stale and conflicting bodies returned above.
             try:
-                shadow.mirror.renew_report(key, applied_at, body.get('reportEveryMs'))
+                state_mirror.mirror.renew_report(key, applied_at, body.get('reportEveryMs'))
             except Exception:
                 pass  # contact unrenewed reads as not-reporting or stale: never fresher than it is
             await _expire_changed(db, before)
@@ -299,7 +299,7 @@ class AgentStateShadowStore:
             await db.close()
 
     async def _write_cursor(self, db, key, body, digest, applied_at):
-        await db.execute('''INSERT INTO agent_state_shadow_publishers
+        await db.execute('''INSERT INTO agent_state_publishers
             (machine_id,instance,generation,incarnation_id,publication,digest,kind,inputs,reason,
              report_received_at,report_every_ms)
             VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(machine_id,instance) DO UPDATE SET
@@ -313,8 +313,8 @@ class AgentStateShadowStore:
 
     async def _write_retirement(self, db, key, body, applied_at):
         """K holds nothing from now on: its rows go, and its data columns name the retirement."""
-        await db.execute('DELETE FROM agent_state_shadow_rows WHERE machine_id=? AND instance=?', key)
-        await db.execute('''UPDATE agent_state_shadow_publishers SET data_generation=?,
+        await db.execute('DELETE FROM agent_state_rows WHERE machine_id=? AND instance=?', key)
+        await db.execute('''UPDATE agent_state_publishers SET data_generation=?,
             data_incarnation_id=?,data_publication=?,data_applied_at=?,data_inputs=?
             WHERE machine_id=? AND instance=?''',
             (body['generation'], body['incarnationId'], body['publication'], applied_at, _json(body['inputs']), *key))
@@ -322,20 +322,20 @@ class AgentStateShadowStore:
     async def _write_data(self, db, key, body, previous, applied_at):
         # Unavailable can move the cursor ahead without changing the stored data generation.
         if body['kind'] == 'snapshot' or previous is None or previous['data_generation'] != body['generation']:
-            await db.execute('DELETE FROM agent_state_shadow_rows WHERE machine_id=? AND instance=?', key)
+            await db.execute('DELETE FROM agent_state_rows WHERE machine_id=? AND instance=?', key)
         else:
             # An ended old lifetime must not remove the replacement in the same publication.
             for removed in body['removed']:
-                await db.execute('''DELETE FROM agent_state_shadow_rows
+                await db.execute('''DELETE FROM agent_state_rows
                     WHERE machine_id=? AND instance=? AND agent_id=? AND lifetime=?''',
                     (*key, removed['agentId'], removed['lifetime']))
         for record in body['agents']:
-            await db.execute('''INSERT INTO agent_state_shadow_rows
-                (machine_id,instance,agent_id,lifetime,record_json,row_applied_at) VALUES (?,?,?,?,?,?)
+            await db.execute('''INSERT INTO agent_state_rows
+                (machine_id,instance,agent_id,lifetime,record_json) VALUES (?,?,?,?,?)
                 ON CONFLICT(machine_id,instance,agent_id) DO UPDATE SET lifetime=excluded.lifetime,
-                record_json=excluded.record_json,row_applied_at=excluded.row_applied_at''',
-                (*key, record['agentId'], record['lifetime'], _json(record), applied_at))
-        await db.execute('''UPDATE agent_state_shadow_publishers SET data_generation=?,
+                record_json=excluded.record_json''',
+                (*key, record['agentId'], record['lifetime'], _json(record)))
+        await db.execute('''UPDATE agent_state_publishers SET data_generation=?,
             data_incarnation_id=?,data_publication=?,data_applied_at=?,data_inputs=?
             WHERE machine_id=? AND instance=?''',
             (body['generation'], body['incarnationId'], body['publication'], applied_at, _json(body['inputs']), *key))

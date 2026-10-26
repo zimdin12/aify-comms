@@ -113,7 +113,7 @@ CASCADES = {
 }
 
 LEFT_BEHIND = {
-    ("agent_state_shadow_rows", "agent_id"): (
+    ("agent_state_rows", "agent_id"): (
         "literal incoming publisher observation, not comms-owned identity; only a data publication changes it"
     ),
     #: MUST keep naming the OLD id. Recording that the old id is retired is the entire point of the

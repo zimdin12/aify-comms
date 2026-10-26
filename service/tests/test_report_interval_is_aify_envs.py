@@ -37,10 +37,10 @@ def announced(kind='snapshot', every=EVERY, **extra):
 class ReportIntervalIsAifyEnvs(FastApiTestCase):
     def setUp(self):
         super().setUp()
-        from service.api_core import operational_view, partial_status_shadow as shadow, report_age
-        self.shadow, self.ov, self.age = shadow, operational_view, report_age
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
-                  patch.object(shadow, '_quarantined', False)):
+        from service.api_core import operational_view, agent_state_mirror as state_mirror, report_age
+        self.state_mirror, self.ov, self.age = state_mirror, operational_view, report_age
+        for p in (patch.object(state_mirror, 'mirror', state_mirror.Mirror()),
+                  patch.object(state_mirror, '_quarantined', False)):
             p.start()
             self.addCleanup(p.stop)
 
@@ -54,13 +54,13 @@ class ReportIntervalIsAifyEnvs(FastApiTestCase):
         self.assertEqual(response.status_code, 204, response.text)
 
     def publisher(self):
-        return self.shadow.mirror.view().get(KEY)
+        return self.state_mirror.mirror.view().get(KEY)
 
     def report_age(self, when):
         return self.age.report_age(self.publisher(), when)
 
     def holders(self, when):
-        return self.ov.holders_of(self.shadow.Binding(self.shadow.mirror.view(), when), MACHINE, AGENT)
+        return self.ov.holders_of(self.state_mirror.Binding(self.state_mirror.mirror.view(), when), MACHINE, AGENT)
 
     # -- the field ---------------------------------------------------------------------------------------
 
@@ -87,12 +87,12 @@ class ReportIntervalIsAifyEnvs(FastApiTestCase):
         for every, seconds, expected in ((60_000, 179.9, 'fresh'), (60_000, 180, 'stale'), (20_000, 59.9, 'fresh'),
                                          (20_000, 60, 'stale')):
             with self.subTest(every=every, seconds=seconds):
-                publisher = self.shadow.Publisher(1, AT, True, False, (), report=(AT, every))
+                publisher = self.state_mirror.Publisher(1, AT, True, False, (), report=(AT, every))
                 self.assertEqual(self.age.report_age(publisher, at(seconds)), expected)
 
     def test_no_announcement_is_not_reporting_never_fresh(self):
         for report in (None, (AT, None)):
-            publisher = self.shadow.Publisher(1, AT, True, False, (), report=report)
+            publisher = self.state_mirror.Publisher(1, AT, True, False, (), report=report)
             for seconds in (0, 1, 179):
                 with self.subTest(report=report, seconds=seconds):
                     self.assertEqual(self.age.report_age(publisher, at(seconds)), 'not-reporting')
@@ -145,7 +145,7 @@ class ReportIntervalIsAifyEnvs(FastApiTestCase):
         from service.api_core import mirror_restore
         from service.db import get_db
         self.applied(announced(agents=[idle()]))
-        self.shadow.mirror = self.shadow.Mirror()
+        self.state_mirror.mirror = self.state_mirror.Mirror()
         self.assertEqual(asyncio.run(mirror_restore.restore_mirror(get_db)).restored, (KEY,))
         self.assertEqual(self.publisher().report, (AT, EVERY), 'saved contact survives; restored data is still unknown')
         self.assertEqual(self.ov.comms_view(self.holders(at(1)), self.ov.Messaging()).eligibility, 'unknown')
@@ -162,7 +162,7 @@ class ReportIntervalIsAifyEnvs(FastApiTestCase):
         from service.api_core import lifecycle_delegation
         self.applied(body(agents=[idle()]))  # today's aify-env: no announcement
         self.assertEqual(self.publisher().report, (AT, None))
-        fresh = lifecycle_delegation._fresh_publishers(MACHINE, self.shadow.mirror.view(), at(1))
+        fresh = lifecycle_delegation._fresh_publishers(MACHINE, self.state_mirror.mirror.view(), at(1))
         self.assertEqual(len(fresh), 1, 'the live lifecycle reader moved before SW5')
 
     def test_the_operational_view_reads_unknown_for_a_holder_that_announced_nothing(self):

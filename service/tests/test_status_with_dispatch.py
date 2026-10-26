@@ -15,7 +15,7 @@
   * `offline`, `misconfigured` and `blocked` outrank it too — all three describe the agent's
     ability to work at all, and a run cannot argue with them. An offline agent showing `working` is
     the exact false green the status engine exists to prevent. The guard asks
-    `status_engine.is_live_agent_status` rather than a hand-written literal, so a fourth non-live
+    `status_vocabulary.is_live_agent_status` rather than a hand-written literal, so a fourth non-live
     status added later is covered without anyone remembering this file.
 
 Every one of these fails silently: the wrong word appears on a dashboard, and a status-sorted list
@@ -33,7 +33,7 @@ import pytest
 
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _status_with_dispatch
-from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
+from service.status_vocabulary import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
 
 # Statuses that describe an agent that CAN work, and so may be promoted (`working` stays `working`).
 PROMOTABLE = ["online", "available", "shell", "starting", "working"]

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 
 from service.api_core import operational_view as ov
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import agent_state_mirror as state_mirror
 
 T0 = datetime(2026, 10, 20, 12, 0, 0, tzinfo=timezone.utc)
 MACHINE, AGENT = 'win32:test', 'agent-a'
@@ -21,17 +21,17 @@ def iso(moment):
 def record(busy, state='idle', lifetime='L1', turn_open=False, started_us=0, busy_if=(False, False), agent=AGENT):
     """The turn's clock and busy laws are accepted and dropped: since 0.9.9 S1 the mirror holds no turn timing at all,
     so no test here can hand the view one, which is the no-comms-timer property by construction."""
-    return shadow.Record(agent, lifetime, state, busy)
+    return state_mirror.Record(agent, lifetime, state, busy)
 
 
 def publisher(*rows, applied=T0, complete=True, unavailable=False, loss=False, every=60_000):
     """A publisher whose last report, received at `applied`, announced 60 s (decision 2): fresh for 180 s."""
-    return shadow.Publisher(1, iso(applied), complete, unavailable, tuple(rows), loss, report=(iso(applied), every))
+    return state_mirror.Publisher(1, iso(applied), complete, unavailable, tuple(rows), loss, report=(iso(applied), every))
 
 
 def binding(*publishers, at=T0, machine=MACHINE):
     view = {(machine, f'i{n}'): p for n, p in enumerate(publishers)}
-    return shadow.Binding(MappingProxyType(view), iso(at))
+    return state_mirror.Binding(MappingProxyType(view), iso(at))
 
 
 def view_of(bind, messaging=ov.Messaging()):
@@ -48,7 +48,7 @@ class RecordCarriesTopLevelBusy(unittest.TestCase):
                         process=dict(state='running', verified=True),
                         turn=dict(open=busy, startedAtUs=1, lastEventAtUs=1, awaitingInput=False,
                                   busyIf=dict(strict=busy_if[0], verifiedRenewal=busy_if[1])))])
-        return shadow.prepare(body, iso(T0)).rows[0]
+        return state_mirror.prepare(body, iso(T0)).rows[0]
 
     def test_busy_comes_from_the_top_level_field_against_a_contrary_busy_if(self):
         self.assertIs(self._prepared(True, (False, False)).busy, True)
@@ -88,7 +88,7 @@ class TheTruthTable(unittest.TestCase):
         self.assertEqual((v.eligibility, v.busy, v.holds_delivery), ('known', True, True))
 
     def test_a_failed_binding_is_all_unknown(self):
-        v = ov.comms_view(ov.holders_of(shadow.Binding(None, None, True), MACHINE, AGENT), ov.Messaging())
+        v = ov.comms_view(ov.holders_of(state_mirror.Binding(None, None, True), MACHINE, AGENT), ov.Messaging())
         self.assertEqual((v.eligibility, v.holds_delivery, v.status), ('unknown', None, 'unknown'))
 
     def test_a_missing_busy_on_a_fresh_record_is_not_known_idle(self):

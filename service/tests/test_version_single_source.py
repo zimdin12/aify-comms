@@ -130,7 +130,7 @@ class MisconfiguredStatusTests(unittest.TestCase):
     """
 
     def test_misconfigured_is_in_the_vocabulary_and_counts_as_NOT_live(self):
-        from service.status_engine import VALID_STATUSES
+        from service.status_vocabulary import VALID_STATUSES
         self.assertIn("misconfigured", VALID_STATUSES)
         js = (REPO_ROOT / "service" / "new_dashboard" / "status.js").read_text(encoding="utf-8")
         self.assertIn("'misconfigured'", js)

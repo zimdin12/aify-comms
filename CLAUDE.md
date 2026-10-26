@@ -94,7 +94,7 @@ holds that.
 
 | Path | What |
 |------|------|
-| `service/` | The FastAPI service. Routers under `service/routers/` hold HTTP only and call into `service/api_core/` (behaviour), `service/reconcilers/` (one module per sweep or reconciliation), and top-level leaves such as `dispatch_claim.py`, `status_engine.py`, `terminal_write_queue.py`, `clock.py` and `env_status.py`. Put new behaviour in the module that owns its subject, as a pure function where it can be one. The layer rules and their tests are in docs/ARCHITECTURE.md. |
+| `service/` | The FastAPI service. Routers under `service/routers/` hold HTTP only and call into `service/api_core/` (behaviour), `service/reconcilers/` (one module per sweep or reconciliation), and top-level leaves such as `dispatch_claim.py`, `status_vocabulary.py`, `terminal_write_queue.py`, `clock.py` and `env_status.py`. Put new behaviour in the module that owns its subject, as a pure function where it can be one. The layer rules and their tests are in docs/ARCHITECTURE.md. |
 | `service/routers/api_v2.py` | Composition only: the `include_router` calls. There is no compatibility re-export, so a stale import of a moved helper fails loudly. |
 | `service/new_dashboard/` | Dashboard Next. Behaviour lives in `*.mjs` modules, each with a `*.test.mjs` that calls it in Node; `app.js` is the render orchestrator. |
 | `service/new_dashboard/fixtures/messenger-browser.mjs` | The only test of the real message sanitizer: DOMPurify needs a DOM, so under `node --test` every `richMessageHtml` assertion runs the escape fallback. It runs in a browser by hand; `fixtures/README.md` has the procedure. |

@@ -1,7 +1,5 @@
 """The operational view: what comms reads after the 0.9.8 switch (plan 2026-10-20-s4-hard-switch, SW2).
 
-Built beside the status shadow and not yet called by any live reader; SW5 rewires the readers to it in one commit.
-
 Two layers, so the only clock comms keeps is visible in one place:
   - `holders_of` classifies each publisher by REPORT age (`report_age`, decision 2: three of the intervals aify-env
     announced, on comms' own receipt clock; no announcement reads `not-reporting`, so unknown). It never reads a turn's
@@ -15,7 +13,7 @@ no publisher on its machine is unreadable; unknown withholds before busy and bef
 """
 from dataclasses import dataclass
 
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import agent_state_mirror as state_mirror
 from service.api_core.report_age import report_age
 
 #: aify-env states a delivered run beside them promotes to `working` (the view's row 5).
@@ -114,7 +112,7 @@ def _busy(holders):
 
 
 def _status_word(state):
-    word = shadow.candidate_word(state)
+    word = state_mirror.candidate_word(state)
     return word or 'unknown'
 
 
@@ -201,7 +199,7 @@ def orphan_safety(view):
 
 
 #: The words row 5 promotes, derived from the states it names (idle reads `online`). `unknown` is never among them.
-PROMOTABLE_WORDS = frozenset(w for w in (shadow.candidate_word(s) for s in PROMOTABLE) if w)
+PROMOTABLE_WORDS = frozenset(w for w in (state_mirror.candidate_word(s) for s in PROMOTABLE) if w)
 
 
 def promoted(word, run_running):
@@ -212,6 +210,6 @@ def promoted(word, run_running):
 
 def counts_live(word):
     """Whether a word counts toward the live fleet: a known live word only. `unknown` is no evidence of a live worker."""
-    from service.status_engine import is_live_agent_status
+    from service.status_vocabulary import is_live_agent_status
 
     return word != 'unknown' and is_live_agent_status(word)

@@ -39,7 +39,7 @@ LEAF_GLOBS = (
     "service/routers/*.py",
     "service/env_status.py",
     "service/clock.py",
-    "service/status_engine.py",
+    "service/status_vocabulary.py",
 )
 
 

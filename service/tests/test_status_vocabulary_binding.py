@@ -2,7 +2,7 @@
 
 H1, from the 2026-07-31 responsibility audit.
 
-`status_engine.VALID_STATUSES` is THE shared contract of this service: agents read the status to
+`status_vocabulary.VALID_STATUSES` is THE shared contract of this service: agents read the status to
 decide whether to send, the dashboard filters on it, the reconciler acts on it. It is authoritative
 in Python and it was hand-retyped in JavaScript in three more places — `SESSION_FILTER_KINDS` and
 `SESSION_LIVE_KINDS` in `app.js`, and an independent `new Set([...])` of the same four values in
@@ -24,7 +24,7 @@ import re
 import unittest
 from pathlib import Path
 
-from service.status_engine import VALID_STATUSES
+from service.status_vocabulary import VALID_STATUSES
 
 DASHBOARD = Path(__file__).resolve().parents[1] / "new_dashboard"
 
@@ -52,7 +52,7 @@ class StatusVocabularyBindingTests(unittest.TestCase):
             _js_array(self.status_js, "AGENT_STATUSES"),
             list(VALID_STATUSES),
             "service/new_dashboard/status.js AGENT_STATUSES has drifted from "
-            "service/status_engine.py VALID_STATUSES — the dashboard will render the missing state "
+            "service/status_vocabulary.py VALID_STATUSES — the dashboard will render the missing state "
             "as a grey 'unknown' chip and filter it into nothing",
         )
 

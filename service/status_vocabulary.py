@@ -1,8 +1,8 @@
 """The agent status vocabulary: the words, which ones are live, which mean a worker at rest.
 
-Until 0.9.9 S3b this module also held the legacy derivation (`derive()`) and its turn-event state machine. Since the
-0.9.8 switch every word comes from the operational view over aify-env's records, so only the vocabulary is left; the
-view, the dashboard twins and the readiness gates read it. S3c moves it to a module named for what it is.
+Every word comes from the operational view over aify-env's records; the view, the dashboard twins and the readiness
+gates read the vocabulary here. Until 0.9.9 this module was `status_engine`, and it also held the legacy derivation
+(`derive()`, deleted in S3b).
 """
 from __future__ import annotations
 

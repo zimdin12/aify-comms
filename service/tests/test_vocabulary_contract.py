@@ -36,7 +36,7 @@ from service.api_core.vocabulary import (
 
 REPO = Path(__file__).resolve().parent.parent.parent
 BRIDGE_RUNTIMES = REPO / "mcp" / "stdio" / "runtimes.js"
-STATUS_ENGINE = REPO / "service" / "status_engine.py"
+STATUS_ENGINE = REPO / "service" / "status_vocabulary.py"
 
 
 class VocabularyContractTests(unittest.TestCase):
@@ -55,16 +55,16 @@ class VocabularyContractTests(unittest.TestCase):
             "update BOTH, in the same commit.",
         )
 
-    def test_the_status_engine_emits_exactly_the_contract_statuses(self):
+    def test_the_status_vocabulary_declares_exactly_the_contract_statuses(self):
         """`derive()` is the sole status authority, so its vocabulary IS the product's."""
         source = STATUS_ENGINE.read_text(encoding="utf-8")
         match = re.search(r"VALID_STATUSES\s*=\s*\((.*?)\)", source, re.S)
-        self.assertIsNotNone(match, "VALID_STATUSES not found in status_engine.py")
+        self.assertIsNotNone(match, "VALID_STATUSES not found in status_vocabulary.py")
         engine = set(re.findall(r'"([a-z_]+)"', match.group(1)))
         self.assertEqual(
             engine,
             set(AGENT_STATUSES),
-            "service/status_engine.py VALID_STATUSES and the vocabulary contract disagree. "
+            "service/status_vocabulary.py VALID_STATUSES and the vocabulary contract disagree. "
             "Whichever gained a state, the other must gain it too — and so must the skill status "
             "tables, which is the failure this contract exists to stop repeating.",
         )

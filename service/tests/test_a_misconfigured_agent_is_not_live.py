@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from service.status_engine import (
+from service.status_vocabulary import (
     NON_LIVE_AGENT_STATUSES,
     VALID_STATUSES,
     is_live_agent_status,
@@ -143,7 +143,7 @@ class TheContractAgreesWithThePartition(unittest.TestCase):
         self.assertTrue(values, "positive control: the contract declared no statuses")
         self.assertEqual(
             sorted(values), sorted(VALID_STATUSES),
-            "the contract and status_engine disagree about what a status is",
+            "the contract and status_vocabulary disagree about what a status is",
         )
         for status in values:
             self.assertIsInstance(is_live_agent_status(status), bool)

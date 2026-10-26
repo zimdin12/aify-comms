@@ -57,7 +57,7 @@ from service.api_core.agent_sessions import _touch_agent
 from service.api_core.operator_authz import operator_is_acting, refuse_an_unproven_operator_sender
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.status_refresh import _get_recipient_info
-from service.status_engine import VALID_STATUSES
+from service.status_vocabulary import VALID_STATUSES
 from service.routers.dispatch_messages.shared import (
     _primary_result_message_id,
     _resolve_recipient_ids,

@@ -19,7 +19,7 @@ import asyncio
 from datetime import datetime, timedelta
 from unittest import mock
 
-from service.api_core import partial_status_shadow as shadow, switched_view
+from service.api_core import agent_state_mirror as state_mirror, switched_view
 from service.clock import ISO_SECONDS
 from service.db import get_db
 from service.tests import env_records
@@ -92,7 +92,7 @@ class TheCachedWordFollowsThePublications(_World):
             env_records.report(self, "c-stale")
             self.assertEqual(self._agent("c-stale")["status"], "online")
         silent = _later(reported_at, 3 * env_records.EVERY_MS // 1000 + 1)  # three missed intervals (decision 2)
-        with frozen_service_clock(silent), mock.patch.object(shadow, "clock", return_value=silent):
+        with frozen_service_clock(silent), mock.patch.object(state_mirror, "clock", return_value=silent):
             agent = self._agent("c-stale")
         self.assertEqual(agent["status"], "unknown", "a cached word outlived the record it was built from")
         self.assertEqual(agent["lastKnown"], {"status": "online", "appliedAt": reported_at}, "A7")

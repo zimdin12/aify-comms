@@ -11,7 +11,7 @@ import { SESSION_FILTER_KINDS, selectedSession } from './session-rail.mjs';
 import { state } from './state.mjs';
 import { LIVE_AGENT_STATUSES } from './status.js';
 
-// H1: these were hand-copies of status_engine.VALID_STATUSES. They now alias the single JS owner in
+// H1: these were hand-copies of status_vocabulary.VALID_STATUSES. They now alias the single JS owner in
 // status.js, which is bound to the Python source by a test.
 const SESSION_LIVE_KINDS = LIVE_AGENT_STATUSES;
 

@@ -35,8 +35,8 @@ class ThePublishersRouteSaysWhatEachPublisherIs(FastApiTestCase):
         self.assertEqual([p['availability'] for p in self.publishers()['publishers']], ['unavailable'])
 
     def test_a_lost_mirror_is_unreadable_not_empty(self):
-        from service.api_core import partial_status_shadow as shadow
-        original = shadow.mirror
-        self.addCleanup(setattr, shadow, 'mirror', original)
-        shadow.mirror = shadow._UnreadableMirror()
+        from service.api_core import agent_state_mirror as state_mirror
+        original = state_mirror.mirror
+        self.addCleanup(setattr, state_mirror, 'mirror', original)
+        state_mirror.mirror = state_mirror._UnreadableMirror()
         self.assertEqual(self.publishers(), {'readable': False, 'publishers': []})

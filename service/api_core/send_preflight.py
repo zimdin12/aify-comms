@@ -36,7 +36,7 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _compute_agent_status
-from service.status_engine import NON_LIVE_AGENT_STATUSES
+from service.status_vocabulary import NON_LIVE_AGENT_STATUSES
 
 
 async def _preflight_live_send_recipients(

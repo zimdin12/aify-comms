@@ -53,10 +53,10 @@ def _publications():
 class B1ResidentsPublisherKeysTest(FastApiTestCase):
     def setUp(self):
         super().setUp()
-        from service.api_core import partial_status_shadow as shadow
-        self.shadow = shadow
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
-                  patch.object(shadow, 'clock', return_value=AT)):
+        from service.api_core import agent_state_mirror as state_mirror
+        self.state_mirror = state_mirror
+        for p in (patch.object(state_mirror, 'mirror', state_mirror.Mirror()),
+                  patch.object(state_mirror, 'clock', return_value=AT)):
             p.start()
             self.addCleanup(p.stop)
         self.wire = _publications()
@@ -65,19 +65,19 @@ class B1ResidentsPublisherKeysTest(FastApiTestCase):
         return dict(json.loads(self.wire[name]), **override)
 
     def apply(self, name, **override):
-        from service.api_core.agent_state_shadow import AgentStateShadowStore
+        from service.api_core.agent_state_ingest import AgentStateStore
         raw = self.wire[name].encode('utf-8') if not override else json.dumps(self.body(name, **override)).encode('utf-8')
-        return asyncio.run(AgentStateShadowStore().apply(raw, AT))
+        return asyncio.run(AgentStateStore().apply(raw, AT))
 
     def rows(self):
         with closing(sqlite3.connect(self._db_path)) as db:
             return {(i, a): json.loads(r)['state'] for i, a, r in db.execute(
-                'SELECT instance, agent_id, record_json FROM agent_state_shadow_rows WHERE machine_id=?', (MACHINE,))}
+                'SELECT instance, agent_id, record_json FROM agent_state_rows WHERE machine_id=?', (MACHINE,))}
 
     def decide(self, agent):
         """The word the operational view reads for the agent from the mirror: what the service serves."""
         from service.api_core import operational_view as ov
-        return ov.comms_view(ov.holders_of(self.shadow.bind(), MACHINE, agent), ov.Messaging()).status
+        return ov.comms_view(ov.holders_of(self.state_mirror.bind(), MACHINE, agent), ov.Messaging()).status
 
     def test_the_fixture_publishes_from_real_roles_on_home_qualified_keys(self):
         first, successor = self.body('first'), self.body('successor')

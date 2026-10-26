@@ -37,7 +37,7 @@ CHANNEL_SIDECAR_STALE_SECONDS = 180
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 
 #: A delivery probe whose read raised: neither live nor known absent. The boolean probes read it as False, as they
-#: always have; the status shadow reads it as unknown (S2c slice 5).
+#: always have; the operational view reads it as unknown (S2c slice 5).
 PROBE_ERROR = 'probe-error'
 
 

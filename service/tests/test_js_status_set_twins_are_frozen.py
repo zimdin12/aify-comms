@@ -10,7 +10,7 @@ Python constant:
 
     service/new_dashboard/notify.mjs         NOTIFIABLE_EVENTS         <- ntfy.NOTIFIABLE_EVENTS
     service/new_dashboard/run-inspector-...  terminal                  <- _DISPATCH_TERMINAL_STATUSES
-    service/new_dashboard/status.js          AGENT_STATUSES            <- status_engine.VALID_STATUSES
+    service/new_dashboard/status.js          AGENT_STATUSES            <- status_vocabulary.VALID_STATUSES
     service/new_dashboard/sessions-list.mjs  LIVE_SESSION_ROW_STATUSES <- _LIVE_SESSION_STATUSES (+)
     service/new_dashboard/console-chooser.js sessionDead               <- (four candidates; see below)
     mcp/stdio/dispatch-execution.js          NATIVE_MANAGED_RUNTIMES   <- _NATIVE_MANAGED_RUNTIMES
@@ -73,7 +73,7 @@ from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES, _TERMINAL_END_STATUSES
 from service.env_status import ENVIRONMENT_STATUSES
 from service.ntfy import NOTIFIABLE_EVENTS
-from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
+from service.status_vocabulary import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 PRUNE = {"node_modules", "fixtures", "__pycache__", ".git", ".venv", "tests"}

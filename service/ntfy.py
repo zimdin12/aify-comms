@@ -17,7 +17,7 @@ an HTTP call on a path carrying 3,883 messages a fortnight. What that produced:
     C6  the URL is a credential
     C7  only what the operator was actually sent
 
-WHY THIS IS ITS OWN MODULE. Same reason as `terminal_diagnostics.py` and `status_engine.py`: logic
+WHY THIS IS ITS OWN MODULE. Same reason as `terminal_diagnostics.py` and `status_vocabulary.py`: logic
 that lives inside a 23k-line router is only reachable through the app, so it can only fail in
 production. Every decision here — does this qualify, is it a duplicate, is the queue full — is a
 branch worth failing a test on.

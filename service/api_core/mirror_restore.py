@@ -1,4 +1,4 @@
-"""Restart restore (0.9.8 hard switch, SW1): the status mirror reloaded from the saved shadow tables at service start.
+"""Restart restore (0.9.8 hard switch, SW1): the status mirror reloaded from the saved agent-state tables at service start.
 
 The mirror is process-local; the tables are not. Without a load, every publisher reads absent after a restart, and an
 absent publisher cannot make an agent unknown. With one, every non-retired publisher comes back as last-known data that
@@ -19,8 +19,8 @@ are served, with no bootstrap timer.
 import json
 from dataclasses import dataclass
 
-from service.api_core import agent_state_shadow as ingest
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import agent_state_ingest as ingest
+from service.api_core import agent_state_mirror as state_mirror
 
 
 @dataclass(frozen=True)
@@ -37,14 +37,14 @@ def restored_record(record_json):
     """One saved row as the mirror holds it, validated exactly as an ingest validates a published record."""
     record = json.loads(record_json)
     ingest._record(record)
-    return shadow.record_of(record)
+    return state_mirror.record_of(record)
 
 
 def restored_publisher(publisher, rows):
     """A saved publisher and its rows as a restored mirror entry. Raises when any row is not a valid record."""
     generation, incarnation = publisher['data_generation'], publisher['data_incarnation_id']
     records = tuple(restored_record(row['record_json']) for row in rows)
-    return shadow.Publisher(generation, publisher['data_applied_at'], False, publisher['kind'] == 'unavailable',
+    return state_mirror.Publisher(generation, publisher['data_applied_at'], False, publisher['kind'] == 'unavailable',
                             records, False, incarnation, publisher['data_publication'], None, True,
                             saved_report(publisher))
 
@@ -58,7 +58,7 @@ def saved_report(publisher):
 
 def lost_publisher(publisher):
     """A saved publisher whose rows cannot be read: lost, with no rows, keeping its saved coordinates."""
-    return shadow.Publisher(publisher['data_generation'], publisher['data_applied_at'], False, False, (), True,
+    return state_mirror.Publisher(publisher['data_generation'], publisher['data_applied_at'], False, False, (), True,
                             publisher['data_incarnation_id'], publisher['data_publication'], None, True,
                             saved_report(publisher))
 
@@ -69,7 +69,7 @@ async def restore_mirror(connect):
         try:
             publishers, rows = await _saved_tables(connect)
         except Exception:
-            shadow.quarantine()
+            state_mirror.quarantine()
             return RestoreResult(unreadable=True)
         restored, lost, retired, skipped = [], [], [], []
         for publisher in publishers:
@@ -81,16 +81,16 @@ async def restore_mirror(connect):
                 entry, bucket = restored_publisher(publisher, rows.get(key, ())), restored
             except Exception:
                 entry, bucket = lost_publisher(publisher), lost
-            (bucket if shadow.mirror.restore(key, entry) else skipped).append(key)
+            (bucket if state_mirror.mirror.restore(key, entry) else skipped).append(key)
         return RestoreResult(tuple(restored), tuple(lost), tuple(retired), tuple(skipped))
 
 
 async def _saved_tables(connect):
     db = await connect()
     try:
-        publishers = await (await db.execute('SELECT * FROM agent_state_shadow_publishers')).fetchall()
+        publishers = await (await db.execute('SELECT * FROM agent_state_publishers')).fetchall()
         rows = {}
-        for row in await (await db.execute('SELECT * FROM agent_state_shadow_rows')).fetchall():
+        for row in await (await db.execute('SELECT * FROM agent_state_rows')).fetchall():
             rows.setdefault((row['machine_id'], row['instance']), []).append(row)
         return publishers, rows
     finally:

@@ -697,7 +697,7 @@ The status system was rewritten to be **PROVEN, not time-assumed** — the concl
 
 ## 2026-07-31 — The agent status vocabulary has ONE owner per language, bound by a test
 
-`status_engine.VALID_STATUSES` is the authority. The JS side has exactly one owner —
+`status_vocabulary.VALID_STATUSES` (`status_engine` until 0.9.9 S3c) is the authority. The JS side has exactly one owner —
 `new_dashboard/status.js`'s `AGENT_STATUSES` — and `service/tests/test_status_vocabulary_binding.py`
 asserts the two are identical, in order.
 

@@ -1,13 +1,12 @@
 """The mirror of what each aify-env published: the operational view's only source since the 0.9.8 switch.
 
-The comparison recorder that shared this module while the switch was qualified was deleted in 0.9.9 (S1, plan
-2026-10-25-0.9.9-deletions.md). The module keeps its name until S3 renames the tables and it together.
+Named `partial_status_shadow` until 0.9.9 S3c, from when it sat beside the legacy status as a comparison.
 """
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from service.clock import now as clock
-from service.status_engine import VALID_STATUSES
+from service.status_vocabulary import VALID_STATUSES
 
 
 @dataclass(frozen=True)

@@ -138,7 +138,7 @@ Pi (deprecated) follows the codex column. Shrink the asymmetry column over time.
 
 The operator-facing status vocabulary, with what each state means and the normal action, is the
 table in [.claude/skills/aify-comms/references/operations.md](.claude/skills/aify-comms/references/operations.md)
-("Status Meanings"); `VALID_STATUSES` in `service/status_engine.py` is the code's list. Status is
+("Status Meanings"); `VALID_STATUSES` in `service/status_vocabulary.py` is the code's list. Status is
 proof-based and never time-decayed.
 
 Since the 0.9.8 switch the word is aify-env's: each host's aify-env publishes a record per agent,

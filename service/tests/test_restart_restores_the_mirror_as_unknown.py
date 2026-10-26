@@ -30,39 +30,39 @@ class _Stop(BaseException):
 class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
     def setUp(self):
         super().setUp()
-        from service.api_core import mirror_restore, operational_view, partial_status_shadow as shadow
-        self.shadow, self.ov, self.restore_module = shadow, operational_view, mirror_restore
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
-                  patch.object(shadow, '_quarantined', False), patch.object(shadow, 'clock', return_value=AT)):
+        from service.api_core import mirror_restore, operational_view, agent_state_mirror as state_mirror
+        self.state_mirror, self.ov, self.restore_module = state_mirror, operational_view, mirror_restore
+        for p in (patch.object(state_mirror, 'mirror', state_mirror.Mirror()),
+                  patch.object(state_mirror, '_quarantined', False), patch.object(state_mirror, 'clock', return_value=AT)):
             p.start()
             self.addCleanup(p.stop)
 
     def apply(self, value, at=AT):
         """Ingest as today's aify-env publishes: every body but a retirement announces 60 s (decision 2)."""
-        from service.api_core.agent_state_shadow import AgentStateShadowStore
+        from service.api_core.agent_state_ingest import AgentStateStore
         if value['kind'] != 'retired':
             value = {'reportEveryMs': 60_000, **value}
-        return asyncio.run(AgentStateShadowStore().apply(wire(value), at))
+        return asyncio.run(AgentStateStore().apply(wire(value), at))
 
     def restart(self):
         """A new process: an empty mirror, then the load from the saved tables."""
         from service.db import get_db
-        self.shadow.mirror = self.shadow.Mirror()
+        self.state_mirror.mirror = self.state_mirror.Mirror()
         return asyncio.run(self.restore_module.restore_mirror(get_db))
 
     def view(self, at=AT, agent=AGENT):
-        with patch.object(self.shadow, 'clock', return_value=at):
-            holders = self.ov.holders_of(self.shadow.bind(), MACHINE, agent)
+        with patch.object(self.state_mirror, 'clock', return_value=at):
+            holders = self.ov.holders_of(self.state_mirror.bind(), MACHINE, agent)
         return holders, self.ov.comms_view(holders, self.ov.Messaging())
 
     def availability(self, at=AT):
-        return self.ov.availability_of(self.shadow.mirror.view()[KEY], at)
+        return self.ov.availability_of(self.state_mirror.mirror.view()[KEY], at)
 
     def forget(self):
         """An empty database and mirror, between subtests."""
-        self.sql('DELETE FROM agent_state_shadow_rows')
-        self.sql('DELETE FROM agent_state_shadow_publishers')
-        self.shadow.mirror = self.shadow.Mirror()
+        self.sql('DELETE FROM agent_state_rows')
+        self.sql('DELETE FROM agent_state_publishers')
+        self.state_mirror.mirror = self.state_mirror.Mirror()
 
     def sql(self, query, params=()):
         with closing(sqlite3.connect(self._db_path)) as db:
@@ -126,21 +126,21 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
     def test_an_empty_table_restores_nothing(self):
         result = self.restart()
         self.assertEqual((result.restored, result.lost, result.retired, result.unreadable), ((), (), (), False))
-        self.assertEqual(dict(self.shadow.mirror.view()), {})
+        self.assertEqual(dict(self.state_mirror.mirror.view()), {})
 
     def test_a_retired_publisher_stays_absent(self):
         self.apply(body())
         retired = {k: v for k, v in body('unavailable', publication=2).items() if k != 'reason'}
         self.assertTrue(self.apply(dict(retired, kind='retired', reason='shutdown')).applied)
         self.assertEqual(self.restart().retired, (KEY,))
-        self.assertNotIn(KEY, self.shadow.mirror.view())
+        self.assertNotIn(KEY, self.state_mirror.mirror.view())
         self.assertEqual(self.view()[0], self.ov.Holders((), False), 'absent, so it holds nothing and hides nothing')
 
     def test_an_unavailable_publisher_stays_unavailable_with_its_data_generation(self):
         self.apply(body())
         self.assertTrue(self.apply(body('unavailable', generation=11, publication=1), at=LATER).applied)
         self.restart()
-        publisher = self.shadow.mirror.view()[KEY]
+        publisher = self.state_mirror.mirror.view()[KEY]
         self.assertEqual(self.availability(), 'unavailable')
         self.assertEqual((publisher.generation, publisher.publication, publisher.data_applied_at), (10, 1, AT),
                          'the data coordinates are the saved ones, not the cursor')
@@ -160,7 +160,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         self.apply(body(agents=[row(), idle('beta', 'L-beta')]))
         self.apply(body('changes', publication=2, agents=[idle()]), at=LATER)
         self.restart()
-        publisher = self.shadow.mirror.view()[KEY]
+        publisher = self.state_mirror.mirror.view()[KEY]
         self.assertEqual((publisher.generation, publisher.incarnation, publisher.publication, publisher.data_applied_at),
                          (10, 'boot', 2, LATER))
         self.assertEqual({r.agent_id: r.busy for r in publisher.rows}, {'alpha': False, 'beta': False})
@@ -171,7 +171,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         refused = self.apply(body(generation=9, agents=[idle()]), at=LATER)
         self.assertEqual((refused.applied, refused.reason), (False, 'stale'))
         self.assertEqual(self.availability(LATER), 'restored')
-        self.assertEqual(self.shadow.mirror.view()[KEY].generation, 10)
+        self.assertEqual(self.state_mirror.mirror.view()[KEY].generation, 10)
 
     # -- failures fail closed --------------------------------------------------------------------------
 
@@ -181,7 +181,7 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
                 self.forget()
                 self.apply(body())
                 self.apply(body(instance='Other', agents=[idle('beta', 'L-beta')]))
-                self.sql('UPDATE agent_state_shadow_rows SET record_json=? WHERE instance=?', (saved, 'CaseSensitive'))
+                self.sql('UPDATE agent_state_rows SET record_json=? WHERE instance=?', (saved, 'CaseSensitive'))
                 result = self.restart()
                 self.assertEqual((result.lost, result.restored), ((KEY,), ((MACHINE, 'Other'),)))
                 self.assertEqual(self.availability(), 'lost')
@@ -193,13 +193,13 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
             raise sqlite3.OperationalError('no such table')
         result = asyncio.run(self.restore_module.restore_mirror(broken))
         self.assertTrue(result.unreadable)
-        self.assertTrue(self.shadow.bind().loss, 'every bind is a loss, so every agent is unknown')
+        self.assertTrue(self.state_mirror.bind().loss, 'every bind is a loss, so every agent is unknown')
 
     # -- ordering: under the ingest lock, never over an ingest, before any route --------------------------
 
     def test_the_load_never_overwrites_a_publisher_an_ingest_applied(self):
         self.apply(body())
-        self.shadow.mirror = self.shadow.Mirror()
+        self.state_mirror.mirror = self.state_mirror.Mirror()
         self.apply(body(publication=2, agents=[idle()]), at=LATER)
         from service.db import get_db
         result = asyncio.run(self.restore_module.restore_mirror(get_db))
@@ -207,28 +207,28 @@ class RestartRestoresTheMirrorAsUnknown(FastApiTestCase):
         self.assertEqual(self.availability(LATER), 'fresh')
 
     def test_the_load_holds_the_ingest_lock(self):
-        from service.api_core import agent_state_shadow
+        from service.api_core import agent_state_ingest
         from service.db import get_db
 
         # A fresh lock for this loop: the module's lock binds to the first loop it ever waits in, so holding it here
         # would fail after, and poison for, any other test that made it wait. The restore reads the attribute at
         # call time, so it takes this lock.
         async def scenario():
-            agent_state_shadow._INGEST_LOCK = asyncio.Lock()
-            await agent_state_shadow._INGEST_LOCK.acquire()
+            agent_state_ingest._INGEST_LOCK = asyncio.Lock()
+            await agent_state_ingest._INGEST_LOCK.acquire()
             task = asyncio.create_task(self.restore_module.restore_mirror(get_db))
             await asyncio.sleep(0.05)
             waited = not task.done()
-            agent_state_shadow._INGEST_LOCK.release()
+            agent_state_ingest._INGEST_LOCK.release()
             await task
             return waited, task.result()
         self.apply(body())
-        self.shadow.mirror = self.shadow.Mirror()
-        real = agent_state_shadow._INGEST_LOCK
+        self.state_mirror.mirror = self.state_mirror.Mirror()
+        real = agent_state_ingest._INGEST_LOCK
         try:
             waited, result = asyncio.run(scenario())
         finally:
-            agent_state_shadow._INGEST_LOCK = real
+            agent_state_ingest._INGEST_LOCK = real
         self.assertTrue(waited, 'the load ran while an ingest held the lock')
         self.assertEqual(result.restored, (KEY,), 'control: the load ran once the lock was free')
 

@@ -69,7 +69,7 @@ service/api_core/**            One subject per module, no knowledge of HTTP.
 service/reconcilers/**         One responsibility per module, driven by the sweep loop.
 service/*.py (top-level)       Service-level modules, e.g. dispatch_claim.py and
         |                      terminal_write_queue.py (each owns its own transaction),
-        |                      status_engine.py (the pure status derivation), clock.py, env_status.py.
+        |                      status_vocabulary.py (the status words), clock.py, env_status.py.
         v
 service/db.py, schema.py       SQLite. A pooled connection per call; writes serialise
                                through BEGIN IMMEDIATE.

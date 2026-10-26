@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.runtimes import adapter_for
-from service.status_engine import WORKER_AT_REST_STATUSES
+from service.status_vocabulary import WORKER_AT_REST_STATUSES
 
 #: How many recent messages a fresh session is told to read when the caller names no number.
 DEFAULT_RECENT_MESSAGES = 10

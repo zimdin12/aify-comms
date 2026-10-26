@@ -16,7 +16,7 @@ import { runTargetAgent, sessionAgentId, sessionEnvironmentId, sessionId, sessio
 //
 // It is THE shared contract of this service — agents read it to decide whether to send, the
 // dashboard filters on it, the reconciler acts on it — and it was declared authoritatively in
-// `status_engine.py:19` and then hand-retyped in three more places: SESSION_FILTER_KINDS and
+// `status_engine.py` (now `status_vocabulary.py`) and then hand-retyped in three more places: SESSION_FILTER_KINDS and
 // SESSION_LIVE_KINDS in app.js, and an independent `new Set([...])` of the same four values in
 // chat.js. Nothing bound any copy to the source, and the vocabulary is not served by the API, so
 // there was no runtime path by which the client could learn it either.
@@ -25,7 +25,7 @@ import { runTargetAgent, sessionAgentId, sessionEnvironmentId, sessionId, sessio
 // seventh server-side state would not throw — it would render as a muted grey "unknown" chip and
 // filter into nothing. Drift with a graceful face.
 //
-// MUST equal `service/status_engine.py`'s VALID_STATUSES, in order. Pinned by
+// MUST equal `service/status_vocabulary.py`'s VALID_STATUSES, in order. Pinned by
 // `service/tests/test_status_vocabulary_binding.py`, which fails the suite on drift rather than
 // letting the dashboard quietly mis-render.
 // `starting` (2026-08-11) is the managed boot window: a claimed spawn whose worker has not appeared

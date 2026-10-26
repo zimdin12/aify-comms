@@ -96,6 +96,6 @@ def publish_state(case, machine, instance, kind, reason, headers=None):
 def reset_mirror():
     """A fresh mirror for a fresh database: the process-global mirror must not carry one test's records into the
     next."""
-    from service.api_core import partial_status_shadow as shadow
+    from service.api_core import agent_state_mirror as state_mirror
 
-    shadow.mirror = shadow.Mirror()
+    state_mirror.mirror = state_mirror.Mirror()

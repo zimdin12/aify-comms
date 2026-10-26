@@ -19,7 +19,7 @@ IT IS NOT ONLY A HEADLINE. `online_agents` is the denominator of fleet utilizati
 too, so operator-stopped agents were dragging down the percentage that says how hard the fleet is
 working.
 
-Both now count through `is_live_agent_status`, the partition declared in `status_engine` when the
+Both now count through `is_live_agent_status`, the partition declared in `status_vocabulary` when the
 same inline rule was replaced in `analytics_series.py`.
 """
 

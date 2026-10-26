@@ -55,11 +55,11 @@ class AgentStateReceiverTest(FastApiTestCase):
             return [dict(record) for record in db.execute(query, params).fetchall()]
 
     def stored(self):
-        return self.sql('SELECT * FROM agent_state_shadow_publishers'), self.sql('SELECT * FROM agent_state_shadow_rows ORDER BY machine_id,instance,agent_id')
+        return self.sql('SELECT * FROM agent_state_publishers'), self.sql('SELECT * FROM agent_state_rows ORDER BY machine_id,instance,agent_id')
 
     def apply(self, value, at=AT, factory=None):
-        from service.api_core.agent_state_shadow import AgentStateShadowStore
-        store = AgentStateShadowStore() if factory is None else AgentStateShadowStore(factory)
+        from service.api_core.agent_state_ingest import AgentStateStore
+        store = AgentStateStore() if factory is None else AgentStateStore(factory)
         return asyncio.run(store.apply(value if isinstance(value, bytes) else wire(value), applied_at=at))
 
     def test_composed_http_accepts_with_bodyless_204(self):
@@ -127,19 +127,19 @@ class AgentStateReceiverTest(FastApiTestCase):
         response = self.post(body('unavailable', generation=20, publication=1), LATER)
         self.assertEqual(response.status_code, 204, response.text)
         self.assertEqual(self.stored()[1], rows_before)
-        publisher = self.sql('SELECT * FROM agent_state_shadow_publishers WHERE machine_id=?', (' Host ',))[0]
+        publisher = self.sql('SELECT * FROM agent_state_publishers WHERE machine_id=?', (' Host ',))[0]
         self.assertEqual(publisher['generation'], 20)
         self.assertEqual(publisher['data_generation'], 10)
         self.assertEqual(publisher['data_applied_at'], AT)
         self.assertEqual(self.apply(body(generation=10, publication=99)).reason, 'stale')
         self.apply(body('changes', generation=20, publication=7, agents=[row('new')]), LATER)
         self.assertEqual({r['agent_id'] for r in self.stored()[1]}, {'new', 'foreign'})
-        publisher = self.sql('SELECT * FROM agent_state_shadow_publishers WHERE machine_id=?', (' Host ',))[0]
+        publisher = self.sql('SELECT * FROM agent_state_publishers WHERE machine_id=?', (' Host ',))[0]
         self.assertEqual(publisher['data_generation'], 20)
         self.assertEqual(publisher['data_applied_at'], LATER)
         self.assertEqual(json.loads(publisher['data_inputs']), {'operatorStop': 'not-tracked'})
 
-    def test_snapshot_scope_null_rows_literal_lifetimes_and_row_provenance(self):
+    def test_snapshot_scope_null_rows_and_literal_lifetimes(self):
         self.apply(body(agents=[row(), row('nullable', None)]))
         self.apply(body(instance='other', agents=[row()]))
         original = self.stored()[1]
@@ -147,11 +147,9 @@ class AgentStateReceiverTest(FastApiTestCase):
         self.apply(body('changes', publication=2, agents=[row(lifetime='Real New ')],
                         removed=[{'agentId': 'alpha', 'lifetime': 'real-old'}]), LATER)
         self.apply(body('changes', publication=3, agents=[], removed=[{'agentId': 'alpha', 'lifetime': 'real-old'}]), 'later')
-        records = self.sql('SELECT * FROM agent_state_shadow_rows WHERE instance=?', ('CaseSensitive',))
+        records = self.sql('SELECT * FROM agent_state_rows WHERE instance=?', ('CaseSensitive',))
         alpha = next(r for r in records if r['agent_id'] == 'alpha')
         self.assertEqual(alpha['lifetime'], 'Real New ')
-        self.assertEqual(alpha['row_applied_at'], LATER)
-        self.assertEqual(next(r for r in records if r['agent_id'] == 'nullable')['row_applied_at'], AT)
         self.apply(body(publication=4, agents=[], removed=[{'agentId': 'alpha', 'lifetime': 'Real New '}]))
         self.assertEqual(len(self.stored()[1]), 1)
         self.assertEqual(self.stored()[1][0]['instance'], 'other')
@@ -163,7 +161,6 @@ class AgentStateReceiverTest(FastApiTestCase):
         publishers, records = self.stored()
         self.assertEqual(publishers[0]['digest'], hashlib.sha256(raw).hexdigest())
         self.assertEqual(publishers[0]['data_applied_at'], 'future-provenance-verbatim')
-        self.assertEqual(records[0]['row_applied_at'], 'future-provenance-verbatim')
         self.assertEqual(json.loads(records[0]['record_json']), value['agents'][0])
         self.assertEqual(publishers[0]['machine_id'], ' Host ')
 
@@ -213,7 +210,7 @@ class AgentStateReceiverTest(FastApiTestCase):
         for raw in raw_cases:
             self.assertEqual(self.post(raw).status_code, 422)
             self.assertEqual(self.stored(), before)
-        from service.api_core.agent_state_shadow import InvalidPublication
+        from service.api_core.agent_state_ingest import InvalidPublication
         self.assertTrue(issubclass(InvalidPublication, ValueError))
         with self.assertRaises(InvalidPublication):
             self.apply(raw_cases[0])
@@ -227,7 +224,7 @@ class AgentStateReceiverTest(FastApiTestCase):
             def __init__(self, connection): self.connection = connection
             async def execute(self, sql, params=()):
                 calls.append(sql)
-                if sql.startswith('INSERT INTO agent_state_shadow_rows'):
+                if sql.startswith('INSERT INTO agent_state_rows'):
                     raise sqlite3.OperationalError('injected row failure')
                 return await self.connection.execute(sql, params)
             async def commit(self): calls.append('commit'); await self.connection.commit()

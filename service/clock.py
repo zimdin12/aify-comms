@@ -26,7 +26,7 @@ def now() -> str:
 
 
 #: now() truncates, so a stamp t names an instant in [t, t + NOW_RESOLUTION_SECONDS). A bound that must never fall
-#: before the real instant adds it (the status shadow's turn-start estimate, B6).
+#: before the real instant adds it (B6).
 NOW_RESOLUTION_SECONDS = 1.0
 
 

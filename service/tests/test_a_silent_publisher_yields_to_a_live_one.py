@@ -9,7 +9,7 @@ from dataclasses import replace
 import sqlite3
 from unittest.mock import patch
 
-from service.api_core import mirror_restore, operational_view as ov, partial_status_shadow as shadow
+from service.api_core import mirror_restore, operational_view as ov, agent_state_mirror as state_mirror
 from service.db import get_db
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_state_receiver import body, wire, AT
@@ -23,8 +23,8 @@ OLD, LIVE = (MACHINE, 'old'), (MACHINE, 'live')
 class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
     def setUp(self):
         super().setUp()
-        for p in (patch.object(shadow, 'mirror', shadow.Mirror()),
-                  patch.object(shadow, '_quarantined', False)):
+        for p in (patch.object(state_mirror, 'mirror', state_mirror.Mirror()),
+                  patch.object(state_mirror, '_quarantined', False)):
             p.start()
             self.addCleanup(p.stop)
 
@@ -35,19 +35,19 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
         if kind == 'unavailable':
             value.pop('agents', None)
         # Every clock reads the publication's moment: the ingest now re-derives the words it expired, through the view's clock.
-        with patch('service.clock.now', return_value=at(seconds)), patch.object(shadow, 'clock', return_value=at(seconds)):
+        with patch('service.clock.now', return_value=at(seconds)), patch.object(state_mirror, 'clock', return_value=at(seconds)):
             response = self.client.post('/api/v1/agent-state', content=wire(value),
                                         headers={'content-type': 'application/json'})
         self.assertEqual(response.status_code, 204, response.text)
         return value
 
     def view(self, seconds, *, agent=AGENT, view=None):
-        binding = shadow.Binding(shadow.mirror.view() if view is None else view, at(seconds))
+        binding = state_mirror.Binding(state_mirror.mirror.view() if view is None else view, at(seconds))
         holders = ov.holders_of(binding, MACHINE, agent)
         return holders, ov.comms_view(holders, ov.Messaging())
 
     def restart(self):
-        shadow.mirror = shadow.Mirror()
+        state_mirror.mirror = state_mirror.Mirror()
         return asyncio.run(mirror_restore.restore_mirror(get_db))
 
     def test_silence_yields_per_agent_at_its_own_limit_without_deleting_the_key(self):
@@ -63,7 +63,7 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
         self.assertEqual(ov.claim_decision(v, False), 'proceed')
         self.assertEqual(self.view(60, agent='only-old')[1].eligibility, 'unknown', 'coverage is per agent')
         self.assertEqual(dump(self._db_path), before, 'yield is a read, not database cleanup')
-        self.assertIn(OLD, shadow.mirror.view(), 'the publisher and its cursor are retained')
+        self.assertIn(OLD, state_mirror.mirror.view(), 'the publisher and its cursor are retained')
         self.post('old', 61, publication=2)
         self.assertEqual(len(self.view(61)[0].holders), 2, 'an advancing old key may report again')
         self.assertEqual(self.view(61)[1].status, 'unknown', 'renewal restores genuine ambiguity')
@@ -75,8 +75,8 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
         self.post('live', 61, every=100_000)
         holders, v = self.view(61)
         self.assertEqual((len(holders.holders), v.status, v.eligibility), (1, 'online', 'known'))
-        self.assertTrue(shadow.mirror.view()[OLD].restored)
-        self.assertEqual(shadow.mirror.view()[OLD].report, (AT, 20_000))
+        self.assertTrue(state_mirror.mirror.view()[OLD].restored)
+        self.assertEqual(state_mirror.mirror.view()[OLD].report, (AT, 20_000))
         self.restart()
         self.assertEqual(self.view(62)[1].eligibility, 'unknown', 'neither restored key is a live replacement')
         self.post('live', 62, every=100_000, publication=2)
@@ -85,7 +85,7 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
     def test_missing_or_unreadable_contact_proof_cannot_yield(self):
         self.post('old', 0)
         self.post('live', 61, every=100_000)
-        current = dict(shadow.mirror.view())
+        current = dict(state_mirror.mirror.view())
         self.assertEqual(self.view(61, view=current)[1].status, 'online', 'positive coverage control')
         for report in (None, (AT, None), (AT, True), ('bad-clock', 20_000), (at(62), 20_000)):
             with self.subTest(report=report):
@@ -99,7 +99,7 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
                 self.assertEqual(self.view(61, view={OLD: current[OLD], LIVE: peer})[1].eligibility, 'unknown')
         foreign = {OLD: current[OLD], ('other-machine', 'live'): current[LIVE]}
         self.assertEqual(self.view(61, view=foreign)[1].eligibility, 'unknown', 'another host cannot cover it')
-        lost = shadow.Binding(current, at(61), loss=True)
+        lost = state_mirror.Binding(current, at(61), loss=True)
         self.assertEqual(ov.holders_of(lost, MACHINE, AGENT), ov.Holders((), True))
 
     def test_a_fresh_peer_must_list_this_agent_to_cover_its_stale_holder(self):
@@ -113,7 +113,7 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
 
     def test_a_stale_empty_publisher_is_unreadable_unless_covered(self):
         self.post('old', 0, agents=[])
-        uncovered = dict(shadow.mirror.view())
+        uncovered = dict(state_mirror.mirror.view())
         self.post('live', 61)
         holders, v = self.view(61)
         self.assertFalse(holders.unreadable, 'the silent empty peer yields under real coverage')
@@ -131,14 +131,14 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
                 response = self.client.post('/api/v1/agent-state', content=wire(value))
                 self.assertEqual(response.json(), {'applied': False, 'reason': reason})
         self.restart()
-        self.assertEqual(shadow.mirror.view()[OLD].report, (AT, 20_000))
+        self.assertEqual(state_mirror.mirror.view()[OLD].report, (AT, 20_000))
         self.post('old', 59, kind='unavailable', publication=2, every=100_000)
         self.restart()
-        p = shadow.mirror.view()[OLD]
+        p = state_mirror.mirror.view()[OLD]
         self.assertEqual((p.report, p.data_applied_at, p.unavailable), ((at(59), 100_000), AT, True))
         self.post('old', 60, kind='changes', publication=3, every=None)
         self.restart()
-        self.assertEqual(shadow.mirror.view()[OLD].report, (at(60), None), 'withdrawal is also durable')
+        self.assertEqual(state_mirror.mirror.view()[OLD].report, (at(60), None), 'withdrawal is also durable')
 
     def test_unknown_cached_status_rechecks_when_an_unreadable_peer_misses_its_limit(self):
         from service.tests.frozen_clock import frozen_service_clock
@@ -150,7 +150,7 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
         self.post('live', 59, every=100_000)
         for seconds, expected in ((59, 'unknown'), (60, 'online')):
             with self.subTest(seconds=seconds), frozen_service_clock(at(seconds)), \
-                    patch.object(shadow, 'clock', return_value=at(seconds)):
+                    patch.object(state_mirror, 'clock', return_value=at(seconds)):
                 answer = self.client.get(f'/api/v1/agents/{AGENT}')
                 self.assertEqual(answer.status_code, 200, answer.text)
                 self.assertEqual(answer.json()['agent']['status'], expected)
@@ -160,15 +160,15 @@ class ASilentPublisherYieldsToALiveOne(FastApiTestCase):
         self.post('old', 0)
         with closing(sqlite3.connect(self._db_path)) as db:
             for name in ('report_received_at', 'report_every_ms'):
-                columns = {r[1] for r in db.execute('PRAGMA table_info(agent_state_shadow_publishers)')}
+                columns = {r[1] for r in db.execute('PRAGMA table_info(agent_state_publishers)')}
                 if name in columns:
-                    db.execute(f'ALTER TABLE agent_state_shadow_publishers DROP COLUMN {name}')
+                    db.execute(f'ALTER TABLE agent_state_publishers DROP COLUMN {name}')
             db.commit()
         asyncio.run(init_db(self._db_path))
         self.restart()
         self.post('live', 61, every=100_000)
         self.assertEqual(self.view(61)[1].eligibility, 'unknown', 'missing historic cadence cannot be guessed')
         with closing(sqlite3.connect(self._db_path)) as db:
-            saved = db.execute('SELECT report_received_at, report_every_ms FROM agent_state_shadow_publishers '
+            saved = db.execute('SELECT report_received_at, report_every_ms FROM agent_state_publishers '
                                'WHERE machine_id=? AND instance=?', OLD).fetchone()
         self.assertEqual(saved, (None, None))

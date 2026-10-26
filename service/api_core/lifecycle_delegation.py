@@ -9,7 +9,7 @@ import uuid
 from fastapi import HTTPException
 
 from service.api_core import agent_lifecycle_requests as lifecycle
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import agent_state_mirror as state_mirror
 from service.api_core.report_age import legacy_receipt_age
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import require_lifecycle
@@ -47,7 +47,7 @@ async def owner_of(db, agent_id):
 
 def _new_request(machine_id, agent_id, action, actor, fresh_context):
     return {'requestId': f'legacy-{uuid.uuid4().hex}', 'action': action, 'requestedBy': actor,
-            'expectedLifetime': published_lifetime(machine_id, agent_id, shadow.mirror.view(), shadow.clock()),
+            'expectedLifetime': published_lifetime(machine_id, agent_id, state_mirror.mirror.view(), state_mirror.clock()),
             'freshContext': fresh_context}
 
 

@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 
 from service.api_core.records import _LEGACY_RAW_STATUS_TO_CANONICAL
-from service.status_engine import VALID_STATUSES
+from service.status_vocabulary import VALID_STATUSES
 
 REPO = Path(__file__).resolve().parents[2]
 SERVICE = REPO / "service"

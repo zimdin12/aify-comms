@@ -23,30 +23,30 @@ def body(kind='snapshot', **extra):
 class MirrorIngestTest(FastApiTestCase):
     def setUp(self):
         super().setUp()
-        from service.api_core import partial_status_shadow as shadow
-        self.shadow = shadow
-        self.mirror = shadow.Mirror()
-        for p in (patch.object(shadow, 'mirror', self.mirror), patch.object(shadow, '_quarantined', False),
-                  patch.object(shadow, 'clock', return_value=AT)):
+        from service.api_core import agent_state_mirror as state_mirror
+        self.state_mirror = state_mirror
+        self.mirror = state_mirror.Mirror()
+        for p in (patch.object(state_mirror, 'mirror', self.mirror), patch.object(state_mirror, '_quarantined', False),
+                  patch.object(state_mirror, 'clock', return_value=AT)):
             p.start(); self.addCleanup(p.stop)
 
     def apply(self, value, at=AT, factory=None):
-        from service.api_core.agent_state_shadow import AgentStateShadowStore
-        return asyncio.run(AgentStateShadowStore(factory).apply(wire(value), at))
+        from service.api_core.agent_state_ingest import AgentStateStore
+        return asyncio.run(AgentStateStore(factory).apply(wire(value), at))
 
     def availability(self):
         from service.api_core.operational_view import availability_of
-        publisher = self.shadow.mirror.view().get(KEY)
+        publisher = self.state_mirror.mirror.view().get(KEY)
         return availability_of(publisher, AT) if publisher else None
 
     def stored_publication(self):
         with closing(sqlite3.connect(self._db_path)) as db:
-            return db.execute('SELECT publication FROM agent_state_shadow_publishers').fetchone()[0]
+            return db.execute('SELECT publication FROM agent_state_publishers').fetchone()[0]
 
     def test_prepare_failure_preserves_acceptance_and_invalidates_only_after_commit(self):
         self.apply(body())
         old = self.mirror.view()
-        with patch.object(self.shadow, 'prepare', side_effect=RuntimeError('private prepare')):
+        with patch.object(self.state_mirror, 'prepare', side_effect=RuntimeError('private prepare')):
             self.assertFalse(self.apply(body()).applied)
             self.assertIs(self.mirror.view(), old, 'a refused body touched the mirror')
             self.assertTrue(self.apply(body(publication=2)).applied)
@@ -63,7 +63,7 @@ class MirrorIngestTest(FastApiTestCase):
 
     def test_concurrent_ingests_publish_in_actual_commit_order_before_close(self):
         from service.db import get_db
-        from service.api_core.agent_state_shadow import AgentStateShadowStore
+        from service.api_core.agent_state_ingest import AgentStateStore
         events = []
         async def scenario():
             committed = asyncio.Event()
@@ -88,9 +88,9 @@ class MirrorIngestTest(FastApiTestCase):
             real_feed = self.mirror.feed
             def feed(p): events.append(('feed', p.rows[0].state)); real_feed(p)
             with patch.object(self.mirror, 'feed', side_effect=feed):
-                a = asyncio.create_task(AgentStateShadowStore(first).apply(wire(body()), AT))
+                a = asyncio.create_task(AgentStateStore(first).apply(wire(body()), AT))
                 await committed.wait()
-                b = asyncio.create_task(AgentStateShadowStore(second).apply(wire(body(publication=2, agents=[dict(row(), state='idle')])), AT))
+                b = asyncio.create_task(AgentStateStore(second).apply(wire(body(publication=2, agents=[dict(row(), state='idle')])), AT))
                 await asyncio.sleep(0)
                 self.assertNotIn(('connect', 2), events)
                 release.set()
@@ -109,7 +109,7 @@ class MirrorIngestTest(FastApiTestCase):
     def test_accepted_feed_is_immutable_to_an_earlier_binding(self):
         self.assertIsNone(self.availability(), 'CONTROL: nothing published yet')
         self.assertTrue(self.apply(body()).applied)
-        bound = self.shadow.bind()
+        bound = self.state_mirror.bind()
         self.apply(body(publication=2, agents=[dict(row(), state='idle')]))
         self.assertEqual(bound.view[KEY].rows[0].state, 'working', 'a binding taken before the feed changed under it')
         self.assertEqual(self.mirror.view()[KEY].rows[0].state, 'idle')
@@ -147,7 +147,7 @@ class MirrorIngestTest(FastApiTestCase):
         class Connection:
             def __init__(self, db, fail=False): self.db, self.fail = db, fail
             async def execute(self, sql, args=()):
-                if self.fail and sql.startswith('INSERT INTO agent_state_shadow_rows'):
+                if self.fail and sql.startswith('INSERT INTO agent_state_rows'):
                     raise sqlite3.OperationalError('fixture rollback')
                 return await self.db.execute(sql, args)
             async def commit(self):

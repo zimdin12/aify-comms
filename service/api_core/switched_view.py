@@ -12,7 +12,7 @@ The binding is taken once per question, so one evaluation reads one frozen mirro
 from datetime import datetime, timedelta
 
 from service.api_core import operational_view as ov
-from service.api_core import partial_status_shadow as shadow
+from service.api_core import agent_state_mirror as state_mirror
 from service.api_core.report_age import MISSED_REPORTS, report_age
 from service.clock import ISO_SECONDS
 
@@ -36,7 +36,7 @@ def _holders(agent_row, binding):
 def eligibility_view(agent_row, binding=None, run_occupied=False):
     """The view with no messaging facts but the run occupancy a caller already read: enough for every delivery reader,
     which ask only eligibility, busy and (the reminder) whether a run is claimed or running."""
-    return ov.comms_view(_holders(agent_row, binding or shadow.bind()), ov.Messaging(run_occupied=bool(run_occupied)))
+    return ov.comms_view(_holders(agent_row, binding or state_mirror.bind()), ov.Messaging(run_occupied=bool(run_occupied)))
 
 
 async def messaging_for(db, agent_row, dispatch_state=None):
@@ -70,7 +70,7 @@ def dispatch_state_of(cache):
 async def view_for(db, agent_row, dispatch_state=None, binding=None):
     """The whole view: the word, its last-known note, eligibility, busy and the delivery hold."""
     messaging = await messaging_for(db, agent_row, dispatch_state)
-    return ov.comms_view(_holders(agent_row, binding or shadow.bind()), messaging)
+    return ov.comms_view(_holders(agent_row, binding or state_mirror.bind()), messaging)
 
 
 #: Why a queued run to an undefined agent comms cannot read waits, as the send's answer says it (SW5 review R3, the
@@ -87,7 +87,7 @@ async def held_reasons(db, agent_ids):
     not listed; neither is one aify-env knows."""
     from service.api_core.definition_guard import defined_on
 
-    binding = shadow.bind()
+    binding = state_mirror.bind()
     held = {}
     for agent_id in agent_ids:
         row = await (await db.execute('SELECT * FROM agents WHERE id = ?', (agent_id,))).fetchone()
@@ -153,7 +153,7 @@ async def misconfigured_note(db, agent_row):
 async def word_into(db, agent_row, cache, dispatch_state=None):
     """Put the view's word into a status-cache entry (`status_entry`): the status, its note, A7's last-known note,
     and a refresh time no later than the moment a fresh holder goes stale."""
-    binding = shadow.bind()
+    binding = state_mirror.bind()
     if dispatch_state is None and 'active_run_id' in cache:
         dispatch_state = dispatch_state_of(cache)
     view = await view_for(db, agent_row, dispatch_state, binding)

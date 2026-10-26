@@ -102,7 +102,7 @@ test('the umbrella genuinely CONTAINS the status it used to be named after', () 
 });
 
 test('the tooltip says what live MEANS, and names the same exclusions the service uses', () => {
-  // The words and the arithmetic have to agree: `status_engine.NON_LIVE_AGENT_STATUSES` is what the
+  // The words and the arithmetic have to agree: `status_vocabulary.NON_LIVE_AGENT_STATUSES` is what the
   // analytics board now classifies with, and the tooltip explains the number that comes out of it.
   const html = fleetPulseHtml(PULSE, 60);
   for (const status of NON_LIVE_AGENT_STATUSES) {

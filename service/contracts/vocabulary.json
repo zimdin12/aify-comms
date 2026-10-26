@@ -22,7 +22,7 @@
   ],
 
   "agentStatuses": {
-    "$comment": "Emitted by service/status_engine.py derive(). Proof-based: no time-decay states, no `idle`, no `stale`.",
+    "$comment": "Declared by service/status_vocabulary.py; served by the operational view over aify-env's records. No time-decay states, no `idle`, no `stale`.",
     "values": [
       "working",
       "shell",
