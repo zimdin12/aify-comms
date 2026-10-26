@@ -1,6 +1,6 @@
 // The promise and timeout helpers the native runtime session modules share.
 //
-// codex-session.js, hermes-session.js, hermes-managed-gateway-session.js and pi-session.js each
+// codex-session.js, hermes-session.js, pi-session.js and (until 0.9.10) hermes-managed-gateway-session.js each
 // declared their own `createDeferred`, and pi's once lacked the no-op catch below. They also each
 // spelled out the same "config key, else env var, else default" read for their timeouts. The
 // POLICY stays per runtime -- each module names its own config key, env var and default -- and only

@@ -50,15 +50,6 @@ export function buildRenderNoticeFrame({ id, sessionId, notice, status = "" }) {
   };
 }
 
-export function buildSessionMostRecentFrame({ id }) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "session.most_recent",
-    params: {},
-  };
-}
-
 export function buildSessionListFrame({ id }) {
   return {
     jsonrpc: "2.0",
@@ -74,9 +65,7 @@ export function buildSessionListFrame({ id }) {
 // builder was RE-ADDED above (2026-06-03, #3) — the visible-TUI managed-host loop
 // uses it to draw the inbound message box; the prompt.submit transport-tee in the
 // hermes-aify-plugin renders the agent's streamed reply. The frames below remain
-// because hermes-managed-gateway-session.js (AIFY_HERMES_MANAGED_USE_GATEWAY=1)
-// and the managed-host loop use prompt.submit / session.steer / session.most_recent
-// over the gateway WS.
+// because the managed-host loop uses prompt.submit / session.steer over the gateway WS.
 
 // Plan "managed-hermes visible-TUI" (2026-05-31): list the gateway's currently
 // active sessions so a thin WS client (the per-agent managed-host) can discover
@@ -353,43 +342,6 @@ export function isGatewaySessionIdle(status) {
 // thread flips running=True) cannot end the turn early.
 export function isGatewaySessionWorking(status) {
   return String(status || "").trim().toLowerCase() === "working";
-}
-
-// Translates an inbound gateway event into a normalized shape the
-// controller can consume. Returns null for events the bridge doesn't
-// care about (e.g. gateway.ready handshake, UI metadata).
-export function translateGatewayEvent(message) {
-  const method = String(message?.method || "");
-  const rawParams = message?.params || {};
-  const eventType = method === "event" ? String(rawParams.type || "") : method;
-  const params = method === "event" && rawParams.payload && typeof rawParams.payload === "object"
-    ? rawParams.payload
-    : rawParams;
-
-  if (eventType === "message.start") {
-    return { kind: "start" };
-  }
-  if (eventType === "agent.message.delta" || eventType === "message.delta") {
-    return { kind: "delta", text: String(params.delta || params.text || "") };
-  }
-  if (eventType === "agent.message.end" || eventType === "message.complete") {
-    return {
-      kind: "final",
-      text: String(params.text || ""),
-      status: String(params.status || ""),
-      warning: String(params.warning || ""),
-    };
-  }
-  if (eventType === "tool.started" || eventType === "tool.start" || eventType === "tool.progress") {
-    return { kind: "tool_started", label: String(params.tool || params.name || "tool") };
-  }
-  if (eventType === "tool.completed" || eventType === "tool.complete") {
-    return { kind: "tool_completed", label: String(params.tool || params.name || "tool") };
-  }
-  if (eventType === "error") {
-    return { kind: "error", text: String(params.message || "") };
-  }
-  return null;
 }
 
 // Identifies the JSON-RPC error code hermes returns when prompt.submit is

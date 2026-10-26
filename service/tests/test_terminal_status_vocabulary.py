@@ -69,14 +69,13 @@ NL = chr(10)
 #: terminal sink forwards into that same body.
 BRIDGE_SENDERS = {
     "mcp/stdio/codex-session.js": {"running"},
-    "mcp/stdio/hermes-managed-gateway-session.js": {"running"},
     "mcp/stdio/hermes-session.js": {"failed", "running"},
     "mcp/stdio/pi-session.js": {"running", "stopped"},
     # SIX UNTIL v0.6.2. `terminal-manager.mjs` (`attached`) and `terminal-exit-report.js`
     # (`failed`/`stopped`) were the environment bridge's and were deleted with it, so this bridge no
     # longer writes an end status for a terminal at all -- aify-env owns the processes and reports
-    # their exits through its own plugin. The four that remain are the per-runtime sessions, which a
-    # resident still runs.
+    # their exits through its own plugin. The three that remain are the per-runtime sessions, which a
+    # resident still runs (four until 0.9.10 deleted `hermes-managed-gateway-session.js`).
 }
 
 
@@ -257,10 +256,11 @@ class TerminalStatusVocabularyTests(unittest.TestCase):
 
     def test_the_scans_are_not_silently_matching_nothing(self):
         literals = _bridge_terminal_status_literals()
-        # FOUR SINCE v0.6.2, six before it. The floor is the real number and may only rise: every
+        # THREE SINCE 0.9.10 (four since v0.6.2, six before it): each drop was a deleted sender. The floor is the
+        # real number and may only rise otherwise: every
         # assertion in this file is satisfied by an EMPTY census, so a scan that stopped matching
         # would pass loudest exactly when it had broken.
-        self.assertGreaterEqual(len(literals), 4, "the bridge scan found almost no senders")
+        self.assertGreaterEqual(len(literals), 3, "the bridge scan found almost no senders")
         self.assertIn(
             "running", literals.get("mcp/stdio/codex-session.js", set()),
             "`_pushTerminalFrame(text, \"running\")` reaches the same column through the virtual "

@@ -131,7 +131,7 @@ The gateway's URL reaches the agent's comms MCP server through the gateway's own
 mints its session token (`HERMES_DASHBOARD_SESSION_TOKEN`) and starts it with `AIFY_HERMES_GATEWAY_URL` and
 `AIFY_HERMES_GATEWAY_TOKEN` set, and Hermes hands those to the MCP server through its `${VAR}` config. No
 marker file holds the URL (one did until 0.9.10). The URL carries the token, so do not print the gateway's
-environment. aify-env records each agent's `{port, pid, lifetime}` in `~/.aify/hermes-gateways/<agent>.json`;
+environment; the agent's own tool commands inherit it too, so an environment dump in a build log carries it. aify-env records each agent's `{port, pid, lifetime}` in `~/.aify/hermes-gateways/<agent>.json`;
 the session-id and loop-ready markers stay in the temp directory.
 
 **When a live Hermes turn has no `mcp_aify_comms_*` tools**, its gateway loaded before the MCP server:

@@ -5,7 +5,6 @@ import {
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
   buildRenderNoticeFrame,
-  buildSessionMostRecentFrame,
   buildSessionListFrame,
   buildSessionActiveListFrame,
   pickSessionForKey,
@@ -17,7 +16,6 @@ import {
   pickSessionStatusForKey,
   pickSessionStatusById,
   isGatewaySessionIdle,
-  translateGatewayEvent,
   isSessionBusyError,
 } from "../hermes-gateway-protocol.js";
 
@@ -60,12 +58,6 @@ test("buildRenderNoticeFrame is a JSON-RPC 2.0 aify.session.render_notice", () =
 test("buildRenderNoticeFrame coerces missing fields to empty strings", () => {
   const frame = buildRenderNoticeFrame({ id: 1, sessionId: "s" });
   assert.deepEqual(frame.params, { session_id: "s", notice: "", status: "" });
-});
-
-test("buildSessionMostRecentFrame is parameter-less", () => {
-  const frame = buildSessionMostRecentFrame({ id: 1 });
-  assert.equal(frame.method, "session.most_recent");
-  assert.deepEqual(frame.params, {});
 });
 
 test("buildSessionListFrame is parameter-less", () => {
@@ -314,81 +306,6 @@ test("isGatewaySessionIdle: false for working/transitional/unknown (never end a 
   for (const s of ["working", "starting", "waiting", "", undefined, null]) {
     assert.equal(isGatewaySessionIdle(s), false, `status ${JSON.stringify(s)} must not be idle`);
   }
-});
-
-test("translateGatewayEvent maps agent.message.delta to a delta event", () => {
-  const out = translateGatewayEvent({ jsonrpc: "2.0", method: "agent.message.delta", params: { delta: "abc" } });
-  assert.deepEqual(out, { kind: "delta", text: "abc" });
-});
-
-test("translateGatewayEvent maps real tui_gateway message.delta envelope", () => {
-  const out = translateGatewayEvent({
-    jsonrpc: "2.0",
-    method: "event",
-    params: { type: "message.delta", session_id: "sid", payload: { text: "abc" } },
-  });
-  assert.deepEqual(out, { kind: "delta", text: "abc" });
-});
-
-test("translateGatewayEvent maps agent.message.end to a final event with text", () => {
-  const out = translateGatewayEvent({ jsonrpc: "2.0", method: "agent.message.end", params: { text: "done" } });
-  assert.deepEqual(out, { kind: "final", text: "done", status: "", warning: "" });
-});
-
-test("translateGatewayEvent maps real tui_gateway message.complete envelope", () => {
-  const out = translateGatewayEvent({
-    jsonrpc: "2.0",
-    method: "event",
-    params: { type: "message.complete", session_id: "sid", payload: { text: "done", status: "complete" } },
-  });
-  assert.deepEqual(out, { kind: "final", text: "done", status: "complete", warning: "" });
-});
-
-test("translateGatewayEvent maps tool.started to a tool_started event", () => {
-  const out = translateGatewayEvent({ jsonrpc: "2.0", method: "tool.started", params: { tool: "bash" } });
-  assert.deepEqual(out, { kind: "tool_started", label: "bash" });
-});
-
-test("translateGatewayEvent maps real tui_gateway tool.start envelope", () => {
-  const out = translateGatewayEvent({
-    jsonrpc: "2.0",
-    method: "event",
-    params: { type: "tool.start", session_id: "sid", payload: { name: "bash" } },
-  });
-  assert.deepEqual(out, { kind: "tool_started", label: "bash" });
-});
-
-test("translateGatewayEvent maps tool.completed to a tool_completed event", () => {
-  const out = translateGatewayEvent({ jsonrpc: "2.0", method: "tool.completed", params: { name: "edit" } });
-  assert.deepEqual(out, { kind: "tool_completed", label: "edit" });
-});
-
-test("translateGatewayEvent maps real tui_gateway tool.complete envelope", () => {
-  const out = translateGatewayEvent({
-    jsonrpc: "2.0",
-    method: "event",
-    params: { type: "tool.complete", session_id: "sid", payload: { name: "edit" } },
-  });
-  assert.deepEqual(out, { kind: "tool_completed", label: "edit" });
-});
-
-test("translateGatewayEvent maps error to an error event", () => {
-  const out = translateGatewayEvent({ jsonrpc: "2.0", method: "error", params: { message: "boom" } });
-  assert.deepEqual(out, { kind: "error", text: "boom" });
-});
-
-test("translateGatewayEvent maps real tui_gateway error envelope", () => {
-  const out = translateGatewayEvent({
-    jsonrpc: "2.0",
-    method: "event",
-    params: { type: "error", session_id: "sid", payload: { message: "boom" } },
-  });
-  assert.deepEqual(out, { kind: "error", text: "boom" });
-});
-
-test("translateGatewayEvent returns null for unknown methods (e.g. gateway.ready)", () => {
-  assert.equal(translateGatewayEvent({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready" } }), null);
-  assert.equal(translateGatewayEvent({ jsonrpc: "2.0", method: "telemetry.something", params: {} }), null);
 });
 
 test("isSessionBusyError recognizes hermes 4009 by code", () => {

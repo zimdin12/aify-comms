@@ -14,7 +14,6 @@ const {
   normalizeRuntime,
   runtimeLaunchAvailability,
 } = await import("../runtimes.js");
-const { HermesManagedGatewaySession } = await import("../hermes-managed-gateway-session.js");
 
 assert.equal(normalizeRuntime("hermes"), "hermes");
 assert.equal(normalizeRuntime("hermes-agent"), "hermes");
@@ -31,35 +30,6 @@ assert.deepEqual(
 );
 assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt", "steer"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
-
-// A 4009 race in the native-gateway fallback must not turn the follow-up into an
-// interrupting session.steer. The main managed-host path handles busy requeueing;
-// this fallback rejects the race without interrupting the live turn.
-const busyGateway = new HermesManagedGatewaySession({ agentId: "busy-hermes" });
-busyGateway._state = "ready";
-busyGateway.ensureStarted = async () => {};
-busyGateway._resolveSessionId = async () => "busy-session";
-const busyMethods = [];
-busyGateway._sendRpc = async (frame) => {
-  busyMethods.push(frame.method);
-  throw Object.assign(new Error("session busy"), { code: 4009 });
-};
-await assert.rejects(
-  busyGateway.runTurn({ promptText: "wait for the current turn", run: {}, callbacks: {} }),
-  /session busy/,
-);
-assert.deepEqual(busyMethods, ["prompt.submit"]);
-
-const steerGateway = new HermesManagedGatewaySession({ agentId: "steer-hermes" });
-steerGateway._state = "ready";
-steerGateway.ensureStarted = async () => {};
-steerGateway._resolveSessionId = async () => "steer-session";
-const steerFrames = [];
-steerGateway._sendRpc = async (frame) => { steerFrames.push(frame); return { status: "queued" }; };
-await steerGateway.steer("new information");
-assert.equal(steerFrames[0].method, "session.steer");
-assert.equal(steerFrames[0].params.session_id, "steer-session");
-assert.equal(steerFrames[0].params.text, "new information");
 
 const availability = runtimeLaunchAvailability("hermes");
 assert.equal(availability.available, true);

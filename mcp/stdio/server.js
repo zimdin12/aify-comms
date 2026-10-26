@@ -64,7 +64,6 @@ import { defaultMachineId } from "./machine-id.mjs";
 import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
-import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
 import { AIFY_AGENT_ID, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import { localAgentNeedsDispatchHosting } from "./session-predicates.mjs";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
@@ -370,7 +369,6 @@ async function shutdownWithStatus(code) {
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
   try { await shutdownAllCodexSessions("bridge exiting"); } catch { /* best effort */ }
   try { await shutdownAllHermesSessions("bridge exiting"); } catch { /* best effort */ }
-  try { await shutdownAllHermesGatewaySessions("bridge exiting"); } catch { /* best effort */ }
   VIRTUAL_TERMINALS_BY_AGENT.clear();
   VIRTUAL_TERMINAL_INPUT.clear();
   cleanupOnExit();

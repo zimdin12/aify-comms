@@ -7,8 +7,8 @@
 //
 // THEY ARE NEAR-MIRRORS, and that is the reason to test them together: the same file shape, the same session
 // pool pattern, the same refusal wording — and two deliberate divergences that a copy-paste would erase.
-// Codex's steer needs only a live session; hermes's needs a live session AND the gateway sub-mode, because
-// the ACP transport has no mid-turn append at all.
+// Codex's steer needs only a live session; hermes's always refuses, because the ACP transport has no mid-turn
+// append at all (the gateway sub-mode that could steer went in 0.9.10).
 //
 // NO SESSION POOL IS TOUCHED. `start()` would acquire a real `hermes acp` / codex app-server session, so the
 // verbs are reached with `_session` unset or with a fake, and the start-idempotency case sets the two fields
@@ -92,12 +92,17 @@ for (const [name, make, injectMessagePattern] of BOTH) {
       cancelActiveTurn: async () => { calls.push(["cancel"]); },
       steer: async (text) => { calls.push(["steer", text]); },
     };
-    controller._useGateway = true; // hermes gates steer on this; codex ignores it
 
     const shape = controller.start();
     await shape.interrupt();
-    await shape.steer("appended text");
-    assert.deepEqual(calls, [["cancel"], ["steer", "appended text"]]);
+    if (name === "hermes") {
+      // The shape's steer reaches the controller's refusal, not the session.
+      await assert.rejects(() => shape.steer("appended text"), /ACP fallback does not support mid-turn steer/);
+      assert.deepEqual(calls, [["cancel"]]);
+    } else {
+      await shape.steer("appended text");
+      assert.deepEqual(calls, [["cancel"], ["steer", "appended text"]]);
+    }
     await controller._promise;
   });
 }
@@ -114,28 +119,11 @@ test("codex managed steer needs only a live session", async () => {
   assert.deepEqual(calls, ["mid-turn text"]);
 });
 
-test("hermes managed steer needs the GATEWAY sub-mode as well as a session", async () => {
+test("hermes managed steer refuses even with a live session", async () => {
   // The divergence that matters. A live ACP session is still unsteerable — the transport has no mid-turn
   // append — so a session-only check would send a steer into a path that cannot perform it. See also
   // hermes-controller-routing.test.js, which pins the capability side of this same split.
   const controller = new HermesManagedController({});
   controller._session = { steer: async () => { throw new Error("must not be reached"); } };
-  controller._useGateway = false;
-  await assert.rejects(() => controller.steer("text"), /ACP fallback does not support mid-turn steer/);
-
-  const calls = [];
-  controller._useGateway = true;
-  controller._session = { steer: async (text) => { calls.push(text); } };
-  await controller.steer("mid-turn text");
-  assert.deepEqual(calls, ["mid-turn text"]);
-});
-
-test("hermes managed steer refuses the gateway sub-mode with no session, and says which failure it is", async () => {
-  // Same message for both halves of the guard. Worth pinning as the CURRENT behaviour: a gateway-mode agent
-  // whose session has not come up reads "ACP fallback does not support mid-turn steer", which names the wrong
-  // cause. Harmless today (both are refusals) but it is what an operator would be reading.
-  const controller = new HermesManagedController({});
-  controller._useGateway = true;
-  controller._session = null;
   await assert.rejects(() => controller.steer("text"), /ACP fallback does not support mid-turn steer/);
 });

@@ -1,5 +1,9 @@
 # `hermes-managed-host.js` — mini-packet
 
+> **Historical (0.9.10).** This packet measured code that has since been deleted: `ensureGatewayHost`,
+> `resolveGatewayPort` and `hermes-daemon.js` left comms when the hermes gateway host moved to the launcher and
+> aify-env (docs/superpowers/plans/2026-10-26-0.9.10-hermes-host-to-aify-env.md).
+
 **Status:** submitted for review. No extraction performed. Measured on `3a93136c`.
 
 The reviewer's condition 1 for this file is a mini-packet before any slice: function inventory, export

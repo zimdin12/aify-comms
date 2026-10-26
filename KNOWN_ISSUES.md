@@ -550,35 +550,6 @@ runtime, which is a reviewer's call rather than a test-slice fix.
 `mcp/stdio/tests/adapters/contract.test.js` ("normalizeSessionHandle returns empty for placeholder")
 pins two of the filtered strings, so adding `undefined` later does not fail a test.
 
-## The managed-hermes gateway session buffers terminal frames differently from the other three (2026-08-13)
-
-**Measured, not ruled on.** Four session classes carry a `_terminalSink` / `_terminalFlushChain` pair.
-Three of them — `pi-session.js`, `codex-session.js`, `hermes-session.js` — share one design:
-a `_terminalBuffer` array capped at `MAX_TERMINAL_FRAME_BUFFER_CHARS = 65536`, drained single-flight.
-`hermes-managed-gateway-session.js` has **neither the buffer nor the constant** (2 of the 5 fields), and
-appends each frame straight onto a promise chain.
-
-Two behavioural consequences follow, and neither is written down anywhere:
-
-1. **No backpressure cap.** The other three drop the oldest frames past 64KB. The gateway's chain has
-   no bound, so a worker producing faster than the sink drains accumulates pending closures, each
-   holding its frame text.
-2. **Frames before the sink attaches are lost.** The gateway's `_pushTerminalFrame` opens with
-   `if (!this._terminalSink) return;`. The other three buffer while detached and replay on
-   `attachTerminalSink`, so opening the console shows what already happened; the gateway shows nothing
-   before the moment of attach.
-
-**Not filed as a bug, because it may be the intended trade.** Dropping frames is data loss, and a
-lossless chain is a defensible choice for a gateway whose real TUI may arrive by another path. What is
-*not* defensible is that the difference is invisible: the four classes look alike, share field names,
-and disagree on both bounding and replay. Needs a ruling on which behaviour is correct for the gateway,
-then an agreement test pinning it.
-
-Related: the same "a fix landed on some copies of a duplicated helper and missed one" shape as the
-`createDeferred` unhandled-rejection guard (v0.5.4) and the build-tag divergence before it. The
-pi-side comments date the buffer design to bug-hunt audit **B-C1**; whether the gateway was in scope
-for that audit is unresolved.
-
 ## A claude MCP server inherits every variable the launcher holds, a neighbour service's key included (2026-10-01)
 
 Claude Code's MCP `env` block is key-scoped (since 2.1.236): a variable it does not name is inherited by

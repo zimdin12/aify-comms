@@ -1,5 +1,9 @@
 # `runDeliveryLoop` — seam decomposition packet
 
+> **Historical (0.9.10).** This packet measured code that has since been deleted: `ensureGatewayHost`,
+> `resolveGatewayPort` and `hermes-daemon.js` left comms when the hermes gateway host moved to the launcher and
+> aify-env (docs/superpowers/plans/2026-10-26-0.9.10-hermes-host-to-aify-env.md).
+
 **Status:** submitted for ruling. Measured on `dba70935`; §4b amended at `2b298afd` after the reviewer chose
 option (i). No extraction performed from the loop body itself.
 

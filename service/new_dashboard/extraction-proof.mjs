@@ -43,7 +43,7 @@ export function declarationSpan(source, name) {
   // point of view: a miss returns null, and null reads as "no such declaration" rather than "this
   // parser cannot see that form". Until 2026-08-16 `class` was such a form, and this is the parser
   // the repo mandates for every JS measurement — so the five session classes in the bridge
-  // (codex-session, hermes-session, hermes-managed-gateway-session, pi-session, terminal-runtime)
+  // (codex-session, hermes-session, hermes-managed-gateway-session (deleted in 0.9.10), pi-session, terminal-runtime)
   // measured as absent. I recorded "declarationSpan presumably cannot span the big class
   // declarations" while measuring those files and moved on; that guess was right and should have
   // been this fix.

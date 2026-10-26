@@ -19,32 +19,12 @@
 //
 // A mis-route is therefore not a wrong-looking log line. It is either a dead dispatch or an invented reply.
 //
-// SEALED ENV. `managedHermesUsesGateway()` reads AIFY_HERMES_MANAGED_USE_GATEWAY at construction, so the
-// managed capabilities depend on the operator's environment. Every test that constructs the managed path sets
-// it explicitly and asserts the seal, and both directions are covered.
-
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { HermesController } from "../controllers/hermes-controller.js";
 import { HermesManagedController } from "../controllers/hermes-managed-controller.js";
 import { controlCapabilitiesForRuntime } from "../runtimes.js";
-
-const ENV_KEY = "AIFY_HERMES_MANAGED_USE_GATEWAY";
-
-function withGatewayEnv(value, run) {
-  const had = Object.prototype.hasOwnProperty.call(process.env, ENV_KEY);
-  const previous = process.env[ENV_KEY];
-  if (value === null) delete process.env[ENV_KEY];
-  else process.env[ENV_KEY] = value;
-  assert.equal(process.env[ENV_KEY], value === null ? undefined : value, "the env seal did not take");
-  try {
-    return run();
-  } finally {
-    if (had) process.env[ENV_KEY] = previous;
-    else delete process.env[ENV_KEY];
-  }
-}
 
 // start() returns the legacy shape: { capabilities, interrupt, steer, promise }.
 async function startAndResolve(controller) {
@@ -134,62 +114,31 @@ test("no mode at all falls through to the DELIVERING controller", () => {
   // The default has to be the one that delivers: defaulting to a no-op would strand every dispatch that
   // omitted a mode, and it would look like a healthy "delegated" resolution rather than a failure.
   // Asserted without start(), which would spawn a real hermes session.
-  withGatewayEnv(null, () => {
+  {
     for (const opts of [{}, { executionMode: "" }, { executionMode: "managed" }, { run: {}, agentInfo: {} }]) {
       assert.ok(new HermesController(opts)._impl instanceof HermesManagedController,
         `${JSON.stringify(opts)} was routed away from the delivering controller`);
     }
-  });
-});
-
-test("only an exact \"1\" selects the gateway sub-mode", () => {
-  // The switch decides which sub-mode of managed hermes runs, and it is compared with ===. A loose reading
-  // would put "0" or "false" on the gateway path.
-  const gatewayFor = (raw) => withGatewayEnv(raw, () => new HermesController({})._impl._useGateway);
-  assert.equal(gatewayFor("1"), true);
-  // Surrounding whitespace is trimmed first, on purpose: env values arrive from shells and .env files that
-  // add it, and an operator who set the flag should get the sub-mode they asked for.
-  assert.equal(gatewayFor(" 1 "), true);
-  for (const raw of [null, "0", "true", "yes", "", " ", "01", "10"]) {
-    assert.equal(gatewayFor(raw), false, `${JSON.stringify(raw)} was treated as enabling the gateway path`);
   }
 });
 
 test("FINDING: the ACP sub-mode DECLARES a steer it rejects, in a field nothing reads", async () => {
-  // MEASURED, and not what the module says. `hermes-managed-controller.js` documents "ACP-backed (default):
-  // interrupt supported, steer rejected", and its constructor reads as though a ternary enforces that:
+  // MEASURED. `adapters/hermes.js` declares `supportsSteering => true` unconditionally, so the controller's
+  // capabilities say `steer: true` while its own `steer()` throws "Hermes ACP fallback does not support mid-turn
+  // steer". The `capabilities` key of the legacy start() shape has NO reader: `dispatch-loop.mjs` consumes
+  // `.promise` and nothing else, and the capabilities the control plane acts on come from
+  // `defaultCapabilitiesForRuntime` at REGISTRATION, plus the service-side strip of `steer` from managed hermes
+  // (af9e937). So this costs nothing today; it is a field that reads as authoritative and is not.
   //
-  //     this._capabilities = this._useGateway ? { interrupt: true, steer: true }
-  //                                           : controlCapabilitiesForRuntime("hermes");
-  //
-  // But `adapters/hermes.js` declares `supportsSteering => true` unconditionally, so the second branch
-  // evaluates to the SAME object as the first and the ternary changes nothing. The ACP path declares
-  // `steer: true` while its own `steer()` throws "Hermes ACP fallback does not support mid-turn steer".
-  //
-  // HOW FAR THAT REACHES, measured rather than assumed - my first version of this comment had it wrong. The
-  // `capabilities` key of the legacy start() shape has NO reader: `dispatch-loop.mjs` consumes `.promise` and
-  // nothing else, and the capabilities the control plane acts on come from `defaultCapabilitiesForRuntime` at
-  // REGISTRATION, plus the service-side strip of `steer` from managed hermes (af9e937, which fixed the real
-  // incident: a mid-turn inject that hermes treats as an interrupt). So this contradiction costs nothing
-  // today. What it is, is a field that reads as authoritative and is not - the shape a future reader would
-  // trust while resurrecting exactly that bug.
-  //
-  // NOT FIXED HERE. Narrowing a declared capability is a reviewer call that touches steer-vs-queue routing,
-  // and it overlaps the open WS-3 decision. This test pins BOTH halves so the day either side moves, it moves
-  // visibly - and the assertions below are the reason to come back here when the field acquires a reader.
-  const acp = withGatewayEnv(null, () => new HermesController({})._impl._capabilities);
-  const gateway = withGatewayEnv("1", () => new HermesController({})._impl._capabilities);
-
-  assert.deepEqual(gateway, { interrupt: true, steer: true });
+  // NOT FIXED HERE: narrowing a declared capability touches steer-vs-queue routing. Both halves are pinned so
+  // the day either side moves, it moves visibly. (The gateway sub-mode it was once compared with went in 0.9.10.)
+  const acp = new HermesController({})._impl._capabilities;
   assert.deepEqual(acp, controlCapabilitiesForRuntime("hermes"),
     "managed capabilities must come from the hermes ADAPTER, not a literal in the controller");
-  assert.deepEqual(acp, gateway,
-    "the two branches have diverged - if that is the FIX, this test is the thing to update");
   assert.equal(acp.steer, true, "the ACP sub-mode still advertises steer");
 
   // And the other half: the advertised verb rejects. No session is needed to reach it.
-  const impl = withGatewayEnv(null, () => new HermesController({})._impl);
-  await assert.rejects(() => impl.steer("more text"), /does not support mid-turn steer/);
+  await assert.rejects(() => new HermesController({})._impl.steer("more text"), /does not support mid-turn steer/);
 });
 
 // ── delegation ──────────────────────────────────────────────────────────────

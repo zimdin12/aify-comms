@@ -62,10 +62,6 @@ import {
   runPollCycle,
 } from "../hermes-delivery-run.mjs";
 import { runDeliveryLoop } from "../hermes-delivery-loop.mjs";
-import {
-  isTuiDepsBuildFailure,
-  tuiDepsBuildFailureMessage,
-} from "../hermes-gateway-liveness.js";
 import { writeSessionIdMarker, readSessionIdMarker } from "../hermes-endpoint.js";
 import { tmpDir } from "./_tmpdir.js";
 
@@ -2747,10 +2743,9 @@ test("makeInFlightPulse: missing/empty runId falls back to '' (no crash, server 
 //   1. liveness registered BEFORE the gateway bring-up — asserted directly below
 //      (injected startLivenessHeartbeat ordered before the gateway request);
 //   2. terminal 410 → teardown + self-exit(0), not swallowed — covered by
-//      "runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) +
-//      self-exits(0)";
+//      "runDeliveryLoop: 410 from /dispatch/claim self-exits(0) and does not keep polling";
 //   3. release → teardown (not just exit) — covered by "runDeliveryLoop: starts
-//      the claim/deliver loop and tears down the gateway host on release";
+//      the claim/deliver loop, wires its teardown, and stops on release";
 //   4. transient WS/connect error is NON-terminal (keeps retrying) — covered by
 //      "runDeliveryLoop: initial WS connect refused → self-corrects ONCE ...
 //      does not spin the signal" (loops maxIterations without terminating).
@@ -2803,35 +2798,8 @@ test("runDeliveryLoop: registers the liveness heartbeat BEFORE bringing the gate
 // and fail FAST with a CLEAR, distinct error so triage is instant.
 // ---------------------------------------------------------------------------
 
-test("isTuiDepsBuildFailure: matches the npm build-script failure signature (both prefixes + TUI banner)", () => {
-  assert.equal(isTuiDepsBuildFailure(`npm error Missing script: "build"`), true);
-  assert.equal(isTuiDepsBuildFailure(`npm ERR! Missing script: "build"`), true);
-  assert.equal(isTuiDepsBuildFailure(`Missing script: 'build'`), true);
-  assert.equal(isTuiDepsBuildFailure("hermes: TUI build failed"), true);
-  assert.equal(
-    isTuiDepsBuildFailure("Installing TUI dependencies...\nnpm error code ELIFECYCLE"),
-    true,
-  );
-});
 
-test("isTuiDepsBuildFailure: FALSE for benign / unrelated stderr (no false fast-fail)", () => {
-  assert.equal(isTuiDepsBuildFailure(""), false);
-  assert.equal(isTuiDepsBuildFailure(null), false);
-  assert.equal(isTuiDepsBuildFailure("HERMES_DASHBOARD_READY on port 9342"), false);
-  assert.equal(isTuiDepsBuildFailure("Installing TUI dependencies... done"), false);
-  assert.equal(isTuiDepsBuildFailure("some unrelated warning: deprecated flag"), false);
-});
 
-test("tuiDepsBuildFailureMessage: distinct + actionable — names the port, the npm build failure, and the triage/relaunch", () => {
-  const msg = tuiDepsBuildFailureMessage(9342, `npm error Missing script: "build"`);
-  assert.match(msg, /9342/);
-  assert.match(msg, /Missing script: "build"/);
-  assert.match(msg, /Installing TUI dependencies/i);
-  assert.match(msg, /triage/i);
-  assert.match(msg, /hermes-aify/i);
-  // It must NOT read like the opaque readiness timeout.
-  assert.ok(!/did not become ready within/i.test(msg));
-});
 
 
 // ---------------------------------------------------------------------------

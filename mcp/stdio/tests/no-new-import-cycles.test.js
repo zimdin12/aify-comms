@@ -47,7 +47,6 @@ const KNOWN_CYCLES = [
     "mcp/stdio/controllers/hermes-controller.js",
     "mcp/stdio/controllers/hermes-managed-controller.js",
     "mcp/stdio/controllers/pi-controller.js",
-    "mcp/stdio/hermes-managed-gateway-session.js",
     "mcp/stdio/hermes-session.js",
     "mcp/stdio/pi-session-pool.mjs",
     "mcp/stdio/pi-session-timeouts.mjs",

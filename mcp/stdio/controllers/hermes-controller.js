@@ -14,9 +14,7 @@
 //     wrapper-child channel/resident claim (wrapperChildExecutionModes) so this
 //     controller never races the loop. The retired tui_gateway WS-bind path
 //     (HermesResidentController / aify.session.bind_transport) no longer exists.
-//   - else (managed / default) → HermesManagedController
-//     (ACP-backed persistent session, or gateway-backed if
-//     AIFY_HERMES_MANAGED_USE_GATEWAY=1).
+//   - else (managed / default) → HermesManagedController (ACP-backed persistent session).
 //
 // File budget per 500-line rule: <=400 lines. The mode-specific implementation lives in its own file:
 // hermes-managed-controller.js, which this file imports and routes to.
