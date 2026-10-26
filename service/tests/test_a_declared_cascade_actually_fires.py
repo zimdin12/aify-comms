@@ -50,8 +50,9 @@ CASCADE = re.compile(r"FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\) ON DELETE
 #: MEASURED 2026-08-29 by the scan below. A ratchet in both directions: a cascade that disappears is
 #: as interesting as one that arrives, and either should be a deliberate line in a diff. 21 -> 20 in v0.7
 #: when the retired `agent_live_state` table, and its cascade from `agents`, left the schema. 20 -> 21 in
-#: v0.7.4 for `agent_hook_order` (its writer went in 0.9.9 S2; the table goes in S3).
-DECLARED_CASCADES = 21
+#: v0.7.4 for `agent_hook_order`. 21 -> 17 in 0.9.9 S3c, when it left with `agent_turn_state`,
+#: `agent_status_state` and `agent_console_signal`.
+DECLARED_CASCADES = 17
 
 
 def declared_cascades() -> list[tuple[str, str, str, str]]:

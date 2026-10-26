@@ -245,7 +245,7 @@ class AgentStateReceiverTest(FastApiTestCase):
     def test_single_commit_and_no_current_authority_side_effects(self):
         from service.db import get_db
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
-        tables = ('agents', 'agent_turn_state', 'agent_status_state', 'messages', 'environments')
+        tables = ('agents', 'messages', 'environments')
         before = {t: self.sql('SELECT * FROM ' + t) for t in tables}
         _LIVE_STATE_CACHE['sentinel'] = {'untouched': True}
         cache_before = copy.deepcopy(_LIVE_STATE_CACHE)

@@ -242,16 +242,10 @@ class WhatTheAgentDoesIsPresenceAndWhatIsDoneToItIsNot(FastApiTestCase):
         self.assertFalse(briefed, "an agent that sent a message seconds ago was briefed as away")
 
     def test_each_kind_of_write_counts_as_presence_only_when_the_agent_authored_it(self) -> None:
-        def mid_turn_end():
-            # The fast path skips the write when no turn is open, so open one without a presence write.
-            self._run(("INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_updated_at)"
-                       " VALUES (?, 1, ?)", (AGENT, _iso_hours_ago(0))))
-            return self.client.post(f"/api/v1/agents/{AGENT}/turn-end")
-
         authored = {
             "heartbeat": lambda: self.client.post(f"/api/v1/agents/{AGENT}/heartbeat", json={}),
             "turn start": lambda: self.client.post(f"/api/v1/agents/{AGENT}/turn-start"),
-            "turn end": mid_turn_end,
+            "turn end": lambda: self.client.post(f"/api/v1/agents/{AGENT}/turn-end"),
             "inbox read": lambda: self.client.get(f"/api/v1/messages/inbox/{AGENT}"),
             "own status": lambda: self.client.patch(f"/api/v1/agents/{AGENT}", json={"status": "idle"}),
         }

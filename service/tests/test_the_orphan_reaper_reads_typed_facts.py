@@ -44,8 +44,6 @@ class TheOrphanReaperReadsTypedFacts(FastApiTestCase):
                 "subject, body, priority, status, require_reply, requested_at, claimed_at, started_at, claim_bridge_id) "
                 "VALUES (?, 'dashboard', ?, 'start_if_possible', 'managed', 'request', 'long', 'b', 'normal', 'running',"
                 " 1, ?, ?, ?, '')", (f"run-{agent_id}", agent_id, _ago(AGED), _ago(AGED), _ago(AGED)))
-            conn.execute("INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, "
-                         "turn_updated_at) VALUES (?, 1, ?, '', 'hermes', ?)", (agent_id, f"run-{agent_id}", _ago(1)))
             conn.commit()
         finally:
             conn.close()
@@ -64,21 +62,20 @@ class TheOrphanReaperReadsTypedFacts(FastApiTestCase):
         try:
             status, error = conn.execute("SELECT status, COALESCE(error_text, '') FROM dispatch_runs WHERE id = ?",
                                          (f"run-{agent_id}",)).fetchone()
-            [turn_busy] = conn.execute("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", (agent_id,)).fetchone()
         finally:
             conn.close()
-        return closed, status, error, turn_busy
+        return closed, status, error
 
     def _assert_protected(self, agent_id: str) -> None:
-        self.assertEqual(self._reap(agent_id), ([], "running", "", 1), "the run must be left for a later cycle")
+        self.assertEqual(self._reap(agent_id), ([], "running", ""), "the run must be left for a later cycle")
 
     def test_a_fresh_idle_target_does_not_protect_its_own_stuck_run_through_row_5(self):
         self._target("o-idle")
         env_records.report(self, "o-idle")
         self.assertEqual(self.client.get("/api/v1/agents/o-idle").json()["agent"]["status"], "working",
                          "CONTROL: the displayed word is row 5's promotion by this very run")
-        closed, status, error, turn_busy = self._reap("o-idle")
-        self.assertEqual((closed, status, turn_busy), (["run-o-idle"], "failed", 0))
+        closed, status, error = self._reap("o-idle")
+        self.assertEqual((closed, status), (["run-o-idle"], "failed"))
         self.assertIn("is idle (aify-env reports no open turn)", error)
 
     def test_fresh_busy_beside_a_stale_holder_is_protected(self):
@@ -100,6 +97,6 @@ class TheOrphanReaperReadsTypedFacts(FastApiTestCase):
     def test_CONTROL_a_target_aify_env_reports_offline_is_failed_naming_it(self):
         self._target("o-off")
         env_records.report(self, "o-off", state="offline")
-        closed, status, error, turn_busy = self._reap("o-off")
-        self.assertEqual((closed, status, turn_busy), (["run-o-off"], "failed", 0))
+        closed, status, error = self._reap("o-off")
+        self.assertEqual((closed, status), (["run-o-off"], "failed"))
         self.assertIn("is offline; run cannot be delivered", error)

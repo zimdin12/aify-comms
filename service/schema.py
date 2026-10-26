@@ -459,35 +459,8 @@ CREATE INDEX IF NOT EXISTS idx_terminal_sessions_agent ON terminal_sessions(agen
 CREATE INDEX IF NOT EXISTS idx_terminal_events_terminal ON terminal_events(terminal_id, id);
 CREATE INDEX IF NOT EXISTS idx_terminal_controls_env_status ON terminal_controls(environment_id, bridge_id, status, requested_at, id);
 
-CREATE TABLE IF NOT EXISTS agent_turn_state (
-    agent_id TEXT PRIMARY KEY,
-    turn_busy INTEGER NOT NULL DEFAULT 0,
-    turn_run_id TEXT DEFAULT '',
-    turn_bridge_id TEXT DEFAULT '',
-    turn_runtime TEXT DEFAULT '',
-    turn_updated_at TEXT NOT NULL,
-    -- WHEN THE TURN BEGAN. Set on the not-busy -> busy transition and left alone for the rest of the
-    -- turn, so a poster that re-stamps on a timer cannot postpone the anti-strand ceiling.
-    -- `turn_updated_at` answers "when did someone last say this was still going", which is what the
-    -- ceiling used to measure and is exactly what a latched-but-still-beating turn keeps fresh.
-    turn_started_at TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-);
 
--- The host time of the last runtime-hook event applied for the agent. Unwritten since 0.9.9 S2 (aify-env owns
--- turns); S3 drops it.
-CREATE TABLE IF NOT EXISTS agent_hook_order (
-    agent_id TEXT PRIMARY KEY,
-    last_at INTEGER NOT NULL,
-    machine_id TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-);
 
--- Console-working lease (2026-06-05): the managed-claude PTY spinner footer
--- ("esc to interrupt" / "<glyph> <verb> for <time>") refreshes working_at while
--- claude is generating. A short TTL lease OR'd into derived `working` — additive,
--- never clears turn_busy, self-expires when the spinner stops. Closes the
--- "online while thinking" under-report the per-completed-message transcript can't see.
 -- 0.8, aify-env owns the agents (P0 C3, C5, C6). What each host's aify-env defines, pushed as a whole
 -- snapshot (api_core/definition_push.py). One owner machine per id; `body` is the definition's `agent`
 -- object, the desired state; `host_state` is 'invalid' while the host's file is broken, and then `body`
@@ -644,35 +617,7 @@ CREATE TABLE IF NOT EXISTS agent_state_shadow_rows (
         REFERENCES agent_state_shadow_publishers(machine_id, instance) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS agent_console_signal (
-    agent_id TEXT PRIMARY KEY,
-    working_at TEXT NOT NULL,
-    -- subagents_at and background_at are added by CONSOLE_SIGNAL_MIGRATIONS in db.py, on every
-    -- database, new or old: the migration is their one path, so it cannot be forgotten.
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-);
 
--- Status engine v2 (2026-06-04): one row per agent holding the event-driven
--- turn sub-state that feeds status_engine.derive(). Placed after agent_turn_state
--- so the FK target `agents` already exists. Liveness / worker_present /
--- env_reachable are NOT stored here; they are gathered live at derive() time.
-CREATE TABLE IF NOT EXISTS agent_status_state (
-    agent_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL DEFAULT 'offline',
-    in_turn INTEGER NOT NULL DEFAULT 0,
-    awaiting_input INTEGER NOT NULL DEFAULT 0,
-    turn_run_id TEXT NOT NULL DEFAULT '',
-    last_event TEXT NOT NULL DEFAULT '',
-    last_event_at TEXT NOT NULL DEFAULT '',
-    -- WHEN THIS TURN BEGAN, which is a different fact from when something last happened to this row.
-    -- `last_event_at` is the second, and the in_turn ceiling was measured against it -- so the hermes
-    -- hook, which fires `turn_start` before every model call, kept winding the very clock the ceiling
-    -- reads and a latched agent displayed `working` for ever. Same defect as `agent_turn_state`, in
-    -- the table the DASHBOARD reads rather than the one delivery reads.
-    turn_started_at TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-);
 
 -- WS5 Task 5.1 (2026-06-02): explicit delivery-loop claimer lease. A managed
 -- sidecar-delivery loop (hermes-managed-host.js / claude-channel.js) POSTs

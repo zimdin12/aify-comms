@@ -1,4 +1,4 @@
-"""Dispatch lifecycle reconcilers: stranded replies, dead-bridge turn state, orphaned managed runs.
+"""Dispatch lifecycle reconcilers: stranded replies, orphaned managed runs.
 
 v0.5 slices 8 and 9, extracted from `service/routers/api_v2.py` as one module. The dependency scan
 showed both groups share the same five borrowed names, and splitting them would mean two modules
@@ -9,8 +9,8 @@ named here rather than buried among five so the diff has an obvious focal point;
 been its own slice, that is the call to make on this one.
 
 BORROWED, on measured caller count as in slices 4-7: `_append_dispatch_event`,
-`_clear_status_state_in_turn`, `_mark_dispatch_run_answered`, `_mirror_missing_dispatch_handoff`,
-`_load_settings`, plus the constants `DEFAULT_SETTINGS` and `ACTIVE_RUN_BRIDGE_STALE_SECONDS` — each
+`_mark_dispatch_run_answered`, `_mirror_missing_dispatch_handoff`,
+`_load_settings`, plus the constant `DEFAULT_SETTINGS` — each
 read through exactly one owner so no second copy can drift.
 
 `engine_status` AND ITS WARNING LEFT WITH `_close_orphaned_managed_runs` in v0.5.4 — that reaper was
@@ -23,17 +23,13 @@ file would have "re-fixed" it back to the bug.
 
 from __future__ import annotations
 
-import json
 import logging
-import time
 
 from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.authored_failures import NO_WORKER_LEFT_TO_REPLY, turn_interrupted
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
-from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
-from service.api_core.turn_state import _clear_status_state_in_turn
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.reconcilers.undeliverable_queued_runs import _agent_has_live_claimer
@@ -167,105 +163,6 @@ async def _fail_stranded_delivered_reply_runs(db, *, limit: int = 200) -> list[d
         await _invalidate_agent_live_state(db, target)
         failed.append({"runId": run_id, "agentId": target})
     return failed
-
-
-async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dict[str, str]]:
-    """Clear a stuck turn_busy=1 whose owning bridge (turn_bridge_id) is dead.
-
-    BUG 1 (2026-06-03): a managed delivery loop / resident channel-sidecar that
-    sets turn_busy=1 on submit (hermes-managed-host.js / claude-channel.js) clears
-    it on a turn-END EVENT (gateway idle, /turn-end). When that loop process DIES
-    (terminal closed, crash) it fires NO turn-end event, so turn_busy sticks until
-    the long TURN_BUSY_BACKSTOP_SECONDS ceiling (~30 min) and the agent falsely
-    shows `working` the whole time. (Confirmed live: ci-senior-dev stuck `working`,
-    turn_bridge_id `hermes-managed-host-wsl:laputa-ci-senior-dev`, turn_updated_at
-    ~174s ago, that loop process gone.)
-
-    This is the DEAD-CLAIMER complement to the pure-event turn model — NOT a
-    staleness window on normal `working`. It clears turn_busy ONLY when the bridge
-    that SET it is no longer live, using the SAME staleness definition as the
-    orphaned-claim requeue (ACTIVE_RUN_BRIDGE_STALE_SECONDS heartbeat window):
-
-      1. turn_busy = 1 (the agent is marked mid-turn), AND
-      2. turn_bridge_id identifies a REAL owning BRIDGE — excludes both the empty
-         owner AND the resident-claude hook marker 'user-prompt-submit'. Both are
-         harness/hook-owned turns (the UserPromptSubmit/PostToolUse hook sets
-         turn_bridge_id='user-prompt-submit', which is NOT a bridge_instances id),
-         validated by the agent's own liveness + the turn-end (Stop) hook, not by a
-         bridge row. Sweeping them treated every hook-driven turn as "owned by a
-         dead bridge" and wiped turn_busy each reconcile cycle → working agents
-         flickered to online (#233). Left to the live-gate (a dead session reads
-         offline) + the 30-min ceiling so a genuinely-working agent is never cut off. AND
-      3. that turn_bridge_id is NOT a fresh bridge_instances row — either no such
-         row exists (superseded-away / never-registered) OR its last_seen is past
-         the stale window (the loop stopped heartbeating ⇒ dead).
-
-    A bridge whose last_seen is fresh is genuinely mid-delivery — left untouched
-    (the running turn keeps `working`). For each match: zero turn_busy via the
-    SAME write the /turn-end endpoint uses and invalidate the agent's live-state
-    cache so the false `working` clears immediately. ANTI-FEEDBACK-LOOP safe: this
-    only ever CLEARS, keyed on the bridge's heartbeat truth, never on the server's
-    derived status.
-    """
-    stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
-    cursor = await db.execute(
-        """
-        SELECT ats.agent_id, ats.turn_bridge_id
-        FROM agent_turn_state ats
-        WHERE ats.turn_busy = 1
-          AND COALESCE(ats.turn_bridge_id, '') NOT IN ('', 'user-prompt-submit')
-          AND NOT EXISTS (
-            SELECT 1 FROM bridge_instances bi
-            WHERE bi.id = ats.turn_bridge_id
-              AND COALESCE(bi.agent_id, '') = ats.agent_id
-              AND datetime(bi.last_seen) > datetime('now', ?)
-          )
-        ORDER BY ats.turn_updated_at ASC
-        LIMIT ?
-        """,
-        (stale_param, max(1, int(limit or 200))),
-    )
-    rows = await cursor.fetchall()
-    cleared: list[dict[str, str]] = []
-    now = _now()
-    for row in rows:
-        agent_id = str(row["agent_id"] or "").strip()
-        raw_bridge = str(row["turn_bridge_id"] or "").strip()
-        dead_bridge = raw_bridge or "(none)"
-        if not agent_id:
-            continue
-        # COMPARE-AND-SWAP (2026-07-10 review S2): scope the clear to the EXACT stale
-        # bridge id this row was selected for. Between the SELECT above and here (multiple
-        # awaits on the single loop) a POST /heartbeat {turnBusy:true} from a NEWLY-LIVE
-        # bridge can rewrite this row (turn_busy=1, turn_bridge_id=B_new). An unconditional
-        # clear would then blow away that fresh turn (last-writer-wins) → the just-resumed
-        # agent flaps to `online` for a pulse cycle. Guarding on the observed bridge id +
-        # turn_busy=1 makes the concurrent-rewrite case a no-op. Mirrors the heartbeat
-        # clear path, which already keys on the stored bridge id before clearing.
-        cur = await db.execute(
-            """
-            UPDATE agent_turn_state
-            SET turn_busy = 0,
-                turn_run_id = '',
-                turn_bridge_id = '',
-                turn_runtime = '',
-                turn_updated_at = ?
-            WHERE agent_id = ?
-              AND turn_busy = 1
-              AND COALESCE(turn_bridge_id, '') = ?
-            """,
-            (now, agent_id, raw_bridge),
-        )
-        if not cur.rowcount:
-            # CAS miss: a fresh heartbeat from a new live bridge rewrote the row — the
-            # agent is legitimately busy again; do NOT clear its in_turn/cache.
-            continue
-        # Keep the v2 engine in sync — the dead bridge's heartbeats are exactly what set
-        # in_turn=1, and no turn_end will ever arrive from it (review M3, 2026-06-10).
-        await _clear_status_state_in_turn(db, agent_id)
-        await _invalidate_agent_live_state(db, agent_id)
-        cleared.append({"agentId": agent_id, "deadBridgeId": dead_bridge})
-    return cleared
 
 
 async def _close_steered_contracts_for_parent_run(

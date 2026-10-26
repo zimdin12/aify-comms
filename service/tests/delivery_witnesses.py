@@ -7,9 +7,8 @@ the one policy change the operator ruled on (P-1, ruling 1791194105933-54bcb728,
 turn holds delivery with NO wall-clock cap.
 
 So a specimen here is a set of FACTS about one turn, never a row. An adapter turns the facts into whatever
-the service reads. Before the 0.9.8 switch that was `LegacyTurnAdapter` (agent_turn_state plus the owning bridge
-row). After it, `MirrorTurnAdapter` publishes the record aify-env would send, judged under the P-1 law. The legacy
-adapter stays for the rollback test, which drives the legacy readers over the same specimens.
+the service reads. Before the 0.9.8 switch that was a row of the legacy turn table and its owning bridge; since it,
+`MirrorTurnAdapter` publishes the record aify-env would send, judged under the P-1 law.
 
 THE P-1 DIFFERENCE IS NAMED, NOT HIDDEN. `HOLD_LAW` carries both answers for every specimen. Where today's
 code releases a turn (a timeout, or a future start it rejects) and P-1 would keep holding, the two columns
@@ -18,7 +17,6 @@ specimen's times were chosen to make the two laws agree.
 """
 from __future__ import annotations
 
-import sqlite3
 import time
 from dataclasses import dataclass, replace
 from typing import Optional, Protocol
@@ -148,47 +146,6 @@ class TurnInputAdapter(Protocol):
     def apply(self, case, agent_id: str, spec: TurnSpecimen) -> None: ...
 
 
-def _stamp(age: Optional[float], stamps: str) -> str:
-    if stamps == "blank" or age is None:
-        return ""
-    if stamps == "garbage":
-        return "not-a-timestamp"
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age))
-
-
-class LegacyTurnAdapter:
-    """Today's input path: the shared `agent_turn_state` row and, for a bridge-owned turn, its bridge row.
-
-    The hook owner is written as the marker the prompt hook really writes (`user-prompt-submit`), which
-    nothing can verify. A bridge owner gets its own `bridge_instances` row, separate from any bridge that
-    claims work, so a claim's heartbeat can never renew the turn by accident.
-    """
-
-    LAW = "legacy"
-
-    def apply(self, case, agent_id: str, spec: TurnSpecimen) -> None:
-        if not spec.recorded:
-            return
-        db_path = case._db_path
-        owner = {"hook": "user-prompt-submit", "live-bridge": f"turn-owner-{agent_id}",
-                 "dead-bridge": f"turn-owner-{agent_id}"}[spec.owner]
-        conn = sqlite3.connect(str(db_path))
-        try:
-            if spec.owner != "hook":
-                seen = _stamp(5 if spec.owner == "live-bridge" else 3 * HOUR, "valid")
-                conn.execute(
-                    "INSERT OR REPLACE INTO bridge_instances (id, agent_id, registered_at, last_seen, superseded_by) "
-                    "VALUES (?,?,?,?, '')", (owner, agent_id, seen, seen))
-            conn.execute(
-                "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, "
-                "turn_runtime, turn_updated_at, turn_started_at) VALUES (?,?,?,?,?,?,?)",
-                (agent_id, 1 if spec.open else 0, spec.run_id, owner, "",
-                 _stamp(spec.touched_age, spec.stamps), _stamp(spec.started_age, spec.stamps)))
-            conn.commit()
-        finally:
-            conn.close()
-
-
 class MirrorTurnAdapter:
     """The input path after the 0.9.8 switch: aify-env publishes the agent's record through the real
     `/api/v1/agent-state` route, fresh, with the top-level `busy` its own law gives the specimen.
@@ -207,8 +164,6 @@ class MirrorTurnAdapter:
 
         env_records.report(case, agent_id, busy=p1_holds(spec))
 
-
-LEGACY_ADAPTER = LegacyTurnAdapter()
 
 # THE SEAM P7 FILLED, at the 0.9.8 switch (SW5): every witness reaches the service through aify-env's record.
 INPUT_ADAPTER: TurnInputAdapter = MirrorTurnAdapter()

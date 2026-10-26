@@ -33,7 +33,6 @@ from service.reconcilers.terminal_controls import _reconcile_ended_terminal_cont
 from service.reconcilers.terminal_history import _prune_terminal_history
 from service.reconcilers.orphaned_managed_runs import _close_orphaned_managed_runs
 from service.reconcilers.dispatch_lifecycle import (
-    _clear_turn_busy_for_dead_bridges,
     _prune_orphaned_dispatch_runs,
 )
 from service.reconcilers.dispatch_queue import (
@@ -2347,17 +2346,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
     def _seed_fresh_turn_busy(self, agent_id: str, run_id: str, bridge_id: str, runtime: str = "claude-code"):
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id,
-                turn_bridge_id = excluded.turn_bridge_id, turn_runtime = excluded.turn_runtime,
-                turn_updated_at = excluded.turn_updated_at
-            """,
-            (agent_id, run_id, bridge_id, runtime, _now()),
-        )
-        # The 0.9.8 switch reads busy from aify-env's record; the legacy row above stays for the rollback's readers.
+        # Since the 0.9.8 switch the turn is aify-env's: its record says busy. The run, bridge and runtime name the
+        # turn for the reader of the test; nothing in comms stores them.
         env_records.report(self, agent_id, busy=True)
 
     def _seed_queued_dispatch_run(self, run_id: str, target: str, *, execution_mode: str, require_reply: int = 0, from_agent: str = "sc-claude", queue_if_busy: int = 0, steer_if_busy: int = 0):
@@ -2474,27 +2464,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         # the attribute vanished the moment the last handler using it moved out in v0.5.4.
         serialized = _serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
         self.assertTrue(serialized["steerIfBusy"])
-
-    def test_rr0_delivery_completion_does_not_clear_while_other_rr1_in_flight(self):
-        # ANTI-FEEDBACK-LOOP / safety: an rr=0 completion must NOT clear
-        # turn_busy while ANOTHER require_reply=1 channel/resident run is still
-        # open for the same agent (genuine reply-owing work in flight).
-        self._register_resident_channel_claude("sc-manager3", bridge_id="bridge-sc-manager3")
-        # A genuine rr=1 turn is in flight.
-        self._seed_queued_dispatch_run("run_rr1_open", "sc-manager3", execution_mode="channel", require_reply=1)
-        self._execute("UPDATE dispatch_runs SET status='running' WHERE id = ?", ("run_rr1_open",))
-        # An rr=0 delivery completes alongside it.
-        self._seed_queued_dispatch_run("run_rr0_alongside", "sc-manager3", execution_mode="channel", require_reply=0)
-        self._execute("UPDATE dispatch_runs SET status='claimed' WHERE id = ?", ("run_rr0_alongside",))
-        self._seed_fresh_turn_busy("sc-manager3", "run_rr1_open", "channel-linux:test-host-sc-manager3")
-
-        resp = self.client.patch(
-            "/api/v1/dispatch/runs/run_rr0_alongside",
-            json={"status": "completed", "summary": "Delivered and completed by channel bridge"},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("sc-manager3",))
-        self.assertEqual(int(tb["turn_busy"] or 0), 1, "must NOT clear turn_busy while a real rr=1 turn is still open")
 
     def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
         """Stamp a fresh, far-future cached live_state entry so a test can
@@ -2927,90 +2896,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(requeued, [], f"a run with a delivered event must not be requeued; got {requeued}")
         row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_delivered_evt",))
         self.assertEqual(row["status"], "claimed")
-
-    def _seed_turn_busy(self, agent_id: str, *, turn_bridge_id: str, updated_seconds_ago: float, run_id: str = "run_x", runtime: str = "hermes"):
-        updated_at = (datetime.now(timezone.utc) - timedelta(seconds=updated_seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._execute(
-            """
-            INSERT OR REPLACE INTO agent_turn_state
-                (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            """,
-            (agent_id, run_id, turn_bridge_id, runtime, updated_at),
-        )
-
-    def _run_clear_turn_busy_dead_bridges(self, **kwargs):
-        async def _run():
-            from service.db import get_db as _get_db
-            db = await _get_db()
-            try:
-                return await _clear_turn_busy_for_dead_bridges(db, **kwargs)
-            finally:
-                await db.commit()
-                await db.close()
-        return asyncio.run(_run())
-
-    def test_turn_busy_cleared_when_owning_bridge_is_dead(self):
-        # BUG 1 (confirmed live): a managed hermes delivery loop set turn_busy=1 on
-        # submit, then its process died (terminal closed) without firing a turn-end
-        # event. agent_turn_state.turn_busy stayed 1 with turn_bridge_id pointing at
-        # the now-dead loop's channel-sidecar bridge — agent shows `working` until
-        # the ~30-min ceiling. The reconcile must clear turn_busy when that bridge
-        # has no fresh bridge_instances heartbeat.
-        self._register("ci-senior-dev", runtime="hermes", sessionMode="managed")
-        # turn_bridge_id has NO bridge_instances row at all → dead claimer.
-        self._seed_turn_busy(
-            "ci-senior-dev",
-            turn_bridge_id="hermes-managed-host-wsl:laputa-ci-senior-dev",
-            updated_seconds_ago=174,
-        )
-        self._seed_cached_live_state("ci-senior-dev", status="working")
-
-        cleared = self._run_clear_turn_busy_dead_bridges()
-        self.assertEqual({c["agentId"] for c in cleared}, {"ci-senior-dev"}, f"cleared={cleared}")
-
-        row = self._fetchone(
-            "SELECT turn_busy, turn_run_id, turn_bridge_id FROM agent_turn_state WHERE agent_id = ?",
-            ("ci-senior-dev",),
-        )
-        self.assertEqual(int(row["turn_busy"]), 0, "turn_busy must be cleared")
-        self.assertEqual(row["turn_bridge_id"] or "", "")
-        self.assertEqual(row["turn_run_id"] or "", "")
-        self.assertIsNone(
-            _live_state_fresh("ci-senior-dev"),
-            "clearing a stuck turn_busy must invalidate the false-working live_state cache entry",
-        )
-
-    def test_turn_busy_NOT_cleared_when_owning_bridge_is_fresh(self):
-        # GUARD: turn_bridge_id IS a fresh, heartbeating bridge — the loop is
-        # genuinely mid-delivery. turn_busy must NOT be cleared (no early turn-end).
-        self._register("live-turn-hermes", runtime="hermes", sessionMode="managed")
-        live_seen = _now()
-        self._execute(
-            """
-            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            ("live-turn-bridge", "live-turn-hermes", "test-machine", "hermes", "managed", live_seen, live_seen),
-        )
-        self._seed_turn_busy("live-turn-hermes", turn_bridge_id="live-turn-bridge", updated_seconds_ago=174)
-
-        cleared = self._run_clear_turn_busy_dead_bridges()
-        self.assertEqual(cleared, [], f"a fresh bridge's turn_busy must not be cleared; got {cleared}")
-        row = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("live-turn-hermes",))
-        self.assertEqual(int(row["turn_busy"]), 1, "turn_busy stays set while the owning bridge heartbeats")
-
-    def test_turn_busy_NOT_cleared_when_no_owning_bridge_recorded(self):
-        # GUARD: an empty turn_bridge_id is a harness/Stop-hook turn (e.g. a resident
-        # claude on its own turn) — NOT a dead-claimer case. Leave it to the existing
-        # ~30-min ceiling so a genuinely-working agent is never cut off.
-        self._register("harness-turn-claude", runtime="claude-code", sessionMode="resident")
-        self._seed_turn_busy("harness-turn-claude", turn_bridge_id="", updated_seconds_ago=600, runtime="claude-code")
-
-        cleared = self._run_clear_turn_busy_dead_bridges()
-        self.assertEqual(cleared, [], f"an empty-owner turn_busy must not be cleared; got {cleared}")
-        row = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("harness-turn-claude",))
-        self.assertEqual(int(row["turn_busy"]), 1, "a harness turn (no bridge owner) is left to the long ceiling")
 
     def _seed_queued_run(self, run_id: str, agent_id: str, *, from_agent: str = "sender-agent", requested_minutes_ago: float = 5.0, require_reply: bool = True):
         requested_at = (datetime.now(timezone.utc) - timedelta(minutes=requested_minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -10075,15 +9960,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "running", 0, stale_at, None, stale_at, "",
             ),
         )
-        # Seed turn_busy=1 to simulate the stuck working signal.
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, '', 'hermes', ?)
-            """,
-            ("orphan-hermes", "run_orphan_1", _now()),
-        )
-
         async def _run():
             from service.db import get_db as _get_db
             db = await _get_db()
@@ -10101,9 +9977,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run_row["status"], "failed")
         self.assertIn("made no progress", (run_row["error_text"] or "").lower())
 
-        # turn_busy auto-cleared.
-        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("orphan-hermes",))
-        self.assertEqual(int(tb["turn_busy"] or 0), 0)
 
     def test_periodic_reconcile_requeues_orphaned_claimed_run(self):
         # The periodic reconcile pass must requeue a claimed-but-never-delivered
@@ -10403,13 +10276,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             "UPDATE agents SET runtime_state = ?, runtime_config = ? WHERE id = ?",
             # gatewayUrl → wake-mode hermes-live (not *-missing-handle, which would derive stale).
             ('{"bridgeInstanceId": "bridge-busy-1"}', '{"gatewayUrl": "ws://127.0.0.1:9999"}', "busy-target"),
-        )
-        self._execute(
-            """
-            INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, last_event, last_event_at, updated_at)
-            VALUES (?, 'working', 1, 0, ?, 'turn_start', ?, ?)
-            """,
-            ("busy-target", "run_busy_target", live_seen, live_seen),
         )
         env_records.report(self, "busy-target", busy=True)  # after the 0.9.8 switch `working` is aify-env's word
         # Aged past BOTH the no-progress window and the wall-clock ceiling.

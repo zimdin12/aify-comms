@@ -683,6 +683,8 @@ all eight other files.
 
 ## Status is proof-based: no time-decay, no engine flag (2026-06-18)
 
+**SUPERSEDED (0.9.8 switch; `derive()` deleted in 0.9.9 S3b, its tables dropped in S3c).** The word is aify-env's, served by the operational view. The text follows as history.
+
 The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry now in the archive:
 
 **The vocabulary is whatever `VALID_STATUSES` in `service/status_engine.py` declares, and one table says what each state means and what to do about it: "Status Meanings" in [`.claude/skills/aify-comms/references/operations.md`](.claude/skills/aify-comms/references/operations.md).** The 2026-06-18 rewrite set six (`working` / `online` / `available` / `blocked` / `offline` / `stopped`); `shell`, `misconfigured` and `starting` were added since. The two time-decay states were DROPPED. `idle` (an `online` worker gone quiet past a minute threshold) is gone — a long-quiet live agent simply stays `online`, which operators already rely on as "ready for queued work". `stale` (resident-only, bridge lease past ~150s) is gone — a resident whose bridge heartbeat lapsed or that has no usable wake handle (`*-missing-handle`) now reads `offline`. *Why:* both labels ASSUMED a state from elapsed wall-clock time rather than proving it, which is exactly the class of inaccuracy operators kept reporting ("shows idle but it's working", "shows working but it's done").

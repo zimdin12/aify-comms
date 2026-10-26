@@ -3,7 +3,6 @@ SQLite database layer for aify-comms v2.
 Single database file replaces all JSON file storage.
 """
 import json
-import time
 import aiosqlite
 from pathlib import Path
 
@@ -173,13 +172,6 @@ TERMINAL_SESSION_MIGRATIONS = {
     # the true width instead of inferring it.
     "cols": "ALTER TABLE terminal_sessions ADD COLUMN cols INTEGER DEFAULT 0",
     "rows": "ALTER TABLE terminal_sessions ADD COLUMN rows INTEGER DEFAULT 0",
-    # WHAT THE HOST SEES ON THE SCREEN (`service/api_core/host_activity.py`): the state and the rule
-    # that decided it, when the host first saw it, and when this service last heard it -- the last
-    # is what freshness is judged on.
-    "activity_state": "ALTER TABLE terminal_sessions ADD COLUMN activity_state TEXT DEFAULT ''",
-    "activity_rule": "ALTER TABLE terminal_sessions ADD COLUMN activity_rule TEXT DEFAULT ''",
-    "activity_observed_at": "ALTER TABLE terminal_sessions ADD COLUMN activity_observed_at TEXT DEFAULT ''",
-    "activity_reported_at": "ALTER TABLE terminal_sessions ADD COLUMN activity_reported_at TEXT DEFAULT ''",
     # WHAT THIS LAUNCH DOES ABOUT A LIVE INSTANCE OF ITS AGENT (`service/api_core/start_intent.py`):
     # only the terminal a spawn request brings up carries that request's intent.
     "start_intent": "ALTER TABLE terminal_sessions ADD COLUMN start_intent TEXT DEFAULT 'start'",
@@ -192,37 +184,6 @@ SPAWN_REQUEST_MIGRATIONS = {
     "definition_incarnation": "ALTER TABLE spawn_requests ADD COLUMN definition_incarnation INTEGER DEFAULT 0",
     "definition_revision": "ALTER TABLE spawn_requests ADD COLUMN definition_revision INTEGER DEFAULT 0",
 }
-
-# Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed
-# its initial handshake and can accept dispatches. It is an internal readiness
-# bit; public idle-live status is `online`, not `ready`.
-AGENT_TURN_STATE_MIGRATIONS = {
-    "ready": "ALTER TABLE agent_turn_state ADD COLUMN ready INTEGER NOT NULL DEFAULT 0",
-    # WHEN THIS TURN BEGAN, which is a different fact from when somebody last said it was still
-    # going. `turn_updated_at` is the second, and the 30-minute anti-strand ceiling was measured
-    # against it -- so any poster that re-stamps on a timer postpones the ceiling for ever and the
-    # latch it exists to catch never ages out. Measured live 2026-08-30: a managed hermes agent held
-    # every queued dispatch for 38 minutes while `turn_updated_at` advanced 18:23:11Z -> 18:23:56Z.
-    #
-    # THE SAME SHAPE WAS FOUND AND PATCHED ONCE BEFORE, narrowly: a superseded claude turn-detector
-    # re-stamping every 45s, fixed by refusing that specific poster in `turn_boundaries.py`. The hook
-    # path was deliberately left authoritative there, which is right for resident claude and wrong
-    # for a managed hermes whose `pre_llm_call` fires before EVERY model call. Anchoring the ceiling
-    # to the START retires the whole class instead of naming posters one at a time.
-    "turn_started_at": "ALTER TABLE agent_turn_state ADD COLUMN turn_started_at TEXT NOT NULL DEFAULT ''",
-}
-
-#: Give every EXISTING busy row a start anchor, or the fix cannot reach the rows that need it most.
-#:
-#: A latched agent never makes another not-busy -> busy transition -- that is what "latched" means --
-#: so a column filled only on transition would stay empty exactly where it matters and the ceiling
-#: would still never fire. Seeding from `turn_updated_at` costs a genuinely-working agent nothing: it
-#: gets a fresh 30-minute ceiling, which is what it would have had anyway.
-AGENT_TURN_STATE_BACKFILLS = (
-    "UPDATE agent_turn_state SET turn_started_at = turn_updated_at "
-    "WHERE COALESCE(turn_started_at, '') = '' AND COALESCE(turn_updated_at, '') != ''",
-)
-
 
 #: The status switch's comparison tables (0.9.9 S1, plan 2026-10-25-0.9.9-deletions.md): diagnostic only, read by
 #: nothing since the switch, dropped children first so no foreign key is left pointing at a dropped window.
@@ -311,15 +272,32 @@ async def _clear_stuck_internal_settings(db: aiosqlite.Connection):
     )
 
 
-async def _drop_retired_tables(db: aiosqlite.Connection):
-    """Drop tables nothing reads or writes, so an existing database gives the space back.
+#: Tables nothing reads or writes any more. `agent_live_state` held the derived status until 2026-06-18, when it
+#: moved to the in-memory cache (reconcilers/status_cache.py). The other four fed the legacy derivation and the
+#: comms turn gate, both gone since the 0.9.8 switch made the word aify-env's (0.9.9 S3c).
+RETIRED_TABLES = ("agent_live_state", "agent_turn_state", "agent_status_state", "agent_hook_order",
+                  "agent_console_signal")
 
-    `agent_live_state` held the derived agent status until 2026-06-18, when it moved to the in-memory
-    `_LIVE_STATE_CACHE` (reconcilers/status_cache.py). The table stayed for schema compatibility,
-    written by nothing; its ON DELETE CASCADE still made every agent delete touch it. Dropping the
-    table drops its index with it. Idempotent.
+#: Columns nothing reads or writes any more: the host's screen observation, stored for the legacy derivation
+#: (0.9.9 S3c).
+RETIRED_COLUMNS = {
+    "terminal_sessions": ("activity_state", "activity_rule", "activity_observed_at", "activity_reported_at"),
+}
+
+
+async def _drop_retired_tables(db: aiosqlite.Connection):
+    """Drop the tables and columns nothing reads or writes, so an existing database gives the space back.
+
+    Dropping a table drops its indexes with it, and its ON DELETE CASCADE stops making every agent delete
+    touch it. Idempotent.
     """
-    await db.execute("DROP TABLE IF EXISTS agent_live_state")
+    for table in RETIRED_TABLES:
+        await db.execute(f"DROP TABLE IF EXISTS {table}")
+    for table, columns in RETIRED_COLUMNS.items():
+        existing = {row[1] for row in await (await db.execute(f"PRAGMA table_info({table})")).fetchall()}
+        for column in columns:
+            if column in existing:
+                await db.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
 
 
 async def _migrate_dispatch_runs_table(db: aiosqlite.Connection):
@@ -404,34 +382,6 @@ BRIDGE_INSTANCE_MIGRATIONS = {
     # reclaims it by beating (api_core/nested_session_handback.py).
     "handback_offer": "ALTER TABLE bridge_instances ADD COLUMN handback_offer TEXT",
 }
-
-
-CONSOLE_SIGNAL_MIGRATIONS = {
-    "subagents_at": "ALTER TABLE agent_console_signal ADD COLUMN subagents_at TEXT DEFAULT ''",
-    "background_at": "ALTER TABLE agent_console_signal ADD COLUMN background_at TEXT DEFAULT ''",
-}
-
-
-async def _migrate_console_signal_table(db: aiosqlite.Connection):
-    cursor = await db.execute("PRAGMA table_info(agent_console_signal)")
-    existing = {row[1] for row in await cursor.fetchall()}
-    for column, statement in CONSOLE_SIGNAL_MIGRATIONS.items():
-        if column not in existing:
-            await db.execute(statement)
-
-
-# v0.7.4: a database created by an earlier 0.7.4 candidate has the table without its host column.
-AGENT_HOOK_ORDER_MIGRATIONS = {
-    "machine_id": "ALTER TABLE agent_hook_order ADD COLUMN machine_id TEXT NOT NULL DEFAULT ''",
-}
-
-
-async def _migrate_agent_hook_order_table(db: aiosqlite.Connection):
-    cursor = await db.execute("PRAGMA table_info(agent_hook_order)")
-    existing = {row[1] for row in await cursor.fetchall()}
-    for column, statement in AGENT_HOOK_ORDER_MIGRATIONS.items():
-        if column not in existing:
-            await db.execute(statement)
 
 
 # 0.8: a database created by P3a (4af344c5) has the table without `outcome`, and its replay was a 500.
@@ -526,62 +476,6 @@ async def _migrate_terminal_sessions_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
-async def _migrate_agent_turn_state_table(db: aiosqlite.Connection):
-    cursor = await db.execute("PRAGMA table_info(agent_turn_state)")
-    existing = {row[1] for row in await cursor.fetchall()}
-    for column, statement in AGENT_TURN_STATE_MIGRATIONS.items():
-        if column not in existing:
-            await db.execute(statement)
-    # Runs on every boot, not only on the boot that adds the column: it is idempotent by its own
-    # WHERE clause, and a row that somehow reaches a blank anchor later is repaired rather than left
-    # holding delivery for ever.
-    for statement in AGENT_TURN_STATE_BACKFILLS:
-        await db.execute(statement)
-
-
-#: THE SAME DEFECT AS `agent_turn_state`, IN A SECOND TABLE. That one held DELIVERY; this one holds
-#: what the dashboard SHOWS. Both clamps in `status_inputs.py` aged `in_turn` against
-#: `last_event_at`, and the hermes hook path calls `_apply_status_event(kind="turn_start")` on every
-#: fire -- which refreshes exactly that column. So the ceiling that exists to un-latch a stuck
-#: `working` was measured against a clock the latch itself keeps winding, and an agent could read
-#: `working` for ever even after the delivery ceiling had correctly released its queued work.
-#:
-#: `last_event_at` answers "when did something last happen to this row". `turn_started_at` answers
-#: "when did THIS turn begin", which is the question a turn-length ceiling is actually asking. Only
-#: the second is safe to measure against, because only the second stops moving while the turn runs.
-#:
-#: This table had NO migration map before -- every other migrated table has one -- so this adds the
-#: map, the backfill and the runner rather than a line to an existing dict.
-AGENT_STATUS_STATE_MIGRATIONS = {
-    "turn_started_at": (
-        "ALTER TABLE agent_status_state ADD COLUMN turn_started_at TEXT NOT NULL DEFAULT ''"),
-}
-
-#: Give every EXISTING busy row a start anchor, for the same reason its sibling needs one: a latched
-#: agent never makes another not-busy -> busy transition, so a column written only on transition
-#: would stay empty precisely on the rows the ceiling has to reach. Seeding from `last_event_at`
-#: costs a genuinely-working agent nothing -- it gets a fresh ceiling, which is what it had anyway --
-#: and it is the closest honest lower bound on when the turn began.
-AGENT_STATUS_STATE_BACKFILLS = (
-    "UPDATE agent_status_state SET turn_started_at = last_event_at "
-    "WHERE in_turn = 1 AND COALESCE(turn_started_at, '') = '' "
-    "AND COALESCE(last_event_at, '') != ''",
-)
-
-
-async def _migrate_agent_status_state_table(db: aiosqlite.Connection):
-    cursor = await db.execute("PRAGMA table_info(agent_status_state)")
-    existing = {row[1] for row in await cursor.fetchall()}
-    for column, statement in AGENT_STATUS_STATE_MIGRATIONS.items():
-        if column not in existing:
-            await db.execute(statement)
-    # Runs on every boot, not only the boot that adds the column: it is idempotent by its own WHERE
-    # clause, and a row that somehow reaches a blank anchor while busy is repaired rather than left
-    # reading `working` for ever.
-    for statement in AGENT_STATUS_STATE_BACKFILLS:
-        await db.execute(statement)
-
-
 # Runtimes the bridge can drive through a native managed integration.
 #
 # A DELIBERATE THIRD COPY, and it cannot become an import. The owner is
@@ -673,13 +567,9 @@ async def init_db(db_path: Path = None):
         await _migrate_terminal_sessions_table(db)
         await _migrate_spawn_requests_table(db)
         await _migrate_bridge_instances_table(db)
-        await _migrate_console_signal_table(db)
-        await _migrate_agent_turn_state_table(db)
-        await _migrate_agent_hook_order_table(db)
         await _migrate_definition_stores_table(db)
         await _migrate_definition_requests_table(db)
         await _migrate_agent_lifecycle_requests_table(db)
-        await _migrate_agent_status_state_table(db)
         await _drop_status_shadow_comparison(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)

@@ -37,7 +37,6 @@ from service.api_core.records import _agent_record_to_dict, _terminal_session_to
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.status_refresh import _compute_agent_status
-from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.clock import now as _now
@@ -244,22 +243,6 @@ async def stop_agent_worker(agent_id: str, request: Request):
             """,
             (now, now, agent_id),
         )
-        # Clear turn_busy.
-        await db.execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 0, '', '', '', ?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                turn_busy = 0,
-                turn_run_id = '',
-                turn_bridge_id = '',
-                turn_runtime = '',
-                turn_updated_at = excluded.turn_updated_at
-            """,
-            (agent_id, now),
-        )
-        # Keep the v2 engine in sync (dual-table drift guard, review M3 2026-06-10).
-        await _clear_status_state_in_turn(db, agent_id)
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         ws = await _get_ws(request)

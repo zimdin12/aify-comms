@@ -46,9 +46,6 @@ LIVENESS_WRITES: Mapping[str, Optional[frozenset]] = {
     # Heartbeats and the in-flight turn marker. A derived status that MOVES because of them is
     # published separately, as a change to `agents` (service/reconcilers/status_cache.py).
     "bridge_instances": None,
-    "agent_turn_state": None,
-    "agent_status_state": None,
-    "agent_console_signal": None,
     "claimer_leases": None,
     # One row per flushed output chunk, read only by a console that already streams the output.
     "terminal_events": None,
@@ -57,11 +54,8 @@ LIVENESS_WRITES: Mapping[str, Optional[frozenset]] = {
     "agents": frozenset({"last_seen", "status", "last_present_at"}),
     "agent_sessions": frozenset({"last_seen", "telemetry"}),
     "environments": frozenset({"last_seen", "metadata", "cwd_roots"}),
-    # The streamed tail and its activity reading. A status change on a terminal is NOT here.
-    "terminal_sessions": frozenset({
-        "output", "output_at", "output_seq", "updated_at",
-        "activity_state", "activity_rule", "activity_observed_at",
-    }),
+    # The streamed tail. A status change on a terminal is NOT here.
+    "terminal_sessions": frozenset({"output", "output_at", "output_seq", "updated_at"}),
     # A replayed definition push stamps only this, every minute per host: a heartbeat, not a change.
     "definition_stores": frozenset({"pushed_at"}),
 }

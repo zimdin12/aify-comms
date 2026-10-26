@@ -56,8 +56,7 @@ HELD_TERMINALS_GRACE_SECONDS = 20
 
 #: How long a terminal ANOTHER bridge created must have gone without a liveness frame before this
 #: host's list may end it. A live host repeats one every control pass, gated by its claim long-poll
-#: (`CLAIM_WAIT_MS`, 25 s in aify-env's `api.mjs`) -- so this is more than three missed passes, the
-#: margin `host_activity.HOST_ACTIVITY_FRESH_SECONDS` also allows.
+#: (`CLAIM_WAIT_MS`, 25 s in aify-env's `api.mjs`) -- so this is more than three missed passes.
 PEER_SILENCE_SECONDS = 90
 
 #: What a terminal the host no longer holds becomes -- the same end status the ghost reaper writes.

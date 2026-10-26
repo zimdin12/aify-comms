@@ -7,7 +7,6 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 
@@ -19,7 +18,6 @@ from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.request_body import json_object_body
 from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
-from service.api_core.status_broadcast import _broadcast_engine_status
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.liveness")
@@ -33,7 +31,6 @@ from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_presen
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
-from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.reconcilers.status_cache import _live_state_get
 from service.clock import now as _now
@@ -62,12 +59,11 @@ router = domain_router()
 
 @router.patch("/agents/{agent_id}/ready")
 async def update_agent_ready(agent_id: str, req: AgentReadyUpdate, request: Request):
-    """Plan 4 task 12 (2026-05-25): bridge POSTs here when an adapter
-    controller's start() has completed initial handshake. This stores an
-    internal readiness bit; public idle-live status remains `online`.
+    """The bridge reports that an adapter controller finished its start handshake.
 
-    Upsert preserves any existing turn_busy/turn_run_id state — clearing
-    ready does NOT also clear turn_busy and vice versa.
+    Answered and not stored (0.9.9 S3c): the readiness bit lived in `agent_turn_state`, which nothing
+    has read since the 0.9.8 switch made the word aify-env's. The route stays so a running bridge's
+    call is not an error.
     """
     refuse_an_unproven_operator_claim(req.requestedBy, request, action="setting an agent ready as the operator")
     validate_name(agent_id, "agent ID")
@@ -79,31 +75,6 @@ async def update_agent_ready(agent_id: str, req: AgentReadyUpdate, request: Requ
             if tombstone:
                 raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        now = _now()
-        ready_int = 1 if req.ready else 0
-        # Upsert agent_turn_state: insert with ready, or update only ready
-        # (and updated_at) on conflict — turn_busy and run/bridge/runtime
-        # fields are owned by the dispatch path, not by this endpoint.
-        await db.execute(
-            """
-            INSERT INTO agent_turn_state
-                (agent_id, turn_busy, turn_run_id, turn_bridge_id,
-                 turn_runtime, turn_updated_at, ready)
-            VALUES (?, 0, '', '', '', ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                ready = excluded.ready,
-                turn_updated_at = excluded.turn_updated_at
-            """,
-            (agent_id, now, ready_int),
-        )
-        await _invalidate_agent_live_state(db, agent_id)
-        await db.commit()
-        ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast(
-                "agent_ready",
-                {"agentId": agent_id, "ready": bool(req.ready)},
-            )
         return {"ok": True, "agentId": agent_id, "ready": bool(req.ready)}
     finally:
         await db.close()

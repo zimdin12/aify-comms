@@ -141,13 +141,13 @@ table in [.claude/skills/aify-comms/references/operations.md](.claude/skills/aif
 ("Status Meanings"); `VALID_STATUSES` in `service/status_engine.py` is the code's list. Status is
 proof-based and never time-decayed.
 
-Status is decided by `derive()`, a pure function of `StatusInputs` and the sole authority.
-`working`/`blocked` come from turn events folded into `agent_status_state.in_turn` /
-`awaiting_input`, fed for every runtime: the dispatch `/heartbeat turnBusy` field drives a
-`turn_start`/`turn_end` status event alongside the resident turn hooks. The only time terms are
-dropped-event liveness backstops (e.g. an `in_turn` ceiling to un-latch a lost turn-end), not
-status decay. The served status reads from the in-memory `_LIVE_STATE_CACHE`; see CLAUDE.md's
-single-worker constraint.
+Since the 0.9.8 switch the word is aify-env's: each host's aify-env publishes a record per agent,
+and the operational view (`service/api_core/operational_view.py`) serves it, adding only an
+operator stop, a proven-absent wake handle, `unknown` when a publisher is not fresh, and `working`
+while a run comms delivered is running. comms keeps no turn state and times no turn. The served
+status reads from the in-memory `_LIVE_STATE_CACHE`; see CLAUDE.md's single-worker constraint.
+How the word is decided, and what to check when it is wrong:
+`.claude/skills/aify-comms-debug/references/status-model.md`.
 
 A resident bridge POSTs `/agents/{id}/resident-lost` on clean exit, so it drops to `stopped`
 without waiting out the resident lease (a crash is caught when the lease goes silent → `offline`).

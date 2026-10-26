@@ -63,8 +63,8 @@ carry one.
 
 What follows from it today: aify-comms' plugin vendors Herdr's per-runtime screen rules and reports
 working / idle / blocked for the managed terminals it runs. Since the 0.9.8 switch the status word is
-aify-env's own; this service still stores the report (`service/api_core/host_activity.py`) but reads it
-nowhere, and the store goes in 0.9.9 S3c. Of the service's own screen code, `console_prompts.py` still
+aify-env's own, and this service ignores the report a liveness frame carries (its store went in 0.9.9
+S3c). Of the service's own screen code, `console_prompts.py` still
 answers dialogs; the `console_working.py` footer lease, the fallback for an aify-env that sent no
 observation, was deleted in 0.9.9 S3b.
 

@@ -634,10 +634,6 @@ next; it disclosed these beside them, not as blockers:
 
 Each item below was read against the code on 2026-09-25; none has been seen misbehave live.
 
-- **`PATCH /agents/{id}/ready` refreshes `turn_updated_at` on a row it does not own**
-  (`update_agent_ready` in `service/routers/agents/liveness.py`). The delivery and status ceiling
-  renews against that column only for a turn a live bridge owns, so each call can extend such a lease
-  by one 30-minute window. The bridge sends it once per run handshake, which is real work starting.
 - **Bridge HTTP calls never retry a 429.** `aify-service-endpoint.mjs` retries only 5xx responses, and
   only for its idempotent requests. Latent: the service never answers 429.
 - **`PATCH /dispatch/runs/{id}` checks no ownership** (`update_dispatch_run`). A terminal run can no
@@ -663,9 +659,6 @@ Each item below was read against the code on 2026-09-25; none has been seen misb
   terminal must not supersede each other (`_record_bridge_registration`); rows age out once their
   heartbeat passes the 5-minute window. `_requeue_orphaned_claimed_runs` keys on the one claim bridge
   row, so siblings cannot make a dead claim look alive. The 2026-08-07 retraction is in the archive.
-- **`agent_status_state.status` is written and read by nothing**; the status engine keeps only
-  `in_turn`, `awaiting_input`, `turn_run_id` and the event columns there. Its stale values mislead
-  anyone debugging from a table dump.
 
 ## Watch
 

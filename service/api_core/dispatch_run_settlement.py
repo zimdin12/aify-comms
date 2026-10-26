@@ -31,8 +31,6 @@ from service.api_core.dispatch_sweeps import (
     _mirror_missing_dispatch_handoff,
     _run_contract_reminders_once,
 )
-from service.api_core.serialization import _row_require_reply
-from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
 from service.reconcilers.dispatch_lifecycle import _close_steered_contracts_for_parent_run
 
 
@@ -68,22 +66,6 @@ async def _settle_terminated_dispatch_run(db, run_id: str, effective_status,
                 )
                 await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row, operator_closed=operator_closed)
                 if refreshed_row:
-                    # Send-deadlock fix (2026-06-02): an rr=0 channel/resident
-                    # delivery that the bridge just marked completed is NOT
-                    # sustained work — clear the recipient's turn_busy (which the
-                    # delivery re-pulse left stamped) so a queued send isn't held
-                    # behind a phantom turn for up to 120s. rr=1 runs keep their
-                    # turn_busy and clear via _mark_dispatch_run_answered when the
-                    # reply lands; the guard ensures we never clear while another
-                    # rr=1 turn is still open (anti-feedback-loop invariant).
-                    if (
-                        effective_status == "completed"
-                        and not _row_require_reply(refreshed_row)
-                        and str((refreshed_row["execution_mode"] or "")).strip().lower() in {"channel", "resident"}
-                    ):
-                        await _clear_turn_busy_if_no_open_reply_owing_run(
-                            db, refreshed_row["target_agent"], run_id
-                        )
                     await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
                     if effective_status == "completed":
                         await _run_contract_reminders_once(

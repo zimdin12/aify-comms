@@ -109,12 +109,7 @@ CASCADES = {
     #: Derived per-agent state with `ON DELETE CASCADE` on `agents`. Deleting the old row clears it,
     #: and the engine recomputes under the new id on the next observation. Repointing it would carry
     #: a status snapshot across an identity change, which is worse than recomputing.
-    ("agent_status_state", "agent_id"),
-    ("agent_turn_state", "agent_id"),
-    ("agent_console_signal", "agent_id"),
     ("claimer_leases", "agent_id"),
-    #: The last hook event's host time: with no record under the new id, its next event simply applies.
-    ("agent_hook_order", "agent_id"),
 }
 
 LEFT_BEHIND = {

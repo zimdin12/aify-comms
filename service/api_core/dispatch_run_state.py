@@ -25,7 +25,6 @@ from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.serialization import _dedupe_preserve
 from service.api_core.events import _append_dispatch_event
-from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
@@ -115,16 +114,6 @@ async def _mark_dispatch_run_answered(
             """,
             (reply_message_id, _now(), run_id),
         )
-        # Event-based working-state clear. claude-channel.js pulses
-        # turn_busy=true on every delivery and relies on the 120s
-        # TURN_BUSY_STALE_SECONDS window for cleanup. That window is too
-        # long after the agent's reply lands — operator sees "working"
-        # linger when the actual work is done. Clear it here for any
-        # channel-or-resident dispatch that just got answered AND has
-        # no other in-flight rr=1 runs for the same agent (so we don't
-        # clear while real reply-owing work is still in flight).
-        if mode in {"channel", "resident"} and target_agent:
-            await _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent, run_id)
         await _invalidate_agent_live_state(db, target_agent)
         return
     await db.execute(

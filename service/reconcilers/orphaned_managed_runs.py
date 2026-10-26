@@ -26,7 +26,6 @@ from service.api_core.settings import _load_settings
 # The reaper reads the operational view's typed facts (0.9.8 switch); the legacy `engine_status` derivation stays in the
 # tree for the rollback and is no longer what judges an orphaned run.
 from service.api_core import operational_view, switched_view
-from service.api_core.turn_state import _clear_status_state_in_turn
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
@@ -138,24 +137,6 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         )
         await _append_dispatch_event(db, run_id, "failed", reason)
         if target_agent:
-            # Clear turn_busy so the agent's status falls back to
-            # available/online instead of staying "working" via stale
-            # heartbeat.
-            await db.execute(
-                """
-                INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-                VALUES (?, 0, '', '', '', ?)
-                ON CONFLICT(agent_id) DO UPDATE SET
-                    turn_busy = 0,
-                    turn_run_id = '',
-                    turn_bridge_id = '',
-                    turn_runtime = '',
-                    turn_updated_at = excluded.turn_updated_at
-                """,
-                (target_agent, now),
-            )
-            # Keep the v2 engine in sync (dual-table drift guard, review M3 2026-06-10).
-            await _clear_status_state_in_turn(db, target_agent)
             await _invalidate_agent_live_state(db, target_agent)
         closed.append({"runId": run_id, "agentId": target_agent})
     return closed

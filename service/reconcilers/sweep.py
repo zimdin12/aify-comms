@@ -76,7 +76,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.claim_receipts import _release_receipts_from_unstarted_runs
     from service.reconcilers.stuck_controls import _close_controls_for_ended_runs
     from service.reconcilers.dispatch_lifecycle import (
-        _clear_turn_busy_for_dead_bridges,
         _fail_stranded_delivered_reply_runs,
         _prune_orphaned_dispatch_runs,
         _sweep_unmirrored_failed_handoffs,
@@ -242,14 +241,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # backstop window (it's created with requested_at=now, so it's outside the cutoff
         # this pass regardless — belt-and-suspenders ordering).
         replayed_channel_msgs = await _commit_step(await _replay_undelivered_channel_messages_on_env_recovery(db, limit=200))
-        # BUG 1 (2026-06-03): clear a stuck turn_busy=1 whose owning bridge
-        # (agent_turn_state.turn_bridge_id) is dead/stale. A managed delivery loop
-        # or resident channel-sidecar that set turn_busy on submit fires NO
-        # turn-end event when its process dies (terminal closed / crash), so the
-        # agent falsely shows `working` until the ~30-min ceiling. This is the
-        # dead-claimer complement to the pure-event turn model — keyed on the
-        # bridge's heartbeat, never the derived status, and only ever CLEARS.
-        cleared_dead_turn_busy = await _commit_step(await _clear_turn_busy_for_dead_bridges(db, limit=200))
         # WS3 Task 3.2 (2026-06-02): backstop for `queued` runs no other reaper
         # covers — a queued run whose target has NO live claimer past the backstop
         # window would otherwise pile up to buffer_full. FAIL it + mirror to the
@@ -378,7 +369,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "ended_terminal_controls_failed": ended_terminal_controls_failed,
             "finished_owed_removals": finished_owed_removals,
             "dead_sessions_stopped": dead_sessions_stopped,
-            "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "stranded_reply_runs_failed": len(failed_stranded_replies),
             "claim_receipts_released": released_receipts,
