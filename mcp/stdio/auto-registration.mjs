@@ -38,6 +38,7 @@ import { writeAgentBindingFile } from "./binding-file.js";
 // ReferenceError the first time a tombstoned agent's bridge tried to auto-re-register. Same class as
 // the `SERVICE_RUNTIME_PATHS` crash in doctor.js, found by the gate written after it.
 import { REMOTE_AGENT_STATE, forgetRemoteAgent } from "./bridge-agent-state.mjs";
+import { REDACTION_MARKER } from "./api-exposure.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
@@ -260,6 +261,11 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
 // it belongs beside it is that both build the same payload shape and both must sanitise the same unresolved
 // `${AIFY_TERMINAL_ID}` placeholder. Two copies of that sanitising is how one of them gets fixed and the
 // other does not.
+/** `config` without the entries whose value is (or holds) the service's redaction marker. */
+function withoutRedacted(config) {
+  return Object.fromEntries(Object.entries(config || {}).filter(([, value]) => !JSON.stringify(value ?? "").includes(REDACTION_MARKER)));
+}
+
 export async function reregisterAgentFromState(agentId, state) {
   if (!state?.info) return false;
   const info = state.info;
@@ -279,7 +285,14 @@ export async function reregisterAgentFromState(agentId, state) {
     sessionHandle: info.sessionHandle || "",
     managedBy: info.managedBy || "",
     capabilities: info.capabilities || [],
-    runtimeConfig: info.runtimeConfig || {},
+    // THE CACHED RECORD IS WHAT THE SERVICE SERVED, and it serves credentials redacted (688d8525). Posted back, the
+    // marker became the stored gateway token. So what this machine resolves at startup (the hermes gateway from the
+    // launcher's environment) is laid over the cache, and a value still carrying the marker is left out rather than
+    // stored (review of 688d8525). Over, not instead: a codex binding found at startup is in the cache only.
+    runtimeConfig: {
+      ...withoutRedacted(info.runtimeConfig),
+      ...withoutRedacted(resolvedRuntimeConfigForRegistration(info.runtime || "generic", info, info.cwd || DEFAULT_CWD)),
+    },
     // R8: mirror the initial /agents register so a 404 auto-re-register does
     // not drop the console_terminal_attached binding. AIFY_TERMINAL_ID is
     // stable for the bridge process lifetime; fall back to cached info.

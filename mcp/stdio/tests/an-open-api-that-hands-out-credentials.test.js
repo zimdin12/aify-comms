@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 
-import { apiExposureVerdict, credentialBearingRows, looksLikeCredential } from "../api-exposure.mjs";
+import { REDACTION_MARKER, apiExposureVerdict, credentialBearingRows, looksLikeCredential } from "../api-exposure.mjs";
 import { checkApiExposure } from "../api-exposure-check.mjs";
 
 const TOKENED = "ws://127.0.0.1:9341/api/ws?token=abc123";
@@ -105,6 +105,7 @@ test("the service's redaction marker is not a credential, and a live value besid
   const source = fs.readFileSync(new URL("../../../service/secret_redaction.py", import.meta.url), "utf8");
   const marker = source.match(/^REDACTED = "([^"]+)"$/m)?.[1];
   assert.ok(marker, "control: the service's marker was found");
+  assert.equal(REDACTION_MARKER, marker, "the bridge's copy of the marker is the service's");
   assert.equal(looksLikeCredential(`ws://127.0.0.1:9341/api/ws?token=${marker}`), false);
   assert.equal(looksLikeCredential(`Bearer ${marker}`), false);
   assert.equal(looksLikeCredential(`ws://h/api/ws?token=${marker}&key=live-value`), true, "a live value beside it");
