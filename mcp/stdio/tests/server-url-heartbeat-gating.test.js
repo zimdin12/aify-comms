@@ -134,7 +134,7 @@ test("the DIRECT poster is started only when IS_REMOTE, and takes the owned URL"
     "the session-handle heartbeat must not start on IMPORT");
 });
 
-test("the four callback guards ask IS_REMOTE — the question they meant", () => {
+test("the two callback guards ask IS_REMOTE — the question they meant", () => {
   // They read `!__serverUrl` and could not fire. Counted, because "some were converted" is the failure this
   // catches: a leftover would be a guard that still cannot fire, sitting next to seven that can.
   //
@@ -149,8 +149,9 @@ test("the four callback guards ask IS_REMOTE — the question they meant", () =>
     converted += (src.match(/if \(!IS_REMOTE\) return;/g) || []).length;
     assert.doesNotMatch(src, /!__serverUrl\) return;/, "no guard anywhere may still test the deleted derivation");
   }
-  // NINE from 2026-10-01 to 0.9.9 S2, which deleted the claude detector's three and the codex detector's two.
-  assert.equal(converted, 4, `all four guards must ask IS_REMOTE, found ${converted}`);
+  // NINE from 2026-10-01 to 0.9.9 S2, which deleted the claude detector's three and the codex detector's two; then
+  // FOUR until 0.9.10 deleted the bridge's hermes turn detector and its two.
+  assert.equal(converted, 2, `both guards must ask IS_REMOTE, found ${converted}`);
 });
 
 test("IS_REMOTE's meaning for TOOLS is unchanged", () => {
@@ -163,7 +164,7 @@ test("IS_REMOTE's meaning for TOOLS is unchanged", () => {
     "IS_REMOTE is truthiness of the configured value, not validity — unchanged, and pinned as such");
 });
 
-test("cleanupOnExit still calls its four stoppers in the same order", () => {
+test("cleanupOnExit still calls its three stoppers in the same order", () => {
   // The reviewer parked the teardown-registry reshape, so today's explicit order must survive. The no-op
   // stoppers exist precisely so the non-started case keeps its slot.
   // The regex matches both the `__stopX` handles and the plain `stopX` operations, because the claude
@@ -175,6 +176,6 @@ test("cleanupOnExit still calls its four stoppers in the same order", () => {
     "__stopHandleHeartbeat",
     "__stopLivenessHeartbeat",
     "__stopGatewayProbe",
-    "__stopResidentHermesTurnDetector",
-  ], "teardown ORDER must be unchanged; 0.9.9 S2 removed the turn-busy, claude and codex stoppers");
+  ], "teardown ORDER must be unchanged; 0.9.9 S2 removed the turn-busy, claude and codex stoppers, and 0.9.10 the"
+    + " resident hermes turn detector, which the delivery loop holds");
 });

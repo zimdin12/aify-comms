@@ -1,8 +1,7 @@
-// The bridge's poll intervals, and the floors under them.
+// The bridge's poll intervals, and the guards under them.
 //
-// Extracted from server.js in v0.5.4, where they were only ever exercised by starting a bridge. What
-// they encode is a SAFETY property: `Math.max(floor, …)` is what stops `AIFY_HERMES_GATEWAY_TURN_POLL_MS=1`
-// turning a poll loop into a denial of service against the operator's own service.
+// Extracted from server.js in v0.5.4, where they were only ever exercised by starting a bridge. The hermes
+// turn-poll floors left with the bridge's turn detector (review of bd829e7b); the delivery loop keeps its own.
 //
 // RE-IMPORTED PER CASE. Each constant reads `process.env` once, at module load, so the only way to test
 // a value is to set the environment and load the module again — a query string busts the ESM cache, and
@@ -17,8 +16,6 @@ import test from "node:test";
 
 const SEALED = [
   "AIFY_SESSION_HEARTBEAT_MS",
-  "AIFY_HERMES_GATEWAY_TURN_POLL_MS",
-  "AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE",
   "AIFY_DISPATCH_POLL_MS",
 ];
 
@@ -51,40 +48,16 @@ test("the DEFAULTS are what an unconfigured bridge runs with", async () => {
   // a silent change to any of them alters load on the service for the whole fleet.
   const m = await withEnv({});
   assert.equal(m.__HEARTBEAT_MS, 60000);
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 3000);
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE, 3);
   assert.equal(m.DISPATCH_POLL_MS, 3000);
 });
 
 test("an operator's override is honoured when it is sane", async () => {
   const m = await withEnv({
     AIFY_SESSION_HEARTBEAT_MS: "30000",
-    AIFY_HERMES_GATEWAY_TURN_POLL_MS: "5000",
-    AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE: "10",
     AIFY_DISPATCH_POLL_MS: "1500",
   });
   assert.equal(m.__HEARTBEAT_MS, 30000);
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 5000);
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE, 10);
   assert.equal(m.DISPATCH_POLL_MS, 1500);
-});
-
-test("THE FLOORS HOLD against a value that would hammer the service", async () => {
-  // The safety property. A poll loop at 1ms is thousands of requests a second from a single bridge,
-  // against the operator's own machine.
-  const m = await withEnv({
-    AIFY_HERMES_GATEWAY_TURN_POLL_MS: "1",
-    AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE: "0",
-  });
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 250);
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE, 1);
-});
-
-test("a NEGATIVE value is clamped too, not passed through as an immediate timer", async () => {
-  const m = await withEnv({
-    AIFY_HERMES_GATEWAY_TURN_POLL_MS: "-5000",
-  });
-  assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 250);
 });
 
 test("the heartbeat rejects a JUNK value and falls back, because of its trailing `|| 60000`", async () => {
@@ -112,9 +85,4 @@ test("DISPATCH_POLL_MS HAS NO FLOOR AND NO NaN GUARD — pinned as an asymmetry,
 
   const negative = await withEnv({ AIFY_DISPATCH_POLL_MS: "-1" });
   assert.equal(negative.DISPATCH_POLL_MS, -1);
-
-  // …while its neighbour with the same shape of input is protected, which is the contrast that makes
-  // this an asymmetry rather than a house style.
-  const neighbour = await withEnv({ AIFY_HERMES_GATEWAY_TURN_POLL_MS: "-1" });
-  assert.equal(neighbour.__RESIDENT_GATEWAY_TURN_POLL_MS, 250);
 });

@@ -18,10 +18,6 @@ import {
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { reportResidentLost } from "./resident-lost.mjs";
 import {
-  makeResidentGatewayStatusReader,
-  shouldArmResidentHermesTurnDetector,
-} from "./resident-gateway-status.mjs";
-import {
   INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
 } from "./local-store.mjs";
 import {
@@ -70,8 +66,6 @@ import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
-import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
-import { postEnvAgentState } from "./agent-state-event.mjs";
 import { AIFY_VERSION } from "./version.js";
 import { shouldSkipLoop } from "./loop-gate.mjs";
 import { main } from "./bridge-main.mjs";
@@ -81,8 +75,6 @@ import { registerAllTools } from "./register-tools.mjs";
 import {
   DISPATCH_POLL_MS,
   __HEARTBEAT_MS,
-  __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
-  __RESIDENT_GATEWAY_TURN_POLL_MS,
 } from "./poll-intervals.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT } from './virtual-terminals.mjs';
 
@@ -225,49 +217,9 @@ if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
   });
 }
 
-// __RESIDENT_GATEWAY_TURN_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
-// __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE moved to ./poll-intervals.mjs in v0.5.4.
-let __stopResidentHermesTurnDetector = () => {};
-if (
-  AIFY_AGENT_ID &&
-  shouldArmResidentHermesTurnDetector({
-    runtime: String(process.env.AIFY_RUNTIME || "").trim(),
-    sessionMode: cleanEnvPlaceholder(process.env.AIFY_SESSION_MODE || ""),
-    gatewayUrl: AIFY_HERMES_GATEWAY_URL,
-  })
-) {
-  const readResidentGatewayStatus = makeResidentGatewayStatusReader({
-    agentId: AIFY_AGENT_ID,
-    gatewayUrl: AIFY_HERMES_GATEWAY_URL,
-  });
-  __stopResidentHermesTurnDetector = startHermesGatewayTurnDetector({
-    intervalMs: __RESIDENT_GATEWAY_TURN_POLL_MS,
-    idleDebounce: __RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE,
-    workingRefreshMs: 45000,
-    readGatewayStatus: readResidentGatewayStatus,
-    // SET working on a gateway-running turn (edge-triggered; re-stamped every 45s
-    // while working). busy:true via /turn-start; no runId (an autonomous /
-    // direct-typed resident turn has no aify run).
-    postTurnStart: async () => {
-      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        turnRuntime: "hermes",
-        source: "bridge-resident-gateway-detector",
-      });
-    },
-    // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
-    postTurnEnd: async () => {
-      if (!AIFY_AGENT_ID || !IS_REMOTE) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        turnRuntime: "hermes",
-        source: "bridge-resident-gateway-detector",
-      });
-    },
-    onTurnEdge: (kind, firedAtUs) => postEnvAgentState(kind, { firedAtUs }),
-  });
-}
+// The hermes turn detector is the delivery loop's alone (hermes-delivery-loop.mjs). A second one here, armed by the
+// same gateway URL, stamped its edges after a slow read, so a stale idle closed the loop's newer working turn in
+// aify-env (review of bd829e7b). The launcher starts the loop wherever it exports that URL.
 
 // Startup diagnostic: surface the env vars the bridge sees so operators
 // can verify env propagation through *-aify → runtime → MCP child.
@@ -317,7 +269,6 @@ function cleanupOnExit() {
   try { __stopHandleHeartbeat(); } catch { /* best effort */ }
   try { __stopLivenessHeartbeat(); } catch { /* best effort */ }
   try { __stopGatewayProbe(); } catch { /* best effort */ }
-  try { __stopResidentHermesTurnDetector(); } catch { /* best effort */ }
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }

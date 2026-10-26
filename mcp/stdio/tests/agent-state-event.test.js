@@ -333,9 +333,8 @@ test("a hermes gateway turn, typed rather than dispatched, opens and closes the 
   } finally { stop(); await env.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test("both hermes detectors, managed and resident, send their edges to aify-env", () => {
-  for (const file of ["hermes-delivery-loop.mjs", "server.js"]) {
-    const source = fs.readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", file), "utf8");
-    assert.match(source, /onTurnEdge: \(kind, firedAtUs\) => postEnvAgentState\(kind, \{ firedAtUs \}\)/, file);
-  }
+test("the hermes detector, managed and resident alike, sends its edges to aify-env", () => {
+  // One detector since the bridge's copy went (one-hermes-turn-detector-per-agent.test.js): the delivery loop's.
+  const source = fs.readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "hermes-delivery-loop.mjs"), "utf8");
+  assert.match(source, /onTurnEdge: \(kind, firedAtUs\) => postEnvAgentState\(kind, \{ firedAtUs \}\)/);
 });
