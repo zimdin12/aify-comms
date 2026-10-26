@@ -1153,7 +1153,11 @@ install_hermes_plugin() {
   # revision in its path, and until 0.9.10 the launcher named a copy nothing wrote (every gateway log: "shim load
   # failed", 2026-10-23 to 10-26).
   local plugin_src="$AIFY_NATIVE_BASE/integrations/hermes-aify-plugin"
-  rm -rf "${plugin_src:?}" && mkdir -p "$plugin_src" && cp -R "$SCRIPT_DIR/integrations/hermes-aify-plugin/." "$plugin_src/"
+  local plugin_from="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  # AIFY_HOME may be the checkout itself (as copy_bridge_to_native_dir allows): then the copy IS the source.
+  if [ "$(cd "$plugin_from" && pwd -P)" != "$(cd "$plugin_src" 2>/dev/null && pwd -P)" ]; then
+    rm -rf "${plugin_src:?}" && mkdir -p "$plugin_src" && cp -R "$plugin_from/." "$plugin_src/"
+  fi
   if hermes_runtime_is_native_windows; then
     plugin_src="$(path_for_windows_runtime "$plugin_src")"
   fi
@@ -1192,16 +1196,10 @@ def register(ctx) -> None:  # noqa: ANN001 - hermes PluginContext
     except Exception as exc:  # never break hermes startup
         sys.stderr.write("[aify-comms-plugin] shim load failed: %s\n" % exc)
 PYEOF
-  # Substitute the baked fallback path (python raw string; backslashes safe).
-  MSYS_NO_PATHCONV=1 node -e '
-    const fs = require("fs");
-    const file = process.argv[1];
-    const p = process.argv[2];
-    let t = fs.readFileSync(file, "utf8");
-    t = t.split("__AIFY_PLUGIN_PATH__").join(p.replace(/\\/g, "\\\\"));
-    fs.writeFileSync(file, t);
-  ' "$plugin_dir/__init__.py" "$plugin_src" 2>/dev/null || \
-    sed -i.bak "s|__AIFY_PLUGIN_PATH__|$plugin_src|g" "$plugin_dir/__init__.py" 2>/dev/null && rm -f "$plugin_dir/__init__.py.bak" 2>/dev/null || true
+  # Bake the fallback path into the raw string. Bash substitutes it literally (the replacement is quoted): a native
+  # node could not open an MSYS-form hermes home, and the sed fallback read the path's backslashes as escapes.
+  local shim; shim="$(cat "$plugin_dir/__init__.py")"
+  printf '%s\n' "${shim//__AIFY_PLUGIN_PATH__/"$plugin_src"}" > "$plugin_dir/__init__.py"
 
   # Enable it (opt-in allow-list). Prefer the CLI; fall back to patching
   # config.yaml's plugins.enabled list directly if the CLI is unavailable.

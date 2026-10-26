@@ -24,20 +24,24 @@ ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = ROOT / "install.sh"
 
 
-def _install_plugin(tmp: Path) -> tuple[Path, Path]:
+LINUX_HERMES = "hermes_runtime_is_native_windows() { return 1; }\n"
+
+
+def _install_plugin(tmp: Path, *, script_dir: Path = ROOT, native_base: Path | None = None,
+                    home_form: str = "printf %s", runtime: str = LINUX_HERMES) -> tuple[Path, Path]:
     bash = shutil.which("bash")
     if not bash:
         pytest.skip("bash not on PATH")
-    native_base = tmp / "native"
+    native_base = native_base or tmp / "native"
     hermes_home = tmp / "hermes-home"
     script = (
         "set -u\n"
         f"eval \"$(sed -n '/^install_hermes_plugin() {{/,/^}}/p' '{INSTALL_SH.as_posix()}')\"\n"
-        f"hermes_config_root() {{ printf %s '{hermes_home.as_posix()}'; }}\n"
-        "hermes_runtime_is_native_windows() { return 1; }\n"
+        f"hermes_config_root() {{ {home_form} '{hermes_home.as_posix()}'; }}\n"
+        f"{runtime}"
         "hermes_cmd() { return 1; }\n"
         "_enable_hermes_plugin_in_config() { :; }\n"
-        f"SCRIPT_DIR='{ROOT.as_posix()}'\n"
+        f"SCRIPT_DIR='{script_dir.as_posix()}'\n"
         # The drive form on Windows, so the native Python below can read the baked path as written.
         f"AIFY_NATIVE_BASE='{native_base.as_posix()}'\n"
         f"HOME='{tmp.as_posix()}'\n"
@@ -77,3 +81,24 @@ def test_CONTROL_without_the_copy_the_shim_says_it_failed(tmp_path: Path) -> Non
     shutil.rmtree(copy)
     loaded = _load_shim(shim)
     assert "shim load failed: No module named 'aify_hermes_plugin'" in loaded.stderr, loaded.stderr
+
+
+def test_an_install_root_that_is_the_checkout_keeps_its_source(tmp_path: Path) -> None:
+    # AIFY_HOME may be the checkout (copy_bridge_to_native_dir skips its copy then); removing the destination first
+    # deleted the package it was about to copy (review of f3489835).
+    checkout = tmp_path / "checkout"
+    shutil.copytree(ROOT / "integrations" / "hermes-aify-plugin", checkout / "integrations" / "hermes-aify-plugin")
+    copy, shim = _install_plugin(tmp_path, script_dir=checkout, native_base=checkout)
+    assert (copy / "aify_hermes_plugin" / "bootstrap.py").is_file(), "the install deleted its own source"
+    assert "shim load failed" not in _load_shim(shim).stderr
+
+
+@pytest.mark.skipif(not shutil.which("cygpath"), reason="the MSYS and native path forms exist only under Git Bash")
+def test_a_native_hermes_with_an_msys_home_gets_a_shim_that_parses(tmp_path: Path) -> None:
+    # The hermes home in MSYS form, the baked path in native form: a native node could not open the one, and the sed
+    # fallback read the "\n" of "...\native" in the other as a newline, a shim that raises SyntaxError (review of f3489835).
+    native = "hermes_runtime_is_native_windows() { return 0; }\npath_for_windows_runtime() { cygpath -w \"$1\"; }\n"
+    copy, shim = _install_plugin(tmp_path, home_form="cygpath -u", runtime=native)
+    loaded = _load_shim(shim)
+    assert loaded.returncode == 0 and "shim load failed" not in loaded.stderr, loaded.stderr
+    assert Path(loaded.stdout.split("LOADED-FROM", 1)[1].strip()).resolve().is_relative_to(copy.resolve())
