@@ -198,7 +198,7 @@ test("the four bridge classes are measurable, and the sizes are cross-checked", 
     fs.readFileSync(path.join(HERE, "..", "..", rel), "utf8").replace(/\r\n/g, "\n");
   const cases = [
     ["mcp/stdio/pi-session.js", "PiSession", 960],
-    ["mcp/stdio/codex-session.js", "CodexSession", 684],
+    ["mcp/stdio/codex-session.js", "CodexSession", 675],
     ["mcp/stdio/hermes-session.js", "HermesSession", 529],
     // A FIFTH CASE LIVED HERE, `TerminalProcessManager` in `mcp/stdio/terminal-runtime.js`, and it
     // was the most-revised row in this list -- 626 -> 910 across v0.6 Phase 8, every step

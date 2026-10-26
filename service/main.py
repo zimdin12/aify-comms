@@ -382,6 +382,9 @@ async def lifespan(app: FastAPI):
     # not at import, so only the running service pools: a test using `get_db()` with no lifespan keeps
     # a fresh connection per call and no file handle outlives its temporary database.
     CONNECTION_POOL.enable()
+    # Roster reads keep the quota pools current for the status words (usage_pools.refresh_soon); off outside the service.
+    from service.usage_pools import BACKGROUND_REFRESH
+    BACKGROUND_REFRESH["enabled"] = True
 
     # Restart restore (SW1): the status mirror is reloaded from the saved agent-state tables before any task starts and
     # before a route is served, so no send, claim or ingest sees an empty mirror. A failure quarantines the mirror

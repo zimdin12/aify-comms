@@ -6,6 +6,20 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## A usage-limited agent reads `blocked`, from comms' own pool reading (2026-10-26, 0.9.9)
+
+- **Rule:** while the quota pool an agent draws on is at its limit (a window at 100% used, or OpenAI's
+  `limit_reached`), a live word (`online`, `shell`, `starting`, `available`, `working`) is served as `blocked`, with
+  the note `its model usage limit is reached; resets <time>` (`usage_cache.limited_until`, `operational_view`). A
+  stop, `offline`, `misconfigured` or `unknown` keeps its own word. Delivery decisions do not change.
+- **Why comms and not aify-env:** comms already reads both pools from the providers' usage endpoints; that is the
+  provider's own answer, where a screen rule would guess per runtime. The operator reported usage-limited agents
+  reading `working` and `online` (2026-10-14).
+- **What keeps it current, without a timer:** a roster read starts a pool reading at most once per
+  `usage_poll_minutes` (`usage_pools.refresh_soon`, enabled only by the service's lifespan), and a reading that moves
+  a pool across its limit expires the cached words. A stale or unknown reading blocks nothing; a window whose reset
+  has passed is no longer exhausted, so `blocked` ends at the reset with no new reading.
+
 ## Stale publisher keys yield under the post-switch rule, superseding the sandbox case (2026-10-24, task #5)
 
 The operator's 2026-10-22 ruling, recorded in `985ec638`, is now implemented after the switch. A publisher yields

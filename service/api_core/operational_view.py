@@ -47,6 +47,7 @@ class Messaging:
     operator_stopped: bool = False  # an undefined agent the operator stopped (D8 row 1)
     wake_handle_absent: bool = False  # Q3: a proven-absent wake handle reads offline
     delivery_path_missing: str = ''  # why no delivery path exists, or ''
+    usage_limited_until: str | None = None  # its quota pool is at its limit until then ('' unknown); None: it is not
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class View:
     busy: object  # True | False | None (unknown)
     holds_delivery: object  # True | False | None (unknown)
     run_occupied: bool
+    usage_limited_until: str | None = None  # set only beside the `blocked` the usage row serves
 
 
 def availability_of(publisher, at):
@@ -129,7 +131,7 @@ def comms_view(holders, messaging):
     eligibility, busy = _busy(holders)
     holds = busy if busy is True else (False if eligibility == 'known' else None)
     fresh = [h for h in holders.holders if h.availability == FRESH]
-    last_known = None
+    last_known, limited = None, None
     if messaging.operator_stopped:
         status = 'stopped'
     elif messaging.wake_handle_absent:
@@ -142,8 +144,10 @@ def comms_view(holders, messaging):
         status = _status_word(fresh[0].state)
         if messaging.run_running and fresh[0].state in PROMOTABLE:
             status = 'working'  # C6 row 5: a run comms delivered is running
+        if messaging.usage_limited_until is not None and status in USAGE_BLOCKABLE_WORDS:
+            status, limited = 'blocked', messaging.usage_limited_until  # its pool is at its limit: no turn can run
     return View(status, last_known, not messaging.delivery_path_missing, eligibility, busy, holds,
-                messaging.run_occupied)
+                messaging.run_occupied, limited if status == 'blocked' else None)
 
 
 # The readers, eligibility first. Each is pure over a View.
@@ -200,6 +204,11 @@ def orphan_safety(view):
 
 #: The words row 5 promotes, derived from the states it names (idle reads `online`). `unknown` is never among them.
 PROMOTABLE_WORDS = frozenset(w for w in (state_mirror.candidate_word(s) for s in PROMOTABLE) if w)
+
+
+#: Words a pool at its usage limit turns `blocked`: every word that says the agent can take work now. A stop, an
+#: offline, a misconfiguration or an unknown keeps its own word, which already says it cannot.
+USAGE_BLOCKABLE_WORDS = PROMOTABLE_WORDS | {'working'}
 
 
 def promoted(word, run_running):

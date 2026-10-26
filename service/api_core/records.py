@@ -24,7 +24,7 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core import operational_view
 from service.reconcilers.status_cache import _live_state_get
-from service.usage_cache import derive_usage_source, usage_get
+from service.usage_cache import usage_get, usage_source_of
 from service.env_status import (
     BRIDGE_STAMP_FRESH as _BRIDGE_STAMP_FRESH,
     bridge_stamp_state as _bridge_stamp_state,
@@ -372,7 +372,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     # runtime_config.usageSource, else derived from runtime) and merge that pool's live
     # remaining %% from the in-memory usage cache. Advisory only — never gates anything.
     _rc_for_usage = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
-    _usage_source = (_rc_for_usage.get("usageSource") if isinstance(_rc_for_usage, dict) else None) or derive_usage_source(runtime, _rc_for_usage)
+    _usage_source = usage_source_of(runtime, _rc_for_usage)
     _pool = usage_get(_usage_source) if _usage_source else None
     return {
         "role": row["role"],

@@ -8,7 +8,7 @@ import asyncio
 import unittest
 from unittest import mock
 
-from service.routers import usage
+from service import usage_pools as usage
 
 
 class UsageReportsWhenItWasReadTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class UsageReportsWhenItWasReadTests(unittest.TestCase):
                 mock.patch.object(usage, "_poll_seconds", five_minutes), \
                 mock.patch.object(usage, "usage_all", lambda: []), \
                 mock.patch.object(usage, "_now", lambda: clock):
-            pools = asyncio.run(usage.get_usage())["pools"]
+            pools = asyncio.run(usage.read_pools())["pools"]
         return next(p for p in pools if p["source_id"] == "openai")
 
     def test_a_cached_reading_keeps_the_time_it_was_read(self):

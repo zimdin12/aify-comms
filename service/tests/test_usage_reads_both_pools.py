@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from service import usage_anthropic
-from service.routers import usage
+from service import usage_pools as usage
 
 # The shape `api/oauth/usage` returned when read live on 2026-06-26 (memory: usage-quota-sources).
 PAYLOAD = {
@@ -77,7 +77,7 @@ class BothPoolsAreReadOncePerIntervalTests(unittest.TestCase):
                 mock.patch.object(usage, "collect_anthropic_pool", anthropic), \
                 mock.patch.object(usage, "_poll_seconds", five_minutes), \
                 mock.patch.object(usage, "usage_all", lambda: []):
-            return {p["source_id"] for p in asyncio.run(usage.get_usage())["pools"]}
+            return {p["source_id"] for p in asyncio.run(usage.read_pools())["pools"]}
 
     def test_both_pools_are_served(self):
         self.assertEqual(self._get(), {"openai-chatgpt-codex", "anthropic-claude-max"})
@@ -113,7 +113,7 @@ class SimultaneousReadersShareOnePollTests(unittest.TestCase):
             return 300.0
 
         async def run():
-            return await asyncio.gather(*(usage.get_usage() for _ in range(readers)))
+            return await asyncio.gather(*(usage.read_pools() for _ in range(readers)))
 
         with mock.patch.object(usage, "collect_openai_pool", openai), \
                 mock.patch.object(usage, "collect_anthropic_pool", anthropic), \
@@ -146,9 +146,9 @@ class SimultaneousReadersShareOnePollTests(unittest.TestCase):
             return 300.0
 
         async def run():
-            first = asyncio.ensure_future(usage.get_usage())
+            first = asyncio.ensure_future(usage.read_pools())
             await asyncio.sleep(0.01)
-            second = asyncio.ensure_future(usage.get_usage())
+            second = asyncio.ensure_future(usage.read_pools())
             await asyncio.sleep(0.01)
             first.cancel()
             return await second
@@ -226,5 +226,5 @@ class NoTestReadsARealLoginTests(unittest.TestCase):
             raise RuntimeError("no network under test")
 
         with mock.patch("httpx.AsyncClient", side_effect=client), mock.patch.object(usage, "usage_all", lambda: []):
-            asyncio.run(usage.get_usage())
+            asyncio.run(usage.read_pools())
         self.assertEqual(asked, [], "a provider was asked for usage from a test")

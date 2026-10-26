@@ -16,6 +16,7 @@ import logging
 import time
 
 from fastapi import HTTPException, Request
+from service.usage_pools import refresh_soon
 from service.api_core.definition_records import definition_of, definition_rows, runs_with
 
 from service.api_core.routing import domain_router
@@ -54,13 +55,15 @@ router = domain_router()
 def served_word(entry):
     """The word a roster or agent read serves: the operational view's, as the live-state refresh cached it (0.9.8
     switch). Nothing corrects it afterwards: the read-boundary gates that re-derived a cached word from comms' own
-    probes (`_enforce_live_worker_gate`, `_enforce_env_reachable_gate`) are legacy readers, unreferenced until SW7. An
-    agent with no refreshed entry yet reads `unknown`, never the registry row's own status."""
+    probes were deleted in 0.9.9 S3b. An agent with no refreshed entry yet reads `unknown`, never the registry row's own status."""
     return entry.get("status") or "unknown"
 
 
 @router.get("/agents")
 async def list_agents(request: Request):
+    # A roster read is what keeps the quota pools current for the words (a usage-limited agent reads `blocked`): at
+    # most one provider read per pool per `usage_poll_minutes`, started here and never waited on.
+    refresh_soon()
     db = await get_db()
     try:
         settings = await _load_settings(db)

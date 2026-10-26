@@ -77,7 +77,7 @@ const CEILINGS = {
   // claims table (sent / delivered / stored as meant / acted on), proposed by comms-senior-dev, and the queued-run
   // cancel line for comms_run_interrupt. Part paid for by cutting three sentences that restated the Deployment
   // claims table's first line.
-  "aify-comms/references/operations.md": 9_679,
+  "aify-comms/references/operations.md": 9_662,  // 0.9.9: blocked names the usage limit, paid by a cut sentence
   // 14_364 -> 14_348 on 2026-10-22: the channel's source is no longer one literal (the plugin route's is namespaced),
   // so the reply rule names an aify-comms channel event; the server's own instructions give the exact source.
   "aify-comms/references/teamwork.md": 14_348,
@@ -103,7 +103,7 @@ const CEILINGS = {
   "aify-comms-debug/references/hermes.md": 8_840,
   "aify-comms-debug/references/lifecycle.md": 6_455,
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 7_061,  // 0.9.9 S3b: the operational view replaces derive(), -2_841
+  "aify-comms-debug/references/status-model.md": 7_016,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

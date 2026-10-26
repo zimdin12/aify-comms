@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.clock import ISO_SECONDS
+
 # source_id -> normalized pool snapshot (see usage-collector.normalizeUsage shape,
 # plus a server-stamped `updated_at`).
 _USAGE_CACHE: dict[str, dict[str, Any]] = {}
@@ -65,6 +67,45 @@ def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[st
             return SOURCE_LOCAL_OLLAMA
         return SOURCE_OPENAI_CHATGPT_CODEX
     return None
+
+
+def usage_source_of(runtime: Any, runtime_config: Any = None) -> Optional[str]:
+    """The pool an agent draws on: its explicit `runtime_config.usageSource`, else the one its runtime derives."""
+    rc = runtime_config if isinstance(runtime_config, dict) else {}
+    return rc.get("usageSource") or derive_usage_source(runtime, rc)
+
+
+def limited_until(pool: Optional[dict[str, Any]], now: Optional[datetime] = None) -> Optional[str]:
+    """When a pool at its limit resets, as `usage_get` serves it: the latest reset among its exhausted windows, or ""
+    when it is at its limit and no reset is known. None when it is not at its limit, or when that cannot be known
+    (no reading, a stale or unknown one): an old reading is no evidence that an agent cannot work now.
+
+    A window is exhausted at 100% used. OpenAI also says `limit_reached` for the account; then every window with a
+    reset is a candidate. A window whose reset has passed is no longer exhausted, whatever its number says, so the
+    word clears at the reset with no new reading."""
+    if not pool or pool.get("stale") or pool.get("unknown"):
+        return None
+    now = now or datetime.now(timezone.utc)
+    windows = [w for w in (pool.get("five_hour"), pool.get("weekly")) if isinstance(w, dict)]
+
+    def reset_of(window):
+        at = window.get("resets_at")
+        try:
+            parsed = datetime.fromisoformat(str(at).replace("Z", "+00:00")) if at else None
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc) if parsed else None
+
+    exhausted = [w for w in windows if isinstance(w.get("used_pct"), (int, float)) and w["used_pct"] >= 100]
+    if not exhausted and pool.get("limit_reached") is True:
+        exhausted = [w for w in windows if reset_of(w)]
+        if not exhausted:
+            return ""
+    resets = [r for r in map(reset_of, exhausted) if r is None or r > now]
+    if not resets:
+        return None
+    known = [r for r in resets if r is not None]
+    return max(known).strftime(ISO_SECONDS) if known else ""
 
 
 # Latest per-(agent) consumption rows reported by the env-bridge collector.

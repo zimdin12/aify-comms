@@ -12,12 +12,10 @@ through `aify-comms-debug` rather than inventing another status.
 | `online` | Live worker, between turns | send normally |
 | `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
 | `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send |
-| `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
+| `blocked` | Live turn awaiting operator input, or its model's usage limit (note: when it resets) | answer the proven prompt; on a limit, use an agent on another pool |
 | `offline` | No current wake path | resident: relaunch its `*-aify`; managed: its host's aify-env is down (operator) |
 | `stopped` | Operator-disabled, or a resident that closed cleanly (`resident-lost`) | restart/resume only when intended |
 | `misconfigured` | Identity exists but can never start | a human must fix the config; sending will not work |
-
-There are no live `idle` or `stale` states. A long-quiet live worker remains `online`.
 
 **Contract states** (`comms_contracts`): `sent` not yet read; `seen` read, no run yet; `queued` a run
 waits for the next turn; `working` a run is claimed or running; `overdue` a reply is owed past the

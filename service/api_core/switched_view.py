@@ -57,7 +57,20 @@ async def messaging_for(db, agent_row, dispatch_state=None):
         run_running=active.get('status') == 'running',
         operator_stopped=stopped and not await defined_on(db, agent_id),  # D8 row 1: a defined agent's stop is env's
         wake_handle_absent=str(_agent_wake_mode(agent_row) or '').endswith('-missing-handle'),
+        usage_limited_until=_usage_limited_until(agent_row),
     )
+
+
+def _usage_limited_until(agent_row):
+    """When the agent's quota pool, as last read, is at its limit until; None when it is not or that is not known."""
+    from service.api_core.serialization import _json_loads_or
+    from service.usage_cache import limited_until, usage_get, usage_source_of
+
+    try:
+        source = usage_source_of(agent_row['runtime'], _json_loads_or(agent_row['runtime_config'], {}))
+    except (KeyError, IndexError, TypeError):
+        return None  # a row without the runtime columns names no pool
+    return limited_until(usage_get(source)) if source else None
 
 
 def dispatch_state_of(cache):
@@ -110,7 +123,10 @@ def last_known_api(view):
 
 
 def note_of(view):
-    """The status note beside a switched word: why it is unknown, or nothing to add."""
+    """The status note beside a switched word: why it is unknown, or why its pool's limit blocks it, or nothing."""
+    if view.status == 'blocked' and view.usage_limited_until is not None:
+        reset = f'; resets {view.usage_limited_until}' if view.usage_limited_until else '; reset time not known'
+        return f'its model usage limit is reached{reset}'
     if view.status != 'unknown':
         return ''
     if view.last_known:

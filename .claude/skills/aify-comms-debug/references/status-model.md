@@ -79,7 +79,7 @@ the contract both tables follow.
 | `shell` | Live worker idle at its prompt, background work: claude's footer `· N shell`, hermes' dock `N live agents`/`N procs` (read by aify-env). Delivers like `online`; never ends a held turn. |
 | `online` | Live worker, no turn in progress. The ready state: queued work delivers to it. |
 | `available` | Managed agent, host reachable, no live worker. The next send cold-starts one. |
-| `blocked` | The turn is waiting on operator input (a prompt or question), not generating. Liveness-gated like `working`. |
+| `blocked` | The turn is waiting on operator input (a prompt or question), not generating. Also while its quota pool is at its usage limit; the note says `resets <time>`. |
 | `offline` | The worker is gone and aify-env cannot start it here: a resident whose session ended, or a managed agent whose host cannot run it now. |
 | `stopped` | Deliberately down: the operator disabled wake (`launch_mode='none'`), or a **resident** closed cleanly. A managed agent whose worker died is `available`, not `stopped`. |
 | `starting` | A spawn is running and its worker has not appeared yet. Leave it alone: a restart now kills the boot. A send queues until the worker arrives. |
@@ -89,8 +89,8 @@ the contract both tables follow.
 
 - **claude:** `UserPromptSubmit` and `PostToolUse` hooks post a turn start to aify-env; `Stop` posts the
   end through `claude-stop-gate.js`, which suppresses a premature mid-turn Stop and posts on any doubt.
-  Since 0.9.9 S2 nothing posts turns to comms: its routes accept and ignore.
-- **codex:** hooks plus the app-server `turn/started` / `turn/completed` events.
+  Nothing posts turns to comms since 0.9.9.
+- **codex:** hooks.
 - **hermes:** `hermes-gateway-turn-detector.js` reads the gateway session status; idle must hold for
   several consecutive reads before it clears, because hermes' running flag blinks off between tool
   calls. It still posts to comms, which ignores it until 0.9.10 moves hermes out of comms.

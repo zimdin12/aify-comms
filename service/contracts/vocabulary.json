@@ -40,7 +40,7 @@
       "online": "Live worker, between turns.",
       "available": "Managed and cold-startable, no worker. A send auto-starts it.",
       "starting": "A claimed spawn is coming up; no worker YET. Do NOT restart or re-send - a restart kills the boot in flight. Bounded: falls back to `available` past the spawn window.",
-      "blocked": "Live turn awaiting operator input.",
+      "blocked": "Live turn awaiting operator input, or its model usage limit is reached; the note says when it resets.",
       "offline": "No current wake path.",
       "stopped": "Operator-disabled.",
       "misconfigured": "Identity exists but can never start. Not send-recoverable; a human must fix the config."
