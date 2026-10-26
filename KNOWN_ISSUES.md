@@ -29,6 +29,11 @@ kept as evidence. Last reviewed 2026-10-13.
   account (its own `CLAUDE_CONFIG_DIR`) or, under the multi-PC goal, on another PC included. Harmless while each PC
   runs its own service on one account. Before agents of several accounts or PCs share a service, scope the word to
   agents on the account the pool was read for.
+- **14 of aify-wrapper's Linux-only launcher tests fail in a plain container** (dashboard-manager's 0.9.10 review).
+  `a-launcher-holds-the-agent-lease` and `a-launcher-reports-its-runtimes-exit` drive the claude launcher, which
+  exits 78 there ("no aify-comms-channel server is configured for the development route"). They fail identically
+  on wrapper main and on the 0.9.10 branch, and Windows skips them, so they gate nothing until the test environment
+  configures the channel. The hermes rows in the same files pass.
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 
