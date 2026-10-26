@@ -159,7 +159,8 @@ test("G5 first bound hook opens the real env host, blocks, unblocks and ends for
     host.boot();
     if (mode === "managed") host.startManaged(record);
     const facts = { mode, definition: "valid", stoppedByOperator: false };
-    assert.equal(host.current("hook-agent", facts).state, "unknown");
+    // An adopted resident's turn was never seen; a child this host started has none yet (#12).
+    assert.equal(host.current("hook-agent", facts).state, mode === "resident" ? "unknown" : "idle");
     const receiver = new AgentTurnEvents({ host, instance: "test" });
     const env = await envServer(body => receiver.receive("hook-agent", body));
     descriptor(home, env.url);

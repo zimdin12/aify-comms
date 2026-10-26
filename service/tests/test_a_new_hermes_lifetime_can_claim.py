@@ -1,8 +1,9 @@
-"""Task #12 premise probe. A displayed unknown is not unknown eligibility.
+"""Task #12: a hermes worker aify-env has just started reads `online` and takes its first message.
 
 The real env host and publisher generate each row; the real ingest and channel claim
 judge it. No runtime or console input runs. Missing publication and known busy are
-withholding controls. The fresh no-turn row is the disputed case, not a synthetic idle.
+withholding controls. The fresh row is the env host's own word for a child it started
+before any turn (idle, at-prompt), not a synthetic idle.
 """
 from contextlib import closing
 import json
@@ -63,15 +64,14 @@ class ANewHermesLifetimeCanClaim(FastApiTestCase):
         response = self.client.post('/api/v1/agent-state', json=self.bodies[name])
         self.assertEqual(response.status_code, 204, response.text)
 
-    def test_a_fresh_turn_unknown_record_already_allows_the_first_claim(self):
+    def test_a_freshly_started_worker_reads_online_and_takes_the_first_claim(self):
         self.assertIsNone(self.claim()['run'], 'no publisher really withholds work')
-        row = self.bodies['unknown']['agents'][0]
+        row = self.bodies['fresh']['agents'][0]
         self.assertEqual((row['state'], row['stateCause'], row['busy'], row['turn']),
-                         ('unknown', 'turn-unknown', False, None))
-        self.publish('unknown')
-        self.assertEqual(self.client.get('/api/v1/agents/initial-hermes').json()['agent']['status'], 'unknown')
-        self.assertEqual((self.claim()['run'] or {}).get('id'), self.run_id,
-                         'a fresh unknown turn must not be mistaken for unknown eligibility')
+                         ('idle', 'at-prompt', False, None))
+        self.publish('fresh')
+        self.assertEqual(self.client.get('/api/v1/agents/initial-hermes').json()['agent']['status'], 'online')
+        self.assertEqual((self.claim()['run'] or {}).get('id'), self.run_id)
 
     def test_known_busy_holds_then_an_admitted_end_releases_the_same_run(self):
         self.publish('busy')

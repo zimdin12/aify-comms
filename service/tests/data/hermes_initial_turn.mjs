@@ -15,9 +15,9 @@ const given = { mode: 'managed', definition: 'valid', stoppedByOperator: false }
 const publisher = new AgentStatePublisher({ machineId: 'test-host', instance: 'fixture', generation: 1,
   incarnationId: 'fixture-boot', reportEveryMs: 60_000 });
 const publish = () => publisher.snapshot({ complete: true, inputs: {}, agents: [host.current('initial-hermes', given)] }).body;
-const unknown = publish();
+const fresh = publish();
 host.applyEvent({ agentId: 'initial-hermes', lifetime, kind: 'turn-start', firedAtUs: now - 2 });
 const busy = publish();
 host.applyEvent({ agentId: 'initial-hermes', lifetime, kind: 'turn-end', firedAtUs: now - 1 });
 const closed = publish();
-process.stdout.write(JSON.stringify({ unknown, busy, closed }));
+process.stdout.write(JSON.stringify({ fresh, busy, closed }));
