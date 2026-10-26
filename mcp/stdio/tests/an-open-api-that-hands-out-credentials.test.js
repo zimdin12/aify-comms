@@ -21,6 +21,7 @@
 // rather than the variable. Read properly it is empty. "The operator configured a key and the service
 // ignores it" would have been a serious and false claim, from an instrument that looked like it worked.
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { test } from "node:test";
 
 import { apiExposureVerdict, credentialBearingRows, looksLikeCredential } from "../api-exposure.mjs";
@@ -95,6 +96,20 @@ test("a token in a query string is a credential; prose is not", () => {
   assert.equal(looksLikeCredential("ws://127.0.0.1:9341/api/ws"), false);
   assert.equal(looksLikeCredential(""), false);
   assert.equal(looksLikeCredential(42), false);
+});
+
+test("the service's redaction marker is not a credential, and a live value beside it still is", () => {
+  // Since 688d8525 the service serves gatewayUrl with token=<marker>; counting that sent the doctor to recommend a
+  // rebuild of the service that had just fixed it (review of 688d8525). The marker is read from the service's own
+  // source, so a change there turns this red rather than the doctor into an alarm.
+  const source = fs.readFileSync(new URL("../../../service/secret_redaction.py", import.meta.url), "utf8");
+  const marker = source.match(/^REDACTED = "([^"]+)"$/m)?.[1];
+  assert.ok(marker, "control: the service's marker was found");
+  assert.equal(looksLikeCredential(`ws://127.0.0.1:9341/api/ws?token=${marker}`), false);
+  assert.equal(looksLikeCredential(`Bearer ${marker}`), false);
+  assert.equal(looksLikeCredential(`ws://h/api/ws?token=${marker}&key=live-value`), true, "a live value beside it");
+  assert.deepEqual(credentialBearingRows({ a: { runtimeConfig: { gatewayUrl: `ws://h:1/api/ws?token=${marker}` } } }),
+    { credentialRows: 0, totalRows: 1 });
 });
 
 test("the walk reaches a token NESTED in the row, which is where the real one was", () => {

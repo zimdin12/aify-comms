@@ -90,10 +90,12 @@ export function apiExposureVerdict({
 //: What a live credential looks like in a value the listing returns. DERIVED SHAPES, not field names:
 //: the exposure found was in `runtimeConfig.gatewayUrl`, and naming that field would have missed the
 //: next one. A caller walks the whole row.
+//: The service's own redaction marker (service/secret_redaction.py) is not a credential, at the value it stands in for;
+//: another value in the same string still is (review of 688d8525).
 const CREDENTIAL_SHAPES = [
-  /[?&]token=[^&\s"']+/i,
-  /[?&]key=[^&\s"']+/i,
-  /\bBearer\s+\S+/i,
+  /[?&]token=(?!\[redacted\])[^&\s"']+/i,
+  /[?&]key=(?!\[redacted\])[^&\s"']+/i,
+  /\bBearer\s+(?!\[redacted\])\S+/i,
 ];
 
 /**
