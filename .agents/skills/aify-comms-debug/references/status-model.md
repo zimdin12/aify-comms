@@ -79,7 +79,7 @@ the contract both tables follow.
 | `shell` | Live worker idle at its prompt, background work: claude's footer `· N shell`, hermes' dock `N live agents`/`N procs` (read by aify-env). Delivers like `online`; never ends a held turn. |
 | `online` | Live worker, no turn in progress. The ready state: queued work delivers to it. |
 | `available` | Managed agent, host reachable, no live worker. The next send cold-starts one. |
-| `blocked` | The turn is waiting on operator input (a prompt or question), not generating. Also while its quota pool is at its usage limit; the note says `resets <time>`. |
+| `blocked` | The turn is waiting on operator input (a prompt or question), not generating. Also while its quota pool is at its limit; the note says `resets by <time>`. |
 | `offline` | The worker is gone and aify-env cannot start it here: a resident whose session ended, or a managed agent whose host cannot run it now. |
 | `stopped` | Deliberately down: the operator disabled wake (`launch_mode='none'`), or a **resident** closed cleanly. A managed agent whose worker died is `available`, not `stopped`. |
 | `starting` | A spawn is running and its worker has not appeared yet. Leave it alone: a restart now kills the boot. A send queues until the worker arrives. |

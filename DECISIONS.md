@@ -10,7 +10,7 @@ instruction.
 
 - **Rule:** while the quota pool an agent draws on is at its limit (a window at 100% used, or OpenAI's
   `limit_reached`), a live word (`online`, `shell`, `starting`, `available`, `working`) is served as `blocked`, with
-  the note `its model usage limit is reached; resets <time>` (`usage_cache.limited_until`, `operational_view`). A
+  the note `its model usage limit is reached; resets by <time>` (`usage_cache.limited_until`, `operational_view`). A
   stop, `offline`, `misconfigured` or `unknown` keeps its own word. Delivery decisions do not change.
 - **Why comms and not aify-env:** comms already reads both pools from the providers' usage endpoints; that is the
   provider's own answer, where a screen rule would guess per runtime. The operator reported usage-limited agents

@@ -53,7 +53,7 @@ class AUsageLimitedAgentReadsBlocked(FastApiTestCase):
         usage_pools.record_pool(CLAUDE, pool)
         reset = pool["five_hour"]["resets_at"]
         for agent_id in ("u-idle", "u-busy"):
-            self.assertEqual(self._read(agent_id), ("blocked", f"its model usage limit is reached; resets {reset}"))
+            self.assertEqual(self._read(agent_id), ("blocked", f"its model usage limit is reached; resets by {reset}"))
 
     def test_CONTROL_a_pool_below_its_limit_changes_nothing(self):
         self._agent("u-headroom")

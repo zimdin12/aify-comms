@@ -125,7 +125,8 @@ def last_known_api(view):
 def note_of(view):
     """The status note beside a switched word: why it is unknown, or why its pool's limit blocks it, or nothing."""
     if view.status == 'blocked' and view.usage_limited_until is not None:
-        reset = f'; resets {view.usage_limited_until}' if view.usage_limited_until else '; reset time not known'
+        # 'by': with OpenAI's account-wide limit_reached no window says which one hit, so the time is the latest reset.
+        reset = f'; resets by {view.usage_limited_until}' if view.usage_limited_until else '; reset time not known'
         return f'its model usage limit is reached{reset}'
     if view.status != 'unknown':
         return ''

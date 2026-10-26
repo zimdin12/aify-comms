@@ -103,7 +103,7 @@ const CEILINGS = {
   "aify-comms-debug/references/hermes.md": 8_840,
   "aify-comms-debug/references/lifecycle.md": 6_455,
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 7_016,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45
+  "aify-comms-debug/references/status-model.md": 7_013,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45; "resets by" -3
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

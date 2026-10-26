@@ -23,6 +23,16 @@ kept as evidence. Last reviewed 2026-10-13.
   word is aify-env's, which lists `backgroundShells` as waiting on Herdr forwarding (D10). 0.9.9 S3b deleted the
   unread count route and the reporter S2b had already unwired. Managed agents keep `shell`: aify-env reads it from
   their screen. Restoring it for residents is aify-env's (the count would have to reach its record).
+- **A usage-limited `blocked` assumes one account per runtime on the service** (dashboard-manager's 0.9.9 review,
+  F1). The pool is chosen by runtime alone (`usage_cache.usage_source_of`) and read with the service host's own
+  credentials, so once that account hits its limit every agent of that runtime reads `blocked`: an agent on another
+  account (its own `CLAUDE_CONFIG_DIR`) or, under the multi-PC goal, on another PC included. Harmless while each PC
+  runs its own service on one account. Before agents of several accounts or PCs share a service, scope the word to
+  agents on the account the pool was read for.
+- **A managed hermes reads `online` while working on a prompt typed into its own terminal** (aify-env 6a2e0a7, #12).
+  aify-env has no hermes turn source until 0.9.10 moves hermes out of comms, so a hermes worker it started reads idle
+  until it exits. A run comms delivered still reads `working` (comms' own run fact); before 6a2e0a7 the worker read
+  `unknown` throughout.
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 
