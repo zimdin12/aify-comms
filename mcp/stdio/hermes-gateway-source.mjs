@@ -34,3 +34,18 @@ export function gatewayFromLauncher({ agentId, spawn = nodeSpawn, command = GATE
     });
   });
 }
+
+/**
+ * The gateway the launcher verified moments before it started the loop, from the environment it exported, or null.
+ * The loop's bring-up takes this instead of asking again: a second `prepare` whose probe missed a busy gateway would
+ * end the one the visible TUI is attached to. The loop asks only to recover a gateway it cannot reach.
+ * @param {Record<string, string | undefined>} env
+ */
+export function gatewayFromLaunch(env) {
+  const wsUrl = String(env.AIFY_HERMES_GATEWAY_URL || "").trim();
+  let url;
+  try { url = new URL(wsUrl); } catch { return null; }
+  const port = Number(url.port);
+  if (!/^wss?:$/.test(url.protocol) || !Number.isInteger(port) || port <= 0) return null;
+  return { port, token: url.searchParams.get("token") || "", wsUrl, child: null };
+}

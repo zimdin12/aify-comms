@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { GATEWAY_COMMAND, gatewayFromLauncher } from "../hermes-gateway-source.mjs";
+import { GATEWAY_COMMAND, gatewayFromLaunch, gatewayFromLauncher } from "../hermes-gateway-source.mjs";
 
 const TOKEN = "s3cret-token";
 const ANSWER = JSON.stringify({ port: 9341, token: TOKEN, wsUrl: `ws://127.0.0.1:9341/api/ws?token=${TOKEN}` });
@@ -54,7 +54,25 @@ test("NO GATEWAY: a refusal says so, and never repeats what the command printed"
   }
 });
 
+test("THE LAUNCHER'S ANSWER: a real gateway url in the loop's environment is its gateway; anything else is none", () => {
+  assert.deepEqual(gatewayFromLaunch({ AIFY_HERMES_GATEWAY_URL: `ws://127.0.0.1:9341/api/ws?token=${TOKEN}` }),
+    { port: 9341, token: TOKEN, wsUrl: `ws://127.0.0.1:9341/api/ws?token=${TOKEN}`, child: null });
+  for (const [why, value] of [
+    ["unset", undefined],
+    ["hermes' unexpanded placeholder", "${AIFY_HERMES_GATEWAY_URL}"],
+    ["an http url", "http://127.0.0.1:9341/"],
+    ["a url with no port", "ws://127.0.0.1/api/ws"],
+  ]) assert.equal(gatewayFromLaunch({ AIFY_HERMES_GATEWAY_URL: value }), null, why);
+});
+
 test("THE COMMAND IS WHERE THE LOOP LOOKS: the pinned aify-wrapper beside this bridge ships it", () => {
   assert.match(GATEWAY_COMMAND.replace(/\\/g, "/"), /\/node_modules\/aify-wrapper\/bin\/aify-hermes-gateway\.mjs$/);
   assert.ok(fs.existsSync(GATEWAY_COMMAND), `the pinned aify-wrapper has no ${GATEWAY_COMMAND}: move the pin`);
+});
+
+test("THE ENTRY POINT HANDS THE LOOP THE LAUNCHER'S ANSWER: `run` started by hermes-aify reads its environment", () => {
+  // The loop defaults to no launched gateway, so its tests never read the ambient environment; the entry point is
+  // the one place that does, and without it every bring-up would ask aify-env again.
+  const source = fs.readFileSync(new URL("../hermes-managed-host.js", import.meta.url), "utf8");
+  assert.match(source, /^if \(IS_MAIN\) \{\n  runCli\(process\.argv\.slice\(2\), \{ launchedGateway: gatewayFromLaunch\(process\.env\) \}\)/m);
 });

@@ -23,7 +23,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
     "@opencode-ai/sdk": "^1.4.3",
-    "aify-wrapper": "github:zimdin12/aify-wrapper#89f8b3cf5f204a14a62817758b9c56a7f6a8264e",
+    "aify-wrapper": "github:zimdin12/aify-wrapper#0f06fb28cb5f79af536bd06e43ba9670c7c3172b",
     "node-pty": "^1.1.0",
     "ws": "^8.18.3"
   }

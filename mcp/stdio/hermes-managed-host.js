@@ -38,6 +38,7 @@ import {
 } from "./hermes-env.mjs";
 import { runResolveSessionCli } from "./hermes-active-session.mjs";
 import { runDeliveryLoop } from "./hermes-delivery-loop.mjs";
+import { gatewayFromLaunch } from "./hermes-gateway-source.mjs";
 
 loadSettingsEnv();
 
@@ -516,7 +517,7 @@ export async function runCli(argv, deps = {}) {
 }
 
 if (IS_MAIN) {
-  runCli(process.argv.slice(2)).catch((error) => {
+  runCli(process.argv.slice(2), { launchedGateway: gatewayFromLaunch(process.env) }).catch((error) => {
     console.error("[hermes-managed-host] fatal:", error?.message || error);
     process.exit(1);
   });

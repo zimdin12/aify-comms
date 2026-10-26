@@ -806,6 +806,25 @@ test("runDeliveryLoop: the resume-marker sync reads the loop's own gateway, once
   assert.equal(syncs[0].readGatewayUrl()?.gatewayUrl, (await fakeGateway()).wsUrl);
 });
 
+test("runDeliveryLoop: the bring-up takes the gateway the launcher handed it and asks for none (0.9.10 review)", async () => {
+  // Asking again is a second `prepare`: had its probe missed a busy gateway, aify-env would end the one the visible
+  // TUI is attached to. Asking stays for recovery, so only what happens before the first connect is judged here.
+  const { httpCall } = makeAifyHttp();
+  const events = [];
+  const syncs = [];
+  const launched = { port: 9555, token: "t", wsUrl: "ws://127.0.0.1:9555/api/ws?token=t", child: null };
+  await runDeliveryLoop("sc-hermes", {
+    httpCall, fetchImpl: makeFakeFetch(), installTeardown: () => {}, sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR, startEffort: () => () => {},
+    startResumeSync: (opts) => { syncs.push(opts); },
+    launchedGateway: launched,
+    gatewaySource: async () => { events.push("asked"); return fakeGateway(); },
+    openWs: async (url) => { events.push(`connect ${url}`); throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); },
+  });
+  assert.equal(events[0], `connect ${launched.wsUrl}`, events.join(", "));
+  assert.equal(syncs[0].readGatewayUrl()?.gatewayUrl, launched.wsUrl);
+});
+
 test("runDeliveryLoop: teardown stops the reasoning effort FIRST, before it awaits anything (review of P6r2, H4)", async () => {
   // The SIGTERM path: installTeardown's teardown runs while the loop is still polling, and its own
   // cleanup awaits. The effort was stopped only when the loop later reached its finally, so a pass

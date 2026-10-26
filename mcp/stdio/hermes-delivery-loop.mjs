@@ -109,6 +109,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     httpCall = makeAifyHttpCall(AIFY_SERVER_URL),
     // The agent's gateway, live or started by the launcher's own command: at bring-up and to recover a dead one.
     gatewaySource = gatewayFromLauncher,
+    // The gateway the launcher verified and exported before it started this loop (gatewayFromLaunch), or null.
+    launchedGateway = null,
     fetchImpl,
     openWs = openGatewayWsClient,
     installTeardown = installShutdownTeardown,
@@ -248,8 +250,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // failure is NON-fatal — the loop keeps its
   // liveness heartbeat and retries, rather than the old pre-loop throw →
   // process.exit(1) that left the agent `online` with no claimer (defect #2).
-  // The launcher started it moments ago, so this normally hands back that live one.
-  for (let attempt = 0; maxIterations === undefined || attempt < maxIterations; attempt++) {
+  // The launcher's own answer comes first; asking again is only for a loop started without one.
+  host = launchedGateway;
+  for (let attempt = 0; !host && (maxIterations === undefined || attempt < maxIterations); attempt++) {
     try {
       host = await gatewaySource({ agentId: id });
       break;
