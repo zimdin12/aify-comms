@@ -3,23 +3,20 @@
 //
 // The managed-host is the hermes analogue of claude-channel.js for the
 // visible-TUI delivery model:
-//   1. ensureGatewayHost: spawn a HIDDEN `hermes dashboard --tui --port <P>`
-//      gateway host (windowsHide:true — no popup window), wait until the
-//      dashboard index responds, scrape __HERMES_SESSION_TOKEN__, return
-//      { port, token, wsUrl }.
+//   1. the gateway: the launcher's own (0.9.10; aify-wrapper's aify-hermes-gateway starts it), handed to the
+//      loop as { port, token, wsUrl } by an injected `gatewaySource`.
 //   2. deliverRun (claim/deliver loop): claim a dispatch run → reportTurnBusy →
 //      open a WS to the gateway → session.active_list → pickSessionForKey to
 //      resolve the visible TUI's EPHEMERAL runtime sid for `aify-<agentId>` →
 //      prompt.submit {session_id, text} → on 4009 busy requeue until turn-end
 //      → markRunDelivered (WAKE-ONLY: NO reply posted; the
 //      in-session agent self-replies via comms_send) → clearTurn.
-//   3. teardown: on SIGTERM/SIGINT/release kill the gateway-host child + exit.
+//   3. teardown: on SIGTERM/SIGINT/release release the claim + exit; the gateway is the agent's.
 //
 // The runtime sid is NEVER cached: each delivery re-runs session.active_list.
 //
 // Tests inject a fake aify httpCall, a fake WS client modeling
-// session.active_list / prompt.submit / busy(4009)+requeue, and a fake spawn +
-// fake index HTML for ensureGatewayHost.
+// session.active_list / prompt.submit / busy(4009)+requeue, and a fake gateway source.
 
 // AMBIENT GATEWAY VARS ARE CLEARED FIRST, and this is a real isolation requirement rather than tidiness.
 // `runResolveSessionCli` resolves its gateway as
@@ -34,14 +31,11 @@ delete process.env.HERMES_TUI_GATEWAY_URL;
 import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
   MAX_REENSURE_WITHOUT_RECOVERY,
-  ensureGatewayHost,
-  gatewayOwnerEnv,
   gatewayRejectedMessage,
   gatewayUnreachableMessage,
   installShutdownTeardown,
@@ -50,13 +44,8 @@ import {
   nextReEnsureBudget,
   reportGatewayDead,
   shouldApplyGatewayTurnEnd,
-  teardownGatewayHost,
 } from "../hermes-gateway.mjs";
-import { resolveHermesPython } from "../hermes-env.mjs";
-import {
-  ensureStableSession,
-  waitForActiveSession,
-} from "../hermes-active-session.mjs";
+import { waitForActiveSession } from "../hermes-active-session.mjs";
 import { runResolveSessionCli } from "../hermes-active-session.mjs";
 import {
   makeInFlightProbe,
@@ -65,7 +54,7 @@ import {
 import { makeTeardown } from "../hermes-gateway.mjs";
 // v0.5.4: the delivery code left the host. Imported from its OWNERS, not re-exported through the
 // host — a module that only forwards a name is the indirection this series removed elsewhere.
-import { runCli, runEnsureHostCli } from "../hermes-managed-host.js";
+import { runCli } from "../hermes-managed-host.js";
 import {
   deliverRun,
   noAttachedSessionTeardownMessage,
@@ -85,6 +74,8 @@ import { tmpDir } from "./_tmpdir.js";
 // are deterministic). Threaded into deliverRun / runPollCycle / runDeliveryLoop
 // via their `tempDir` / `markerDir` seams.
 const MARKER_DIR = tmpDir("aify-hermes-host-test-");
+// The agent's gateway as the launcher's command hands it back (hermes-gateway-source.mjs): live, never the loop's.
+const fakeGateway = async () => ({ port: 9342, token: "tok-abc123", wsUrl: "ws://127.0.0.1:9342/api/ws?token=tok-abc123", child: null });
 process.on("exit", () => {
   try {
     fs.rmSync(MARKER_DIR, { recursive: true, force: true });
@@ -764,14 +755,13 @@ test("deliverRun: NON-connect submit error → FAILS run but does NOT self-corre
 });
 
 test("runDeliveryLoop: initial WS connect refused → self-corrects ONCE via resident-lost, does not spin the signal", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp();
   const econnrefused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9342"), { code: "ECONNREFUSED" });
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => { throw econnrefused; },
     installTeardown: () => {},
@@ -786,34 +776,51 @@ test("runDeliveryLoop: initial WS connect refused → self-corrects ONCE via res
 
 test("runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client", async () => {
   // The call site of hermes-session-effort.mjs: a green helper suite says nothing about whether the loop runs it.
-  const { spawn } = makeFakeSpawn();
   const { httpCall } = makeAifyHttp();
   const started = [];
   let stopped = 0;
   const openWs = async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); };
   await runDeliveryLoop("sc-hermes", {
-    httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), openWs, installTeardown: () => {}, sleepImpl: async () => {},
+    httpCall, gatewaySource: fakeGateway, fetchImpl: makeFakeFetch(), openWs, installTeardown: () => {}, sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
     sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => { stopped += 1; }; },
   });
   assert.equal(started.length, 1);
   assert.deepEqual([started[0].agentId, started[0].effort, started[0].tempDir, started[0].openWs], ["sc-hermes", "xhigh", MARKER_DIR, openWs]);
+  assert.equal(started[0].readGatewayUrl()?.gatewayUrl, (await fakeGateway()).wsUrl, "the effort reads the loop's own gateway");
   // Stopped when the loop ends, so an ended loop sets nothing (review of P6r, H4: the stop was discarded).
   assert.equal(stopped, 1);
+});
+
+test("runDeliveryLoop: the resume-marker sync reads the loop's own gateway, once the loop has one (0.9.10)", async () => {
+  // It reads no marker file any more: the gateway's URL is the loop's, from the launcher's command.
+  const { httpCall } = makeAifyHttp();
+  const syncs = [];
+  let askedBeforeGateway = "unread";
+  const openWs = async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); };
+  await runDeliveryLoop("sc-hermes", {
+    httpCall, fetchImpl: makeFakeFetch(), openWs, installTeardown: () => {}, sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR, startEffort: () => () => {},
+    startResumeSync: (opts) => { syncs.push(opts); },
+    gatewaySource: async () => { askedBeforeGateway = syncs[0]?.readGatewayUrl(); return fakeGateway(); },
+  });
+  assert.equal(syncs.length, 1);
+  assert.equal(syncs[0].agentId, "sc-hermes");
+  assert.equal(askedBeforeGateway, null, "before the bring-up there is no gateway to read, rather than a stale one");
+  assert.equal(syncs[0].readGatewayUrl()?.gatewayUrl, (await fakeGateway()).wsUrl);
 });
 
 test("runDeliveryLoop: teardown stops the reasoning effort FIRST, before it awaits anything (review of P6r2, H4)", async () => {
   // The SIGTERM path: installTeardown's teardown runs while the loop is still polling, and its own
   // cleanup awaits. The effort was stopped only when the loop later reached its finally, so a pass
   // could still set a session in between.
-  const { spawn } = makeFakeSpawn();
   const { httpCall } = makeAifyHttp();
   let teardown = null;
   let stopped = 0;
   let stoppedAtEntry = null;
   const openWs = async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); };
   await runDeliveryLoop("sc-hermes", {
-    httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), openWs, serverUrl: "http://127.0.0.1:8800",
+    httpCall, gatewaySource: fakeGateway, fetchImpl: makeFakeFetch(), openWs, serverUrl: "http://127.0.0.1:8800",
     maxIterations: 2, markerDir: MARKER_DIR, clearMarkers: async () => {},
     installTeardown: (opts) => { teardown = opts.teardown; },
     sleepImpl: async () => {
@@ -831,7 +838,6 @@ test("runDeliveryLoop: teardown stops the reasoning effort FIRST, before it awai
 test("runDeliveryLoop: giving up stops the reasoning effort before it reports the agent lost (review of P6r2, H4)", async () => {
   // A gateway that keeps turning the loop away ends it through giveUp, whose reporting awaits; the
   // effort is stopped at its entry, not when the loop's finally runs afterwards.
-  const { spawn } = makeFakeSpawn();
   const { httpCall: recordCall } = makeAifyHttp();
   const events = [];
   const httpCall = async (method, endpoint, body) => {
@@ -839,7 +845,7 @@ test("runDeliveryLoop: giving up stops the reasoning effort before it reports th
     return recordCall(method, endpoint, body);
   };
   await runDeliveryLoop("sc-hermes", {
-    httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), installTeardown: () => {}, sleepImpl: async () => {},
+    httpCall, gatewaySource: fakeGateway, fetchImpl: makeFakeFetch(), installTeardown: () => {}, sleepImpl: async () => {},
     openWs: async () => { throw new Error("Unexpected server response: 403"); },
     serverUrl: "http://127.0.0.1:8800", maxIterations: 3, noTuiTeardownCycles: 1, markerDir: MARKER_DIR,
     clearMarkers: async () => {},
@@ -852,21 +858,21 @@ test("runDeliveryLoop: giving up stops the reasoning effort before it reports th
 test("runDeliveryLoop: a teardown requested during the gateway bring-up means no reasoning effort is started (review of P6r3, H4)", async () => {
   // The shutdown handler is installed before the bring-up; a teardown entered while the bring-up awaits
   // had nothing to stop yet, and the effort acquired once the bring-up returned set a session anyway.
-  const { spawn } = makeFakeSpawn();
   const { httpCall } = makeAifyHttp();
   let teardown = null;
   let requested = false;
   const fetchOk = makeFakeFetch();
   const started = [];
   await runDeliveryLoop("sc-hermes", {
-    httpCall, spawnImpl: spawn, serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
+    httpCall, serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
     clearMarkers: async () => {}, sleepImpl: async () => {},
     openWs: async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); },
     installTeardown: (opts) => { teardown = opts.teardown; },
-    fetchImpl: async (...args) => {
+    gatewaySource: async () => {
       if (!requested && teardown) { requested = true; void teardown(); }
-      return fetchOk(...args);
+      return fakeGateway();
     },
+    fetchImpl: fetchOk,
     sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => {}; },
   });
   assert.ok(requested, "positive control: the teardown was requested during the bring-up");
@@ -879,7 +885,7 @@ test("runDeliveryLoop: a gateway bring-up that runs out of attempts leaves no re
   const started = [];
   let stopped = 0;
   const result = await runDeliveryLoop("sc-hermes", {
-    httpCall, spawnImpl: () => { throw new Error("spawn failed"); },
+    httpCall, gatewaySource: async () => { throw new Error("aify-hermes-gateway found no gateway"); },
     fetchImpl: async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); },
     openWs: async () => { throw new Error("unreachable"); }, installTeardown: () => {}, sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
@@ -1263,26 +1269,7 @@ test("runPollCycle: release signal → stops driving, reports released", async (
   assert.ok(!ws.sent.find((f) => f.method === "prompt.submit"));
 });
 
-// ---------------------------------------------------------------------------
-// ensureGatewayHost
-// ---------------------------------------------------------------------------
-
 const FAKE_INDEX_HTML = `<html><script>window.__HERMES_SESSION_TOKEN__="tok-abc123";</script></html>`;
-
-function makeFakeSpawn() {
-  const spawns = [];
-  function spawn(cmd, args, opts) {
-    const child = new EventEmitter();
-    child.pid = 4242;
-    child.kill = () => {
-      child._killed = true;
-    };
-    child.unref = () => {};
-    spawns.push({ cmd, args, opts, child });
-    return child;
-  }
-  return { spawn, spawns };
-}
 
 // Fake fetch returning the index HTML once the host is "up". Models a couple of
 // connection failures before the dashboard binds.
@@ -1303,150 +1290,17 @@ function makeFakeFetch({ failTimes = 0, html = FAKE_INDEX_HTML } = {}) {
   };
 }
 
-test("ensureGatewayHost: spawns hermes dashboard (NO --tui; rejected on the subcommand in 0.15.1) with windowsHide:true and scrapes the token", async () => {
-  const { spawn, spawns } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
 
-  const out = await ensureGatewayHost({
-    agentId: "sc-hermes",
-    port: 8765,
-    hermesCmd: "hermes",
-    spawn,
-    fetchImpl,
-    probeFirst: false,
-    readyIntervalMs: 1,
-    openWsImpl: async () => ({ close() {} }), // /api/ws opens OK
-  });
 
-  assert.equal(spawns.length, 1, "must spawn exactly one gateway host");
-  const { cmd, args, opts } = spawns[0];
-  assert.equal(cmd, "hermes");
-  assert.ok(args.includes("dashboard"));
-  assert.ok(!args.includes("--tui"), "hermes 0.15.1 REJECTS --tui on the dashboard subcommand; /api/ws is enabled via the HERMES_DASHBOARD_TUI=1 env instead");
-  // The embedded-chat env that gates /api/ws must be set on the spawn (else the
-  // socket closes 4403 → the 2026-06-04 gateway-WS incident).
-  assert.equal(opts.env.HERMES_DASHBOARD_TUI, "1", "HERMES_DASHBOARD_TUI=1 must be set so /api/ws opens");
-  assert.ok(args.includes("--no-open"));
-  assert.ok(args.includes("--skip-build"));
-  // CRITICAL: no popup window.
-  assert.equal(opts.windowsHide, true, "windowsHide MUST be true (no popup window)");
-  assert.equal(opts.detached, true);
 
-  assert.equal(out.port, 8765);
-  assert.equal(out.token, "tok-abc123");
-  assert.equal(out.wsUrl, "ws://127.0.0.1:8765/api/ws?token=tok-abc123");
-});
 
-test("THE GATEWAY ENDS WITH ITS AGENT: it carries the launcher's lease as hermes' parent pid", async () => {
-  // 2026-09-15: a gateway outlived its agent and `hermes update` relaunched it, elevated. hermes exits a
-  // dashboard whose HERMES_PARENT_PID is gone, and leaves one whose parent is alive to that parent.
-  const spawnWith = async (env) => {
-    const { spawn, spawns } = makeFakeSpawn();
-    await ensureGatewayHost({ agentId: "sc-hermes", port: 8765, hermesCmd: "hermes", spawn, fetchImpl: makeFakeFetch(), probeFirst: false,
-      readyIntervalMs: 1, openWsImpl: async () => ({ close() {} }), env });
-    return spawns[0].opts.env;
-  };
-  const owned = await spawnWith({ AIFY_AGENT_LEASE: "4812", HERMES_PARENT_START_MARKER: "winms:1", HERMES_PARENT_NONCE: "n", KEEP: "me" });
-  assert.deepEqual([owned.HERMES_PARENT_PID, owned.HERMES_PARENT_START_MARKER, owned.HERMES_PARENT_NONCE, owned.KEEP, owned.HERMES_DASHBOARD_TUI],
-    ["4812", "", "", "me", "1"], "the lease did not reach the gateway as its parent, or an inherited marker would describe another parent");
-  // PID ONLY: hermes treats a start-marker mismatch as conclusive, so a marker off by a millisecond would end a live gateway.
-  const leaseless = await spawnWith({ PATH: "/bin" });
-  assert.equal("HERMES_PARENT_PID" in leaseless, false, "control: a launcher with no lease gives the gateway no parent");
-  for (const bad of ["", "0", "-3", "abc", undefined]) assert.deepEqual(gatewayOwnerEnv({ AIFY_AGENT_LEASE: bad }), {}, String(bad));
-});
 
-test("ensureGatewayHost: waits for the dashboard to bind (retries on connection failure)", async () => {
-  const { spawn, spawns } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch({ failTimes: 2 });
-
-  const out = await ensureGatewayHost({
-    agentId: "sc-hermes",
-    port: 9001,
-    spawn,
-    fetchImpl,
-    readyIntervalMs: 1,
-    openWsImpl: async () => ({ close() {} }),
-  });
-  assert.equal(out.token, "tok-abc123");
-  assert.equal(spawns.length, 1);
-});
-
-test("ensureGatewayHost: idempotent — when the host already responds, does NOT spawn again", async () => {
-  const { spawn, spawns } = makeFakeSpawn();
-  // Probe succeeds immediately (host already up) → no spawn.
-  const fetchImpl = makeFakeFetch({ failTimes: 0 });
-
-  const out = await ensureGatewayHost({
-    agentId: "sc-hermes",
-    port: 9100,
-    spawn,
-    fetchImpl,
-    probeFirst: true,
-    readyIntervalMs: 1,
-    openWsImpl: async () => ({ close() {} }),
-  });
-  assert.equal(spawns.length, 0, "must NOT spawn when a host is already serving the index");
-  assert.equal(out.token, "tok-abc123");
-});
-
-test("ensureGatewayHost: a dead /api/ws (4403) FAILS readiness instead of returning a fake-ready host (2026-06-04 incident net)", async () => {
-  const { spawn } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
-  // The index serves a token, but the /api/ws socket closes (embedded-chat off) —
-  // openWsImpl rejects, mirroring the real 4403/1006 close. ensureGatewayHost MUST
-  // throw, so the caller fails fast instead of producing a headless orphan.
-  let threw = null;
-  try {
-    await ensureGatewayHost({
-      agentId: "sc-hermes",
-      port: 8766,
-      spawn,
-      fetchImpl,
-      probeFirst: false,
-      readyIntervalMs: 1,
-      openWsImpl: async () => { throw new Error("hermes gateway WS closed"); },
-    });
-  } catch (e) { threw = e; }
-  assert.ok(threw, "must throw when /api/ws does not open");
-  assert.match(String(threw.message), /api\/ws/, "error must name the /api/ws readiness failure");
-});
-
-test("ensureGatewayHost: verifyWs=false skips the WS probe (escape hatch)", async () => {
-  const { spawn } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
-  const out = await ensureGatewayHost({
-    agentId: "sc-hermes",
-    port: 8767,
-    spawn,
-    fetchImpl,
-    probeFirst: false,
-    readyIntervalMs: 1,
-    verifyWs: false,
-    openWsImpl: async () => { throw new Error("should not be called"); },
-  });
-  assert.equal(out.token, "tok-abc123", "with verifyWs=false the WS probe is skipped and readiness is index-only");
-});
 
 // ---------------------------------------------------------------------------
 // teardown
 // ---------------------------------------------------------------------------
 
-test("teardownGatewayHost: kills the injected gateway-host child", async () => {
-  let killed = false;
-  const child = { kill: () => { killed = true; }, pid: 1234 };
-  const state = {};
-  await teardownGatewayHost({ child, state });
-  assert.equal(killed, true, "must kill the gateway-host child");
-});
 
-test("teardownGatewayHost: guards against double teardown", async () => {
-  let kills = 0;
-  const child = { kill: () => { kills += 1; }, pid: 1 };
-  const state = {};
-  await teardownGatewayHost({ child, state });
-  await teardownGatewayHost({ child, state });
-  assert.equal(kills, 1, "double teardown kills only once");
-});
 
 test("makeTeardown: does NOT kill a reused/shared gateway (child===null)", async () => {
   // 2026-06-02: a reused gateway (no owned child handle) is the wrapper/TUI's
@@ -1459,14 +1313,6 @@ test("makeTeardown: does NOT kill a reused/shared gateway (child===null)", async
   // No throw, no kill — there's nothing the loop owns to kill.
 });
 
-test("makeTeardown: kills the child ONLY when this loop spawned it", async () => {
-  let childKilled = false;
-  const td = makeTeardown({
-    gatewayChild: { kill: () => { childKilled = true; } },
-  });
-  await td();
-  assert.equal(childKilled, true, "must kill a gateway THIS loop spawned (owned child)");
-});
 
 test("makeTeardown: idempotent (double teardown clears once)", async () => {
   let clears = 0;
@@ -1477,7 +1323,7 @@ test("makeTeardown: idempotent (double teardown clears once)", async () => {
   assert.equal(clears, 1, "teardown body runs at most once");
 });
 
-test("installShutdownTeardown: SIGTERM handler tears down the gateway-host child then exits", async () => {
+test("installShutdownTeardown: SIGTERM runs the teardown, then exits 0", async () => {
   const registered = {};
   const fakeProc = {
     once(sig, handler) {
@@ -1487,81 +1333,22 @@ test("installShutdownTeardown: SIGTERM handler tears down the gateway-host child
       this.exitCode = code;
     },
   };
-  let killed = false;
-  const child = { kill: () => { killed = true; }, pid: 7 };
-  installShutdownTeardown({ getChild: () => child, proc: fakeProc, state: {} });
+  let toreDown = false;
+  installShutdownTeardown({ teardown: async () => { toreDown = true; }, proc: fakeProc });
 
   assert.equal(typeof registered.SIGTERM, "function");
   assert.equal(typeof registered.SIGINT, "function");
   await registered.SIGTERM();
-  assert.equal(killed, true, "SIGTERM must kill the gateway-host child");
+  assert.equal(toreDown, true, "SIGTERM must run the teardown");
+  assert.equal(fakeProc.exitCode, 0);
 });
 
 // ---------------------------------------------------------------------------
-// CLI dispatch — ensure-host + run
+// CLI dispatch — run
 // ---------------------------------------------------------------------------
 
-test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,token,wsUrl}", async () => {
-  const { spawn, spawns } = makeFakeSpawn();
-  // failTimes:1 → the idempotent probe misses once, so a host IS spawned.
-  const fetchImpl = makeFakeFetch({ failTimes: 1 });
-  let stdout = "";
-  let stderr = "";
 
-  const payload = await runEnsureHostCli("sc-hermes", {
-    spawnImpl: spawn,
-    fetchImpl,
-    openWsImpl: async () => ({ close() {} }), // /api/ws readiness probe opens OK
-    // Fake the python pre-seed so the test never touches the real SessionDB.
-    spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
-    // SEALED: the real attach reads AIFY_AGENT_LEASE from this process, and a suite run inside a leased
-    // agent session would otherwise attach this fake pid to that agent's real lease.
-    attach: () => {},
-    out: (s) => (stdout += s),
-    err: (s) => (stderr += s),
-  });
 
-  assert.equal(spawns.length, 1, "must spawn the hidden gateway host");
-  // Exactly one JSON line to stdout.
-  const lines = stdout.split("\n").filter(Boolean);
-  assert.equal(lines.length, 1, "exactly one stdout line");
-  const parsed = JSON.parse(lines[0]);
-  assert.equal(parsed.token, "tok-abc123");
-  assert.ok(typeof parsed.port === "number" && parsed.port >= 8642 && parsed.port <= 9641);
-  assert.equal(parsed.wsUrl, `ws://127.0.0.1:${parsed.port}/api/ws?token=tok-abc123`);
-  assert.deepEqual(payload, parsed);
-  // FIX 2 (2026-06-03): the legacy synthetic `resumeKey` (`aify-<id>`) is no
-  // longer emitted — the native-session-id model resumes the agent's REAL session
-  // id, so the dead field is dropped from the payload.
-  assert.ok(!("resumeKey" in parsed), "resumeKey must NOT be emitted (dead synthetic resume key)");
-  // Loud-ish stderr breadcrumb, never on stdout.
-  assert.ok(stderr.includes("sc-hermes"));
-});
-
-test("runEnsureHostCli: a gateway it STARTED joins the agent lease; a reused one does not", async () => {
-  const quiet = { openWsImpl: async () => ({ close() {} }), spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }), out: () => {}, err: () => {} };
-  const started = [];
-  const { spawn } = makeFakeSpawn();
-  await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: spawn, fetchImpl: makeFakeFetch({ failTimes: 1 }), attach: (a) => started.push(a) });
-  assert.deepEqual(started, [{ agentId: "sc-hermes-lease", pid: 4242, kind: "gateway" }]);
-  const reused = [];
-  const second = makeFakeSpawn();
-  await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: second.spawn, fetchImpl: makeFakeFetch(), attach: (a) => reused.push(a) });
-  assert.equal(second.spawns.length, 0, "control: the probe found a live host, so nothing was spawned");
-  assert.deepEqual(reused, []);
-  // A gateway that never comes up still runs, detached: ensureGatewayHost throws, and the lease must
-  // already name the child, or the next start of this agent cannot find it.
-  const failed = [];
-  const broken = makeFakeSpawnWithStderr(`Installing TUI dependencies...\nnpm error Missing script: "build"\n`);
-  await assert.rejects(() => runEnsureHostCli("sc-hermes-lease", {
-    ...quiet, spawnImpl: broken.spawn, fetchImpl: async () => { throw new Error("ECONNREFUSED"); }, attach: (a) => failed.push(a) }));
-  assert.equal(broken.spawns.length, 1, "control: the gateway was spawned before the launch failed");
-  assert.deepEqual(failed, [{ agentId: "sc-hermes-lease", pid: 4243, kind: "gateway" }]);
-});
-
-test("runEnsureHostCli: no agentId → throws (non-zero exit at the CLI boundary)", async () => {
-  await assert.rejects(() => runEnsureHostCli("", { spawnImpl: makeFakeSpawn().spawn, fetchImpl: makeFakeFetch() }));
-});
 
 // ---------------------------------------------------------------------------
 // runResolveSessionCli — LAUNCH-SIDE session convergence (FIX C, 2026-06-03).
@@ -1924,21 +1711,19 @@ test("runResolveSessionCli --explicit: works even with NO gateway and NO active-
   assert.equal(stdout.trim(), "20260529_071302_ea65af");
 });
 
-test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway host on release", async () => {
-  const { spawn } = makeFakeSpawn();
+test("runDeliveryLoop: starts the claim/deliver loop, wires its teardown, and stops on release", async () => {
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp({ release: true });
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
-  let teardownChild;
+  let wiredTeardown;
 
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
-    // capture the child the loop wants torn down
-    installTeardown: ({ getChild }) => {
-      teardownChild = getChild;
+    installTeardown: ({ teardown }) => {
+      wiredTeardown = teardown;
     },
     sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800",
@@ -1948,7 +1733,7 @@ test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway 
   assert.ok(result.released, "release signal stops the loop");
   // A claim was attempted against the gateway-backed agent.
   assert.ok(findCall(calls, "POST", "/dispatch/claim"));
-  assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child");
+  assert.equal(typeof wiredTeardown, "function", "the shutdown teardown was wired");
 });
 
 // NO-TUI TEARDOWN BACKSTOP (FIX SET A2, 2026-06-03): a SIGKILL'd terminal bypasses
@@ -1958,7 +1743,6 @@ test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway 
 const EMPTY_ACTIVE_LIST = { result: { sessions: [] } };
 
 test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the cold-start grace → resident-lost + teardown", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   // claim returns { run: null } every cycle (claimOk, never terminal/release), so
   // the loop keeps polling — the no-TUI backstop is what must stop it.
@@ -1972,7 +1756,7 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the co
   let clock = 0;
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -1980,7 +1764,6 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the co
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => { toreDown = true; },
-    killByPort: () => {},
     procExit: () => {},
     noTuiTeardownCycles: 3,
     noTuiGraceMs: 100,
@@ -2014,23 +1797,21 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the co
 // reused gateway. A rejection says the loop cannot DELIVER; it says nothing about the TUI. So it ends the
 // loop and releases its claim, and kills nothing. A failed read stays unknown.
 
-/** A loop run against the fakes, with every killed child and every resident-lost reason recorded. */
-async function runLoop({ openWs, maxIterations = 20, noTuiTeardownCycles = 3, fetchFailTimes = 0 }) {
-  const { spawn, spawns } = makeFakeSpawn();
+/** A loop run against the fakes, with every resident-lost reason recorded. */
+async function runLoop({ openWs, maxIterations = 20, noTuiTeardownCycles = 3 }) {
   const { httpCall, calls } = makeAifyHttp();
   let readyCleared = false;
   let clock = 0;
   const result = await runDeliveryLoop("pc-manager", {
     httpCall,
-    spawnImpl: spawn,
-    fetchImpl: makeFakeFetch({ failTimes: fetchFailTimes }),
+    gatewaySource: fakeGateway,
+    fetchImpl: makeFakeFetch(),
     openWs,
     installTeardown: () => {},
     sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => { readyCleared = true; },
-    killByPort: () => {},
     procExit: () => {},
     noTuiTeardownCycles,
     noTuiGraceMs: 100,
@@ -2038,22 +1819,16 @@ async function runLoop({ openWs, maxIterations = 20, noTuiTeardownCycles = 3, fe
     maxIterations,
   });
   const lost = calls.filter((c) => c.method === "POST" && c.endpoint === "/agents/pc-manager/resident-lost");
-  return { result, lost, readyCleared, killed: spawns.filter((s) => s.child._killed).length, spawned: spawns.length };
+  return { result, lost, readyCleared };
 }
 
-test("runDeliveryLoop: a gateway that rejects every connect ends the loop as undeliverable, and kills nothing", async () => {
+test("runDeliveryLoop: a gateway that rejects every connect ends the loop as undeliverable", async () => {
   const run = await runLoop({ openWs: async () => { throw new Error("Unexpected server response: 403"); } });
   assert.equal(run.result.residentLost, true, "a loop the gateway keeps turning away spun on");
   assert.equal(run.lost.length, 1, "the agent was not reported undeliverable, so it keeps reading online");
   assert.match(run.lost[0].body.reason, /rejected its delivery loop 3 times in a row \(Unexpected server response: 403\)/);
   assert.doesNotMatch(run.lost[0].body.reason, /no visible TUI/i, "a rejection claimed to know no TUI is attached");
   assert.ok(run.readyCleared, "the claim was not released");
-  assert.equal(run.killed, 0, "a rejected connect killed a gateway");
-  // AND ONE THIS LOOP SPAWNED ITSELF: a rejection still proves nothing about the TUI using it.
-  const owned = await runLoop({ openWs: async () => { throw new Error("Unexpected server response: 403"); }, fetchFailTimes: 1 });
-  assert.equal(owned.spawned, 1, "CONTROL: this run spawned its own gateway");
-  assert.equal(owned.result.residentLost, true);
-  assert.equal(owned.killed, 0, "a rejected connect killed the gateway this loop started");
 });
 
 for (const [how, badRead] of [
@@ -2089,13 +1864,11 @@ test("runDeliveryLoop: CONTROL: one rejected connect, then an attached TUI, keep
   assert.equal(run.lost.length, 0);
 });
 
-test("runDeliveryLoop: confirmed no TUI on a gateway this loop did not start says it is left running", async () => {
+test("runDeliveryLoop: confirmed no TUI says the agent's gateway is left running", async () => {
   const run = await runLoop({ openWs: async () => makeFakeWsClient({ "session.active_list": EMPTY_ACTIVE_LIST }) });
-  assert.equal(run.spawned, 0, "CONTROL: the gateway was reused, as the wrapper's ensure-host leaves it");
   assert.equal(run.result.residentLost, true);
   assert.match(run.lost[0].body.reason, /is not this loop's; left running/);
   assert.doesNotMatch(run.lost[0].body.reason, /Reaping|Stopped its own/, "the message claims a reap that did not happen");
-  assert.equal(run.killed, 0);
 });
 
 test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TUI attaches → NO teardown (slow cold start)", async () => {
@@ -2104,7 +1877,6 @@ test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TU
   // the old code (no grace, no latch) tore the agent down right after launch. Here the
   // first K reads are empty (within the grace) and then the TUI attaches — the loop must
   // NOT have torn down.
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp();
   let reads = 0;
@@ -2122,7 +1894,7 @@ test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TU
   let clock = 0;
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2130,7 +1902,6 @@ test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TU
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    killByPort: () => {},
     procExit: () => {},
     noTuiTeardownCycles: 3,
     noTuiGraceMs: 1_000_000, // generous grace: stays in-grace for the whole empty window
@@ -2150,7 +1921,6 @@ test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TU
 });
 
 test("runDeliveryLoop: an attached session keeps the loop alive (no premature no-TUI teardown)", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp();
   // ACTIVE_LIST_RESULT carries one attached session on EVERY poll, so the no-TUI
@@ -2159,7 +1929,7 @@ test("runDeliveryLoop: an attached session keeps the loop alive (no premature no
 
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2167,7 +1937,6 @@ test("runDeliveryLoop: an attached session keeps the loop alive (no premature no
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    killByPort: () => {},
     procExit: () => {},
     noTuiTeardownCycles: 3,
     maxIterations: 10,
@@ -2181,7 +1950,6 @@ test("runDeliveryLoop: an attached session keeps the loop alive (no premature no
 });
 
 test("runDeliveryLoop: a SINGLE empty active_list does not tear down (brief relaunch gap tolerated)", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp();
   // Only the VERY FIRST active_list read is empty (TUI mid-relaunch); every read
@@ -2201,7 +1969,7 @@ test("runDeliveryLoop: a SINGLE empty active_list does not tear down (brief rela
 
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2209,7 +1977,6 @@ test("runDeliveryLoop: a SINGLE empty active_list does not tear down (brief rela
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    killByPort: () => {},
     procExit: () => {},
     noTuiTeardownCycles: 3,
     maxIterations: 6,
@@ -2223,7 +1990,6 @@ test("runDeliveryLoop: a SINGLE empty active_list does not tear down (brief rela
 });
 
 test("runDeliveryLoop: writes the loop-ready marker after the first successful claim round-trip (Task 1.4)", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall } = makeAifyHttp(); // claim returns { run: null } => claimOk, 0 runs
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
@@ -2231,7 +1997,7 @@ test("runDeliveryLoop: writes the loop-ready marker after the first successful c
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2246,7 +2012,6 @@ test("runDeliveryLoop: writes the loop-ready marker after the first successful c
 });
 
 test("runDeliveryLoop: clears the loop-ready marker on terminal teardown (Task 1.4)", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const httpCall = async (method, endpoint) => {
     if (method === "POST" && endpoint === "/dispatch/claim") {
@@ -2261,7 +2026,7 @@ test("runDeliveryLoop: clears the loop-ready marker on terminal teardown (Task 1
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2269,7 +2034,6 @@ test("runDeliveryLoop: clears the loop-ready marker on terminal teardown (Task 1
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: (id) => cleared.push(id),
-    killByPort: () => {},
     procExit: () => {},
     maxIterations: 5,
   });
@@ -2278,14 +2042,13 @@ test("runDeliveryLoop: clears the loop-ready marker on terminal teardown (Task 1
 });
 
 test("runDeliveryLoop: POSTs claimer-acquire after the first successful claim round-trip (WS5 Task 5.1)", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp(); // claim returns { run: null } => claimOk
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2302,7 +2065,6 @@ test("runDeliveryLoop: POSTs claimer-acquire after the first successful claim ro
 });
 
 test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const calls = [];
   const httpCall = async (method, endpoint, body = null) => {
@@ -2318,7 +2080,7 @@ test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2326,7 +2088,6 @@ test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    killByPort: () => {},
     procExit: () => {},
     maxIterations: 5,
   });
@@ -2337,12 +2098,8 @@ test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)
   assert.ok(release, "expected a claimer-lease release POST on terminal teardown");
 });
 
-test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) terminal teardown (fix/hermes-leak P4)", async () => {
-  // On a TERMINAL agent-removed (410) teardown the agent is tombstoned, so there
-  // will be NO relaunch — the port/key markers kept for kill-prior are now dead
-  // weight. The loop must clear them so the env-bridge boot sweep doesn't keep
-  // re-finding a phantom gateway for a removed agent.
-  const { spawn } = makeFakeSpawn();
+test("runDeliveryLoop: clears the session marker on agent-removed (410) terminal teardown", async () => {
+  // On a TERMINAL agent-removed (410) teardown the agent is tombstoned, so there will be NO relaunch.
   const fetchImpl = makeFakeFetch();
   const httpCall = async (method, endpoint) => {
     if (method === "POST" && endpoint === "/dispatch/claim") {
@@ -2353,12 +2110,11 @@ test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) te
     return { ok: true };
   };
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
-  const clearedGateway = [];
   const clearedSession = [];
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2366,17 +2122,11 @@ test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) te
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    clearGatewayMarkers: (id) => clearedGateway.push(id),
     clearSessionMarker: (id) => clearedSession.push(id),
-    killByPort: () => {},
     procExit: () => {},
     maxIterations: 5,
   });
 
-  assert.ok(
-    clearedGateway.includes("sc-hermes"),
-    "agent-removed (410) teardown must clear the gateway port/key markers (no relaunch coming)",
-  );
   // FIX 3 (2026-06-03): a TERMINAL agent-removal must ALSO clear the persistent
   // session-id marker so the deleted agent leaves no stale agent→session binding.
   assert.ok(
@@ -2385,11 +2135,8 @@ test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) te
   );
 });
 
-test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released) teardown (fix/hermes-leak P4)", async () => {
-  // A `released` (graceful, non-410) teardown is NOT an agent removal — the
-  // agent may relaunch — so the gateway port/key markers MUST be preserved for
-  // kill-prior (the 2026-06-02 port-drift guard). Only agent-removed clears them.
-  const { spawn } = makeFakeSpawn();
+test("runDeliveryLoop: does NOT clear the session marker on a non-removed (released) teardown", async () => {
+  // A `released` (graceful, non-410) teardown is NOT an agent removal — the agent may relaunch.
   const fetchImpl = makeFakeFetch();
   let claims = 0;
   const httpCall = async (method, endpoint) => {
@@ -2401,12 +2148,11 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
     return { ok: true };
   };
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
-  const clearedGateway = [];
   const clearedSession = [];
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2414,18 +2160,11 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    clearGatewayMarkers: (id) => clearedGateway.push(id),
     clearSessionMarker: (id) => clearedSession.push(id),
-    killByPort: () => {},
     procExit: () => {},
     maxIterations: 3,
   });
 
-  assert.equal(
-    clearedGateway.length,
-    0,
-    "a non-removed (released) teardown must preserve gateway markers for kill-prior",
-  );
   // FIX 3 (2026-06-03): a relaunch-capable (released) teardown must PRESERVE the
   // session-id marker so the next launch resumes the SAME transcript — only a
   // TERMINAL agent-removal clears it.
@@ -2438,12 +2177,11 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
 
 test("runDeliveryLoop: stopped:true from /dispatch/claim tears down + self-exits(0), PRESERVES session binding (Phase H1)", async () => {
   // Phase H1 (status v2): an explicitly DISABLED agent (claim returns a terminal
-  // `stopped` body) must tear down the gateway host it owns + self-exit(0) so the
+  // `stopped` body) must tear down + self-exit(0) so the
   // orphan worker reaps itself — but stopped is REVERSIBLE, so it must NOT clear
-  // the agent's gateway/session markers (a re-enable + relaunch resumes the same
+  // the agent's session marker (a re-enable + relaunch resumes the same
   // session). Mirrors the agent-removed (410) terminal path but asserts the
   // OPPOSITE about the binding clears.
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const calls = [];
   const httpCall = async (method, endpoint, body = null) => {
@@ -2454,27 +2192,23 @@ test("runDeliveryLoop: stopped:true from /dispatch/claim tears down + self-exits
     return { ok: true };
   };
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
-  let teardownChild;
+  let wiredTeardown;
   let exitCode;
-  const clearedGateway = [];
   const clearedSession = [];
 
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
-    // capture the child the loop wants torn down (gateway-host kill on teardown)
-    installTeardown: ({ getChild }) => {
-      teardownChild = getChild;
+    installTeardown: ({ teardown }) => {
+      wiredTeardown = teardown;
     },
     sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800",
     writeReady: () => {},
     clearReady: () => {},
-    clearGatewayMarkers: (id) => clearedGateway.push(id),
     clearSessionMarker: (id) => clearedSession.push(id),
-    killByPort: () => {},
     procExit: (code) => {
       exitCode = code;
     },
@@ -2483,7 +2217,7 @@ test("runDeliveryLoop: stopped:true from /dispatch/claim tears down + self-exits
 
   assert.equal(exitCode, 0, "terminal stopped must self-exit(0)");
   assert.equal(result.terminal, "agent-stopped", "loop reports the agent-stopped terminal reason");
-  assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child (kills it on exit)");
+  assert.equal(typeof wiredTeardown, "function", "the shutdown teardown was wired");
   // REVERSIBLE: the binding must survive so a re-enable + relaunch resumes the
   // same session — the OPPOSITE of the agent-removed (410) terminal path.
   assert.equal(
@@ -2491,18 +2225,12 @@ test("runDeliveryLoop: stopped:true from /dispatch/claim tears down + self-exits
     0,
     "stopped (reversible) teardown must NOT clear the session-id marker",
   );
-  assert.equal(
-    clearedGateway.length,
-    0,
-    "stopped (reversible) teardown must NOT clear the gateway port/key markers",
-  );
   // It did NOT keep polling indefinitely (broke on the first terminal claim).
   const claimCalls = calls.filter((c) => c.method === "POST" && c.endpoint === "/dispatch/claim");
   assert.equal(claimCalls.length, 1, "stopped is terminal on the first claim — must not keep polling");
 });
 
-test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) WITHOUT killing the shared gateway, does not keep polling", async () => {
-  const { spawn } = makeFakeSpawn();
+test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) and does not keep polling", async () => {
   const fetchImpl = makeFakeFetch();
   // claim always 410 (agent tombstoned).
   const calls = [];
@@ -2517,11 +2245,10 @@ test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) WITHOUT killing th
   };
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
   let exitCode;
-  const killedPorts = [];
 
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2530,27 +2257,18 @@ test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) WITHOUT killing th
     procExit: (code) => {
       exitCode = code;
     },
-    killByPort: (p) => {
-      killedPorts.push(p);
-    },
     // 404 grace not relevant; 410 is immediate-terminal.
     maxIterations: 5,
   });
 
   assert.equal(exitCode, 0, "terminal 410 must self-exit(0)");
   assert.equal(result.terminal, "agent-removed", "loop reports the terminal reason");
-  // 2026-06-02: the reused gateway host (child===null via probeFirst) is SHARED
-  // with the visible TUI, so the loop must NOT port-kill it on teardown (doing so
-  // dropped the TUI's WebSocket). It self-exits and leaves the gateway for the
-  // TUI; kill-prior / the env-bridge sweep reap it later by its port marker.
-  assert.equal(killedPorts.length, 0, "must NOT port-kill the shared/reused gateway");
   // It did NOT keep polling indefinitely (broke on the first terminal claim).
   const claimCount = calls.filter((c) => c.endpoint === "/dispatch/claim").length;
   assert.ok(claimCount <= 2, `must stop claiming after terminal 410 (got ${claimCount})`);
 });
 
 test("runDeliveryLoop: delivers a claimed run via the gateway WS", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp({ claims: [SAMPLE_RUN] });
   const ws = makeFakeWsClient({
@@ -2560,7 +2278,7 @@ test("runDeliveryLoop: delivers a claimed run via the gateway WS", async () => {
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -2575,33 +2293,15 @@ test("runDeliveryLoop: delivers a claimed run via the gateway WS", async () => {
   assert.equal(String(patch.body.status), "delivered");
 });
 
-test("runCli: 'ensure-host <id>' routes to runEnsureHostCli and prints JSON", async () => {
-  const { spawn } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
-  let stdout = "";
-  const res = await runCli(["ensure-host", "sc-hermes"], {
-    spawnImpl: spawn,
-    fetchImpl,
-    openWsImpl: async () => ({ close() {} }),
-    spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
-    out: (s) => (stdout += s),
-    err: () => {},
-  });
-  assert.equal(res.mode, "ensure-host");
-  assert.equal(res.agentId, "sc-hermes");
-  const parsed = JSON.parse(stdout.trim());
-  assert.equal(parsed.token, "tok-abc123");
-});
 
 test("runCli: 'run <id>' routes to the delivery loop", async () => {
-  const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   const { httpCall, calls } = makeAifyHttp({ release: true });
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
 
   const res = await runCli(["run", "sc-hermes"], {
     httpCall,
-    spawnImpl: spawn,
+    gatewaySource: fakeGateway,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -3031,43 +2731,9 @@ test("makeInFlightPulse: missing/empty runId falls back to '' (no crash, server 
 // Stable-session pre-seed (BUG: --resume aify-<id> 4007 on first launch)
 // ---------------------------------------------------------------------------
 
-test("resolveHermesPython: finds the python sibling next to a path-style hermes", () => {
-  // A bare command with no separators → PATH fallback (python3/python.exe).
-  const fallback = resolveHermesPython("hermes");
-  assert.ok(/python/.test(fallback));
-});
 
-test("ensureStableSession: runs python create-or-ignore with the canonical aify-<id> key", () => {
-  const calls = [];
-  const fakeSpawnSync = (cmd, args) => {
-    calls.push({ cmd, args });
-    return { status: 0, stdout: "", stderr: "" };
-  };
-  const ok = ensureStableSession({ agentId: "gov tui!", spawnSync: fakeSpawnSync });
-  assert.equal(ok, true);
-  assert.equal(calls.length, 1);
-  // The session id arg MUST be the canonical pinnedSessionId (sanitized).
-  const sessionArg = calls[0].args[calls[0].args.length - 1];
-  assert.equal(sessionArg, "aify-gov-tui");
-  // It must invoke an inline python program (-c) that imports SessionDB.
-  assert.ok(calls[0].args.includes("-c"));
-  assert.ok(calls[0].args.some((a) => /SessionDB/.test(a)));
-});
 
-test("ensureStableSession: empty agentId → no-op false", () => {
-  let called = false;
-  const ok = ensureStableSession({ agentId: "", spawnSync: () => { called = true; return { status: 0 }; } });
-  assert.equal(ok, false);
-  assert.equal(called, false);
-});
 
-test("ensureStableSession: python failure is swallowed (best-effort, returns false)", () => {
-  const ok = ensureStableSession({
-    agentId: "sc-hermes",
-    spawnSync: () => ({ status: 2, stdout: "", stderr: "boom" }),
-  });
-  assert.equal(ok, false);
-});
 
 // ---------------------------------------------------------------------------
 // runDeliveryLoop lifecycle-ownership (Tasks 1.1, 1.3)
@@ -3079,7 +2745,7 @@ test("ensureStableSession: python failure is swallowed (best-effort, returns fal
 // adapters + dead hooks). The four lifecycle invariants the old seam asserted
 // are covered here against the REAL loop:
 //   1. liveness registered BEFORE the gateway bring-up — asserted directly below
-//      (injected startLivenessHeartbeat ordered before the gateway-host spawn);
+//      (injected startLivenessHeartbeat ordered before the gateway request);
 //   2. terminal 410 → teardown + self-exit(0), not swallowed — covered by
 //      "runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) +
 //      self-exits(0)";
@@ -3092,11 +2758,10 @@ test("ensureStableSession: python failure is swallowed (best-effort, returns fal
 
 test("runDeliveryLoop: registers the liveness heartbeat BEFORE bringing the gateway host up (Task 1.1)", async () => {
   const events = [];
-  const { spawn } = makeFakeSpawn();
-  // Record the gateway-host spawn relative to the heartbeat registration.
-  const spawnImpl = (cmd, args, opts) => {
-    events.push("gateway-spawn");
-    return spawn(cmd, args, opts);
+  // Record the gateway request relative to the heartbeat registration.
+  const gatewaySource = async () => {
+    events.push("gateway-ask");
+    return fakeGateway();
   };
   const fetchImpl = makeFakeFetch();
   const { httpCall } = makeAifyHttp();
@@ -3104,7 +2769,7 @@ test("runDeliveryLoop: registers the liveness heartbeat BEFORE bringing the gate
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
-    spawnImpl,
+    gatewaySource,
     fetchImpl,
     openWs: async () => ws,
     installTeardown: () => {},
@@ -3120,65 +2785,14 @@ test("runDeliveryLoop: registers the liveness heartbeat BEFORE bringing the gate
   });
 
   const livenessIdx = events.indexOf("liveness-start");
-  const spawnIdx = events.indexOf("gateway-spawn");
+  const askIdx = events.indexOf("gateway-ask");
   assert.ok(livenessIdx >= 0, "liveness heartbeat must be registered");
-  assert.ok(
-    spawnIdx === -1 || livenessIdx < spawnIdx,
-    "liveness must register before the gateway host is spawned (no online-with-no-claimer window)",
-  );
+  assert.ok(askIdx >= 0, "positive control: the loop asked for its gateway");
+  assert.ok(livenessIdx < askIdx, "liveness must register before the gateway wait (no online-with-no-claimer window)");
 });
 
-test("runEnsureHostCli: ensureSession:false skips the python pre-seed", async () => {
-  const { spawn } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
-  let preseedCalled = false;
-  await runEnsureHostCli("sc-hermes", {
-    spawnImpl: spawn,
-    fetchImpl,
-    openWsImpl: async () => ({ close() {} }),
-    ensureSession: false,
-    spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
-    out: () => {},
-    err: () => {},
-  });
-  assert.equal(preseedCalled, false);
-});
 
-test("runEnsureHostCli: DEFAULT (no ensureSession) skips the dead aify-<id> pre-seed (FIX 2)", async () => {
-  // FIX 2 (2026-06-03): pre-seeding the synthetic `aify-<id>` SessionDB row is dead
-  // (the native-session-id model resumes the REAL session id), and it littered
-  // `hermes sessions list` with an orphan row on EVERY launch. It is now OFF by
-  // default — only an explicit `ensureSession: true` opt-in still runs it.
-  const { spawn } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
-  let preseedCalled = false;
-  await runEnsureHostCli("sc-hermes", {
-    spawnImpl: spawn,
-    fetchImpl,
-    openWsImpl: async () => ({ close() {} }),
-    // No ensureSession key → must NOT pre-seed (the new default).
-    spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
-    out: () => {},
-    err: () => {},
-  });
-  assert.equal(preseedCalled, false, "default ensure-host must NOT pre-seed the orphan aify-<id> row");
-});
 
-test("runEnsureHostCli: ensureSession:true still runs the pre-seed (explicit opt-in seam)", async () => {
-  const { spawn } = makeFakeSpawn();
-  const fetchImpl = makeFakeFetch();
-  let preseedCalled = false;
-  await runEnsureHostCli("sc-hermes", {
-    spawnImpl: spawn,
-    fetchImpl,
-    openWsImpl: async () => ({ close() {} }),
-    ensureSession: true,
-    spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
-    out: () => {},
-    err: () => {},
-  });
-  assert.equal(preseedCalled, true, "explicit ensureSession:true opt-in still pre-seeds");
-});
 
 // ---------------------------------------------------------------------------
 // TUI-deps / npm-build boot-failure FAST-FAIL (task #237 item e).
@@ -3219,55 +2833,6 @@ test("tuiDepsBuildFailureMessage: distinct + actionable — names the port, the 
   assert.ok(!/did not become ready within/i.test(msg));
 });
 
-// A fake spawn whose child exposes a readable `.stderr` that emits the given text
-// asynchronously (after ensureGatewayHost attaches its listener).
-function makeFakeSpawnWithStderr(stderrText) {
-  const spawns = [];
-  function spawn(cmd, args, opts) {
-    const child = new EventEmitter();
-    child.pid = 4243;
-    child.stderr = new EventEmitter();
-    child.kill = () => { child._killed = true; };
-    child.unref = () => {};
-    spawns.push({ cmd, args, opts, child });
-    setImmediate(() => {
-      try { child.stderr.emit("data", Buffer.from(String(stderrText))); } catch { /* ignore */ }
-    });
-    return child;
-  }
-  return { spawn, spawns };
-}
-
-test("ensureGatewayHost: TUI-deps npm-build failure on stderr → rejects FAST with the distinct error (not the 60s timeout)", async () => {
-  const { spawn } = makeFakeSpawnWithStderr(`Installing TUI dependencies...\nnpm error Missing script: "build"\n`);
-  // The dashboard NEVER binds (fetch always throws) — so absent the fast-fail this
-  // would poll the full readyTimeout. A large timeout + tiny interval proves the
-  // rejection comes from the stderr signature, not the deadline.
-  const fetchImpl = async () => { throw new Error("ECONNREFUSED"); };
-
-  const started = Date.now();
-  let err = null;
-  try {
-    await ensureGatewayHost({
-      agentId: "sc-hermes",
-      port: 9342,
-      spawn,
-      fetchImpl,
-      probeFirst: false,
-      verifyWs: false,
-      readyTimeoutMs: 60000,
-      readyIntervalMs: 1,
-    });
-  } catch (e) {
-    err = e;
-  }
-  const elapsed = Date.now() - started;
-  assert.ok(err, "ensureGatewayHost must reject on the TUI-deps build failure");
-  assert.match(String(err.message), /Missing script: "build"/, "must surface the DISTINCT build-failure message");
-  assert.match(String(err.message), /triage/i, "must be actionable (triage guidance)");
-  assert.ok(!/did not become ready within/i.test(String(err.message)), "must NOT be the opaque readiness timeout");
-  assert.ok(elapsed < 5000, `must fail FAST (was ${elapsed}ms, not the ~60s readiness timeout)`);
-});
 
 // ---------------------------------------------------------------------------
 // Blast-radius isolation (task #237 item a): maybeReEnsureGatewayHost.
@@ -3330,21 +2895,6 @@ test("maybeReEnsureGatewayHost: a throwing/unreachable probe counts as DEAD → 
 // #237 fix: the gateway stderr log is TRUNCATED per spawn ("w"), not appended ("a"), so
 // detectBootFailure never reads a PRIOR boot's failure signature and false-aborts a fixed
 // relaunch. Source-assertion (the spawn path is heavily mocked; this locks the file mode).
-test("#237: gateway stderr log is opened in TRUNCATE mode per spawn (not append)", () => {
-  const src = bridgeSource();
-  assert.match(
-    src,
-    /gwErrFd = fs\.openSync\(gwErrPath, "w"\)/,
-    'the gateway stderr log must be opened "w" (truncate per spawn), never "a" (append) — ' +
-      "an append log lets a prior failure's signature false-abort a fixed relaunch",
-  );
-  assert.doesNotMatch(
-    src,
-    /fs\.openSync\(gwErrPath, "a"\)/,
-    "no append-mode open of the gateway stderr log may remain",
-  );
-});
-
 // #237 low note: the dead-latch resets on a successful re-ensure so a LATER death re-reports.
 test("#237: gatewayDeadReported latch is reset after a successful re-ensure", () => {
   const src = bridgeSource();

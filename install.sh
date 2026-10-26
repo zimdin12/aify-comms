@@ -791,8 +791,8 @@ install_hermes_wrapper() {
   if hermes_runtime_is_native_windows; then
     hermes_plugin_path="$(path_for_windows_runtime "$hermes_plugin_path")"
   fi
-  # Path to the host-side MCP stdio bridges (hermes-daemon-cli.js +
-  # hermes-managed-host.js). path_for_node so Git-Bash node opens it (drive-letter).
+  # Path to the host-side MCP stdio bridge (hermes-managed-host.js).
+  # path_for_node so Git-Bash node opens it (drive-letter).
   local hermes_stdio_dir
   hermes_stdio_dir="$(path_for_node "$AIFY_BRIDGE_DIR")"
   # Prebuilt ui-tui bundle dir (so the managed `hermes --tui` runs the existing
@@ -2074,19 +2074,17 @@ elif [ "$CLIENT" = "hermes" ]; then
   # (pre_approval_request / post_approval_response) shell hooks; see install_hermes_turn_hooks.
   install_hermes_turn_hooks
   MSYS_NO_PATHCONV=1 node "$(path_for_node "$SCRIPT_DIR/scripts/hermes-hooks-after-install.cjs")" "$(path_for_node "$(hermes_config_root)")" || true
-  # No per-agent daemon exists at install time (no agent id), so say it starts at launch and fails loudly.
-  echo "Hermes delivery (managed AND resident): hermes-aify brings up a per-agent"
-  echo "  hidden tui_gateway host (node mcp/stdio/hermes-managed-host.js ensure-host"
-  echo "  <agentId>) + a background delivery loop that prompt.submits into the visible"
-  echo "  TUI's session; on failure the wrapper prints a FATAL error and exits"
-  echo "  non-zero (no silent no-op). Both modes share this gateway-host path so"
-  echo "  injected messages render in the visible terminal (2026-06-02 convergence)."
+  # No per-agent gateway exists at install time (no agent id), so say it starts at launch and fails loudly.
+  echo "Hermes delivery (managed AND resident): hermes-aify starts a per-agent hidden"
+  echo "  gateway on the port aify-env gives (aify-hermes-gateway; aify-env must run)"
+  echo "  + a background delivery loop that prompt.submits into the visible TUI's"
+  echo "  session; on failure the wrapper prints a FATAL error and exits non-zero."
   if command -v node >/dev/null 2>&1; then
-    if node --check "$(path_for_node "$AIFY_BRIDGE_DIR/hermes-daemon-cli.js")" >/dev/null 2>&1 \
+    if node --check "$(path_for_node "$AIFY_BRIDGE_DIR/node_modules/aify-wrapper/bin/aify-hermes-gateway.mjs")" >/dev/null 2>&1 \
       && node --check "$(path_for_node "$AIFY_BRIDGE_DIR/hermes-managed-host.js")" >/dev/null 2>&1; then
-      echo "  Bridges verified: hermes-daemon-cli.js + hermes-managed-host.js parse OK."
+      echo "  Bridges verified: aify-hermes-gateway.mjs + hermes-managed-host.js parse OK."
     else
-      echo "  ERROR: hermes-daemon-cli.js / hermes-managed-host.js failed node --check — fix before launch." >&2
+      echo "  ERROR: aify-hermes-gateway.mjs / hermes-managed-host.js failed node --check — fix before launch." >&2
     fi
   fi
 fi

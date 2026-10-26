@@ -28,7 +28,7 @@
 // launch's, else the agent's definition's.
 
 import { buildSessionActiveListFrame, pickMostRecentSession, pickSessionById } from "./hermes-gateway-protocol.js";
-import { readGatewayUrlMarker, readSessionIdMarker } from "./hermes-endpoint.js";
+import { readSessionIdMarker } from "./hermes-endpoint.js";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import { TMP_DIR } from "./hermes-env.mjs";
 
@@ -57,16 +57,16 @@ export function startSessionEffort(opts = {}) {
     effort,
     intervalMs = 20_000,
     tempDir = TMP_DIR,
-    gatewayDir,
     openWs = openGatewayWsClient,
-    readGatewayUrl = readGatewayUrlMarker,
+    // `() => ({gatewayUrl})` for the agent's live gateway: the delivery loop's own (0.9.10; a marker file until then).
+    readGatewayUrl,
     readMarker = readSessionIdMarker,
     nextId = (() => { let n = 1; return () => n++; })(),
     log = (msg) => console.error(msg),
   } = opts;
   const id = String(agentId || "").trim();
   const level = String(effort || "").trim();
-  if (!id || !level || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
+  if (!id || !level || typeof readGatewayUrl !== "function" || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
   const set = new Set();
   const said = new Set();
   let stopped = false;
@@ -74,7 +74,7 @@ export function startSessionEffort(opts = {}) {
 
   const tick = async () => {
     if (stopped || passing) return;
-    const wsUrl = readGatewayUrl(id, { gatewayDir })?.gatewayUrl;
+    const wsUrl = readGatewayUrl(id)?.gatewayUrl;
     if (!wsUrl) return;
     passing = true;
     let cli = null;

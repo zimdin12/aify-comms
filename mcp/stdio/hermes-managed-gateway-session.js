@@ -150,7 +150,7 @@ export class HermesManagedGatewaySession {
       const args = [
         // NOTE: `--tui` is NOT passed — hermes 0.15.1's `dashboard` subcommand rejects
         // it. The embedded-chat/`/api/ws` feature it used to enable is now turned on
-        // via the HERMES_DASHBOARD_TUI=1 env below (mirrors ensureGatewayHost).
+        // via the HERMES_DASHBOARD_TUI=1 env below (as aify-wrapper's gateway start does).
         "dashboard",
         "--port", String(this._port),
         "--host", "127.0.0.1",
@@ -165,7 +165,7 @@ export class HermesManagedGatewaySession {
         // tools/approval.py) so it never blocks on tool-approval prompts.
         // HERMES_DASHBOARD_TUI=1 enables the embedded-chat feature that gates the
         // `/api/ws` WebSocket (else it closes 4403 → "gateway websocket connection
-        // failed"). Mirrors the active hermes-managed-host.js ensureGatewayHost spawn.
+        // failed"). As aify-wrapper's gateway start (lib/hermes-gateway-start.mjs) does.
         // INERT on current hermes (upstream `cae6b5486` hardcodes embedded-chat on and
         // removed the gate) — DO NOT REMOVE; retained as the crash-safe lever for
         // pinned-older hermes 0.15.x builds. See hermes-managed-host.js for detail.

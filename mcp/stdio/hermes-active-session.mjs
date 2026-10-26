@@ -17,27 +17,18 @@
 // way, to the neutral `hermes-env.mjs`, because a temp directory is environment identity and nothing to do
 // with sessions. Two-sided readership means a constant needs a deliberate owner; it does not say which one.
 //
-// `resolveHermesPython` was here for one slice and has moved to `hermes-env.mjs`. It arrived because
-// `ensureStableSession` is its only caller, which is a CLOSURE fact — and the reviewer asked whether the
-// members were session-identity or just things a session touches. Read plainly, it takes the hermes command
-// and finds the python interpreter beside it: that is environment resolution, the same subject as
-// `HERMES_CMD` itself, and nothing to do with which session an agent is bound to. A module that keeps every
-// callee its members happen to need becomes the drawer this split exists to avoid.
-//
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run and the wrappers relaunch.
 
 import fs from "fs";
 import path from "path";
-import { spawnSync as nodeSpawnSync } from "node:child_process";
 
 import {
   clearSessionMarker as defaultClearSessionMarker,
   isUsableSessionId,
-  readGatewayUrlMarker,
   readSessionIdMarker,
   writeSessionIdMarker,
 } from "./hermes-endpoint.js";
-import { HERMES_CMD, TMP_DIR, resolveHermesPython } from "./hermes-env.mjs";
+import { TMP_DIR } from "./hermes-env.mjs";
 import { AIFY_SERVER_URL, makeAifyHttpCall } from "./aify-http.mjs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
@@ -107,58 +98,6 @@ export function sessionKeyFor(agentId) {
 
 
 
-export function ensureStableSession({
-  agentId,
-  hermesCmd = HERMES_CMD,
-  spawnSync,
-} = {}) {
-  const id = String(agentId || "").trim();
-  if (!id) return false;
-  const key = sessionKeyFor(id);
-  const py = resolveHermesPython(hermesCmd);
-  // One-shot python: create the row with the explicit id, title it, confirm.
-  const code = [
-    "import sys",
-    "try:",
-    "    from hermes_state import SessionDB",
-    "    db = SessionDB()",
-    "    db.create_session(sys.argv[1], source='aify-managed')",
-    "    try:",
-    "        db.set_session_title(sys.argv[1], sys.argv[1])",
-    "    except Exception:",
-    "        pass",
-    "    ok = bool(db.get_session(sys.argv[1]))",
-    "    try:",
-    "        db.close()",
-    "    except Exception:",
-    "        pass",
-    "    sys.exit(0 if ok else 1)",
-    "except Exception as exc:",
-    "    sys.stderr.write('ensure-session failed: %s\\n' % exc)",
-    "    sys.exit(2)",
-  ].join("\n");
-  try {
-    const runner = spawnSync || nodeSpawnSync;
-    const res = runner(py, ["-c", code, key], {
-      stdio: ["ignore", "ignore", "pipe"],
-      encoding: "utf8",
-      timeout: 30000,
-      env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
-    });
-    if (res && res.status === 0) return true;
-    if (res && res.stderr) {
-      console.error(`[hermes-managed-host] ensureStableSession('${key}'): ${String(res.stderr).trim()}`);
-    }
-  } catch (error) {
-    console.error(
-      `[hermes-managed-host] ensureStableSession('${key}') failed (best-effort):`,
-      error?.message || String(error),
-    );
-  }
-  return false;
-}
-
-
 export async function waitForActiveSession({
   wsClient,
   agentId,
@@ -175,7 +114,7 @@ export async function waitForActiveSession({
   sleepImpl = sleep,
   now = Date.now,
   // STALE-SESSION BIND-RACE GRACE (FIX A, 2026-06-03): on a RELAUNCH the per-agent
-  // gateway host is REUSED (ensureGatewayHost → child=null), so the loop can poll
+  // gateway is REUSED (the launcher hands back the live one), so the loop can poll
   // `session.active_list` BEFORE the freshly-relaunched `hermes --tui` re-attaches.
   // The pickMostRecentSession FALLBACK would then bind a STALE prior session (the
   // one being torn down) and persist it to the marker. The freshness floor (`since`,
@@ -547,21 +486,21 @@ export function startResumeMarkerSync(opts = {}) {
     agentId,
     intervalMs = 20_000,
     tempDir = TMP_DIR,
-    gatewayDir,
     openWs = openGatewayWsClient,
-    readGatewayUrl = readGatewayUrlMarker,
+    // `() => ({gatewayUrl})` for the agent's live gateway: the delivery loop's own (0.9.10; a marker file until then).
+    readGatewayUrl,
     readMarker = readSessionIdMarker,
     writeMarker = writeSessionIdMarker,
     httpCall = makeAifyHttpCall(AIFY_SERVER_URL),
     nextId = (() => { let n = 1; return () => n++; })(),
   } = opts;
   const id = String(agentId || "").trim();
-  if (!id || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
+  if (!id || typeof readGatewayUrl !== "function" || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
   let stopped = false;
 
   const tick = async () => {
     if (stopped) return;
-    const gw = readGatewayUrl(id, { gatewayDir });
+    const gw = readGatewayUrl(id);
     const wsUrl = gw && gw.gatewayUrl;
     if (!wsUrl) return;
     let cli = null;

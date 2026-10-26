@@ -93,18 +93,6 @@ This selection is owned by Hermes; 0.8.7 makes no production fix for it. Use
 The offline startup-helper trace verified those selection paths, not an end-to-end managed spawn
 or provider API call.
 
-## A hermes gateway port beside a wildcard listener reads as free (found 2026-10-05)
-
-`isPortFree` in `mcp/stdio/hermes-endpoint.js` binds 127.0.0.1 only. On Windows that bind succeeds while another
-process holds the same port on 0.0.0.0, so `resolveGatewayPort` chose and persisted 8811 for `sc-tester-gpt`, the
-port Docker publishes for Dashboard Next (0.0.0.0:8811->8801). The gateway's readiness probe then got that
-dashboard's 401, and the spawn failed "did not become ready within 60000ms ... returned 401". `RESERVED_PORTS`
-lists only 8800-8802, while compose now publishes 8811 and 8820-8821 too. Rewriting the agent's
-`%TEMP%\aify-hermes-port-<id>` does NOT work around it: a fresh start clears that marker and probes again (tried
-2026-10-05, the file was back at 8811 during the retry). The workaround is an agent id whose `agentPort` hash lands
-on a port netstat shows free. Fix owed: test the wildcard addresses (0.0.0.0 and ::) as well, and drop the
-hand-written reserved list once the probe sees every listener.
-
 ## A managed hermes agent respawned under a removed agent's id inherits its leftovers (found 2026-10-05)
 
 Removing a managed hermes agent stops its triad and deletes its record, but leaves the id's hermes session marker
@@ -166,8 +154,8 @@ to matter.
   control queued against a virtual terminal's row may sit pending, since nothing claims that bridge id now.
 - **A hermes agent whose TUI is gone can still read online** (2026-10-05, pc-manager): its gateway host and
   delivery loop outlived the TUI, and the aify-comms bridge inside the gateway kept heartbeating as the agent.
-  `managed-orphans` names the loop; `gateway-orphans` passes the gateway, because it counts an orphaned loop as
-  a live owner. Liveness for hermes should need the session, not the gateway's bridge: 0.9 agent state.
+  `managed-orphans` names the loop; `gateway-orphans` passes the gateway, whose lifetime still holds its
+  record. Liveness for hermes should need the session, not the gateway's bridge: 0.9 agent state.
 - **The `comms_*` tools cannot present the operator key.** The bridge sends no `X-Aify-Operator-Key`, so with a
   key set an agent given the key (a main manager) can use it only by calling the API itself, naming `dashboard`
   and sending the header. Bridge support for it is a 0.9 candidate.
@@ -277,7 +265,8 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   limits, was not recorded and is unknown. Bridge: `a-default-argument-is-evaluated-in-production` (process enumeration
   omitted its own pid), `session-fixes` (EBUSY removing a scratch dir),
   `kill-prior-collects-what-a-previous-hermes-left`, `codex-legacy-controller-verbs`,
-  `hermes-daemon-default-killtree` (a process survived a tree kill). aify-env: four takeover and
+  `hermes-daemon-default-killtree` (a process survived a tree kill); three of those were deleted with
+  comms' gateway start in 0.9.10. aify-env: four takeover and
   supersession tests could not rebind ephemeral ports after stopping the predecessor, and the
   dedicated Windows Job isolation test timed out. Not classified: the harness difference is ASSUMED
   to be the cause, not shown.
@@ -353,17 +342,11 @@ These were left on purpose:
 - **The queued-run backstop is refused by a live but deaf instance.** That is the operator's policy
   for automatic starts. aify-env has no respawn loop, so nothing retries in a loop; replacing the
   instance takes a dashboard Start/Restart.
-- **Two hermes port markers naming one port make that port nobody's.** A leftover gateway on it is
-  stopped by neither agent's reap. The next launch moves one agent to a new port, and
-  `gateway-orphans` reports the gateway. Deciding which agent owns it needs evidence the markers do
-  not carry.
 - **A clock stepped backwards can defeat `seenAliveAtMs`.** It is compared with no tolerance, so after
   a VM resume or a large time sync a pid reused after the step could read as the recorded one.
 - **claude's managed reap (`reap-managed-claude.js`) does its own process matching** after a
   successful claim, rather than reading the lease's process table.
 - **Launchers rendered before v0.6.8 have no lease** until `install.sh` is re-run for that client.
-  Their kill-prior no longer reaps by port or session either: `hermes-daemon-cli.js stop` reaps only
-  for a launcher holding the lease.
 - **A terminal host started inside an agent's session keeps that session until it is restarted.**
   Found live on 2026-09-15: a Herdr server started from comms-tech-lead's Claude Code session gave
   every pane that agent's id and conversation, and a bare `claude-aify` in one replaced the live
@@ -390,10 +373,6 @@ These were left on purpose:
   could not be read keeps the moment the pid was seen alive; before `c65593c` that moment was wall-clock while
   start times are anchored, so the first start after the upgrade can misjudge such a record by the drift
   between them. It lasts one instance: the next record is written on one clock.
-- **`gateway-orphans` is only tested below `doctor.js`.** The check's image reader is proven through
-  `checkGatewayOrphans`, but the line in `doctor.js` that hands it `listening-ports.imageName` is reached
-  by no test, because importing `doctor.js` runs the doctor. Removing it makes the climb stop at the
-  listener, a narrower pid than a tree kill needs, never a wider one.
 - **With no `OPERATOR_KEY`, `requestedBy: "dashboard"` is a string any caller can send**, and it
   replaces. With the key set it must present the key, like every other operator name.
 - **Not yet proven on the live fleet.** The suites and mutation runs pass; no live hermes, claude or
@@ -433,18 +412,20 @@ and the knowledge is worth more written down than remembered.
 ## Gateway hosts that outlive their agent: what v0.6.8 left open
 
 Since v0.6.8 a hermes gateway ends with its agent: it carries the launcher's lease pid as
-`HERMES_PARENT_PID` (`gatewayOwnerEnv` in `hermes-gateway.mjs`), the lease's watch (aify-wrapper
-`lib/agent-lease-watch.mjs`) stops what a killed launcher left, and the next start collects the rest.
-Three gaps remain:
+`HERMES_PARENT_PID` (`ownerEnv` in aify-wrapper `lib/hermes-gateway-start.mjs` since 0.9.10), the lease's
+watch (aify-wrapper `lib/agent-lease-watch.mjs`) stops what a killed launcher left, and aify-env ends an older
+lifetime's recorded gateway when the next one starts. Two gaps remain:
 
 - A gateway started by a launcher older than v0.6.8 carries no parent pid.
-- Two hermes port markers naming one port make that gateway nobody's, so neither agent's relaunch
-  collects it.
-- A gateway relaunched from an Administrator terminal (for example by `hermes update`) is reported
-  (`unidentified`) but cannot be stopped from a non-elevated process.
+- A gateway relaunched from an Administrator terminal (for example by `hermes update`) cannot be stopped
+  from a non-elevated process.
 
-`aify-comms doctor`'s `gateway-orphans` row reports all three. The measurements and the chain that
-made a hard kill of the host tier orphan every gateway are in the archive.
+**`gateway-orphans` is narrower since it moved to `aify-env doctor` (0.9.10).** It names a gateway in the
+agent port range that no lifetime records, judged from command lines. Two cases comms' row caught now
+pass: an elevated gateway whose command line cannot be read (comms resolved it through the socket table),
+and a recorded gateway whose own `session.active_list` is empty (no TUI). The lease ends the second with
+its agent; the first is reported by neither. The measurements and the chain that made a hard kill of the
+host tier orphan every gateway are in the archive.
 
 A fourth, found 2026-09-28: pc-manager's resident gateway (started 2026-09-25) carried no
 `AIFY_AGENT_LEASE`, so it had no `HERMES_PARENT_PID` and its launcher's death stopped nothing; what
@@ -454,7 +435,7 @@ since 2026-09-10. Its delivery loop left no log, so which path it was on is not 
 closed. A connect the gateway rejects any way but "refused" (a stale token answers 403) used to be
 retried for ever; the loop now reports the agent undeliverable after a bounded run of them and ends,
 killing nothing. And `gateway-orphans` exempted a gateway with a live loop or a resident owner; it
-now reports any gateway whose own `session.active_list` is a recognised empty list. A failed or
+then reported any gateway whose own `session.active_list` was a recognised empty list (comms' row, until 0.9.10). A failed or
 unrecognised read stays unknown in both.
 
 ## Two viewers of one agent share its terminal size: the one that types owns it (aify-env 3e8a7f4)

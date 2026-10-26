@@ -1,6 +1,6 @@
 // An agent id becomes part of a FILE PATH in four modules, and nothing tested that it cannot escape.
 //
-// `claude-session-store.js`, `hermes-endpoint.js`, `hermes-daemon.js` and `hermes-loop-ready.js` each build
+// `claude-session-store.js`, `hermes-endpoint.js` and `hermes-loop-ready.js` each build (until 0.9.10 `hermes-daemon.js` too)
 // a store or marker path from an agent id. Agent ids are not operator-typed constants: they arrive from
 // `AIFY_AGENT_ID` in a spawned process's environment, from registration payloads, and from marker files
 // written by other processes.
@@ -33,7 +33,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { claudeSessionStorePath } from "../claude-session-store.js";
-import { readGatewayUrlMarker, writeGatewayUrlMarker } from "../hermes-endpoint.js";
+import { readSessionIdMarker, writeSessionIdMarker } from "../hermes-endpoint.js";
 
 // Ids chosen to escape a directory if the sanitiser or the caller's prefix were weakened.
 const HOSTILE = [
@@ -68,13 +68,13 @@ test("NO agent id can move the claude session store outside its directory", () =
   }
 });
 
-test("NO agent id can make the hermes gateway marker land outside its temp dir", () => {
+test("NO agent id can make the hermes session marker land outside its temp dir", () => {
   // Driven through the real writer, so this covers the caller's prefix as well as the sanitiser — the
   // containment depends on both, and testing the regex alone would prove only half of it.
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "aify-contain-"));
   try {
     for (const id of HOSTILE) {
-      writeGatewayUrlMarker(id, "ws://127.0.0.2:1/gw", { tempDir: base });
+      writeSessionIdMarker(id, "sid_hostile", { tempDir: base });
     }
     // Everything written must be a direct child of `base`, and `base` must contain no directories at all.
     const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -91,7 +91,7 @@ test("NO agent id can make the hermes gateway marker land outside its temp dir",
   }
 });
 
-test("CURRENT DEFECT: two VALIDLY-REGISTERED ids can share one gateway marker", () => {
+test("CURRENT DEFECT: two VALIDLY-REGISTERED ids can share one session marker", () => {
   // Pinned, not fixed — changing the sanitiser renames every existing marker file, which is a migration
   // decision rather than a code fix.
   //
@@ -99,24 +99,23 @@ test("CURRENT DEFECT: two VALIDLY-REGISTERED ids can share one gateway marker", 
   // agent id. The hermes sanitiser maps `.` to `-` and strips trailing hyphens. So `a.b` and `a-b` — two
   // ids that both pass registration — resolve to the SAME marker key, as do `x` and `x-`.
   //
-  // What that marker holds is `gatewayUrl` and `gatewayTokenEnv`. The token itself is never stored (only
-  // the NAME of the variable holding it), so this is not a credential leak — but the two agents overwrite
-  // each other's gateway and can resolve each other's `gatewayUrl` at registration, which presents as an
-  // agent connected to the wrong gateway with nothing in the logs to say why.
+  // What that marker holds is the agent's REAL hermes session id, which its next launch resumes: the two
+  // agents overwrite each other's binding, and one relaunches into the other's transcript with nothing in the
+  // logs to say why. (Until 0.9.10 this was pinned on the gateway-URL marker, which shared the sanitiser.)
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "aify-contain-"));
   try {
-    writeGatewayUrlMarker("a.b", "ws://dotted/gw", { tempDir: base });
-    writeGatewayUrlMarker("a-b", "ws://hyphened/gw", { tempDir: base });
-    const files = fs.readdirSync(base).filter((n) => n.startsWith("aify-hermes-gateway-"));
+    writeSessionIdMarker("a.b", "sid_dotted", { tempDir: base });
+    writeSessionIdMarker("a-b", "sid_hyphened", { tempDir: base });
+    const files = fs.readdirSync(base).filter((n) => n.startsWith("aify-hermes-session-"));
     assert.equal(files.length, 1, "CURRENT: the two ids collapse onto one marker file");
-    assert.equal(readGatewayUrlMarker("a.b", { tempDir: base })?.gatewayUrl, "ws://hyphened/gw",
+    assert.equal(readSessionIdMarker("a.b", { tempDir: base }), "sid_hyphened",
       "CURRENT: `a.b` reads the marker `a-b` wrote");
 
     // The trailing-hyphen pair, same cause.
     const base2 = fs.mkdtempSync(path.join(os.tmpdir(), "aify-contain-"));
     try {
-      writeGatewayUrlMarker("victim", "ws://victim/gw", { tempDir: base2 });
-      assert.equal(readGatewayUrlMarker("victim-", { tempDir: base2 })?.gatewayUrl, "ws://victim/gw",
+      writeSessionIdMarker("victim", "sid_victim", { tempDir: base2 });
+      assert.equal(readSessionIdMarker("victim-", { tempDir: base2 }), "sid_victim",
         "CURRENT: a trailing hyphen collapses onto the bare id");
     } finally {
       fs.rmSync(base2, { recursive: true, force: true });
@@ -131,10 +130,10 @@ test("ids that differ beyond the sanitiser's alphabet still stay distinct", () =
   // NOT collide, and case is preserved in the key even where the filesystem may not honour it.
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "aify-contain-"));
   try {
-    writeGatewayUrlMarker("agent-one", "ws://one/gw", { tempDir: base });
-    writeGatewayUrlMarker("agent-two", "ws://two/gw", { tempDir: base });
-    assert.equal(readGatewayUrlMarker("agent-one", { tempDir: base })?.gatewayUrl, "ws://one/gw");
-    assert.equal(readGatewayUrlMarker("agent-two", { tempDir: base })?.gatewayUrl, "ws://two/gw");
+    writeSessionIdMarker("agent-one", "sid_one", { tempDir: base });
+    writeSessionIdMarker("agent-two", "sid_two", { tempDir: base });
+    assert.equal(readSessionIdMarker("agent-one", { tempDir: base }), "sid_one");
+    assert.equal(readSessionIdMarker("agent-two", { tempDir: base }), "sid_two");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -162,8 +161,8 @@ test("CURRENT: the two sanitiser variants disagree, and both are contained", () 
   try {
     const dotted = claudeSessionStorePath("a.b", base);
     assert.match(path.basename(dotted), /a\.b/, "the claude store preserves dots in an id");
-    writeGatewayUrlMarker("a.b", "ws://x/gw", { tempDir: base });
-    const names = fs.readdirSync(base).filter((n) => n.startsWith("aify-hermes-gateway-"));
+    writeSessionIdMarker("a.b", "sid_x", { tempDir: base });
+    const names = fs.readdirSync(base).filter((n) => n.startsWith("aify-hermes-session-"));
     assert.equal(names.length, 1);
     assert.doesNotMatch(names[0], /a\.b/, "the hermes marker replaces dots");
   } finally {

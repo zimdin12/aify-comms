@@ -7,16 +7,13 @@ import {
   sessionKeyFor,
   startResumeMarkerSync,
 } from "./hermes-active-session.mjs";
-import { defaultKillByPort } from "./hermes-daemon.js";
 import {
   noAttachedSessionTeardownMessage,
   runPollCycle,
 } from "./hermes-delivery-run.mjs";
 import {
-  clearGatewayMarkers as defaultClearGatewayMarkers,
   clearSessionMarker as defaultClearSessionMarker,
   readSessionIdMarker,
-  resolveGatewayPort,
 } from "./hermes-endpoint.js";
 import { TMP_DIR } from "./hermes-env.mjs";
 import { startSessionEffort } from "./hermes-session-effort.mjs";
@@ -36,7 +33,6 @@ import { buildGatewayTurnCallbacks } from "./hermes-turn-detector-callbacks.mjs"
 import { postEnvAgentState } from "./agent-state-event.mjs";
 import {
   MAX_REENSURE_WITHOUT_RECOVERY,
-  ensureGatewayHost,
   gatewayIndexUrlFromWs,
   gatewayRejectedMessage,
   gatewayUnreachableAfterProbesMessage,
@@ -50,6 +46,7 @@ import {
   openGatewayWsClient,
   reportGatewayDead,
 } from "./hermes-gateway.mjs";
+import { gatewayFromLauncher } from "./hermes-gateway-source.mjs";
 import {
   REPULSE_MS,
   REPULSE_WINDOW_MS,
@@ -69,8 +66,9 @@ import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 
-// The per-agent delivery loop: one long-lived async function that owns a gateway child, a websocket,
-// a liveness heartbeat and a turn detector for the lifetime of one managed hermes agent.
+// The per-agent delivery loop: one long-lived async function that owns a websocket to the agent's gateway,
+// a liveness heartbeat and a turn detector for the lifetime of one managed hermes agent. The gateway is the
+// agent's, started by its launcher (hermes-gateway-source.mjs); the loop never starts or kills one itself.
 //
 // Split out of `hermes-managed-host.js` in v0.5.4 with `hermes-delivery-run.mjs`. It is 619 lines and
 // stays ONE function deliberately: its 32 depth-1 declarations are closure state that the seven inner
@@ -109,7 +107,8 @@ const NO_TUI_GRACE_MS = Math.max(
 export async function runDeliveryLoop(agentId, deps = {}) {
   const {
     httpCall = makeAifyHttpCall(AIFY_SERVER_URL),
-    spawnImpl,
+    // The agent's gateway, live or started by the launcher's own command: at bring-up and to recover a dead one.
+    gatewaySource = gatewayFromLauncher,
     fetchImpl,
     openWs = openGatewayWsClient,
     installTeardown = installShutdownTeardown,
@@ -120,30 +119,20 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // agent-removed) the loop tears down + self-exits(0). Injectable so tests
     // never actually exit the test process.
     procExit = (code) => process.exit(code),
-    // Temp dir holding the agent's markers (port/key/daemon-pid/loop-ready).
+    // Temp dir holding the agent's markers (session id, loop-ready).
     // Injectable so the ready-marker tests don't touch the real tmp dir.
     markerDir = TMP_DIR,
     // Ready-marker writer/clearer (Task 1.4). Injectable for tests.
     writeReady = writeLoopReady,
     clearReady = clearLoopReady,
-    // Marker cleanup run on teardown. Clears the loop-ready marker (Task 1.4);
-    // Task 4.1 extends this with the port/key marker clear. Injectable override.
+    // Marker cleanup run on teardown: the claimer lease and the loop-ready marker (Task 1.4). Injectable override.
     clearMarkers,
-    // Port/key gateway-marker clear used by the default teardown cleanup (Task
-    // 4.1). The delivery-loop teardown is the TERMINAL path (410 agent-removed /
-    // dead gateway / release / SIGTERM) — NOT a transient gateway retry — so it
-    // is correct to drop the agent's stable port + key markers here. Injectable.
-    clearGatewayMarkers = defaultClearGatewayMarkers,
-    // PERSISTENT session-id marker clear (2026-06-03). Distinct from
-    // clearGatewayMarkers (which no longer touches the session marker): the
+    // PERSISTENT session-id marker clear (2026-06-03): the
     // agent→real-session binding must survive a relaunch but be removed on a
     // TERMINAL agent removal (410) so a deleted agent leaves no stale session
     // binding behind. Called ONLY in the agent-removed branch below — NEVER on a
     // released/relaunch teardown. Injectable so tests assert it.
     clearSessionMarker = defaultClearSessionMarker,
-    // Port→PID→kill primitive for a reused (child===null) gateway host (Task
-    // 1.2). Injectable so tests assert the port-kill without touching a process.
-    killByPort = defaultKillByPort,
     // Liveness-heartbeat factory (Task 1.1). Injectable so tests can assert the
     // beat is registered BEFORE the gateway bring-up; production uses the real
     // unconditional beat from liveness-heartbeat.js.
@@ -164,6 +153,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // The effort hermes-aify resolved for this agent, set on each live session (hermes-session-effort.mjs).
     sessionEffort = process.env.AIFY_HERMES_SESSION_EFFORT || "",
     startEffort = startSessionEffort,
+    startResumeSync = startResumeMarkerSync,
   } = deps;
   const id = String(agentId || "").trim();
   // Cold-start grace anchor: the moment the delivery loop began. An empty
@@ -177,7 +167,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   console.error(serverUrl
     ? "[hermes-managed-host] delivery loop started; waiting for gateway before /dispatch/claim."
     : "[hermes-managed-host] cannot claim: service_url_missing; claims disabled because no service URL is configured.");
-  const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
+  // The agent's gateway once the bring-up below has it; replaced when a dead one is recovered.
+  let host = null;
+  const liveGatewayUrl = () => (host ? { gatewayUrl: host.wsUrl } : null);
 
   // Task 1.1: register the channel-sidecar liveness heartbeat BEFORE the gateway
   // bring-up so the agent's bridge_instances row exists before any gateway await.
@@ -199,7 +191,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // RESUME-POINTER SYNC: keep the durable resume marker + aify handle tracking the TUI's live
   // session so a restart resumes it instead of minting a fresh "(untitled)" one. Best-effort,
   // unref()'d — it dies with this `run` process on teardown/procExit (no explicit stop needed).
-  startResumeMarkerSync({ agentId: id, tempDir: markerDir });
+  startResumeSync({ agentId: id, tempDir: markerDir, readGatewayUrl: liveGatewayUrl });
   // REASONING EFFORT: hermes has no launch-time lever for it on this path, so it is set per live session.
   // STARTED INSIDE THE LOOP'S try, so every way out of the loop stops it, and STOPPED FIRST by teardown
   // and by giving up, before either awaits anything: a pass already under way then sends nothing new
@@ -208,14 +200,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   let stopEffort = () => {};
 
   // Teardown state shared between the SIGTERM handler and the terminal/release
-  // self-exit so teardown runs at most once. `makeTeardown` kills the gateway
-  // host ONLY when this loop SPAWNED it (an owned child handle). A REUSED gateway
-  // (child===null, started by the wrapper for the visible TUI) is shared with the
-  // TUI and is NEVER killed by the loop (2026-06-02 fix — killing it dropped the
-  // TUI's WebSocket). The reused gateway is reaped by kill-prior on relaunch /
-  // the env-bridge survivor sweep on restart, keyed off its persisted port marker.
+  // self-exit so teardown runs at most once. It never touches the gateway: that is the
+  // agent's, shared with its visible TUI, and ends with the agent's lease.
   const teardownState = { done: false };
-  let gatewayChild = null;
   // WS5 Task 5.1 (2026-06-02): the explicit claimer lease. POST `acquire` once
   // the loop is a live claimer (same point as the loop-ready marker) and
   // `release` in the terminal teardown. The lease is the server's POSITIVE
@@ -239,49 +226,32 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   };
   // On teardown, drop the loop-ready marker (Task 1.4) so the wrapper's
   // health-gate never sees a stale "live claimer" for a torn-down loop. An
-  // explicit clearMarkers override (Task 4.1 port/key clear) wins when provided.
+  // explicit clearMarkers override wins when provided.
   const effClearMarkers =
     typeof clearMarkers === "function"
       ? clearMarkers
       : async () => {
           // Terminal teardown: release the claimer lease (WS5 Task 5.1) so the
           // agent is IMMEDIATELY not-deliverable, and drop the loop's OWN
-          // loop-ready marker (Task 1.4). Do NOT clear the gateway port/key
-          // markers here (2026-06-02): they tie to the gateway host — which the
-          // loop no longer kills — and kill-prior needs the persisted PORT marker
-          // to reap that gateway on the next relaunch. Clearing them while the
-          // gateway+TUI are still alive caused port-drift. Release even if the
+          // loop-ready marker (Task 1.4). Release even if the
           // acquire post failed, so a partial acquire never strands a phantom lease.
           await postClaimerLease("release");
           clearReady(id, markerDir);
         };
   const teardown = () => {
     stopEffort();
-    return makeTeardown({
-      gatewayChild,
-      clearMarkers: effClearMarkers,
-      state: teardownState,
-    })();
+    return makeTeardown({ clearMarkers: effClearMarkers, state: teardownState })();
   };
-  installTeardown({ getChild: () => gatewayChild, teardown });
+  installTeardown({ teardown });
 
-  const spawn = spawnImpl || (await import("node:child_process")).spawn;
-  // Task 1.1: bring the gateway up inside a BOUNDED-RETRY path. A transient
-  // failure (e.g. "index token timeout") is NON-fatal — the loop keeps its
+  // Task 1.1: get the gateway inside a BOUNDED-RETRY path. A transient
+  // failure is NON-fatal — the loop keeps its
   // liveness heartbeat and retries, rather than the old pre-loop throw →
   // process.exit(1) that left the agent `online` with no claimer (defect #2).
-  // Idempotent: if the wrapper's `ensure-host` already started it, probeFirst
-  // reuses it (child=null); otherwise we (re)spawn it ourselves.
-  let host = null;
+  // The launcher started it moments ago, so this normally hands back that live one.
   for (let attempt = 0; maxIterations === undefined || attempt < maxIterations; attempt++) {
     try {
-      // verifyWs:false here — the delivery loop opens `/api/ws` itself right below
-      // (`openWs(host.wsUrl)`) with its own connect-refused self-correct, so a
-      // readiness probe in ensureGatewayHost would double-open the socket and
-      // pre-empt that path. The primary `/api/ws` readiness guard lives in the
-      // CLI `ensure-host` path (runEnsureHostCli), which is what declares the
-      // gateway ready for the wrapper before the TUI attaches.
-      host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, verifyWs: false });
+      host = await gatewaySource({ agentId: id });
       break;
     } catch (error) {
       console.error(
@@ -297,10 +267,6 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     stopLiveness();
     return { released: false, processed: 0 };
   }
-  gatewayChild = host.child;
-  // `host.child` is non-null ONLY when THIS loop spawned the gateway; on the
-  // reused path (the wrapper/TUI's gateway) it is null, so the loop's teardown
-  // leaves that shared gateway alone (2026-06-02 fix).
 
   let wsClient = null;
   const wsIsOpen = (client) => {
@@ -524,25 +490,24 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // retry changes that.
   // It proves nothing about the TUI, so it is counted apart from an empty session list.
   let rejectedConnects = 0;
-  // Report the agent lost and end the loop. `killOwnedGateway` is true only on the CONFIRMED-empty
-  // path, and even then `teardown` kills a gateway only if this loop spawned it: a reused one belongs to
-  // the visible TUI (2026-06-02) and is left for kill-prior and `aify-comms doctor`. The lease and the
-  // ready marker are released either way.
-  const giveUp = async (reason, { killOwnedGateway }) => {
+  // Report the agent lost and end the loop, releasing the claimer lease and the ready marker. The gateway is
+  // the agent's and stays up for its visible TUI (2026-06-02).
+  const giveUp = async (reason) => {
     stopEffort();
     await reportGatewayDeadOnce(reason);
     stopLiveness();
     stopRepulse();
     stopGatewayTurnDetector();
     stopGatewayProbe();
-    if (killOwnedGateway) await teardown();
-    else await makeTeardown({ gatewayChild: null, clearMarkers: effClearMarkers, state: teardownState })();
+    await teardown();
     return { released: false, processed: totalProcessed, residentLost: true };
   };
   try {
     // Not once a teardown has begun: one requested during the gateway bring-up found nothing to stop, and
     // the effort acquired after it set a session anyway (review of P6r3, H4). `done` is set on entry.
-    if (!teardownState.done) stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
+    if (!teardownState.done) {
+      stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs, readGatewayUrl: liveGatewayUrl });
+    }
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
         if (!serverUrl) {
@@ -569,8 +534,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
             // loop. Idempotent + double-spawn-safe: it respawns ONLY when the dashboard
             // index is truly unreachable (a bound-but-ws-broken gateway stays `alive`
             // here → falls through to the reactive resident-lost path, preserving that
-            // behavior), never fights a teardown, and ensureGatewayHost's probeFirst
-            // reuses any live host.
+            // behavior), never fights a teardown, and the launcher's command hands back
+            // any live gateway rather than starting a second (aify-env answers `prepare`).
             // Crash-loop guard: only respawn while the budget holds. Once exhausted,
             // skip the re-ensure so a binds-then-dies gateway falls to resident-lost
             // instead of respawning forever (a fresh ws connect resets the budget below).
@@ -581,8 +546,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
                     indexUrl: gatewayIndexUrlFromWs(host.wsUrl),
                     fetchImpl,
                   }),
-                  ensureHost: () =>
-                    ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, verifyWs: false }),
+                  ensureHost: () => gatewaySource({ agentId: id }),
                   log: (m) => console.error(m),
                 }).catch(() => ({ reEnsured: false }))
               : { reEnsured: false, reason: "reensure-budget-exhausted" };
@@ -595,7 +559,6 @@ export async function runDeliveryLoop(agentId, deps = {}) {
                 );
               }
               host = re.host;
-              if (re.host.child) gatewayChild = re.host.child;
               try {
                 wsClient?.close?.();
               } catch {
@@ -616,7 +579,6 @@ export async function runDeliveryLoop(agentId, deps = {}) {
             // killing nothing: whether a TUI is attached is unknown from here (review of 53ba3622).
             return await giveUp(
               gatewayRejectedMessage(host.wsUrl, rejectedConnects, connectErr?.message || String(connectErr)),
-              { killOwnedGateway: false },
             );
           }
           await sleepImpl(POLL_MS);
@@ -646,9 +608,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         // error (-1) is UNKNOWN and leaves the count alone: an attached TUI whose gateway
         // times out a few reads is still attached (review of 53ba3622 reproduced exactly
         // that being torn down). After NO_TUI_TEARDOWN_CYCLES confirmed empties, promote
-        // to resident-lost: reportGatewayDeadOnce flips the agent off `available` and
-        // teardown reaps the gateway host this loop owns, then self-exit so the
-        // orphaned-but-reachable gateway can no longer keep the agent looking online.
+        // to resident-lost: reportGatewayDeadOnce flips the agent off `available`, then the
+        // loop ends so the orphaned-but-reachable gateway can no longer keep the agent looking online.
         const attachedCount = await countAttachedSessions();
         // COLD-START GRACE (FIX, 2026-06-03): an empty active_list counts toward the
         // no-TUI teardown ONLY once the TUI has attached at least once (latch) OR the
@@ -662,10 +623,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           noTuiCycles = 0;
         } else if (attachedCount === 0 && (hasSeenAttachedTui || now() - loopStartedAt > noTuiGraceMs)
           && ++noTuiCycles >= noTuiTeardownCycles) {
-          return await giveUp(
-            noAttachedSessionTeardownMessage(host.wsUrl, noTuiCycles, { owned: Boolean(gatewayChild) }),
-            { killOwnedGateway: true },
-          );
+          return await giveUp(noAttachedSessionTeardownMessage(host.wsUrl, noTuiCycles));
         }
         // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
         // started (above) + a successful /dispatch/claim round-trip (even with 0
@@ -682,8 +640,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           await postClaimerLease("acquire");
         }
         // Task 1.3: a TERMINAL claim signal (410 agent-removed / graced 404) is
-        // the lifecycle owner's exit cue. Tear down the gateway host (kills by
-        // child or by PORT — Task 1.2), clear markers, and self-exit(0) so a
+        // the lifecycle owner's exit cue. Tear down, clear markers, and self-exit(0) so a
         // tombstoned agent's loop CANNOT keep polling forever (defect #3).
         if (result.terminal) {
           stopLiveness();
@@ -691,15 +648,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           stopGatewayTurnDetector();
           stopGatewayProbe();
           await teardown();
-          // Marker hygiene (fix/hermes-leak P4): the default teardown
-          // intentionally PRESERVES the gateway port/key markers so kill-prior
-          // can reap the shared gateway on a relaunch. But agent-removed (410)
-          // is TERMINAL — the agent is tombstoned and will NOT relaunch — so the
-          // port/key markers are now dead weight that the env-bridge boot sweep
-          // would keep re-finding. Clear them ONLY for agent-removed (a transient
-          // `released`/dead-gateway teardown still keeps them for relaunch).
           if (result.terminal === "agent-removed") {
-            try { clearGatewayMarkers(id, markerDir); } catch { /* best effort */ }
             // FIX 3 (2026-06-03): the agent is TERMINALLY removed (tombstoned, no
             // relaunch), so its persistent agent→real-session binding is now dead
             // weight — clear it too. This is the ONLY teardown path that drops the

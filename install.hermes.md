@@ -121,31 +121,18 @@ Resident and managed agents work the same way. `hermes-aify` starts three proces
 3. The visible `hermes --tui`, attached to the same gateway and resumed on the agent's native Hermes
    session id, which is the agent's `sessionHandle`.
 
-The gateway host carries the launcher's lease pid as `HERMES_PARENT_PID`, so Hermes' own watchdog
-ends it with the agent, and the next start of the agent stops anything a hard kill left behind. After
-a hard kill of aify-env, `aify-comms doctor` `gateway-orphans` names gateways nothing owns.
+The launcher starts the gateway host through aify-wrapper's `aify-hermes-gateway`, which asks aify-env for
+the agent's port and its current gateway, so **aify-env must be running** for a `hermes-aify` launch with an
+agent id. The gateway joins the launcher's lease and carries its pid as `HERMES_PARENT_PID`, so Hermes' own
+watchdog ends it with the agent, and aify-env ends an older lifetime's gateway when the next one starts. After
+a hard kill of aify-env, `aify-env doctor` `gateway-orphans` names gateways no lifetime records.
 
-Gateway discovery uses `os.homedir()/.aify/hermes/gateways/aify-hermes-gateway-<sanitized-agent-id>`.
-Default publication and primary lookup share that location across the ensure-host writer, MCP bridge,
-resume sync, session-effort loop and doctor, independently of `TEMP`, `TMP`, `TMPDIR`, `HERMES_HOME`
-and `AIFY_HOME`. A usable explicit `AIFY_HERMES_GATEWAY_URL` still wins. Reads create nothing; the
-writer creates the directory with mode 0700 and atomically replaces the marker with mode 0600 where
-supported. The URL can contain a token, so do not print the marker. No Windows ACL changes are made.
-
-Only gateway URL discovery moved. Session/resume bindings, port/key claims, PID and loop-ready
-markers keep their existing temp roots. The gateway read/write helpers retain explicit `tempDir`
-as a legacy gateway-directory override and accept `gatewayDir` separately. Resume sync and effort
-use `tempDir` for sessions only and `gatewayDir` for gateway discovery. Cleanup keeps its bare
-legacy launch-directory argument and accepts a third `{ gatewayDir }` argument; it removes the
-stable URL plus the target's legacy port/key/URL files, not its persistent session binding.
-When no usable stable marker is found, the default reader also checks the legacy TEMP location.
-That fallback only reads; it does not copy, rewrite or migrate a marker. Explicit gateway-directory
-overrides remain isolated. Refreshing the MCP entry preserves its existing explicit `TEMP`, `TMP`
-and `TMPDIR` values. In particular, an entry pinned to `/tmp` on laputa keeps those pins, so a new
-reader can still consume an old publisher's `/tmp` marker without a coordinated relaunch window.
-A later `install.sh` run replaces bridge code but leaves those existing marker files in place.
-The next ensure-host publication writes the stable location, which takes precedence. This source
-change alone does not update or activate installed agents.
+The gateway's URL reaches the agent's comms MCP server through the gateway's own environment: the launcher
+mints its session token (`HERMES_DASHBOARD_SESSION_TOKEN`) and starts it with `AIFY_HERMES_GATEWAY_URL` and
+`AIFY_HERMES_GATEWAY_TOKEN` set, and Hermes hands those to the MCP server through its `${VAR}` config. No
+marker file holds the URL (one did until 0.9.10). The URL carries the token, so do not print the gateway's
+environment. aify-env records each agent's `{port, pid, lifetime}` in `~/.aify/hermes-gateways/<agent>.json`;
+the session-id and loop-ready markers stay in the temp directory.
 
 **When a live Hermes turn has no `mcp_aify_comms_*` tools**, its gateway loaded before the MCP server:
 restart `hermes-aify`. **When a send fails with `visible session not found`**, the terminal was started

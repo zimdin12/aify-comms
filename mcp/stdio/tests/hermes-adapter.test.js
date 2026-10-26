@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { HermesAdapter } from "../adapters/hermes.js";
-import { writeSessionIdMarker, clearGatewayMarkers } from "../hermes-endpoint.js";
+import { writeSessionIdMarker } from "../hermes-endpoint.js";
 import { tmpDir } from "./_tmpdir.js";
 
 // ── SEAL THE MARKER DIRECTORY BEFORE ANY TEST RUNS ──────────────────────────────────────────────
@@ -29,12 +29,6 @@ import { tmpDir } from "./_tmpdir.js";
 // conversation to resume. A test writing one for an agent id that happens to be REAL would repoint a
 // live agent at a session of the test's choosing, and nothing would report a fault: the agent would
 // simply resume the wrong conversation on its next launch.
-//
-// `clearGatewayMarkers` is NOT the cleanup for this, which is why the calls below look like they tidy
-// up and do not. It removes the port, key and gateway-URL markers and deliberately leaves the SESSION
-// binding alone -- `hermes-endpoint.js` says so directly: clearing that binding outside a terminal
-// teardown makes the next launch lose its transcript. The cleanup was correct; using it here was the
-// mistake.
 //
 // Sealing TEMP rather than threading `tempDir` through every call is deliberate: the adapter resolves
 // the marker directory INSIDE `discoverSessionId`, so a test cannot reach it by argument. And
@@ -101,7 +95,6 @@ test("discoverSessionId falls back to the per-agent session-id marker", async ()
     const id = await adapter.discoverSessionId({ agentId: "marker-agent", env: {} });
     assert.equal(id, "20260603_marker_bound");
   } finally {
-    clearGatewayMarkers("marker-agent");
     if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
     else process.env.HERMES_SESSION_ID = prevSid;
     if (prevSess === undefined) delete process.env.HERMES_SESSION;
@@ -130,7 +123,6 @@ test("discoverSessionId: explicit operator --resume id WINS over a stale marker 
     });
     assert.equal(id, "20260529_071302_ea65af", "explicit operator resume id is authoritative over the stale marker");
   } finally {
-    clearGatewayMarkers("explicit-agent");
     if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
     else process.env.HERMES_SESSION_ID = prevSid;
     if (prevSess === undefined) delete process.env.HERMES_SESSION;
@@ -177,7 +169,6 @@ test("discoverSessionId: NO explicit flag → stale marker still used (no regres
     });
     assert.equal(id, "20260603_marker_bound", "without the explicit flag the marker is still the fallback");
   } finally {
-    clearGatewayMarkers("noexplicit-agent");
     if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
     else process.env.HERMES_SESSION_ID = prevSid;
     if (prevSess === undefined) delete process.env.HERMES_SESSION;

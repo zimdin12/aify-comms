@@ -9,7 +9,7 @@
 // TUI (Task 1.5): a TUI that can't receive work must never show (the visible-TUI
 // HARD requirement). The loop clears the marker in teardown.
 //
-// Mirrors the per-agent pid-file helpers in hermes-daemon.js: a file under
+// Mirrors the per-agent pid-file helpers hermes-daemon.js had until 0.9.10: a file under
 // os.tmpdir() named `aify-hermes-loop-ready-<agent>`, freshness judged by mtime
 // (so a stale/crash-leftover marker is not mistaken for a live loop), and a
 // best-effort clear. File budget per the 500-line rule: tiny.

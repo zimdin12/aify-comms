@@ -10,7 +10,8 @@
 
 import { spawnSync } from "node:child_process";
 
-import { defaultKillTree, parseProcLines } from "../proc-probes.js";
+import { parseProcLines } from "../proc-probes.js";
+import { terminateProcessTree } from "../runtimes.js";
 import { PS_UTF8_PRELUDE } from "../win32-text.js";
 
 //: The only roots this may sweep: a run root the suite made (`aify-comms-testrun-` and its random suffix). Anything
@@ -77,7 +78,19 @@ export function listWithBirth(run = spawnSync) {
 }
 
 /** Kill what this run left behind and say so. Returns what it found. Never throws. */
-export function sweepLeftBehind(rootName, { list = listWithBirth, killTree = defaultKillTree,
+/** Kill a pid and its tree (taskkill /t /f on win32); false when it could not. */
+export function killTreeOf(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  try {
+    terminateProcessTree({ pid: n }, "SIGKILL");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function sweepLeftBehind(rootName, { list = listWithBirth, killTree = killTreeOf,
   log = (line) => console.error(line), selfPid = process.pid, owners = new Map() } = {}) {
   let found = [];
   try { found = leftBehind(list(), rootName, selfPid, owners); } catch { return []; }

@@ -23,10 +23,7 @@
 // here. Two captures agree today only because nothing calls `chdir`, and a duplicated derivation is the
 // exact defect these owner moves keep removing.
 
-import {
-  AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER,
-  AIFY_HERMES_GATEWAY_URL,
-} from "./hermes-gateway-config.mjs";
+import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import {
   readCapturedClaudeSessionIdForPid,
   readClaudeSessionId,
@@ -124,7 +121,7 @@ export function resolvedRuntimeConfigForRegistration(runtime, previousInfo = nul
     // placeholder string, which would pass through to runtime_config and
     // make the resident-channel controller fail later.
     const gatewayUrl = /^wss?:\/\//i.test(rawGatewayUrl) ? rawGatewayUrl : "";
-    const gatewayTokenEnv = String(marker?.gatewayTokenEnv || AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
+    const gatewayTokenEnv = String(marker?.gatewayTokenEnv || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
     if (gatewayUrl) runtimeConfig.gatewayUrl = gatewayUrl;
     else delete runtimeConfig.gatewayUrl;
     if (gatewayTokenEnv) runtimeConfig.gatewayTokenEnv = gatewayTokenEnv;

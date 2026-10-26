@@ -283,21 +283,6 @@ test("G5 test children cannot inherit a live env lifetime", () => {
   }
 });
 
-test("G5 gateway spawn preserves the binding without a comms-side allowlist", async () => {
-  const { ensureGatewayHost } = await import("../hermes-gateway.mjs");
-  const { EventEmitter } = await import("node:events");
-  const binding = { AIFY_ENV_URL: "http://127.0.0.1:9", AIFY_ENV_INSTANCE: "test", AIFY_LIFETIME: LIFETIME };
-  let spawnedEnv;
-  const child = new EventEmitter();
-  child.unref = () => {};
-  await ensureGatewayHost({ agentId: "hook-agent", port: 9, probeFirst: false, verifyWs: false,
-    readyTimeoutMs: 100, env: binding,
-    spawn: (_cmd, _args, options) => { spawnedEnv = options.env; return child; },
-    fetchImpl: async () => ({ ok: true, text: async () => '__HERMES_SESSION_TOKEN__="owned-test"' }),
-  });
-  for (const [name, value] of Object.entries(binding)) assert.equal(spawnedEnv[name], value);
-});
-
 test("G5 a descriptor's explicit default HTTP port is still a valid loopback endpoint", async () => {
   const home = privateHome();
   const saved = globalThis.fetch;

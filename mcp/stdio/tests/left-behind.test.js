@@ -8,8 +8,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import test from "node:test";
 
-import { defaultKillTree } from "../proc-probes.js";
-import { leftBehind, sweepLeftBehind } from "./left-behind.mjs";
+import { killTreeOf, leftBehind, sweepLeftBehind } from "./left-behind.mjs";
 
 const ROOT = "aify-comms-testrun-AbC123";
 
@@ -88,7 +87,7 @@ test("A REAL PROCESS LEFT RUNNING is killed, and one from elsewhere is not", asy
   const bystander = sleeper("not-this-run");
   const mine = new Set([leftover.pid, bystander.pid]);
   const strays = [];
-  const fencedKill = (pid) => (mine.has(pid) ? defaultKillTree(pid) : strays.push(pid));
+  const fencedKill = (pid) => (mine.has(pid) ? killTreeOf(pid) : strays.push(pid));
   try {
     await new Promise((resolve) => setTimeout(resolve, 300));
     const lines = [];

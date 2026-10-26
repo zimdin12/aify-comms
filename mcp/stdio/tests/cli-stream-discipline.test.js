@@ -1,13 +1,13 @@
 // Which STREAM each CLI writes to, exercised through its real default writers.
 //
 // Nineteenth cluster off the V8-coverage census: the `out`/`err`/`stdout`/`stderr` default parameters of
-// `runResolveSessionCli` (hermes-active-session.mjs), `runHermesDaemonCli` (hermes-daemon-cli.js) and
-// `runEnsureHostCli` (hermes-managed-host.js), plus `cliUsage` in runtime-markers.js. Every existing test
+// `runResolveSessionCli` (hermes-active-session.mjs), plus `cliUsage` in runtime-markers.js. (The daemon and
+// ensure-host CLIs left comms with the gateway start in 0.9.10.) Every existing test
 // injects its own writers - which is the whole point of the seam - so the defaults, the thing that actually
 // runs in production, had a zero call count.
 //
 // THE CONTRACT IS THE STREAM, and it is load-bearing. Each of these CLIs is read by a WRAPPER that parses ONE
-// JSON line (or one bare id) from stdout; `hermes-daemon-cli.js` says so in a comment at the write. Diagnostics
+// JSON line (or one bare id) from stdout. Diagnostics
 // and usage therefore have to go to stderr. A default writer pointing at the wrong stream does not look like a
 // stream bug: the wrapper's JSON.parse fails on usage text, and the operator sees "the daemon failed to start"
 // for a launch that was only ever missing an argument.
@@ -15,16 +15,6 @@
 // EVERY CASE RUNS IN A CHILD PROCESS, because that is the only way to observe the defaults - they write to the
 // real process streams. The child imports the module by absolute URL and calls the function with its NON-writer
 // deps injected, so nothing real is ensured, stopped or spawned.
-//
-// SAFETY: only refusal paths and one faked stop are exercised. `runEnsureHostCli` and `runHermesDaemonCli`
-// would otherwise bring up a gateway host or a daemon on the operator's machine; each refuses before any side
-// effect when its agentId is missing, and that refusal is what gets measured.
-//
-// ONE ENTRY STAYS OPEN, deliberately: `runEnsureHostCli`'s `out` default. It is only called on SUCCESS, after
-// the gateway host is up, so pointing it at the wrong stream is invisible to every path reachable without
-// spawning a real host on the operator's machine — a mutation swapping it survives this file. Its sibling
-// (`err`) and the refusal are covered here; the success-path writer needs a harness that can stand up a fake
-// gateway host, which is its own slice.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -66,62 +56,6 @@ async function runChild(source, extra = {}) {
     child.on("exit", (code) => { clearTimeout(bail); resolve({ code, stdout, stderr }); });
   });
 }
-
-// ── the daemon CLI ──────────────────────────────────────────────────────────
-
-test("the daemon CLI's usage goes to stderr, and stdout stays clean", async () => {
-  // Exit 2 with usage on stderr. Usage on stdout would reach the wrapper's JSON.parse instead.
-  const { code, stdout, stderr } = await runChild([
-    `import { runHermesDaemonCli } from ${moduleUrl("hermes-daemon-cli.js")};`,
-    // No writers injected: the defaults are the subject. `stop` is, so nothing can be stopped.
-    "const rc = await runHermesDaemonCli({",
-    '  argv: ["node", "cli"],',
-    '  stop: async () => { throw new Error("must not stop a daemon"); },',
-    "});",
-    "process.exit(rc);",
-  ].join("\n"));
-
-  assert.equal(code, 2, "the usage exit code changed");
-  assert.match(stderr, /usage: node hermes-daemon-cli\.js stop <agentId>/);
-  assert.equal(stdout, "", `usage text reached stdout: ${JSON.stringify(stdout)}`);
-});
-
-test("the daemon CLI's stop result goes to STDOUT as one JSON line", async () => {
-  // The wrapper parses this. Sending it to stderr would leave the wrapper with an empty stdout and no way to
-  // tell a stopped daemon from a crashed CLI.
-  const { code, stdout, stderr } = await runChild([
-    `import { runHermesDaemonCli } from ${moduleUrl("hermes-daemon-cli.js")};`,
-    "const rc = await runHermesDaemonCli({",
-    '  argv: ["node", "cli", "stop", "agent-x"],',
-    "  stop: async () => ({ stopped: true, pid: 4242 }),",
-    "});",
-    "process.exit(rc);",
-  ].join("\n"));
-
-  assert.equal(code, 0);
-  // Byte-exact, INCLUDING the trailing newline. A line-oriented reader on the other end either blocks waiting
-  // for the terminator or concatenates this with whatever is printed next; `stdout.trim()` in the assertion
-  // hides both, which is how the dropped-newline mutation first survived this file.
-  assert.equal(stdout, `${JSON.stringify({ agentId: "agent-x", stopped: true, pid: 4242 })}\n`);
-  const lines = stdout.split("\n").filter(Boolean);
-  assert.equal(lines.length, 1, `expected exactly one line on stdout, got ${JSON.stringify(stdout)}`);
-  assert.equal(stderr, "", `diagnostics leaked onto stderr for a clean stop: ${JSON.stringify(stderr)}`);
-});
-
-test("the daemon CLI's stop usage also goes to stderr", async () => {
-  const { code, stdout, stderr } = await runChild([
-    `import { runHermesDaemonCli } from ${moduleUrl("hermes-daemon-cli.js")};`,
-    "const rc = await runHermesDaemonCli({",
-    '  argv: ["node", "cli", "stop"],',
-    '  stop: async () => { throw new Error("must not stop a daemon"); },',
-    "});",
-    "process.exit(rc);",
-  ].join("\n"));
-
-  assert.notEqual(code, 0, "a missing stop target exited successfully");
-  assert.match(stderr, /missing <agentId>/);
-  assert.equal(stdout, "");
-});
 
 // ── the resolve-session CLI ─────────────────────────────────────────────────
 
@@ -178,31 +112,6 @@ test("the resolve-session CLI refuses a missing agent id without printing to std
   assert.equal(code, 7, "a missing agent id did not reach the refusal");
   assert.match(stderr, /requires an agentId/);
   assert.equal(stdout, "", "something was printed for a call that refused");
-});
-
-// ── the ensure-host CLI ─────────────────────────────────────────────────────
-
-test("ensure-host refuses a missing agent id before it can bring a host up", async () => {
-  // The refusal has to come first: resolving a port or spawning a gateway for a nameless agent would leave a
-  // process nothing owns. Its default writers are in place and must stay silent on stdout.
-  const { code, stdout, stderr } = await runChild([
-    `import { runEnsureHostCli } from ${moduleUrl("hermes-managed-host.js")};`,
-    "try {",
-    "  await runEnsureHostCli('', {",
-    '    spawnImpl: () => { throw new Error("must not spawn a gateway host"); },',
-    '    fetchImpl: async () => { throw new Error("must not probe a gateway"); },',
-    "  });",
-    "  process.stdout.write('ENSURED-ANYWAY');",
-    "  process.exit(0);",
-    "} catch (error) {",
-    "  process.stderr.write(String(error && error.message));",
-    "  process.exit(7);",
-    "}",
-  ].join("\n"));
-
-  assert.equal(code, 7, "ensure-host did not refuse a nameless agent");
-  assert.match(stderr, /requires an agentId/);
-  assert.equal(stdout, "", "ensure-host printed coordinates for an agent that has no id");
 });
 
 // ── the runtime-markers script ──────────────────────────────────────────────

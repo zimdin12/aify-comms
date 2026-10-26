@@ -3,13 +3,10 @@
 //
 // VERIFIED BLUEPRINT (docs/superpowers/plans/2026-05-31-managed-hermes-visible-tui-and-governance.md):
 // per managed hermes agent there are TWO hidden processes + aify's own WS client.
-// This module is the per-agent helper that owns #1 and #3:
-//   1. GATEWAY HOST: a HIDDEN `hermes dashboard --port <P> --host 127.0.0.1
-//      --no-open --skip-build` child (windowsHide:true — no popup window). It is
-//      the ONLY server of the JSON-RPC WS `/api/ws`. (hermes 0.15.1 dropped the
-//      `dashboard --tui` form — `--tui` is now a rejected arg on the subcommand;
-//      see ensureGatewayHost.) Auth token is scraped from the dashboard index
-//      HTML (`__HERMES_SESSION_TOKEN__`).
+// This module is the per-agent helper that owns #3:
+//   1. GATEWAY HOST: a HIDDEN `hermes dashboard` the launcher starts (0.9.10: aify-wrapper's
+//      `aify-hermes-gateway`, on the port aify-env gives). It is the ONLY server of the
+//      JSON-RPC WS `/api/ws`; comms never starts or kills one.
 //   2. (the VISIBLE Ink TUI in the bridge node-pty is started by the wrapper —
 //      NOT here; that is install.sh's job. It attaches to THIS gateway host via
 //      HERMES_TUI_GATEWAY_URL.)
@@ -39,20 +36,8 @@ import { readAgentBindingFile } from "./binding-file.js";
 import {
   TMP_DIR,
 } from "./hermes-env.mjs";
-import {
-  ensureStableSession,
-  runResolveSessionCli,
-} from "./hermes-active-session.mjs";
-import {
-  ensureGatewayHost,
-  openGatewayWsClient,
-} from "./hermes-gateway.mjs";
-import {
-  resolveGatewayPort,
-  writeGatewayUrlMarker,
-} from "./hermes-endpoint.js";
+import { runResolveSessionCli } from "./hermes-active-session.mjs";
 import { runDeliveryLoop } from "./hermes-delivery-loop.mjs";
-import { attachToAgentLease } from "./agent-lease-attach.mjs";
 
 loadSettingsEnv();
 
@@ -193,23 +178,6 @@ function readBoundAgentId() {
 // Default aify httpCall(method, endpoint, body) against ${baseUrl}/api/v1.
 
 // ---------------------------------------------------------------------------
-// 1. GATEWAY HOST — hidden `hermes dashboard --tui` child + token scrape.
-// ---------------------------------------------------------------------------
-
-// Fetch the dashboard index and scrape __HERMES_SESSION_TOKEN__. Returns the
-// token string or throws. fetchImpl is injectable (tests pass a fake).
-
-// Poll the dashboard index until it responds (and carries a token), or the
-// deadline elapses. Returns the token.
-
-// Spawn (idempotently) the hidden gateway host and return its coordinates.
-//   { port, token, wsUrl, child }
-// - `hermes dashboard --port <port> --host 127.0.0.1 --no-open --skip-build`
-// - detached:true, windowsHide:true (CRITICAL — no popup OS window).
-// - When probeFirst is set we probe the index first; if a host is already
-//   serving (token scrape succeeds) we DON'T spawn (idempotent re-attach).
-
-// ---------------------------------------------------------------------------
 // Blast-radius isolation (task #237 item a): PROACTIVE gateway re-ensure.
 // ---------------------------------------------------------------------------
 //
@@ -225,8 +193,8 @@ function readBoundAgentId() {
 //   - NEVER double-spawns: it re-ensures ONLY when `isAlive()` reports the gateway
 //     dead (dashboard index unreachable). A gateway that is bound but merely
 //     ws-broken stays `alive` here and is left to the reactive resident-lost path —
-//     so this never fights that behavior. On top of that, `ensureHost` is expected to
-//     be `ensureGatewayHost` (probeFirst), which itself reuses any live host.
+//     so this never fights that behavior. On top of that, `ensureHost` is the launcher's
+//     command, which hands back any live gateway (aify-env answers `prepare`).
 //   - NEVER fights a deliberate stop: `isStopping()` short-circuits before any probe
 //     or spawn, so a teardown-in-progress is never re-spawned.
 //
@@ -244,32 +212,6 @@ function readBoundAgentId() {
 // Pure budget arbiter so the guard is unit-testable without sockets/processes. Returns
 // the next budget: a live ws RESETS to max; a re-ensure DECREMENTS (floored at 0); a
 // steady tick is unchanged. Callers gate the respawn on `budget > 0`.
-
-// ---------------------------------------------------------------------------
-// Stable session pre-seed — guarantee `aify-<agentId>` exists in hermes' DB so
-// the visible TUI's `--resume aify-<agentId>` resolves on the VERY FIRST launch.
-// ---------------------------------------------------------------------------
-//
-// WHY: `hermes --tui --resume <id>` calls the gateway `session.resume`, which
-// returns 4007 "session not found" when <id> matches neither a session id nor a
-// title (tui_gateway/server.py session.resume). On a fresh agent `aify-<id>`
-// doesn't exist yet → first launch would land on "error: session not found"
-// with no live session. We pre-create a persisted row with the EXPLICIT id
-// `aify-<id>` (INSERT OR IGNORE — idempotent, never duplicates) so resume
-// always succeeds. This mirrors how the api_server/resident path pins an
-// explicit `aify-<id>` session id. Best-effort: any failure here is swallowed
-// so a missing/old hermes never breaks the TUI launch (the TUI then forges a
-// session exactly as it does today — no regression).
-
-// Resolve the hermes venv python interpreter next to the hermes executable.
-// hermesCmd is typically an absolute path to .../venv/Scripts/hermes(.exe) or
-// .../venv/bin/hermes; the python sibling lives in the same dir. Returns the
-// python path if found on disk, else "python" (PATH fallback).
-
-// Create-or-ignore the stable `aify-<agentId>` session row via the hermes
-// SessionDB. Idempotent (INSERT OR IGNORE) + best-effort (never throws). Returns
-// true when the row is known to exist afterward, false on any failure.
-// `spawnSync` is injectable for tests.
 
 // ---------------------------------------------------------------------------
 // WS client — a thin JSON-RPC request/response wrapper over `ws`.
@@ -336,7 +278,7 @@ function readBoundAgentId() {
 // Derive the gateway HOST index URL (`http://127.0.0.1:<port>/`) from the
 // gateway WS URL (`ws://127.0.0.1:<port>/api/ws?token=...`). The index is the
 // cheapest reachability signal for the hidden `hermes dashboard --tui` host —
-// the same surface ensureGatewayHost's idempotent probe uses. Returns "" when
+// the same surface the gateway start's readiness reads. Returns "" when
 // the URL can't be parsed (probe then treats the gateway as unreachable).
 
 // Build a single-shot gateway reachability probe for the proactive liveness
@@ -439,28 +381,6 @@ function readBoundAgentId() {
 // passed in so it persists across poll cycles.
 
 // ---------------------------------------------------------------------------
-// Teardown — kill the gateway-host child on shutdown / release.
-// ---------------------------------------------------------------------------
-
-// Kill the gateway-host child. Best-effort + idempotent (a shared `state` flag
-// guards double teardown). NEVER throws.
-
-// Build a bound teardown callback that kills the gateway host the loop owns —
-// by its OWNED CHILD HANDLE when one exists, else BY PORT (a reused host the
-// loop attached to via the idempotent probe has child===null but still must be
-// killed when this loop is its lifecycle owner). Best-effort + idempotent via a
-// shared `state` flag. NEVER throws. `killByPort` defaults to the real
-// port→PID→kill from hermes-daemon.js; `clearMarkers` (optional) runs after the
-// kill so a teardown also drops the agent's port/key markers (Task 4.1 wiring).
-
-// Wire SIGTERM/SIGINT → teardown → exit. When the caller supplies a bound
-// `teardown` (the port-aware makeTeardown from runDeliveryLoop, Task 1.2) it is
-// used so a SIGTERM kills a reused (child===null) host BY PORT too; otherwise it
-// falls back to the legacy child-only teardownGatewayHost. `getChild` returns
-// the current gateway-host child (it's spawned after handler install). `proc` is
-// injectable for tests.
-
-// ---------------------------------------------------------------------------
 // Terminal-condition classifier for the delivery loop.
 //
 // The delivery loop is the triad's lifecycle OWNER: on a terminal condition it
@@ -522,70 +442,6 @@ function readBoundAgentId() {
 // UNCHANGED — clearing is resolve's job, not this beat's.
 
 // ---------------------------------------------------------------------------
-// `ensure-host` CLI mode — bring the hidden gateway host up (or reuse) and
-// print ONE JSON line {port, token, wsUrl} to stdout for the wrapper to parse.
-// ---------------------------------------------------------------------------
-
-// Resolve+ensure the gateway host and emit {port, token, wsUrl}. `deps` is
-// injectable (spawnImpl, fetchImpl, out/err writers). Returns the coords.
-export async function runEnsureHostCli(agentId, deps = {}) {
-  const {
-    spawnImpl,
-    fetchImpl,
-    openWsImpl = openGatewayWsClient,
-    attach = attachToAgentLease,
-    out = (s) => process.stdout.write(s),
-    err = (s) => process.stderr.write(s),
-  } = deps;
-  const id = String(agentId || "").trim();
-  if (!id) throw new Error("ensure-host requires an agentId");
-  const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
-  // DEAD PRE-SEED (2026-06-03 cleanup): the synthetic `aify-<id>` SessionDB row is
-  // no longer resumed — the native-session-id model resumes the agent's REAL
-  // session id (the marker), so ensureStableSession only littered
-  // `hermes sessions list` with an orphan `aify-<id>` row on EVERY launch. It is
-  // now OFF by default; the `ensureSession === true` seam is retained as an
-  // explicit opt-in (and so the existing `ensureSession:false` test stays green).
-  if (deps.ensureSession === true) {
-    ensureStableSession({ agentId: id, spawnSync: deps.spawnSyncImpl });
-  }
-  const spawn = spawnImpl || (await import("node:child_process")).spawn;
-  // A gateway THIS call starts is detached from the launcher, so it joins the agent lease the moment it is
-  // spawned: the next start of this agent can then find it however this generation ends -- including a
-  // gateway that never becomes ready, which ensureGatewayHost throws on while the child keeps running.
-  const spawnJoiningLease = (...args) => {
-    const child = spawn(...args);
-    if (child?.pid) attach({ agentId: id, pid: child.pid, kind: "gateway" });
-    return child;
-  };
-  const host = await ensureGatewayHost({ agentId: id, port, spawn: spawnJoiningLease, fetchImpl, openWsImpl });
-  // Persist the gateway URL in an AGENT-KEYED marker so the in-session MCP
-  // bridge (server.js) can auto-register the gateway even though its env only
-  // ever has the unresolved `${AIFY_HERMES_GATEWAY_URL}` placeholder — the
-  // gateway host can't inject its own URL into the MCP child's env at spawn
-  // time. Without this, every agent depended on either a cwd-keyed marker
-  // (collides for same-folder agents) or the agent hand-rolling registration.
-  writeGatewayUrlMarker(id, host.wsUrl, {
-    gatewayTokenEnv: process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "",
-  });
-  // The gateway host must OUTLIVE this short-lived CLI process (the delivery
-  // loop + the visible TUI attach to it). It was spawned detached+unref'd.
-  // NOTE: the legacy `resumeKey` (synthetic `aify-<id>` name) is no longer
-  // emitted — the native-session-id model resumes the agent's REAL session id, so
-  // the wrapper no longer consumes a synthetic resume key (install.sh guards on
-  // its presence and falls back when absent). Dropped to stop advertising a dead
-  // field (2026-06-03 cleanup).
-  const payload = {
-    port: host.port,
-    token: host.token,
-    wsUrl: host.wsUrl,
-  };
-  out(JSON.stringify(payload) + "\n");
-  err(`[hermes-managed-host] gateway host ready for '${id}' on port ${host.port}\n`);
-  return payload;
-}
-
-// ---------------------------------------------------------------------------
 // `resolve-session` CLI mode — LAUNCH-SIDE session convergence (FIX C, 2026-06-03).
 // ---------------------------------------------------------------------------
 //
@@ -622,18 +478,12 @@ export async function runEnsureHostCli(agentId, deps = {}) {
 // ---------------------------------------------------------------------------
 
 // Dispatch on argv. Modes:
-//   ensure-host <agentId> → runEnsureHostCli (prints JSON line, exits 0)
 //   resolve-session <id>  → runResolveSessionCli (prints the freshest live id)
 //   run <agentId>         → runDeliveryLoop (claim/deliver loop + teardown)
 //   (none)                → legacy resident-driven loop using the bound agent.
 // `deps` is injectable for tests.
 export async function runCli(argv, deps = {}) {
   const mode = String(argv[0] || "").trim();
-  if (mode === "ensure-host") {
-    const agentId = String(argv[1] || "").trim() || readBoundAgentId();
-    await runEnsureHostCli(agentId, deps);
-    return { mode: "ensure-host", agentId };
-  }
   if (mode === "resolve-session") {
     const agentId = String(argv[1] || "").trim() || readBoundAgentId();
     // Optional `--explicit <id>` (BUG 2): an operator `--resume <id>` is
@@ -659,7 +509,7 @@ export async function runCli(argv, deps = {}) {
     return { mode: "run", agentId };
   }
   // No subcommand: behave like the old main loop (resolve the bound agent and
-  // drive it). Both spawns the host and runs the loop.
+  // drive it).
   const agentId = readBoundAgentId();
   await runDeliveryLoop(agentId, deps);
   return { mode: "loop", agentId };

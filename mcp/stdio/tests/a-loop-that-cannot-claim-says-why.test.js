@@ -164,17 +164,16 @@ test("404 grace and 410 terminal handling remain unchanged", async () => {
 });
 
 async function loop(serverUrl) {
-  let fetches = 0;
+  let asked = 0;
   let claims = 0;
-  let spawns = 0;
   let loggedBeforeGateway = false;
   const out = await capture((lines) => runDeliveryLoop("fixture-claim-diagnostic", {
     serverUrl, markerDir: MARKERS, maxIterations: 2, sleepImpl: async () => {},
-    spawnImpl: () => { spawns++; assert.fail("the fixture gateway must be reused"); },
-    fetchImpl: async () => {
-      if (fetches++ === 0) loggedBeforeGateway = (serverUrl ? /started.*waiting for gateway/ : /service_url_missing/).test(lines[0] || "");
-      return { ok: true, text: async () => '<script>window.__HERMES_SESSION_TOKEN__="fixture-token";</script>' };
+    gatewaySource: async () => {
+      if (asked++ === 0) loggedBeforeGateway = (serverUrl ? /started.*waiting for gateway/ : /service_url_missing/).test(lines[0] || "");
+      return { port: 9, token: "fixture-token", wsUrl: "ws://127.0.0.1:9/api/ws?token=fixture-token", child: null };
     },
+    fetchImpl: async () => ({ ok: true, text: async () => "" }),
     openWs: async () => ({ request: async () => ({ result: { sessions: [{ id: "fixture-session", status: "ready" }] } }), close() {} }),
     installTeardown() {}, startLivenessHeartbeat: () => () => {}, startEffort: () => () => {},
     httpCall: async (method, endpoint) => {
@@ -183,8 +182,7 @@ async function loop(serverUrl) {
       return { ok: true };
     }, writeReady() {}, clearReady() {},
   }));
-  assert.equal(spawns, 0);
-  assert.ok(fetches > 0, "the real loop never reached the injected gateway");
+  assert.ok(asked > 0, "the real loop never asked for its gateway");
   assert.ok(loggedBeforeGateway, "the startup diagnostic must precede the gateway await");
   return { ...out, claims };
 }

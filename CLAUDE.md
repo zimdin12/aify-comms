@@ -137,7 +137,6 @@ Neither reads ok.
 | `tier-version` | the aify-env serving this host is older than `MINIMUM_AIFY_ENV_VERSION` (`tier-version-check.mjs`) |
 | `definitions-fresh` | a host whose agent definitions still govern here has not pushed them for 10 minutes; prints the service's `definitions.notice` (`definitions-fresh-check.mjs`) |
 | `spawn-queue` | a spawn request a host claimed and never started, aged against the service's `SPAWN_ORPHAN_GRACE_SECONDS`; reports, never acts |
-| `gateway-orphans` | hermes gateway hosts in aify-comms' port range with no worker behind them or no session in their own `session.active_list` (resident ones too), including unclaimed ports and elevated processes whose command line cannot be read |
 | `session-handles` | one native session handle claimed by more than one agent; reports, never refuses |
 | `api-exposure` | an unauthenticated fleet listing that also returns live gateway tokens |
 | `external-keys` | `EXTERNAL_KEYS` that restrict nothing: no `API_KEY` is set, or the entry is malformed |
@@ -149,7 +148,8 @@ Neither reads ok.
 `bridge-running` and `agent-identity` skip on Windows. Wrapper and runtime checks belong to
 `aify-wrapper-check`, and terminal capability to `aify-env doctor` (docs/AIFY_ENV_BOUNDARY.md).
 The host checks are in `aify-env doctor` since 0.9.7: `env-processes`, `managed-orphans`,
-`context-window`, `claude-login`, and `env-code-currency` as its `code-current`.
+`context-window`, `claude-login`, and `env-code-currency` as its `code-current`; `gateway-orphans` since
+0.9.10, with the hermes gateway records.
 
 ## Testing a change
 

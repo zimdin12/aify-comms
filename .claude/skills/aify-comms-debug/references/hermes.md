@@ -4,15 +4,15 @@
 
 One `hermes-aify` launch runs three processes per agent:
 
-- **gateway host**: a hidden `hermes dashboard --port <P>` started by `ensureGatewayHost`
-  (`hermes-gateway.mjs`). Its stderr goes to
-  `~/.local/state/aify-comms/hermes-gateway-host-<port>.log`, truncated on each spawn.
+- **gateway host**: a hidden `hermes dashboard --port <P>` the launcher starts from its own environment
+  via aify-wrapper's `aify-hermes-gateway` on aify-env's port, so **aify-env must run**.
+  Its stderr goes to `~/.aify/hermes-gateways/logs/hermes-gateway-<port>.log`, fresh on each start.
 - **delivery loop**: `hermes-managed-host.js run <agent>`, the agent's `channel-sidecar` claimer. It
   submits with `prompt.submit` when idle and `session.steer` when busy.
 - **visible TUI**: `hermes --tui`, attached to that gateway through `HERMES_TUI_GATEWAY_URL`.
 
-Each agent gets its own port, recorded in an `aify-hermes-port-<agent>` marker in the temp directory.
-For any delivery question read `comms_run_status(runId=...)` first, then the gateway-host log.
+aify-env records each agent's port, pid and lifetime in `~/.aify/hermes-gateways/<agent>.json`.
+For any delivery question read `comms_run_status(runId=...)` first, then the gateway log.
 
 ## Resident hermes send fails: `ECONNREFUSED 127.0.0.1:<port>`
 
@@ -41,16 +41,15 @@ fails rather than requeueing forever.
 
 ## Leftover `hermes.exe` processes, or `Session X already has a live owner`
 
-- **Stop and relaunch reap the whole set.** The wrapper's exit trap stops the loop and its gateway
-  when the TUI exits, and each gateway carries its launcher's lease pid as `HERMES_PARENT_PID`, so it
-  ends with its agent.
-- **Kill-prior** (`hermes-prior-reap.mjs`) runs when a new instance of the agent starts. It collects
-  a previous generation's gateway on the agent's own port and whatever hermes records as the owner
-  of the agent's session, and never kills its own ancestry. A `live owner` refusal clears on a
-  relaunch.
+- **Stop and relaunch reap the whole set.** The wrapper's exit trap stops the loop when the TUI exits,
+  and each gateway joins its launcher's lease and carries its pid as `HERMES_PARENT_PID`, so it ends
+  with its agent.
+- **A new launch** claims the lease (stopping what a dead instance left), reaps the previous delivery
+  loop, and aify-env ends the previous lifetime's gateway when the new one asks for a port. A
+  `live owner` refusal clears on a relaunch.
 - **After a hard kill** of the host tier, leftovers are reported, never killed: `gateway-orphans`
-  in `aify-comms doctor` (gateway hosts, an elevated one shown `unidentified` from the socket table)
-  and `managed-orphans` in `aify-env doctor` (delivery loops). Removing them is [operator].
+  (gateways no lifetime records) and `managed-orphans` (delivery loops), both in `aify-env doctor`.
+  Removing them is [operator].
 
 ## Hermes starts a FRESH session after a host-tier restart
 
@@ -82,15 +81,16 @@ Console flashes and closes; the worker's console tail or the wrapper says
 `FATAL: managed gateway host for '<id>' did not come up`.
 
 **Cause.** The hidden gateway host (`hermes dashboard --port <P> --host 127.0.0.1 --no-open
---skip-build`, started by `ensureGatewayHost` in `hermes-gateway.mjs`) did not come up, so no
-delivery loop ever claims. Almost always hermes itself: a broken or half-finished `hermes update`
+--skip-build`, started by aify-wrapper's `aify-hermes-gateway`) did not come up, so no delivery loop
+ever claims. Either no aify-env serves this host (`no aify-env serves instance`: ask `aify-env doctor`),
+or hermes itself: a broken or half-finished `hermes update`
 (`npm error Missing script: "build"` during "Installing TUI dependencies"), or a hermes with no
 built web UI.
 
-**Triage [host].** Read `~/.local/state/aify-comms/hermes-gateway-host-<port>.log`; the host fails fast
-with a named cause for the npm-build case and waits 60s otherwise. Readiness also opens the
-`/api/ws` socket, because hermes' `web_server.py` can serve its index while refusing the socket
-(`AIFY_HERMES_VERIFY_WS=0` turns that probe off). Reproduce by hand:
+**Triage [host].** Read `~/.aify/hermes-gateways/logs/hermes-gateway-<port>.log`; the start fails fast
+with a named cause for the npm-build case or an early exit, and otherwise waits up to ten minutes. Readiness
+also opens the `/api/ws` socket, because hermes' `web_server.py` can serve its index while refusing the
+socket. Reproduce by hand:
 `HERMES_DASHBOARD_TUI=1 hermes dashboard --port 9199 --host 127.0.0.1 --no-open --skip-build`
 should come up within seconds.
 

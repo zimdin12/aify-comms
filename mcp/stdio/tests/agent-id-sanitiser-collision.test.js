@@ -7,9 +7,8 @@
 //     team.coder  ->  team-coder
 //     team-coder  ->  team-coder      <- the same string, and a DIFFERENT agent
 //
-// That name keys FIVE markers in %TEMP%: the gateway PORT, the gateway API KEY, the gateway marker,
-// the daemon PID, and the hermes SESSION ID. Two colliding agents therefore share the gateway they
-// connect to, the key they authenticate with, the daemon they consider theirs, and the session they
+// That name keys the hermes SESSION ID marker and the loop-ready marker in %TEMP% (until 0.9.10 the
+// gateway port, key, URL and daemon PID markers too). Two colliding agents therefore share the session they
 // resume. The session-marker comment three functions away calls the scheme "agent-keyed (never
 // cwd-keyed), so same-folder agents never collide" — which holds only while no two ids fold together.
 //
@@ -29,7 +28,7 @@ import assert from "node:assert/strict";
 
 import { claudeSessionStorePath } from "../claude-session-store.js";
 import { sessionKeyFor } from "../hermes-active-session.mjs";
-import { agentPort, sanitizeAgentId as hermesSanitize } from "../hermes-endpoint.js";
+import { sanitizeAgentId as hermesSanitize } from "../hermes-endpoint.js";
 import { loopReadyFile } from "../hermes-loop-ready.js";
 import { pinnedSessionId } from "../hermes-session-id.js";
 
@@ -99,19 +98,6 @@ function groupBy(ids, keyOf) {
       `${derive.name}: underscores must stay distinct, or the collision set is wider than pinned`,
     );
   }
-}
-
-// ── the port is a SEPARATE axis, and it is designed for ──────────────────────────────────────
-{
-  // `agentPort` is `PORT_BASE + fnv1a(id) % PORT_SPAN` over a 1000-port range, so two agents can
-  // collide by HASH regardless of any sanitiser — at ~17% for a 20-agent fleet on the birthday
-  // bound. That is handled: `resolveGatewayPort` probes forward for a port that is free AND not
-  // claimed by another agent's persist file, then persists the choice. Recorded as examined so it
-  // is not re-derived as a finding: the hash colliding is expected, not a defect.
-  assert.notEqual(agentPort("team.coder"), agentPort("team-coder"),
-    "the port hash reads the RAW id, so the sanitiser fold does not reach it");
-  const port = agentPort("lc-coder");
-  assert.ok(Number.isInteger(port) && port >= 8642 && port <= 9641, `port ${port} outside the range`);
 }
 
 // ── what the fold actually does, so the pin is readable ──────────────────────────────────────

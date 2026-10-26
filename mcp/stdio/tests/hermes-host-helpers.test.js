@@ -19,7 +19,7 @@ import {
   nextReEnsureBudget,
   shouldApplyGatewayTurnEnd,
 } from "../hermes-gateway.mjs";
-import { HERMES_CMD, MACHINE_ID, RUNTIME } from "../hermes-env.mjs";
+import { MACHINE_ID, RUNTIME } from "../hermes-env.mjs";
 import { ATTACH_POLL_MS, ATTACH_WAIT_MS } from "../hermes-active-session.mjs";
 import { classifyClaimError } from "../hermes-delivery-run.mjs";
 import { isGatewaySessionWorking } from "../hermes-gateway-protocol.js";
@@ -93,8 +93,6 @@ test("shouldApplyGatewayTurnEnd suppresses a turn-end only while a dispatch turn
 
 test("hermes-env exposes the identity constants both sides read", () => {
   assert.equal(RUNTIME, "hermes", "the runtime name is what agents are registered under");
-  assert.equal(typeof HERMES_CMD, "string");
-  assert.ok(HERMES_CMD.length > 0, "an empty hermes command would spawn nothing");
   assert.equal(typeof MACHINE_ID, "string");
   assert.ok(MACHINE_ID.length > 0, "an empty machine id breaks same-host claim matching");
 });

@@ -114,9 +114,12 @@ Four gaps between the system and the target.
    `aify-wrapper-check` on that host can.
 
 4. **aify-comms still runs host work.** The operator, 2026-10-02: aify-comms becomes a pure comms
-   service, and each repo's doctor checks only its own responsibilities. Still in aify-comms: the hermes
-   gateway host (starting it, killing a prior one, reaping orphans, resume markers), deriving turn status
-   from hook POSTs, and host checks in its doctor (processes, orphans, context window, claude login).
+   service, and each repo's doctor checks only its own responsibilities. The hermes gateway host left
+   aify-comms in 0.9.10: aify-env chooses the port, records the gateway, ends an older lifetime's and
+   reports orphans, and the launcher starts it from the agent's own environment (where the start runs is
+   the operator's open question; docs/superpowers/plans/2026-10-26-0.9.10-hermes-host-to-aify-env.md). The
+   hermes resume marker stays. Still in aify-comms: deriving turn status from hook POSTs, and host checks
+   in its doctor (processes, orphans, context window, claude login).
    They move to aify-env, which will report turn state to services that opt in. Putting a message into a
    runtime session stays aify-comms' delivery. docs/ROADMAP.md, "Next", has the order.
 

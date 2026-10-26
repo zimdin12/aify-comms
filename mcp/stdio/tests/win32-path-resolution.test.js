@@ -13,10 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { resolveOnWindowsPath } from "../runtimes-exec.js";
 import { PS_UTF8_PRELUDE } from "../win32-text.js";
-import { defaultGetCmdline as hermesGetCmdline } from "../hermes-daemon.js";
 import { defaultGetCmdline as reapGetCmdline, defaultListClaudeProcs } from "../reap-managed-claude.js";
-// `defaultListProcesses` moved to `proc-probes.js` in v0.5.4 with the rest of the process read side.
-import { defaultListProcesses } from "../proc-probes.js";
 import { tmpDir } from "./_tmpdir.js";
 
 function makeExecutable(filePath, content) {
@@ -103,11 +100,9 @@ if (process.platform === "win32") {
     captured.push({ cmd, args });
     return { status: 0, stdout: "" };
   };
-  hermesGetCmdline(1234, fakeSpawnSync);
   reapGetCmdline(1234, fakeSpawnSync);
   defaultListClaudeProcs(fakeSpawnSync);
-  defaultListProcesses(fakeSpawnSync);
-  assert.equal(captured.length, 4, "all four PowerShell inspectors should have been invoked");
+  assert.equal(captured.length, 2, "both PowerShell inspectors should have been invoked");
   for (const { cmd, args } of captured) {
     assert.equal(cmd, "powershell.exe");
     const script = args[args.indexOf("-Command") + 1];
