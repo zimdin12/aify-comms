@@ -9,9 +9,9 @@
 //   * No API key is a CONFIGURATION. `main.py` installs `APIKeyMiddleware` only when `config.api_key`
 //     is set, and it is empty here. A loopback-only deployment can reasonably run open, and a check
 //     that fired on every such deployment is one an operator learns to skim -- this repo's own rule.
-//   * The token is in the listing because a FEATURE NEEDS IT. `hermesGatewayUrlToHttp` pulls `token`
-//     out of that URL to build the clickable link that opens an agent's hermes TUI. Redacting it
-//     would remove the exposure and the feature together, so this reports rather than redacts.
+//   * The token WAS in the listing because a feature needed it: the dashboard's "Open Hermes UI" link.
+//     Since 0.9.10 the service serves agent records redacted and the link reads the token on click
+//     from `GET /agents/{id}/hermes-gateway`, so a row carrying one is a service that predates that.
 //
 // It is the COMBINATION that is worth a line: an unauthenticated endpoint that returns working
 // credentials. That is not a thing anybody chose; it is two reasonable choices meeting.
@@ -83,7 +83,7 @@ export function apiExposureVerdict({
     // every poll, because a browser cannot put `X-API-Key` on a document request. It now exchanges
     // `?api_key=` for an HttpOnly, SameSite=Lax cookie, so the page is opened once with the key in
     // the URL and works from then on.
-    fix: "Three ways out. The first stopped being the expensive one on 2026-08-30: `bash install.sh --client <c> <endpoint> --with-api-key` writes API_KEY to .env where the service reads it and passes the same value to every client it installs, then `docker compose up -d`. THE DASHBOARD STILL NEEDS ONE STEP: a browser cannot send X-API-Key on a document request, so until you open <endpoint>/?api_key=<the value in .env> once -- which trades it for an HttpOnly cookie that Dashboard Next on :8801 also sends, since cookies ignore ports -- every /api/v1 poll answers 401 while /ws stays exempt, leaving a page that reports a live connection over no data. Any OTHER machine needs install.sh re-run or its clients hold no key. The other two are unchanged costs: publish the port on 127.0.0.1 instead of 0.0.0.0, which costs remote environments; or move the gateway token off the fleet listing, which costs the dashboard's one-click hermes console link.",
+    fix: "Three ways out. The first stopped being the expensive one on 2026-08-30: `bash install.sh --client <c> <endpoint> --with-api-key` writes API_KEY to .env where the service reads it and passes the same value to every client it installs, then `docker compose up -d`. THE DASHBOARD STILL NEEDS ONE STEP: a browser cannot send X-API-Key on a document request, so until you open <endpoint>/?api_key=<the value in .env> once -- which trades it for an HttpOnly cookie that Dashboard Next on :8801 also sends, since cookies ignore ports -- every /api/v1 poll answers 401 while /ws stays exempt, leaving a page that reports a live connection over no data. Any OTHER machine needs install.sh re-run or its clients hold no key. The second is unchanged: publish the port on 127.0.0.1 instead of 0.0.0.0, which costs remote environments. The third costs nothing since 0.9.10: rebuild the service, which serves agent records with the gateway token redacted.",
   };
 }
 

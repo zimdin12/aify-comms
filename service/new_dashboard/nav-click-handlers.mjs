@@ -6,6 +6,8 @@
 //
 // `setPage`, `loadAnalytics` and `renderEnvironmentSpawnOptions` are INJECTED: they stay in app.js.
 
+import { api } from './api-client.mjs';
+import { hermesGatewayUrlToHttp } from './console-chooser.js';
 import { loadFiles, renderFiles } from './shared-files.mjs';
 import { loadSpawnRequests } from './environments-panels.mjs';
 import { rangeDef } from './analytics.js';
@@ -39,7 +41,13 @@ export function openEnvironmentSpawn(envSpawn, setPage, renderEnvironmentSpawnOp
 
 // The Hermes tab opener. `noopener,noreferrer` is the part worth keeping honest: without it the opened
 // page gets a handle on this one through `window.opener`.
-export function openHermesTabFromRow(openHermesTab) {
-  const url = openHermesTab.dataset.url;
+//
+// THE URL IS READ ON CLICK (0.9.10): agent records serve the gateway's token redacted, so the button
+// carries only the agent id and asks the service's one read that returns it. The open follows a local
+// fetch inside the click's user activation, which Chromium keeps for about 5 s.
+export async function openHermesTabFromRow(openHermesTab, read = (id) => api(`/agents/${encodeURIComponent(id)}/hermes-gateway`)) {
+  const agentId = openHermesTab.dataset.agentId;
+  if (!agentId) return;
+  const url = hermesGatewayUrlToHttp((await read(agentId))?.gatewayUrl);
   if (url) window.open(url, '_blank', 'noopener,noreferrer');
 }

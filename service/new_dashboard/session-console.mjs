@@ -84,7 +84,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // (Restart/Reset/Stop/Switch/Message-in-Chat) already live in the chat header + Details
   // drawer — so we don't duplicate them here (audit finding C5). Sessions page keeps the full set.
   const isChatSource = opts.source === 'chat';
-  const connectActions = `${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}" title="Open the upstream Hermes browser UI in a separate tab">Open Hermes UI</button>` : ''}`
+  const connectActions = `${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-agent-id="${esc(sessionAgentId(session) || '')}" title="Open the upstream Hermes browser UI in a separate tab">Open Hermes UI</button>` : ''}`
     + `${codexAttachable ? `<button class="ghost" data-action="codex-console-connect" data-agent-id="${esc(agentIdForCodex)}" data-app-server-url="${esc(codexAppServerUrl)}" data-thread-id="${esc(codexThreadId)}">Connect live console</button>` : ''}`;
   const _drawerAgentId = agent?.id || agentIdForCodex || '';
   const lifecycleActions = `${_drawerAgentId ? `<button class="ghost" data-agent-details="${esc(_drawerAgentId)}" title="Open the full lifecycle drawer (edit, handle, env, history, remove…)">Details</button>` : ''}`

@@ -166,40 +166,48 @@ test("openEnvironmentSpawn survives the form field being absent", () => {
 // --- openHermesTabFromRow ----------------------------------------------------------------------
 
 /** Capture window.open calls. */
-function withWindowOpen(run) {
+async function withWindowOpen(run) {
   const had = "window" in globalThis;
   const prev = globalThis.window;
   const calls = [];
   globalThis.window = { open: (...a) => { calls.push(a); return null; } };
   try {
-    return run(calls);
+    return await run(calls);
   } finally {
     if (had) globalThis.window = prev; else delete globalThis.window;
   }
 }
 
-test("openHermesTabFromRow opens with noopener AND noreferrer", () => {
+test("openHermesTabFromRow opens the gateway it READ for that agent, with noopener AND noreferrer", async () => {
   // Without `noopener` the opened page gets a live handle on this one through `window.opener` and can
-  // navigate the dashboard out from under the operator. It is one string and it is the entire security
-  // property of this two-line function.
-  withWindowOpen((calls) => {
-    openHermesTabFromRow({ dataset: { url: "http://gw.local:8080/" } });
+  // navigate the dashboard out from under the operator. The URL and its token come from the read on
+  // click, because agent records serve the token redacted (0.9.10).
+  await withWindowOpen(async (calls) => {
+    const asked = [];
+    const read = async (id) => { asked.push(id); return { gatewayUrl: "ws://127.0.0.1:9341/api/ws?token=live" }; };
+    await openHermesTabFromRow({ dataset: { agentId: "hermes-a" } }, read);
+    assert.deepEqual(asked, ["hermes-a"]);
     assert.equal(calls.length, 1);
     const [url, target, features] = calls[0];
-    assert.equal(url, "http://gw.local:8080/");
+    assert.equal(url, "http://127.0.0.1:9341/?token=live");
     assert.equal(target, "_blank");
     assert.match(features, /noopener/);
     assert.match(features, /noreferrer/);
   });
 });
 
-test("a row with NO url opens nothing rather than a blank tab", () => {
-  // `if (url)`. Opening `undefined` yields an about:blank tab that the operator has to close, and on a
-  // row whose data is still loading that would happen on every click.
-  withWindowOpen((calls) => {
-    openHermesTabFromRow({ dataset: {} });
-    openHermesTabFromRow({ dataset: { url: "" } });
-    assert.deepEqual(calls, []);
+test("a row with NO agent, or a read with no usable gateway, opens nothing rather than a blank tab", async () => {
+  // Opening `undefined` yields an about:blank tab that the operator has to close, and on a row whose
+  // data is still loading that would happen on every click.
+  await withWindowOpen(async (calls) => {
+    const asked = [];
+    const read = async (id) => { asked.push(id); return { gatewayUrl: "wss://example.com/api/ws?token=t" }; };
+    await openHermesTabFromRow({ dataset: {} }, read);
+    await openHermesTabFromRow({ dataset: { agentId: "" } }, read);
+    assert.deepEqual(asked, [], "no agent id, so nothing was asked");
+    await openHermesTabFromRow({ dataset: { agentId: "hermes-a" } }, read);
+    assert.deepEqual(asked, ["hermes-a"], "control: an agent id is asked for");
+    assert.deepEqual(calls, [], "a public host is never opened");
   });
 });
 

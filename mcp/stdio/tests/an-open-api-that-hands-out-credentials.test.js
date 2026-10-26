@@ -65,8 +65,10 @@ test("the remedy names three DECISIONS and does not pretend to be a repair", () 
   const { fix } = apiExposureVerdict({ unauthenticatedRead: true, credentialRows: 1, totalRows: 1 });
   assert.match(fix, /API_KEY/);
   assert.match(fix, /127\.0\.0\.1/);
-  assert.match(fix, /console link|hermes/i, "the cost of the third option must be stated, or it reads "
-    + "as free");
+  // THE THIRD STOPPED COSTING ANYTHING in 0.9.10: the service serves records redacted and the dashboard
+  // reads the token on click, so a row carrying one means a service built before that.
+  assert.match(fix, /rebuild the service/i, "a row with a token has one remedy now, and it must be named");
+  assert.doesNotMatch(fix, /console link/i, "the console link's cost is gone and must not be argued");
   // THE SAME RULE FOR THE FIRST, whose cost CHANGED on 2026-08-30 and had to be restated rather than
   // deleted. It was the expensive option: a browser cannot put `X-API-Key` on a document request, so
   // setting API_KEY 401'd every poll while `/ws` stayed exempt -- a page reporting a live connection

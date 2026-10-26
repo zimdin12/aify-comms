@@ -33,6 +33,7 @@ from service.api_core.outbound_activity import _get_outbound_activity_map
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.dispatch_state import _get_dispatch_state_map
 from service.api_core.records import _agent_record_to_dict
+from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _refresh_expired_agent_live_states
 from service.api_core.ws import _get_ws
@@ -141,6 +142,25 @@ async def get_agent(agent_id: str, request: Request):
         return {"ok": True, "agentId": agent_id, "agent": payload}
     finally:
         await db.close()
+
+@router.get("/agents/{agent_id}/hermes-gateway")
+async def get_hermes_gateway(agent_id: str, request: Request):
+    """The hermes agent's gateway URL WITH its session token, for the dashboard's "Open Hermes UI".
+
+    Agent records serve it redacted (`redact_config`), so this is the one read that returns the token.
+    It is the operator's: with an OPERATOR_KEY set the caller must present it. With none set the API key
+    is the trust boundary (operator ruling, 0.7.5), so this keeps the token out of listings and
+    transcripts but does not stop an agent that asks for it."""
+    prove_operator(DASHBOARD_ACTOR, request, action="reading a hermes gateway token")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT runtime_config FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    finally:
+        await db.close()
+    gateway_url = str(_json_loads_or(row["runtime_config"] if row else "", {}).get("gatewayUrl") or "").strip()
+    if not gateway_url:
+        raise HTTPException(404, f"Agent '{agent_id}' has no hermes gateway")
+    return {"agentId": agent_id, "gatewayUrl": gateway_url}
 
 @router.delete("/agents/{agent_id}")
 async def unregister_agent(agent_id: str, request: Request):

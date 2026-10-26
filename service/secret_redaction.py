@@ -35,3 +35,22 @@ def redact_secrets(text: str) -> str:
         return text or ""
     text = _BEARER.sub(lambda m: m.group(1) + REDACTED, text)
     return _NAMED.sub(lambda m: m.group(1) + REDACTED, text)
+
+
+def redact_config(value):
+    """A stored runtime config or state, as an agent record serves it: `redact_secrets` on every string.
+
+    A hermes agent's `runtimeConfig.gatewayUrl` carries its gateway's session token, and the agent
+    listing served it to every caller holding the shared API key, so any agent could drive another's
+    session, and a record dumped into a transcript carried a live token (2026-10-26). Every string is
+    walked rather than that one field named, so the next credential stored in a config is covered too.
+    The stored row keeps the token: the operator's "Open Hermes UI" reads it from
+    `GET /agents/{id}/hermes-gateway`, and the service's own delivery checks read the row.
+    """
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {key: redact_config(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_config(item) for item in value]
+    return value

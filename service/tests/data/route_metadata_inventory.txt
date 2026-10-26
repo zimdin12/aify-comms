@@ -32,6 +32,7 @@ JsonApiRoute GET /api/v1/agents name=list_agents status=- response_model=- tags=
 JsonApiRoute GET /api/v1/agents/{agent_id} name=get_agent status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/compact/handoff-brief name=get_agent_handoff_brief status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/console name=get_agent_console status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/agents/{agent_id}/hermes-gateway name=get_hermes_gateway status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/last-read name=agent_last_read status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/model name=agent_model status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/pi-session-state name=get_agent_pi_session_state status=- response_model=- tags=api deps=0 in_schema=True

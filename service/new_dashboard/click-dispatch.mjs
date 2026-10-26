@@ -218,7 +218,7 @@ export function dispatchClick(event) {
   }
   const openHermesTab = event.target.closest('[data-action="open-hermes-tab"]');
   if (openHermesTab) {
-    openHermesTabFromRow(openHermesTab);
+    openHermesTabFromRow(openHermesTab).catch((error) => toast(`Hermes UI: ${error.message}`, 'error'));
     return;
   }
   const codexConnect = event.target.closest('[data-action="codex-console-connect"]');

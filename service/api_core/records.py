@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from service.secret_redaction import redact_secrets
+from service.secret_redaction import redact_config, redact_secrets
 from service.api_core.terminal_tail_buffer import current_seq, current_tail
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.liveness import _agent_wake_mode
@@ -409,8 +409,8 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "sessionChanged": bool((row["pending_session_id"] if "pending_session_id" in row.keys() else "") or ""),
         "managedBy": row["managed_by"] or "",
         "capabilities": _row_capabilities(row),
-        "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
-        "runtimeState": _json_loads_or(row["runtime_state"], {}),
+        "runtimeConfig": redact_config(_json_loads_or(row["runtime_config"], {})),
+        "runtimeState": redact_config(_json_loads_or(row["runtime_state"], {})),
         "dispatchState": dispatch_state or {"hasActiveRun": False, "activeRun": None, "queuedRuns": 0},
         # What this agent last PRODUCED. Every other field here answers about inbound traffic or
         # registration liveness; see _get_outbound_activity_map for the false "silent lane" claim
