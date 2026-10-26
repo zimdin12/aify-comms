@@ -37,7 +37,6 @@ function resolveAdapter(runtime) {
       + " process.stdout.write(JSON.stringify({"
       + "   isNull: a === null,"
       + "   name: a && a.name ? a.name : null,"
-      + "   hasTranscriptTail: !!(a && typeof a.transcriptTail === 'function'),"
       + " }));"],
     { env: { ...sealedChildEnv(), AIFY_RUNTIME: runtime }, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -104,13 +103,6 @@ test("the runtime name is trimmed before lookup", () => {
   const padded = resolveAdapter("  codex  ");
   assert.equal(padded.isNull, false, "a padded runtime name must still resolve");
   assert.equal(padded.name, "codex");
-});
-
-test("the resolved adapter carries the capability the detectors gate on", () => {
-  // Both turn detectors check `typeof adapter.transcriptTail === "function"` before arming. If a resolved
-  // adapter lacked it they would silently not arm, which reads as an agent that simply never reports turns.
-  assert.equal(resolveAdapter("claude-code").hasTranscriptTail, true);
-  assert.equal(resolveAdapter("codex").hasTranscriptTail, true);
 });
 
 test("the owner reaches only the adapter registry, and holds nothing else", () => {

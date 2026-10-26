@@ -15,7 +15,7 @@
 // nothing reads the operator's sessions. XDG_STATE_HOME holds the runtime markers (`listRuntimeMarkers`
 // deletes markers of dead pids, so it must never see the real directory) and TEMP takes the binding file.
 // Every codex variable the bridge reads is set or deleted per case. The child's own output proves the
-// rollout fixture is where the adapter looks (`visible`), so an empty handle is a refusal, not a miss.
+// rollout fixture is where codex keeps rollouts (`visible`), so an empty handle is a refusal, not a miss.
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -119,14 +119,18 @@ function register({ via, env = {}, args = {}, prior = null }) {
     await new Promise((r) => srv.listen(0, "127.0.0.2", r));
     process.env.AIFY_SERVER_URL = "http://127.0.0.2:" + srv.address().port;
     process.env.CLAUDE_MCP_SERVER_URL = process.env.AIFY_SERVER_URL;
-    // The probe asks by id, and the adapter prefers CODEX_THREAD_ID over the id it is asked for, so
-    // the variable is set aside for the probe and put back before anything registers.
-    const { CodexAdapter } = await import(${url("adapters/codex.js")});
-    const threadEnv = process.env.CODEX_THREAD_ID;
-    delete process.env.CODEX_THREAD_ID;
-    const visible = await new CodexAdapter()._resolveRolloutPath({ sessionId: ${JSON.stringify(FOREIGN_ROLLOUT)} })
-      || await new CodexAdapter()._resolveRolloutPath({ sessionId: ${JSON.stringify(LOCAL_ROLLOUT)} });
-    if (threadEnv !== undefined) process.env.CODEX_THREAD_ID = threadEnv;
+    // The probe looks where codex keeps rollouts, under this child's own home, by id.
+    const { readdirSync } = await import("node:fs");
+    const { homedir } = await import("node:os");
+    const { join } = await import("node:path");
+    const sessions = join(homedir(), ".codex", "sessions");
+    const find = (id) => {
+      try {
+        const hit = readdirSync(sessions, { recursive: true }).find((f) => String(f).endsWith(id + ".jsonl"));
+        return hit ? join(sessions, hit) : null;
+      } catch { return null; }
+    };
+    const visible = find(${JSON.stringify(FOREIGN_ROLLOUT)}) || find(${JSON.stringify(LOCAL_ROLLOUT)});
     let text = null;
     if (${JSON.stringify(via)} === "auto") {
       const { makeAutoRegister } = await import(${url("auto-registration.mjs")});
@@ -178,7 +182,7 @@ test("(a) no explicit id, no app-server URL: another workspace's newest rollout 
   await withFakeAppServer("thread-in-another-workspace", ELSEWHERE, async (appServerUrl) => {
     writeMarker("elsewhere", appServerUrl);
     const r = register({ via: "auto" });
-    assert.equal(r.visible, rollout, "fixture: the rollout must be where the adapter looks");
+    assert.equal(r.visible, rollout, "fixture: the rollout must be where codex keeps rollouts");
     assert.equal(sessionHandleOf(r), "", JSON.stringify(r.post));
     assert.equal(r.post.runtimeConfig?.appServerUrl, undefined, "no handle binds no server either");
   });
@@ -203,7 +207,7 @@ test("(b) no explicit id, no app-server URL: a cwd-matching rollout and live thr
   await withFakeAppServer("thread-in-this-workspace", WORKSPACE, async (appServerUrl) => {
     writeMarker("here", appServerUrl);
     const r = register({ via: "auto" });
-    assert.ok(r.visible, "fixture: a rollout must be where the adapter looks");
+    assert.ok(r.visible, "fixture: a rollout must be where codex keeps rollouts");
     assert.ok(fs.existsSync(rollout));
     assert.equal(sessionHandleOf(r), "", JSON.stringify(r.post));
   });

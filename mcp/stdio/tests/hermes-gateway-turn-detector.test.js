@@ -8,7 +8,7 @@ import {
 // ---------------------------------------------------------------------------
 // makeGatewayTurnDetector — the pure, debounced, bidirectional state machine.
 //
-// Mirrors makeTurnEndDetector (claude) but keys on the GATEWAY's session status
+// An edge detector that keys on the GATEWAY's session status
 // ("working" | "idle" | "" / unknown) and debounces the idle→end transition by
 // N CONSECUTIVE idle observations so a momentary mid-turn idle (between tool
 // calls / during a generation gap) never false-clears (the flap fix).
