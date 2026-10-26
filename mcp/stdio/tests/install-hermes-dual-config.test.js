@@ -64,7 +64,9 @@ test("install.sh distinguishes installer paths from Windows Hermes runtime paths
     /hermes_plugin_path="\$\(path_for_windows_runtime "\$hermes_plugin_path"\)"/,
     "native Windows hermes converts the plugin PYTHONPATH via path_for_windows_runtime"
   );
-  const pluginGate = src.split(/hermes_plugin_path="\$SCRIPT_DIR\/integrations\/hermes-aify-plugin"/)[1] || "";
+  // Anchored on the assignment of the copy beside the bridge (install_hermes_plugin writes it, 0.9.10).
+  const pluginGate = src.split(/hermes_plugin_path="\$AIFY_NATIVE_BASE\/integrations\/hermes-aify-plugin"/)[1] || "";
+  assert.ok(pluginGate, "control: the plugin path assignment the gate follows was found");
   assert.match(
     pluginGate.split(/\n\n/)[0] || "",
     /hermes_runtime_is_native_windows/,

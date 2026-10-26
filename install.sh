@@ -787,7 +787,7 @@ install_hermes_wrapper() {
   bash "$SCRIPT_DIR/scripts/hermes-session-servers.sh" --check "$AIFY_SERVICE_REGISTRY" || exit $?
   local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/hermes-aify"
-  local hermes_plugin_path="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  local hermes_plugin_path="$AIFY_NATIVE_BASE/integrations/hermes-aify-plugin"  # install_hermes_plugin's copy
   if hermes_runtime_is_native_windows; then
     hermes_plugin_path="$(path_for_windows_runtime "$hermes_plugin_path")"
   fi
@@ -1145,19 +1145,15 @@ _patch_hermes_config_at() {
 }
 
 install_hermes_plugin() {
-  # Install the aify-comms shim as a first-class Hermes plugin under
-  # <hermes_home>/plugins/aify-comms/. This is the RELIABLE load path:
-  # cmd_dashboard calls discover_plugins() inside the gateway process, and
-  # plugin discovery does NOT depend on PYTHONPATH. Hermes relaunches the
-  # dashboard and drops PYTHONPATH, so the sitecustomize.py-on-PYTHONPATH
-  # mechanism never patched tui_gateway.server in the gateway — the visible
-  # session bind then failed with "unknown method: aify.session.bind_transport"
-  # and managed/resident hermes never answered. The plugin's register() calls
-  # aify_hermes_plugin.bootstrap.install(), which installs the same import-time
-  # patcher that registers the gateway methods. The thin loader keeps the real
-  # shim in the repo (AIFY_HERMES_PLUGIN_PATH), so a hermes update can't erase
-  # it; the baked path is only a fallback when the env var is absent.
-  local plugin_src="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  # The aify-comms shim as a Hermes plugin under <hermes_home>/plugins/aify-comms/: plugin discovery runs in the
+  # gateway process, which drops PYTHONPATH, so sitecustomize.py alone never loaded there. Its register() imports
+  # aify_hermes_plugin from AIFY_HERMES_PLUGIN_PATH (the baked path is the fallback), which installs the gateway
+  # patches and aify-wrapper's turn-start, file-activity and herdr plugins. The package runs from a COPY beside the
+  # bridge, <install root>/integrations/, where aify-wrapper's launcher names it: the guided chain's checkout has a
+  # revision in its path, and until 0.9.10 the launcher named a copy nothing wrote (every gateway log: "shim load
+  # failed", 2026-10-23 to 10-26).
+  local plugin_src="$AIFY_NATIVE_BASE/integrations/hermes-aify-plugin"
+  rm -rf "${plugin_src:?}" && mkdir -p "$plugin_src" && cp -R "$SCRIPT_DIR/integrations/hermes-aify-plugin/." "$plugin_src/"
   if hermes_runtime_is_native_windows; then
     plugin_src="$(path_for_windows_runtime "$plugin_src")"
   fi
