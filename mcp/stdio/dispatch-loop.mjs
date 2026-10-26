@@ -13,7 +13,7 @@
 // the two functions that end a resident host. Everything else it needs is a module already.
 
 import { followRunOutcome } from "./run-outcome.mjs";
-import { reportAgentHeartbeat, reportTurnBusy } from "./agent-heartbeat.mjs";
+import { reportAgentHeartbeat } from "./agent-heartbeat.mjs";
 import { httpCall, logTransientOrError } from "./aify-service-endpoint.mjs";
 import { reregisterAgentFromState } from "./auto-registration.mjs";
 import { ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent } from "./bridge-agent-state.mjs";
@@ -53,7 +53,7 @@ export async function runDispatchPass({
       const dropped = await reconcileLocalActiveRun(agentId, state, active);
       if (!dropped) {
         // Heartbeat while an active run is genuinely owned by this process.
-        reportAgentHeartbeat(agentId, state, active).catch(() => {});
+        reportAgentHeartbeat(agentId, state).catch(() => {});
         await processRunControls(agentId, active).catch((error) => {
           logTransientOrError("[aify] control processing error", error);
         });
@@ -233,32 +233,13 @@ export async function runDispatchPass({
       continue;
     }
     const runtimeState = state.info.runtimeState || {};
-    let turnBusyStarted = false;
-    await reportTurnBusy(agentId, state, {
-      busy: true,
-      runId: run.id,
+    await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
+      status: "running",
       runtime,
-    }).then(() => {
-      turnBusyStarted = true;
-    }).catch(() => {});
-    try {
-      await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-        status: "running",
-        runtime,
-        agentStatus: "working",
-        appendEvent: `Starting ${runtime} run for "${run.subject}"`,
-        eventType: "runtime",
-      });
-    } catch (error) {
-      if (turnBusyStarted) {
-        await reportTurnBusy(agentId, state, {
-          busy: false,
-          runId: run.id,
-          runtime,
-        }).catch(() => {});
-      }
-      throw error;
-    }
+      agentStatus: "working",
+      appendEvent: `Starting ${runtime} run for "${run.subject}"`,
+      eventType: "runtime",
+    });
 
     // Pass managedViaWrapper into the controller so native RPC adapters
     // (CodexController / HermesController) can short-circuit to a delegated
@@ -288,16 +269,6 @@ export async function runDispatchPass({
     });
 
     ACTIVE_RUNS.set(agentId, { runId: run.id, runtime, controller });
-    let turnBusyCleared = false;
-    const clearTurnBusy = async () => {
-      if (turnBusyCleared) return;
-      turnBusyCleared = true;
-      await reportTurnBusy(agentId, state, {
-        busy: false,
-        runId: run.id,
-        runtime,
-      }).catch(() => {});
-    };
 
     // Audit 2026-06-28: when >1 run is claimed into a batch, only run[0] is executed — the
     // extras' bodies are merged into run[0]'s prompt (above) but the extra dispatch_runs were
@@ -337,7 +308,6 @@ export async function runDispatchPass({
               : "Run completed successfully.",
           eventType: terminalStatus,
         });
-        await clearTurnBusy();
         await finalizeBatchedExtras();
         await ensureRequiredReplyHandoff(agentId, run, terminalStatus, summary);
         if (result.runtimeState) {
@@ -366,7 +336,6 @@ export async function runDispatchPass({
               appendEvent: message,
               eventType: "failed",
             });
-            await clearTurnBusy();
             await finalizeBatchedExtras();
             await ensureRequiredReplyHandoff(agentId, run, "failed", message);
             return;
@@ -383,7 +352,6 @@ export async function runDispatchPass({
         );
       },
       always: async () => {
-        await clearTurnBusy();
         ACTIVE_RUNS.delete(agentId);
       },
     });

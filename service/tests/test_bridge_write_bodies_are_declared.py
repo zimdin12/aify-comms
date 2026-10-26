@@ -298,7 +298,9 @@ class BridgeWriteBodyTests(unittest.TestCase):
 
     def test_the_scan_read_both_sides_and_can_answer_either_way(self):
         """A comparison that found nothing is indistinguishable from one that compared nothing."""
-        self.assertGreater(len(self.sites), 70, f"only {len(self.sites)} write call sites found")
+        # 70 -> 65 in 0.9.9 S3c: the claude and codex turn-busy posts went (comms ignored them since S2a),
+        # leaving exactly 70 found.
+        self.assertGreater(len(self.sites), 65, f"only {len(self.sites)} write call sites found")
         self.assertGreater(len(self.routes), 50, f"only {len(self.routes)} write routes built")
         readable = [s for s in self.sites if s.keys is not None]
         # 70 -> 65 in 0.7.5: the removed dispatch and long-poll tools took two literal bodies with them

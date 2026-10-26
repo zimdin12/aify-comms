@@ -129,19 +129,15 @@ test("with no active run it does nothing and reports nothing dropped", () => {
     "an absent run must not cost a service round-trip");
 });
 
-test("dropping a run REPORTS THE AGENT NO LONGER BUSY", () => {
-  // The third thing clearing does, and the easiest to lose. Without it the agent reads `working` with no run
-  // able to clear it — exactly the stuck-at-turn_busy symptom the heartbeat exists to prevent.
+test("dropping a run reports no turn", () => {
+  // The turn is aify-env's since the 0.9.8 switch; comms ignored the old not-busy beat from 0.9.9 S2a.
   const r = reconcileWith({ status: 404 });
-  const beat = r.requests.find((q) => q.url.includes("/heartbeat"));
-  assert.ok(beat, "clearing must post a heartbeat");
-  assert.equal(beat.body.turnBusy, false, "…and it must report NOT busy");
-  assert.equal(beat.body.turnRunId, "run-1", "…naming the run being cleared");
+  assert.equal(r.dropped, true, "CONTROL: the 404 did drop the run");
+  assert.deepEqual(r.requests.filter((q) => q.url.includes("/heartbeat")), [], "clearing posts no turn heartbeat");
 });
 
 test("clearLocalActiveRun, called directly, interrupts and forgets the run, and ignores a record with no run id", () => {
-  // The reconcile tests reach it through a 404; this calls the export itself. Local mode (no service URL)
-  // so the turn-busy report has nowhere to go and must not stop the clear.
+  // The reconcile tests reach it through a 404; this calls the export itself, in local mode (no service URL).
   const script = `
     const state = await import(${JSON.stringify(STATE)});
     const m = await import(${JSON.stringify(LEAF)});
@@ -176,12 +172,10 @@ test("the owner holds no state and reaches only owned leaves", () => {
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort();
   assert.deepEqual(imports, [
-    "./agent-heartbeat.mjs",
     "./aify-service-endpoint.mjs",
     "./bridge-agent-state.mjs",
     "./bridge-instance.mjs",
     "./dispatch-state.js",
-    "./runtimes.js",
   ]);
   // It mutates the OWNED ACTIVE_RUNS rather than a private copy — a second map would make the bridge and
   // this reconciler disagree about which runs are live.

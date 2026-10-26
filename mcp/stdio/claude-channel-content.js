@@ -1,6 +1,6 @@
-// WHAT a resident claude session is told, and WHETHER to re-pulse turn_busy.
+// WHAT a resident claude session is told.
 //
-// Extracted from `claude-channel.js` in v0.5.4. All three are pure — a payload in, a string or a
+// Extracted from `claude-channel.js` in v0.5.4. Both are pure — a payload in, a string or a
 // verdict out — while everything they were sitting among opens sockets, polls the service and
 // emits MCP notifications. That mix is why `controlContent` had no test: it was module-private in
 // a file whose other half cannot run without a bridge.
@@ -9,8 +9,6 @@
 // recorded in its own comment:
 //   * `dispatchContent`'s same-turn reply line exists because a session that split read from reply
 //     stranded the reply ~20 minutes — a managed session is not re-woken to finish one.
-//   * `decideRepulse` gates on the run being IN-FLIGHT. Re-pulsing for a `delivered` run that only
-//     owes a reply kept an idle agent lit as "working".
 //
 // Bodies byte-identical to what stood in `claude-channel.js`; `controlContent` gained `export`,
 // which is the only substitution.
@@ -77,32 +75,4 @@ export function controlContent(agentId, control) {
     lines.push("", "Apply this guidance to your current work.");
   }
   return lines.filter(Boolean).join("\n");
-}
-
-
-// Pure decision: given a /agents/{id} snapshot, should the channel
-// bridge re-pulse turn_busy on this poll cycle? Exported for tests.
-// Returns { repulse: boolean, runId: string }. See the call site +
-// 2026-05-23 feedback-loop discussion in pollLoop for rationale.
-export function decideRepulse(agentSnapshot = {}) {
-  const dispatchState = agentSnapshot.dispatchState || {};
-  const hasActiveRun = Boolean(dispatchState.hasActiveRun);
-  if (!hasActiveRun) return { repulse: false, runId: "" };
-  // Re-pulse turn_busy ONLY for an IN-FLIGHT run (claimed/running). A
-  // require_reply run that's been delivered sits in 'delivered' while the
-  // agent — which already finished the turn — merely owes a reply. Re-pulsing
-  // turn_busy for that keeps the server's `elif turn_busy` branch lighting up
-  // "working" instead of the intended idle "online / awaiting reply" state.
-  // (operator-reported 2026-06-01: idle agent stuck at "working" while only
-  // owing a reply.) The server's `activeRun.status` carries the run status
-  // (api_v2 _format_dispatch_state); gate on it. Note: today the snapshot's
-  // dispatch-state query only selects claimed/running, but gating here is the
-  // correct contract regardless of which runs the serializer surfaces, and
-  // preserves the anti-feedback-loop property (no re-pulse off derived status).
-  const activeRun = dispatchState.activeRun || {};
-  const status = String(activeRun.status || "").trim().toLowerCase();
-  const inFlight = status === "claimed" || status === "running";
-  if (!inFlight) return { repulse: false, runId: "" };
-  const activeRunId = String(activeRun.runId || "");
-  return { repulse: true, runId: activeRunId };
 }

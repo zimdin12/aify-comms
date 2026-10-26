@@ -7,9 +7,7 @@
 // launchRuntimeRun needs a real runtime and belongs in the live round-trip". That was true until the
 // factory was extracted; it is not true any more, and that docstring is corrected in the same change.
 //
-// WHY THESE EIGHT ARE WORTH REACHING. `onTurnStart`/`onTurnEnd` are what set and clear `turn_busy` —
-// the signal the whole status engine derives `working` from, and the subject of two recorded incidents
-// about agents stuck `working` while idle. `onSessionHandleChange` discards a poisoned resume handle;
+// WHY THESE SIX ARE WORTH REACHING. `onSessionHandleChange` discards a poisoned resume handle;
 // get it wrong and an agent can never resume. `onRefs` pins the external thread/turn ids a resume needs.
 //
 // AND EVERY ONE OF THEM SWALLOWS ITS OWN ERRORS, by design — a callback that throws would kill the
@@ -79,7 +77,7 @@ async function settle() {
 
 test("the factory returns every callback the launcher expects", () => {
   const callbacks = buildRunCallbacks(fixture());
-  for (const name of ["onReady", "onEvent", "onRuntimeState", "onRefs", "onTurnStart", "onTurnEnd",
+  for (const name of ["onReady", "onEvent", "onRuntimeState", "onRefs",
                       "onSessionHandleChange", "terminalSinkProvider"]) {
     assert.equal(typeof callbacks[name], "function", `${name} is missing from the callback bundle`);
   }
@@ -134,19 +132,6 @@ test("onRefs sends the external ids a resume needs, and sends NOTHING when it ha
     "onRefs sent a PATCH with no refs in it");
 });
 
-test("onTurnStart and onTurnEnd set and clear the signal the status engine reads", async () => {
-  REQUESTS.length = 0;
-  const callbacks = buildRunCallbacks(fixture());
-  await callbacks.onTurnStart();
-  await callbacks.onTurnEnd();
-  const beats = REQUESTS.filter((r) => r.url.includes("/heartbeat"));
-  assert.ok(beats.length >= 2, `expected a busy and a not-busy report, saw ${beats.length}`);
-  assert.equal(beats[0].body.turnBusy, true, "onTurnStart did not report the turn as busy");
-  assert.equal(beats.at(-1).body.turnBusy, false, "onTurnEnd did not clear turn_busy");
-  assert.equal(beats[0].body.turnRunId, "run-77",
-    "the busy report must name the run, or a later clear cannot be matched to it");
-});
-
 test("onSessionHandleChange CLEARS a poisoned handle, with the reason", async () => {
   REQUESTS.length = 0;
   const args = fixture();
@@ -193,8 +178,6 @@ test("EVERY callback swallows a service failure rather than killing the loop", a
       await callbacks.onEvent("stdout", "x");
       await callbacks.onRuntimeState({ a: 1 });
       await callbacks.onRefs({ threadId: "t" });
-      await callbacks.onTurnStart();
-      await callbacks.onTurnEnd();
       await callbacks.onSessionHandleChange("", { reason: "r" });
       await callbacks.terminalSinkProvider({ agentId: "cb-agent", agentInfo: { runtime: "codex" } });
     }, "a callback propagated a service failure; that would kill the delivery loop");

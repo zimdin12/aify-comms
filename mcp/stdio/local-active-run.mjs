@@ -13,20 +13,16 @@
 // frees the claim loop to take the same work again, so the agent runs it twice. A stale record costs one
 // blocked claim cycle; a wrongly-dropped one costs duplicate execution, and the two are not symmetric.
 //
-// CLEARING IS THREE THINGS AND ALL OF THEM MATTER. The controller is interrupted (best-effort, because the
-// point is unblocking the claim loop rather than a clean stop), the run leaves `ACTIVE_RUNS` so nothing
-// still believes it is live, and turn-busy is reported false so the agent's status is released. Skipping the
-// last would leave an agent reading `working` with no run able to clear it — the symptom the turn-busy
-// heartbeat exists to prevent.
+// CLEARING IS TWO THINGS AND BOTH MATTER. The controller is interrupted (best-effort, because the point is
+// unblocking the claim loop rather than a clean stop), and the run leaves `ACTIVE_RUNS` so nothing still
+// believes it is live. The agent's status is aify-env's, so nothing here reports a turn.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
 import { httpCall } from "./aify-service-endpoint.mjs";
-import { reportTurnBusy } from "./agent-heartbeat.mjs";
 import { ACTIVE_RUNS } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { shouldDropLocalActiveRun } from "./dispatch-state.js";
-import { normalizeRuntime } from "./runtimes.js";
 export async function clearLocalActiveRun(agentId, state, active, reason) {
   if (!active?.runId) return;
   try {
@@ -35,11 +31,6 @@ export async function clearLocalActiveRun(agentId, state, active, reason) {
     // best effort; the important part is unblocking the claim loop
   }
   ACTIVE_RUNS.delete(agentId);
-  await reportTurnBusy(agentId, state, {
-    busy: false,
-    runId: active.runId,
-    runtime: active.runtime || normalizeRuntime(state?.info?.runtime || "generic"),
-  }).catch(() => {});
 }
 
 export async function reconcileLocalActiveRun(agentId, state, active) {

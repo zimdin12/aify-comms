@@ -27,7 +27,7 @@ import {
 // Content and the re-pulse decision left for `claude-channel-content.js` in v0.5.4 — pure, and
 // therefore testable without a bridge. Importers were repointed at the new module rather than
 // re-exported through this one: two import paths for one name is how a fork starts.
-import { controlContent, decideRepulse, dispatchContent } from "./claude-channel-content.js";
+import { controlContent, dispatchContent } from "./claude-channel-content.js";
 import { TRUST_RULE } from "./tool-response-format.mjs";
 import { channelSource, isThisRoutesProducer } from "./channel-producer.mjs";
 
@@ -192,46 +192,11 @@ async function emitChannel(content, meta = {}) {
 }
 
 
-async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
-  await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-    bridgeId: channelBridgeId(agentId),
-    turnBusy: !!busy,
-    turnRunId: runId,
-    turnRuntime: "claude-code",
-  });
-}
-
 // isChannelRun + the two receipt writers moved to ./channel-dispatch-receipts.mjs in v0.6 Phase 1.
 // They were three of the eleven functions in this file no test had ever called. The transport is
 // injected because this module has its OWN httpCall — see that file's header.
 const { markDispatchDelivered, markDispatchDeliveryFailed } = makeDispatchReceipts({ httpCall });
 
-
-// Per-agent "I delivered work recently — assistant is probably still
-// running" timestamp. While set and within TURN_REFRESH_MAX_AGE_MS, we
-// refresh turn_busy=true on every poll cycle. The Stop hook is the
-// authoritative clear signal (POST /agents/{id}/turn-end fires when
-// the assistant turn ends); this map's 10-min ceiling is the safety
-// upper bound for a single turn so a missed Stop hook doesn't pin
-// "working" forever.
-//
-// Previous design polled the dispatch_run's status and dropped
-// tracking when it went non-'delivered'. Wrong for require_reply=0
-// dispatches: the server completes delivery-only runs IMMEDIATELY
-// on delivery, so the next poll cycle (~3s later) saw status =
-// 'completed' and dropped tracking → 120s later turn_busy staled →
-// status flipped to "online" while the assistant was still composing
-// a long multi-tool-call reply. Operator-reported 2026-05-22:
-// "you are showing online. check now" + "i wrote you in here (in
-// console) so i would not affect that status. but it should affect
-// it, because you are running in claude-aify i think" — confirming
-// the bridge IS claude-aify-wrapped but the refresh wasn't keeping up.
-//
-// New: timestamp-based tracker. Set on EVERY claim. Re-pulse on every
-// poll cycle while within the window. Drop only on Stop-hook clear
-// (we read server's turn_busy state) or window expiry.
-const LAST_DELIVERED_AT_PER_AGENT = new Map();
-const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
 
 // B3 (visible-TUI): orphan-sidecar self-exit guard. The channel sidecar runs as
 // a child of the managed claude.exe. On Windows a child does NOT die with its
@@ -417,86 +382,8 @@ async function pollLoop() {
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);
       }
-      // Periodic turn_busy refresh ONLY for dispatches this bridge
-      // claimed (tracked locally via LAST_DELIVERED_AT_PER_AGENT).
-      //
-      // Previous design also did a slow-tick GET /agents/{id} to catch
-      // UserPromptSubmit-initiated turns and refresh based on server
-      // status — that created a feedback loop (operator-reported
-      // 2026-05-22 "sc-manager stuck working with no active run"):
-      //   1. UserPromptSubmit (or any path) sets turn_busy=1 once
-      //   2. Server reports status='working' (because turn_busy is fresh)
-      //   3. Bridge's slow-tick GET reads 'working' → re-pulses turn_busy=1
-      //   4. turn_updated_at never expires → step 2 keeps holding → infinite loop
-      //
-      // UserPromptSubmit-initiated turns now rely on the 120s
-      // server-side TURN_BUSY_STALE_SECONDS window + the
-      // authoritative Stop hook clear. Brief flicker for >120s
-      // assistant turns is acceptable; stuck-working-forever is not.
-      if (batch.length === 0) {
-        const trackedAt = LAST_DELIVERED_AT_PER_AGENT.get(agentId);
-        if (trackedAt && Date.now() - trackedAt > TURN_REFRESH_MAX_AGE_MS) {
-          LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
-        }
-        if (LAST_DELIVERED_AT_PER_AGENT.has(agentId)) {
-          try {
-            const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-            const decision = decideRepulse(agentRes?.agent || {});
-            // Re-pulse condition (see decideRepulse): re-pulse ONLY when
-            // the run is provably IN-FLIGHT — activeRun.status is 'claimed'
-            // or 'running'. hasActiveRun alone is NOT sufficient: a
-            // require_reply run that's been 'delivered' is idle (the agent
-            // finished the turn and merely owes a reply), and a missing
-            // status must not re-pulse either. Re-pulsing a delivered-
-            // awaiting-reply run would keep the server's `turn_busy` branch
-            // showing "working" instead of the intended idle "online /
-            // awaiting reply" state (channel_pending_reply).
-            //
-            // NOT based on serverStatus alone, which is DERIVED from
-            // turn_busy=1 — using it as a re-pulse trigger creates the
-            // self-reinforcing feedback loop (operator-reported 2026-05-23
-            // "your and sc-coder status were stuck at working"):
-            //   1. dispatch delivered → turn_busy=1, LAST_DELIVERED set
-            //   2. dispatch marked completed (require_reply=false case)
-            //     → hasActiveRun=false but turn_busy still 1 fresh
-            //   3. server derives status='working' from turn_busy=1
-            //   4. bridge GET → reads 'working' → re-pulses turn_busy=1
-            //   5. step 3 keeps holding → infinite loop until
-            //      TURN_REFRESH_MAX_AGE_MS (10 min) clears the tracker.
-            //
-            // Why activeRun.status is the right anchor: only a
-            // claimed/running run is POSITIVE evidence the turn is still
-            // executing. A 'delivered' run is the idle awaiting-reply state
-            // and must NOT re-pulse. For UserPromptSubmit-initiated turns
-            // (no dispatch), turn_busy relies on the server-side
-            // TURN_BUSY_STALE_SECONDS window + the authoritative Stop hook
-            // clear. Brief flicker for >120s assistant turns is acceptable;
-            // stuck-working-forever is not.
-            if (decision.repulse) {
-              await reportTurnBusy(agentId, { busy: true, runId: decision.runId }).catch(() => {});
-            } else {
-              // No unsettled run — agent is genuinely idle (Stop hook
-              // fired, run completed externally, etc.). Drop tracking.
-              LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
-            }
-          } catch {
-            // Transient — best-effort, do nothing this cycle.
-          }
-        }
-      }
-
       if (batch.length === 1) {
         const run = batch[0];
-        LAST_DELIVERED_AT_PER_AGENT.set(agentId, Date.now());
-        // Pulse turn_busy=true on EVERY dispatch delivery (any execution_mode).
-        // The agent is about to receive a wake-up and start processing — show
-        // "working" in the dashboard until the heartbeat staleness window
-        // (server-side TURN_BUSY_STALE_SECONDS, currently 120s) clears it OR
-        // a new dispatch re-pulses to extend it. The previous channel-only
-        // gate + immediate-clear-in-finally meant resident dispatches got no
-        // pulse at all and channel dispatches got a microsecond pulse, neither
-        // observable in dashboard sampling.
-        await reportTurnBusy(agentId, { busy: true, runId: run.id }).catch(() => {});
         try {
           await emitChannel(dispatchContent(agentId, run), {
             event_type: "dispatch",
@@ -511,14 +398,7 @@ async function pollLoop() {
           await markDispatchDeliveryFailed(run.id, error);
           throw error;
         }
-        // Intentional: NO finally { busy=false }. The agent is now working
-        // on the reply; clearing here loses the signal. Server stale-window
-        // closes it if no further pulses arrive. require_reply runs ALSO
-        // get the server-side channel-awaiting-reply derivation for tighter
-        // "working" tracking until the reply lands.
       } else if (batch.length > 1) {
-        LAST_DELIVERED_AT_PER_AGENT.set(agentId, Date.now());
-        await reportTurnBusy(agentId, { busy: true, runId: batch[0].id }).catch(() => {});
         const combined = batch.map((run, i) => `--- Message ${i + 1} of ${batch.length} ---\n${dispatchContent(agentId, run)}`).join("\n\n");
         const highestPriority = batch.some(r => r.priority === "urgent") ? "urgent" : batch.some(r => r.priority === "high") ? "high" : "normal";
         try {

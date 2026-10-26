@@ -128,7 +128,6 @@ const KNOWN_FORKS = {
   normalizeRuntime: ["runtime-markers.js", "runtimes.js"],
   readBoundAgentId: ["claude-channel.js", "doctor-predicates.js", "hermes-managed-host.js"],
   reportResidentRuntimeLost: ["resident-runtime-lost.mjs", "server.js"],
-  reportTurnBusy: ["agent-heartbeat.mjs", "claude-channel.js", "hermes-run-reporting.mjs"],
   runCli: ["hermes-managed-host.js", "reap-managed-claude.js"],
   sanitizeAgentId: ["claude-session-store.js", "hermes-endpoint.js"],
   startupTimeoutFor: ["codex-session.js", "hermes-session.js", "pi-session-timeouts.mjs"],

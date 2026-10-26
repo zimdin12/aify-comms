@@ -7,9 +7,7 @@
 // `launchRuntimeRun`, so reaching them meant launching a real runtime. `runDispatchPass` already had a
 // seam and three tests; the tests could call the pass and still never fire a single callback.
 //
-// WHAT THEY DO, which is why leaving them untested was the wrong trade. `onTurnStart`/`onTurnEnd` are
-// what set and clear `turn_busy` — the signal the whole status engine derives `working` from.
-// `onSessionHandleChange` is what discards a poisoned resume handle, and getting it wrong strands an
+// WHAT THEY DO, which is why leaving them untested was the wrong trade. `onSessionHandleChange` is what discards a poisoned resume handle, and getting it wrong strands an
 // agent that can never resume. `onEvent` carries runtime output to the console. Every one of them is
 // best-effort by design (a callback that throws must not kill the delivery loop), which means a broken
 // one fails SILENTLY — the worst possible combination with "no test has ever called it".
@@ -19,7 +17,6 @@
 // need is a module import, which this file now owns directly.
 
 import { httpCall } from "./aify-service-endpoint.mjs";
-import { reportTurnBusy } from "./agent-heartbeat.mjs";
 import { reregisterAgentFromState } from "./auto-registration.mjs";
 import { normalizeRuntime, runtimeStateWithoutSessionHandle } from "./runtimes.js";
 import { createVirtualTerminalSink, ensureVirtualTerminal } from "./virtual-terminals.mjs";
@@ -78,17 +75,6 @@ export function buildRunCallbacks({ agentId, state, run, runtime, runtimeState }
       } catch {
         // best effort
       }
-    },
-    // TERTIARY pure-event (2026-06-19): wire codex's native app-server turn events to the
-    // turn-state poster — turn/started → working, turn/completed → cleared — so managed
-    // codex status is event-EXACT instead of leaning on the 5s rollout-tail poll. Both are
-    // idempotent (reportTurnBusy is ownership-guarded) and additive to the existing
-    // dispatch-boundary + rollout-detector signals, so they only sharpen, never conflict.
-    onTurnStart: async () => {
-      try { await reportTurnBusy(agentId, state, { busy: true, runId: run.id, runtime: "codex" }); } catch { /* best-effort */ }
-    },
-    onTurnEnd: async () => {
-      try { await reportTurnBusy(agentId, state, { busy: false, runId: run.id, runtime: "codex" }); } catch { /* best-effort */ }
     },
     // Fired when the runtime controller had to discard an unloadable
     // thread/session and start a fresh one. Non-empty handles are
