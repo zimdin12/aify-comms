@@ -189,11 +189,16 @@ class TerminalWithoutBackingWitness(_ReminderWorld):
     reminder, and a known idle agent is still reminded about it. Since 0.9.9 S3b the judgment is
     `terminal_run_hold`'s, read for real: the resident target has no session, so its terminal run has no backing."""
 
-    def _terminal_remind(self, case: str, record: str) -> dict:
+    def _terminal_remind(self, case: str, record: str, older_other_work: bool = False) -> dict:
         target, run_id = f"term-{case}", f"run-term-{case}"
         self._resident(target)
         self._reply_owed(run_id, sender="lead", target=target, age=600)
         self._exec("UPDATE dispatch_runs SET dispatch_mode = 'terminal', status = 'running' WHERE id = ?", (run_id,))
+        if older_other_work:
+            self._exec("INSERT INTO dispatch_runs (id, from_agent, target_agent, dispatch_mode, execution_mode, "
+                       "message_type, subject, body, priority, status, require_reply, requested_at, started_at) "
+                       "VALUES (?,?,?,'start_if_possible','resident','info','other','work','normal','running',0,"
+                       "datetime('now','-20 minutes'),datetime('now','-20 minutes'))", (f"other-{case}", "dashboard", target))
         if record != "none":
             env_records.report(self, target, busy=record == "busy")
         answer = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}&dryRun=true")
@@ -206,6 +211,15 @@ class TerminalWithoutBackingWitness(_ReminderWorld):
                 result = self._terminal_remind(case, record)
                 self.assertEqual(([r["runId"] for r in result["reminded"]], [s["runId"] for s in result["skipped"]]),
                                  ([f"run-term-{case}"], []) if reminded else ([], [f"run-term-{case}"]), result)
+
+    def test_the_exception_withdraws_only_the_runs_own_occupancy(self):
+        # An older run still running for the same idle agent keeps it occupied: the no-backing judgment is about the
+        # terminal run, so it cannot release the other one (review of 19ebba5a, which sent the reminder into it). The
+        # idle case above is the control: without the other run, the same terminal run is reminded.
+        result = self._terminal_remind("beside-other", "idle", older_other_work=True)
+        self.assertEqual(([r["runId"] for r in result["reminded"]], [(s["runId"], s["reason"]) for s in result["skipped"]]),
+                         ([], [("run-term-beside-other", "target is busy; reminder will be retried when the agent is idle")]),
+                         result)
 
 
 class TerminalAwaitingInputWitness(_ReminderWorld):

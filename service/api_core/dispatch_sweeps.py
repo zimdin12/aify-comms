@@ -267,7 +267,10 @@ async def _run_contract_reminders_once(
         active_state = await _get_dispatch_state_for_agent(db, row["target_agent"])
         if agent_row is None:
             agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
-        occupied = bool(active_state.get("hasActiveRun")) and not terminal_blocked_without_live_backing
+        # Only when this run IS the run occupying the agent: another run still running keeps it occupied, as the
+        # legacy cascade judged the active run itself (review of 19ebba5a).
+        withdrawn = terminal_blocked_without_live_backing and (active_state.get("activeRun") or {}).get("runId") == row["id"]
+        occupied = bool(active_state.get("hasActiveRun")) and not withdrawn
         view = switched_view.eligibility_view(agent_row, run_occupied=occupied)
         reminder_skipped = operational_view.reminder_paused(view)
         if reminder_skipped:
