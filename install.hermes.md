@@ -122,8 +122,9 @@ Resident and managed agents work the same way. `hermes-aify` starts three proces
    session id, which is the agent's `sessionHandle`.
 
 The launcher starts the gateway host through aify-wrapper's `aify-hermes-gateway`, which asks aify-env for
-the agent's port and its current gateway, so **aify-env must be running** for a `hermes-aify` launch with an
-agent id. The gateway joins the launcher's lease and carries its pid as `HERMES_PARENT_PID`, so Hermes' own
+the agent's port and its current gateway. A hand launch works without aify-env: when none answers, the
+gateway starts on a free port the OS gives and aify-env's record and doctor cannot see it until a later launch
+with aify-env running. A managed launch needs aify-env. The gateway joins the launcher's lease and carries its pid as `HERMES_PARENT_PID`, so Hermes' own
 watchdog ends it with the agent, and aify-env ends an older lifetime's gateway when the next one starts. After
 a hard kill of aify-env, `aify-env doctor` `gateway-orphans` names gateways no lifetime records.
 
