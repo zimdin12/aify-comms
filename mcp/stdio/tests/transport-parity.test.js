@@ -83,34 +83,21 @@ function sseTools() {
 
 // EVERY tool the SSE transport declares, not only the `comms_` ones. The prefix filter above made
 // this file's own reverse-direction claim -- "every SSE tool also exists in stdio" -- true of a
-// SUBSET while reading as a statement about all of them, and SEVEN tools sat in that gap. Five are
-// declared in service/sse/container_tools.py and registered at mcp/sse_server.py:97 --
-// list_containers, start_container, stop_container, gpu_status, container_logs -- and two of those
-// are destructive. The other two, service_info and service_health, are decorated in the transport
-// itself and were missed even by the TOOLS-tuple scan I first wrote: this widened scan found them.
+// SUBSET while reading as a statement about all of them, and SEVEN tools sat in that gap: five container
+// tools (two destructive) and two service tools, which came off MCP in 0.9.11.
 //
 // That is the accident this file says matters most -- "a tool reachable over SSE but absent" from
 // stdio -- and the gate could not see it, because the scan read one shape of name while its assertion
 // claimed completeness.
+const everyToolIn = (source) => new Set([...source.matchAll(/^async def\s+([a-z][a-z0-9_]*)\s*\(/gm)].map((m) => m[1]));
 function everySseTool() {
-  return new Set([...SSE.matchAll(/^async def\s+([a-z][a-z0-9_]*)\s*\(/gm)].map((m) => m[1]));
+  return everyToolIn(SSE);
 }
 
-// Tools deliberately present ONLY over SSE, each with the reason. The transport runs INSIDE the
-// container, so container-local operations are the one thing it can do that a host-side stdio bridge
-// cannot -- which is a real asymmetry and therefore a declaration rather than a gap.
-const INTENTIONALLY_SSE_ONLY = {
-  list_containers: "container-local inventory; the SSE process runs inside the container",
-  start_container: "container-local lifecycle verb, destructive — no stdio equivalent by design",
-  stop_container: "container-local lifecycle verb, destructive — no stdio equivalent by design",
-  gpu_status: "reads container-local GPU state a host bridge does not have",
-  container_logs: "reads logs from inside the container, which a host bridge cannot reach",
-  // Declared with `@mcp_server.tool()` in the transport itself rather than in a TOOLS tuple, which is
-  // why a scan of service/sse/ alone does not find them. They answer questions about the SSE process,
-  // so a stdio equivalent would be answering about a different process.
-  service_info: "reports the SSE transport's own build and identity, which stdio cannot speak for",
-  service_health: "reports the SSE process's own health, which stdio cannot speak for",
-};
+// Tools deliberately present ONLY over SSE, each with the reason. Empty since 0.9.11: the container and
+// service tools a service template carried came off MCP, because every tool listed there is read into
+// every connected agent's context.
+const INTENTIONALLY_SSE_ONLY = {};
 
 // Tools deliberately absent from SSE, each with the reason. Empty since 0.9.11 slice 2: the service serves
 // every comms tool, and the reply fixtures (tests/tool-replies/) hold each to the JS except comms_register,
@@ -154,13 +141,12 @@ test("the SSE-only declarations name tools that are really SSE-only", () => {
   }
 });
 
-test("the every-tool scan is wider than the comms_ one", () => {
-  // The control. If both scans returned the same set, the new assertions above would be a second copy
-  // of the old one and would have found nothing -- which is precisely what the prefix filter did.
+test("the every-tool scan sees a tool the comms_ scan cannot", () => {
+  // The control. Since 0.9.11 the transport lists comms tools only, so on the live tree the two scans
+  // agree; a planted non-comms tool shows the wider scan still sees what the prefix filter missed.
+  assert.ok(everyToolIn("async def list_containers(name):\n").has("list_containers"), "the wider scan misses a non-comms tool");
   const wide = everySseTool();
-  const narrow = sseTools();
-  assert.ok(wide.size > narrow.size, `the wider scan found ${wide.size}, the comms_ one ${narrow.size}`);
-  for (const tool of narrow) assert.ok(wide.has(tool), `${tool} was lost by the wider scan`);
+  for (const tool of sseTools()) assert.ok(wide.has(tool), `${tool} was lost by the wider scan`);
 });
 
 test("every stdio tool is either in SSE or DECLARED as intentionally stdio-only", () => {

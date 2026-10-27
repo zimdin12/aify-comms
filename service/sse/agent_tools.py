@@ -21,28 +21,30 @@ from mcp.server.fastmcp import Context
 from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.agent_summary import runtime_summary, wake_mode_summary
 from service.sse.api_client import api as _api, call
-from service.sse.caller import caller_or_none
+from service.sse.caller import caller_id, caller_or_none
 from service.sse.registration import register_tools
 from service.sse.rendering import tool_error
 from service.sse.tool_format import format_dispatch_state, format_outbound_activity
 
 
 async def comms_register(
-    agentId: str,
+    ctx: Context,
     role: str,
     name: str = "",
     cwd: str = "",
     model: str = "",
     instructions: str = "",
 ) -> str:
-    """Register this MCP client as an agent for messaging and presence. SSE clients can coordinate work, but cannot host local runtime launches."""
+    """Register yourself, the agent this connection names, for messaging and presence. This service cannot host local runtime launches."""
+    # The agent registered is the request's header (0.9.11): a model-typed id could register as anyone.
+    me = caller_id(ctx)
     r = await _api("POST", "/agents", {
-        "agentId": agentId, "role": role, "name": name or agentId,
+        "agentId": me, "role": role, "name": name or me,
         "cwd": cwd, "model": model, "instructions": instructions,
     })
     if "detail" in r:
         return f"Error: {r['detail']}"
-    return f'Registered "{r.get("agentId", agentId)}" (role: {role}).'
+    return f'Registered "{r.get("agentId", me)}" (role: {role}).'
 
 
 def _description_preview(info: dict) -> str:

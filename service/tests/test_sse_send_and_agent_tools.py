@@ -38,19 +38,37 @@ def _with_api(module, tool, payload, **kwargs):
             setattr(module, name, original)
 
 
+def _caller(agent_id):
+    """An MCP context whose request names `agent_id` in the X-Aify-Agent-Id header."""
+    class _Request:
+        headers = {"x-aify-agent-id": agent_id}
+
+    class _RequestContext:
+        request = _Request()
+
+    class _Ctx:
+        request_context = _RequestContext()
+
+    return _Ctx()
+
+
 class AgentToolTests(unittest.TestCase):
+    def test_register_registers_the_caller_its_header_names(self):
+        _, api = _with_api(ag, ag.comms_register, {"agentId": "agent-a"}, ctx=_caller("agent-a"), role="coder")
+        self.assertEqual("agent-a", api.calls[0]["json"]["agentId"])
+
     def test_register_falls_back_to_the_id_when_no_name_is_given(self):
-        _, api = _with_api(ag, ag.comms_register, {"agentId": "a"}, agentId="a", role="coder")
+        _, api = _with_api(ag, ag.comms_register, {"agentId": "a"}, ctx=_caller("a"), role="coder")
         self.assertEqual("a", api.calls[0]["json"]["name"])
 
     def test_register_surfaces_a_refusal(self):
         out, _ = _with_api(ag, ag.comms_register, {"detail": "id already taken"},
-                           agentId="a", role="coder")
+                           ctx=_caller("a"), role="coder")
         self.assertEqual("Error: id already taken", out)
 
     def test_register_reports_the_id_the_SERVER_accepted(self):
         """The server may normalise the id; echoing the requested one would be a false receipt."""
-        out, _ = _with_api(ag, ag.comms_register, {"agentId": "a-1"}, agentId="A_1", role="coder")
+        out, _ = _with_api(ag, ag.comms_register, {"agentId": "a-1"}, ctx=_caller("A_1"), role="coder")
         self.assertIn("a-1", out)
 
     def test_the_description_still_says_an_SSE_client_cannot_host_a_launch(self):
