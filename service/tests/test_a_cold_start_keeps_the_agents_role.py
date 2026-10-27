@@ -76,6 +76,8 @@ class AColdStartKeepsTheAgentsRole(FastApiTestCase):
 
         # Its worker is gone; a message wakes it through the cold-start helper the send path uses.
         self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
+        # Gone means its console too: a live one refuses an automatic start (test_a_send_starts_no_second_worker_beside_a_live_one.py).
+        self._rows("UPDATE terminal_sessions SET status = 'stopped' WHERE agent_id = ?", (agent_id,))
 
         async def coldstart():
             db = await get_db()

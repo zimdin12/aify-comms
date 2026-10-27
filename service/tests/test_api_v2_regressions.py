@@ -1729,10 +1729,12 @@ class ApiV2RegressionTests(FastApiTestCase):
         role: str = "coder",
         initial_message: str = "",
         defined: bool = True,
+        before_running=None,
     ):
         """A managed agent with a running session, defined on its host: since D8 only a defined agent's console is started
         for it (pre-tag review of 0.9, F2). `defined=False` is an agent running from before D8 with no definition, whose
-        stop and console paths are the service's own, not its host's."""
+        stop and console paths are the service's own, not its host's. `before_running` runs between the claim and the
+        running report, where a host creates the worker's console."""
         self._heartbeat_environment(
             terminal=terminal,
             pty=terminal,
@@ -1756,6 +1758,8 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
         )
         self.assertEqual(claim.status_code, 200, claim.text)
+        if before_running:
+            before_running()
         running = self.client.patch(
             f"/api/v1/spawn-requests/{spawn_id}",
             json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": session_handle},
@@ -9619,27 +9623,31 @@ class ApiV2RegressionTests(FastApiTestCase):
         # (see api_v2, "BOUNDED BY THIS SPAWN'S OWN AGE"), _now() is second-resolution, and
         # inserting at the same second as the spawn request would make this pass or fail on which
         # side of a second boundary the run happened to land.
-        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
-        self._execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime,
-                workspace, command, status, requested_by, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            ("term-live-tui", session_a, "console-agent", "linux:test-host:default",
-             "bridge-current", "hermes", "/workspace/repo",
-             "hermes-aify --aify-agent console-agent --resume aify-console-agent",
-             "attached", "dashboard", now, now),
-        )
-        self._execute(
-            "UPDATE agent_sessions SET terminal_id='term-live-tui', terminal_status='attached' WHERE id=?",
-            (session_a,),
-        )
+        # The bridge creates it after the claim, so a live console here never meets the send path's refusal to start a
+        # second worker beside one (test_a_send_starts_no_second_worker_beside_a_live_one.py).
+        def replacement_bridge_creates_its_console():
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
+            self._execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime,
+                    workspace, command, status, requested_by, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                ("term-live-tui", session_a, "console-agent", "linux:test-host:default",
+                 "bridge-current", "hermes", "/workspace/repo",
+                 "hermes-aify --aify-agent console-agent --resume aify-console-agent",
+                 "attached", "dashboard", now, now),
+            )
+            self._execute(
+                "UPDATE agent_sessions SET terminal_id='term-live-tui', terminal_status='attached' WHERE id=?",
+                (session_a,),
+            )
+
         # Respawn → new running session B (rotation ends A).
         session_b = self._create_running_session(
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
-            session_handle="aify-console-agent",
+            session_handle="aify-console-agent", before_running=replacement_bridge_creates_its_console,
         )
         self.assertNotEqual(session_a, session_b)
         term = self._fetchone("SELECT session_id FROM terminal_sessions WHERE id='term-live-tui'")
@@ -9701,6 +9709,9 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         # The restart: a replacement spawn carrying the brief. Its bridge has NOT created a
         # terminal yet — the only live terminal on this bridge is the doomed predecessor.
+        # The restart has already marked the predecessor stopping; its PTY lives until the stop lands. (A live
+        # session with a live console refuses an automatic start: test_a_send_starts_no_second_worker_beside_a_live_one.py.)
+        self._execute("UPDATE agent_sessions SET status='stopping' WHERE id=?", (session_a,))
         session_b = self._create_running_session(
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
             session_handle="aify-console-agent",

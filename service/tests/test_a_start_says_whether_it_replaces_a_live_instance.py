@@ -230,6 +230,9 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         agent_id = "woken-by-a-message"
         self._bring_up(self._spawn(agent_id, intent=REPLACE))
         self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
+        # With its console still live the helper refuses outright (test_a_send_starts_no_second_worker_beside_a_live_one.py),
+        # so the intent a cold start carries is read once that worker is gone.
+        self._rows("UPDATE terminal_sessions SET status = 'stopped' WHERE agent_id = ?", (agent_id,))
 
         async def coldstart():
             db = await get_db()

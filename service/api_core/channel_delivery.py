@@ -383,10 +383,11 @@ async def live_resident_session(db, agent_id: str) -> bool:
 
 
 async def live_managed_worker(db, agent_row) -> bool:
-    """True when the agent's current session is a managed one in a live status and its worker is live by
-    `_has_live_worker_for`: a worker its host would refuse to start again. Its comms bridge may be booting or may
-    have stopped reporting; either way a message queues for it rather than starting a second one (2026-10-27)."""
+    """True when the agent's current session is a managed one in a live status and its console terminal is live: a
+    worker its host would refuse to start again. Whether the worker can take delivery is not asked, so not
+    `_has_live_worker_for`, which for Claude and hermes also wants a fresh channel sidecar: on 2026-10-27 the sidecar
+    had stopped reporting and that silence is exactly when a send must queue rather than start a second worker."""
     session = await _current_agent_session_row(db, agent_row["id"])
     return (session is not None and session["mode"] == "managed-warm"
             and str(session["status"] or "").strip().lower() in _LIVE_SESSION_STATUSES
-            and await _has_live_worker_for(db, agent_row))
+            and await _has_live_terminal_session(db, agent_row["id"]))
