@@ -123,29 +123,19 @@ test("HARNESS_EXTRA_ENV ignores blank and malformed entries instead of failing t
   assert.equal(r.env.GOOD, "1");
 });
 
-// ── HARNESS_MCP_COMMAND ─────────────────────────────────────────────────────
+// ── Strict MCP mode ─────────────────────────────────────────────────────────
 
-test("HARNESS_MCP_COMMAND names the bridge the runtime is pointed at", () => {
-  // The pivot of the whole contract: today the wrapper knows it must load
-  // ~/.aify-comms/mcp/stdio/server.js. Under the contract it loads whatever the host names.
-  const r = run({
-    args: ["--aify-agent", "probe-agent"],
-    env: { AIFY_CLAUDE_STRICT_MCP: "1", HARNESS_MCP_COMMAND: "node /custom/bridge.js" },
-  });
-  assert.equal(r.launched, true, r.stderr);
-  assert.ok(r.argv.includes("--mcp-config"), `strict mode must write an MCP config: ${JSON.stringify(r.argv)}`);
-  const config = r.files["--mcp-config"] || "";
-  assert.match(config, /\/custom\/bridge\.js/, "the host's bridge command must reach the config");
-});
-
-test("without HARNESS_MCP_COMMAND the built-in bridge path is used unchanged", () => {
-  // Back-compat, and deliberately a different code path: the default keeps the existing quoting of a
-  // filesystem path, which survives spaces. Only the host-supplied form is word-split.
+test("strict mode loads the channel and no local tool bridge: the comms tools come from the service", () => {
+  // 0.9.11: this installer renders the http arm, so `HARNESS_MCP_COMMAND` (the stdio arm's bridge override,
+  // tested in aify-wrapper) has nothing to point. The strict config carries the channel alone, and the comms
+  // tools are this launch's own `--mcp-config=` entry for the service's /mcp/http.
   const r = run({ args: ["--aify-agent", "probe-agent"], env: { AIFY_CLAUDE_STRICT_MCP: "1" } });
-  assert.ok(r.argv.includes("--mcp-config"));
+  assert.equal(r.launched, true, r.stderr);
+  assert.ok(r.argv.includes("--strict-mcp-config") && r.argv.includes("--mcp-config"), JSON.stringify(r.argv));
   const config = r.files["--mcp-config"] || "";
-  assert.match(config, /mcp[/\\]stdio[/\\]server\.js/, "the built-in bridge must still be named");
-  assert.match(config, /claude-channel\.js/, "and the channel server with it");
+  assert.match(config, /claude-channel\.js/, "the channel server must be in the strict config");
+  assert.doesNotMatch(config, /server\.js"/, "no local tool bridge may be started");
+  assert.ok(r.argv.some((a) => a.startsWith("--mcp-config=")), "the service's comms tools must be added for this launch");
 });
 
 // ── Exit codes ──────────────────────────────────────────────────────────────

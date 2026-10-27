@@ -18,7 +18,7 @@ earlier case had installed, and started. A case that passes because an earlier c
 the exact risk of consolidating an expensive fixture, and handing back immutable strings removes it by
 construction. A test that needs a directory to inspect, seed or delete renders its own.
 
-Keyed by the FULL argument list, so `--mcp-transport sse` and `--delegate-spawns` are different
+Keyed by the FULL argument list, so `--with-hook` and `--delegate-spawns` are different
 artifacts and never answer for each other.
 """
 from __future__ import annotations

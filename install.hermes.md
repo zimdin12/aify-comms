@@ -128,22 +128,23 @@ with aify-env running. A managed launch needs aify-env. The gateway joins the la
 watchdog ends it with the agent, and aify-env ends an older lifetime's gateway when the next one starts. After
 a hard kill of aify-env, `aify-env doctor` `gateway-orphans` names gateways no lifetime records.
 
-The gateway's URL reaches the agent's comms MCP server through the gateway's own environment: the launcher
-mints its session token (`HERMES_DASHBOARD_SESSION_TOKEN`) and starts it with `AIFY_HERMES_GATEWAY_URL` and
-`AIFY_HERMES_GATEWAY_TOKEN` set, and Hermes hands those to the MCP server through its `${VAR}` config. No
-marker file holds the URL (one did until 0.9.10). The URL carries the token, so do not print the gateway's
+The launcher mints the gateway's session token (`HERMES_DASHBOARD_SESSION_TOKEN`) and exports
+`AIFY_HERMES_GATEWAY_URL` and `AIFY_HERMES_GATEWAY_TOKEN` before it starts the delivery loop, which reads them
+from its own environment. No marker file holds the URL (one did until 0.9.10). The URL carries the token, so do not print the gateway's
 environment; the agent's own tool commands inherit it too, so an environment dump in a build log carries it. aify-env records each agent's `{port, pid, lifetime}` in `~/.aify/hermes-gateways/<agent>.json`;
 the session-id and loop-ready markers stay in the temp directory.
 
-**When a live Hermes turn has no `mcp_aify_comms_*` tools**, its gateway loaded before the MCP server:
-restart `hermes-aify`. **When a send fails with `visible session not found`**, the terminal was started
+**When a live Hermes turn has no `mcp_aify_comms_*` tools**, its gateway could not reach the service's
+`/mcp/http` when it started (the service was down, or the gateway had no `AIFY_AGENT_ID`): restart `hermes-aify`. **When a send fails with `visible session not found`**, the terminal was started
 by an older launcher, with the plugin disabled, or before the TUI attached: re-run the installer,
 restart that `hermes-aify`, and register again from inside it. Gateway host logs are in
 `~/.local/state/aify-comms/hermes-gateway-host-<port>.log`.
 
 ## What the install writes
 
-- The `aify-comms` MCP entry in Hermes' active config file.
+- The `aify-comms` MCP entry in Hermes' active config file: the service's `/mcp/http`, the agent named by
+  `X-Aify-Agent-Id: "${AIFY_AGENT_ID}"`, which Hermes fills in from the gateway's environment and refuses to
+  connect without.
 - `hermes-aify` and the `aify-comms` verifier in `~/.local/bin`, plus `.cmd` shims on Git Bash as in
   [install.claude.md](install.claude.md#windows). `hermes-aify` exports `AIFY_COMMS_URL` and loads
   `integrations/hermes-aify-plugin`.

@@ -19,9 +19,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { parseRegistry, REGISTRY_VERSION } from "aify-wrapper/lib/registry.mjs";
+import { mcpTransportFor, parseRegistry, REGISTRY_VERSION } from "aify-wrapper/lib/registry.mjs";
 
 import { upsertService } from "../service-registry.mjs";
+import { fixedFields } from "../service-spec.mjs";
 
 const GOOD = {
   endpoint: "http://127.0.0.1:8800",
@@ -100,3 +101,13 @@ test("the reader is the only authority — the writer states no rule of its own"
 function readSource() {
   return readFileSync(new URL("../service-registry.mjs", import.meta.url), "utf8");
 }
+
+test("the transport this service declares reaches the launchers' reader as http (0.9.11)", () => {
+  // The guided chain renders launchers with no flag, so the entry's mcpTransport is what makes them use /mcp/http.
+  const out = upsertService(seeded(), "aify-comms", { ...GOOD, ...fixedFields() });
+  assert.equal(out.ok, true, out.errors.join("; "));
+  const back = parseRegistry(out.text);
+  assert.equal(back.ok, true, back.errors?.join("; "));
+  assert.equal(mcpTransportFor(back.registry, "aify-comms"), "http");
+  assert.equal(mcpTransportFor(back.registry, "other-service"), "", "CONTROL: a service that declares none");
+});

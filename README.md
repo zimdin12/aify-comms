@@ -49,7 +49,7 @@ spawn agents into workspaces, and give them work by messaging them.
 | `aify-env attach <agent>` | take over an agent's terminal; `Ctrl+]` detaches and leaves it running |
 | `claude-aify --aify-agent <id>` | open a resident agent in this terminal (same for `codex-aify`, `hermes-aify`) |
 | `aify-comms doctor` | verify what is actually running matches what you installed (`--json`, `--strict`) |
-| `./redeploy.sh` | after `git pull`: re-run `install.sh` for every client installed here (it keeps the service URL and aify-env endpoint, not `--mcp-transport`) |
+| `./redeploy.sh` | after `git pull`: re-run `install.sh` for every client installed here (it keeps the service URL and aify-env endpoint) |
 
 `aify-comms` itself only verifies (`doctor`, `--check`, `--version`, `--help`); any other invocation
 exits 2 and points at aify-env. Inside an agent, the everyday tools are `comms_send`, `comms_inbox`,
@@ -127,7 +127,7 @@ has no status. So a flow is done when `aify-comms doctor` says `ok: true`, not w
 |---|---|---|
 | install a client | `bash install.sh --client <runtime> http://<service>:8800` | doctor `bridge-installed` green, then every agent that was running before the install relaunched |
 | install / update the service | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | doctor `service` reads `build <sha> == repo HEAD` (`/health` alone does not say which build) |
-| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client; `redeploy.sh` renders the default stdio, so a host installed with `--mcp-transport http` re-runs `install.sh --standalone --client <runtime> --mcp-transport http <url>`. The `sse` transport was deleted in 0.9.11: a host installed with it re-runs with `http` or the default) | `bridge-installed` green, then every agent that was running before the install relaunched |
+| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client; since 0.9.11 Claude and hermes always take the comms tools from the service's `/mcp/http`, and `--mcp-transport` is gone) | `bridge-installed` green, then every agent that was running before the install relaunched |
 
 `bridge-current` names any live bridge still running an older build, and reads `unknown-all` until
 bridges started on 0.7.0 or later report one; on Linux `bridge-running` also names running bridges started

@@ -36,11 +36,14 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 import { ENDPOINT_ENV_NAMES } from "../aify-service-endpoint.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = fileURLToPath(new URL("..", import.meta.url));
 
@@ -119,14 +122,23 @@ test("every service-selecting carrier is either declared to the registry or list
 });
 
 test("the declared pair is what the registry actually receives", () => {
-  // The other half of the join, held against the CLI that writes the entry rather than against a
-  // second copy of the list. A registry entry built from a different source would make every
-  // assertion above true and still point the fleet somewhere else.
-  const cli = readFileSync(join(STDIO, "register-service-cli.mjs"), "utf8");
-  assert.match(
-    cli,
-    /endpointEnv:\s*ENDPOINT_ENV_NAMES/,
-    "register-service-cli.mjs no longer writes ENDPOINT_ENV_NAMES into the registry entry, so the " +
-      "bridge and the registry can now disagree about which names carry the endpoint",
-  );
+  // The other half of the join, held against the entry the CLI actually writes rather than against a
+  // second copy of the list or the spelling of its source. A registry entry built from a different
+  // source would make every assertion above true and still point the fleet somewhere else.
+  const dir = mkdtempSync(join(tmpdir(), "aify-carriers-"));
+  try {
+    const registry = join(dir, "services.json");
+    const run = spawnSync(process.execPath, [join(STDIO, "register-service-cli.mjs"), registry, "http://127.0.0.2:1", "/b"], {
+      encoding: "utf8", timeout: 30_000, env: sealedChildEnv({ HOME: dir, USERPROFILE: dir }),
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(
+      JSON.parse(readFileSync(registry, "utf8")).services["aify-comms"].endpointEnv,
+      [...ENDPOINT_ENV_NAMES],
+      "the registry entry does not declare ENDPOINT_ENV_NAMES, so the bridge and the registry can now " +
+        "disagree about which names carry the endpoint",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

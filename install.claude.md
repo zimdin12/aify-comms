@@ -95,15 +95,19 @@ the same channel from `claude-channel-plugin.mjs`, and events then arrive as
 `AIFY_CHANNEL_ROUTE`, which `claude-aify` exports, decides which one claims messages
 (`mcp/stdio/channel-producer.mjs`).
 
-By default the launcher loads your whole `~/.claude.json` MCP list, where the installer adds the two
-aify servers. A Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462),
+By default the launcher loads your whole `~/.claude.json` MCP list plus, for this launch only, the
+service's comms tools at `<endpoint>/mcp/http`, naming its agent in a header. A Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462),
 [#21341](https://github.com/anthropics/claude-code/issues/21341)) can fail to start MCP servers when
 many start at once, leaving the channel server unregistered and messages undelivered. Set
-`AIFY_CLAUDE_STRICT_MCP=1` in the launching shell and the launcher loads only the two aify servers.
+`AIFY_CLAUDE_STRICT_MCP=1` in the launching shell and the launcher loads only the aify servers.
 
 ## What the install writes
 
-- MCP servers `aify-comms` and `aify-comms-channel`, in Claude's user scope.
+- No machine-wide `aify-comms` MCP entry: `claude-aify` adds the service's `/mcp/http` per launch, as its
+  agent, and the installer removes an entry an older install left. A plain `claude` has no comms tools.
+  After installing, add one line to the host's global agent guide (`~/.claude/CLAUDE.md`) so a plain session
+  knows where they are: `aify-comms tools come only through claude-aify --aify-agent <id>; a plain claude has none.`
+- The `aify-channel` plugin, whose `aify-comms-channel` server delivers messages.
 - Skills in `~/.claude/skills` and slash commands in `~/.claude/commands/aify-comms`.
 - `claude-aify` and the `aify-comms` verifier in `~/.local/bin`.
 - The bridge runtime, copied to `~/.aify-comms` (`AIFY_HOME` overrides). Launchers and MCP config
