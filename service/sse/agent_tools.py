@@ -16,7 +16,12 @@ Patch `_api` HERE, not on the transport: these resolve it from this module.
 
 from __future__ import annotations
 
+from mcp.server.fastmcp import Context
+
+from service.sse.agent_summary import runtime_summary, wake_mode_summary
 from service.sse.api_client import api as _api
+from service.sse.caller import caller_or_none
+from service.sse.rendering import tool_error
 
 
 async def comms_register(
@@ -37,26 +42,35 @@ async def comms_register(
     return f'Registered "{r.get("agentId", agentId)}" (role: {role}).'
 
 
-async def comms_agents() -> str:
-    """List registered agents with role, status and unread count. The id that starts each line is the address for comms_send `to`. A new send to an offline, stopped or misconfigured agent is refused; an available managed agent cold-starts on send."""
+def _description_preview(info: dict) -> str:
+    desc = str(info.get("description") or "").strip()
+    if not desc:
+        return ""
+    return f"\n    {desc[:159]}…" if len(desc) > 160 else f"\n    {desc}"
+
+
+async def comms_agents(ctx: Context):
+    """List registered agents with role, status and unread count. Each line starts with the id to pass as comms_send `to`."""
     r = await _api("GET", "/agents")
     # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
     # can branch on it, and that fix's own note says "every caller in this package checks" -- this
     # one did not, so a 500 rendered as a confident fact about the fleet.
     if "detail" in r:
-        return f"Error: {r['detail']}"
+        return tool_error(f"Error: {r['detail']}")
     entries = r.get("agents", {})
     if not entries:
         return "No agents registered."
+    # The id is the address (`to=` in comms_send), and the caller's own row says so (v0.7, H-A7).
+    me = caller_or_none(ctx)
     lines = []
     for aid, info in entries.items():
         status = f" [{info['status']}]" if info.get("status") else ""
+        you = " (you)" if aid == me else ""
         lines.append(
-            f"- {aid} ({info['role']}){status} -- \"{info.get('name', aid)}\" "
-            f"| unread: {info.get('unread', 0)} | last seen: {info.get('lastSeen', '?')}"
+            f"- {aid}{you} ({info.get('role')}){status} -- \"{info.get('name', aid)}\" | {runtime_summary(info)} "
+            f"| wake: {wake_mode_summary(info)} | unread: {info.get('unread') or 0} | last seen: {info.get('lastSeen', '?')}"
+            f"{_description_preview(info)}"
         )
-    # The id is the address, said the way the stdio twin says it (v0.7, H-A7). This transport has no
-    # bound caller identity, so it cannot mark the caller's own row with stdio's ` (you)`.
     return "Address an agent by the id at the start of its line.\n" + "\n".join(lines)
 
 
@@ -69,4 +83,4 @@ TOOLS = (comms_register, comms_agents)
 def register(mcp_server) -> None:
     """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
     for tool in TOOLS:
-        mcp_server.tool()(tool)
+        mcp_server.tool(structured_output=False)(tool)

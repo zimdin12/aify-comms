@@ -1,0 +1,68 @@
+[
+  {
+    "name": "the fleet, the caller marked, a long description previewed",
+    "tool": "comms_agents",
+    "args": {},
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {
+            "agent-a": {
+              "role": "coder",
+              "name": "Agent A",
+              "status": "working",
+              "runtime": "claude-code",
+              "machineId": "pc-1",
+              "sessionMode": "managed",
+              "wakeMode": "managed-worker",
+              "unread": 2,
+              "lastSeen": "2026-10-27T08:00:00Z"
+            },
+            "agent-b": {
+              "role": "reviewer",
+              "name": "Agent B",
+              "status": "available",
+              "runtime": "hermes",
+              "machineId": "pc-1",
+              "sessionMode": "resident",
+              "wakeMode": "hermes-live",
+              "unread": 0,
+              "lastSeen": "2026-10-27T07:59:00Z",
+              "description": "Reviews every change before it ships, reads the diff and the tests, and refuses anything that has not been watched to fail at least once on the real system; it also writes the release notes."
+            }
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "Address an agent by the id at the start of its line.\n- agent-a (you) (coder) [working] -- \"Agent A\" | claude-code @ pc-1 (managed) | wake: managed-worker | unread: 2 | last seen: 2026-10-27T08:00:00Z\n- agent-b (reviewer) [available] -- \"Agent B\" | hermes @ pc-1 (resident) | wake: hermes-live | unread: 0 | last seen: 2026-10-27T07:59:00Z\n    Reviews every change before it ships, reads the diff and the tests, and refuses anything that has not been watched to fail at least once on the real system; it…",
+    "isError": false
+  },
+  {
+    "name": "nobody registered",
+    "tool": "comms_agents",
+    "args": {},
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {}
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "No agents registered.",
+    "isError": false
+  }
+]

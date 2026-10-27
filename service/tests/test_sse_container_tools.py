@@ -147,7 +147,7 @@ class ContainerToolsTests(unittest.TestCase):
         registered = []
 
         class _Server:
-            def tool(self):
+            def tool(self, **_options):
                 return lambda fn: registered.append(fn) or fn
 
         ct.register(_Server())

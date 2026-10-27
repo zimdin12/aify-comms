@@ -199,25 +199,11 @@ class AgentToolTests(unittest.TestCase):
         doc = ag.comms_register.__doc__ or ""
         self.assertIn("cannot host local runtime launches", doc)
 
-    def test_no_agents_says_so(self):
-        out, _ = _with_api(ag, ag.comms_agents, {"agents": {}})
-        self.assertEqual("No agents registered.", out)
-
     def test_presence_renders_a_half_registered_row_without_inventing_values(self):
-        """An agent never seen has no lastSeen; blank would read as "seen, nothing to report"."""
-        out, _ = _with_api(ag, ag.comms_agents, {"agents": {
-            "a": {"role": "coder", "status": "online", "name": "Ada", "unread": 3, "lastSeen": "t"},
-            "b": {"role": "tester"},
-        }})
-        self.assertIn('- a (coder) [online] -- "Ada" | unread: 3 | last seen: t', out)
-        self.assertIn("- b (tester)", out)
-        self.assertIn("unread: 0", out)
-        self.assertIn("last seen: ?", out)
-
-    def test_presence_says_the_id_is_the_address(self):
-        """H-A7 on this transport: the stdio listing leads with this line and this one did not."""
-        out, _ = _with_api(ag, ag.comms_agents, {"agents": {"a": {"role": "coder"}}})
-        self.assertTrue(out.startswith("Address an agent by the id at the start of its line.\n"), out)
+        """An agent never seen has no lastSeen; blank would read as "seen, nothing to report". The reply
+        fixtures (test_tool_replies_match_the_js.py) hold the full rows; this holds the missing fields."""
+        out, _ = _with_api(ag, ag.comms_agents, {"agents": {"b": {"role": "tester"}}}, ctx=None)
+        self.assertIn('- b (tester) -- "b" | generic @ ? (resident) | wake: ? | unread: 0 | last seen: ?', out)
 
 
 if __name__ == "__main__":

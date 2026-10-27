@@ -17,6 +17,14 @@ class NoCaller(Exception):
     """The call arrived without a usable agent id header."""
 
 
+def caller_or_none(ctx) -> str | None:
+    """The caller when the request names one, for a tool that only marks the caller (`(you)`)."""
+    try:
+        return caller_id(ctx)
+    except NoCaller:
+        return None
+
+
 def caller_id(ctx) -> str:
     """The agent id the request names. Raises `NoCaller` when there is no request or no header."""
     try:

@@ -124,7 +124,6 @@ const INTENTIONALLY_STDIO_ONLY = {
   comms_remove_agent: "destructive lifecycle verb",
   comms_interrupt: "runtime-native interrupt needs a local process",
   // Host-local reads the SSE server cannot perform.
-  comms_usage: "reads host-side quota stores the SSE process cannot see",
   comms_envs: "environment/bridge inventory of the local host",
   // Not yet mirrored. These are the ones worth revisiting — comms_agent_info especially, since
   // audit finding 1 made it the place production is reported and an SSE caller cannot see it.

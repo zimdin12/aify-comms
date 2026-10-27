@@ -1,6 +1,6 @@
 """How the SSE transport presents another agent's text to the agent reading it.
 
-Extracted from `mcp/sse_server.py` in v0.5.4 — layer-0 leaves, importing nothing at all.
+Extracted from `mcp/sse_server.py` in v0.5.4 — layer-0 leaves, importing only the MCP result type.
 
 BOTH OF THESE ARE SAFETY SURFACE, not formatting. `SAFETY_HEADER` is the sentence that tells a
 reading agent the payload is DATA rather than instructions, and `fence` is what stops a message body
@@ -17,6 +17,13 @@ original alias, so no call site moved.
 """
 
 from __future__ import annotations
+
+from mcp.types import CallToolResult, TextContent
+
+
+def tool_error(text: str) -> CallToolResult:
+    """A failed tool call: the agent sees `text` with `isError` set, as the JS tools report one."""
+    return CallToolResult(content=[TextContent(type="text", text=text)], isError=True)
 
 # Safety header for inbox messages (matches stdio server behavior)
 SAFETY_HEADER = (

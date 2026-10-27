@@ -45,6 +45,7 @@ from service.sse.management_tools import register as _register_management_tools
 from service.sse.run_tools import register as _register_run_tools
 from service.sse.send_tools import register as _register_send_tools
 from service.sse.shared_file_tools import register as _register_shared_file_tools
+from service.sse.usage_tools import register as _register_usage_tools
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,9 @@ config = get_config()
 # NO HOST ALLOW-LIST: FastMCP's default refuses any Host but localhost (421), which locks out an agent that
 # reaches this service by another name (WSL, another PC). The API-key middleware authenticates every request,
 # and a DNS-rebinding page holds no key: the dashboard's cookie belongs to the service's own origin.
+# Each module registers its tools with `structured_output=False`: a `-> str` tool otherwise carries an output
+# schema in `tools/list` that every agent pays for in context (3,148 bytes over 22 tools, measured 2026-10-27),
+# and a tool may return `rendering.tool_error(...)` to report a failure the way the JS tools do.
 mcp_server = FastMCP(
     config.name,
     stateless_http=True,
@@ -180,6 +184,7 @@ _register_shared_file_tools(mcp_server)
 # ---------------------------------------------------------------------------
 
 _register_management_tools(mcp_server)
+_register_usage_tools(mcp_server)
 
 
 def setup_mcp_server(app):

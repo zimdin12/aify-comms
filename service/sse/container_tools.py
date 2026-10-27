@@ -110,4 +110,4 @@ TOOLS = (list_containers, start_container, stop_container, gpu_status, container
 def register(mcp_server) -> None:
     """Apply `@mcp_server.tool()` to each tool. Called once, where the declarations used to be."""
     for tool in TOOLS:
-        mcp_server.tool()(tool)
+        mcp_server.tool(structured_output=False)(tool)

@@ -1,0 +1,79 @@
+[
+  {
+    "name": "pools with a known and an unknown percentage, and the caller's own pool",
+    "tool": "comms_usage",
+    "args": {},
+    "routes": {
+      "GET /usage": {
+        "body": {
+          "pools": [
+            {
+              "source_id": "anthropic-max",
+              "weekly": {
+                "left_pct": 42
+              },
+              "five_hour": {
+                "left_pct": 80
+              },
+              "severity": "normal"
+            },
+            {
+              "source_id": "openai-plus",
+              "weekly": {
+                "left_pct": null
+              },
+              "five_hour": {},
+              "severity": "warning",
+              "stale": true,
+              "unknown": true
+            }
+          ]
+        }
+      },
+      "GET /agents/agent-a": {
+        "body": {
+          "agent": {
+            "usageSource": "anthropic-max",
+            "poolWeeklyPctLeft": 42,
+            "poolSeverity": "warning"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/usage",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-a",
+        "body": null
+      }
+    ],
+    "text": "Quota pools (% remaining):\n- anthropic-max: weekly 42% left, 5h 80% left\n- openai-plus: weekly ? left, 5h ? left [warning] (stale) (unknown)\nYou (agent-a) → anthropic-max: 42% weekly left [warning]",
+    "isError": false
+  },
+  {
+    "name": "no pools yet",
+    "tool": "comms_usage",
+    "args": {},
+    "routes": {
+      "GET /usage": {
+        "body": {
+          "pools": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/usage",
+        "body": null
+      }
+    ],
+    "text": "No usage data yet (collector warming up).",
+    "isError": false
+  }
+]

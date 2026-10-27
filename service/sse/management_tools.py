@@ -47,4 +47,4 @@ TOOLS = (comms_clear,)
 def register(mcp_server) -> None:
     """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
     for tool in TOOLS:
-        mcp_server.tool()(tool)
+        mcp_server.tool(structured_output=False)(tool)
