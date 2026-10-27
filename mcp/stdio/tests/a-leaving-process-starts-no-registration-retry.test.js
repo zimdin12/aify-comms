@@ -30,6 +30,15 @@ Object.assign(process.env, {
 const { makeAutoRegister } = await import("../auto-registration.mjs");
 const { ResidentDuties } = await import("../resident-duties.mjs");
 
+/** Wait until the stand-in has seen `n` registration POSTs, failing by name rather than hanging (review of 4e5d8faa). */
+async function untilPosts(n, tick) {
+  const deadline = Date.now() + 5000;
+  while (posts < n) {
+    assert.ok(Date.now() < deadline, `registration POST ${n} never reached the stand-in`);
+    await tick();
+  }
+}
+
 async function postsAfterThirtySeconds(active) {
   posts = 0;
   answer = () => REFUSAL;
@@ -73,13 +82,13 @@ test("a retry already in flight when the process leaves is answered before resid
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
     duties.start();
-    while (posts < 1) await new Promise((resolve) => setImmediate(resolve));
+    await untilPosts(1, () => new Promise((resolve) => setImmediate(resolve)));  // setTimeout is mocked here
     await duties.registering;
     mock.timers.tick(30_000);
   } finally {
     mock.timers.reset();
   }
-  while (posts < 2) await new Promise((resolve) => setTimeout(resolve, 10));
+  await untilPosts(2, () => new Promise((resolve) => setTimeout(resolve, 10)));
   const leaving = duties.end();
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.deepEqual(order, [], "resident-lost was sent while the retry was still in flight");
