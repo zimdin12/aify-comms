@@ -14,7 +14,7 @@ from urllib.parse import quote
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from service.sse.api_client import call, request
+from service.sse.api_client import ERROR_BODY_LIMIT, call, request
 from service.sse.caller import caller_id
 from service.sse.registration import register_tools
 from service.sse.rendering import tool_error
@@ -56,8 +56,18 @@ async def comms_read(name: str = Field(description="Artifact name to read")):
     if refusal := _bad_name(name):
         return refusal
     resp = await request("GET", f"/shared/{quote(name, safe='')}")
-    if resp.status_code >= 300:
+    if resp.status_code == 404:
         return tool_error(f'Artifact "{name}" not found.')
+    # Any other failure says what failed: "not found" for an outage sends the agent looking for a file that exists.
+    if resp.status_code >= 300:
+        detail = resp.text[:ERROR_BODY_LIMIT]
+        try:
+            parsed = resp.json()
+        except ValueError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            detail = parsed.get("detail") or parsed.get("error") or detail
+        return tool_error(f'Reading "{name}" failed (HTTP {resp.status_code}): {detail}')
     if "application/json" not in resp.headers.get("content-type", ""):
         return (f'Binary artifact "{name}" ({len(resp.content)} bytes). This service cannot hand you a local copy; '
                 "read it from an agent that has a local comms process.")

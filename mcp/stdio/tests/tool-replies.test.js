@@ -14,6 +14,8 @@ import { SCHEMAS_FILE, jsToolClient, loadCases, runCase, startService, toolSchem
 const cases = loadCases();
 const service = await startService();
 const client = await jsToolClient(service.url);
+// After the client: the endpoint module reads its service from the environment jsToolClient sets, once, at import.
+const { ERROR_BODY_LIMIT } = await import("../aify-service-endpoint.mjs");
 
 test("there are fixture cases to replay", () => {
   assert.ok(cases.length > 0);
@@ -26,6 +28,12 @@ for (const testCase of cases) {
     assert.deepEqual(actual, { requests: testCase.requests, text: testCase.text, isError: testCase.isError });
   });
 }
+
+test("an error body is cut at ERROR_BODY_LIMIT, the length the recorded long-error case holds both copies to", () => {
+  const recorded = cases.find((c) => c.name === "a long error body is cut short");
+  assert.ok(recorded, "the long-error case is gone, so this limit is held by nothing");
+  assert.equal(recorded.text.length, "HTTP 409: ".length + ERROR_BODY_LIMIT);
+});
 
 test("the JS tools' public schemas are still the recorded ones", async () => {
   assert.deepEqual(await toolSchemas(client), JSON.parse(readFileSync(SCHEMAS_FILE, "utf8")));

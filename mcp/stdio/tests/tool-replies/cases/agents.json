@@ -86,5 +86,27 @@
     ],
     "text": "HTTP 409: {\"detail\":\"database is locked\"}",
     "isError": true
+  },
+  {
+    "name": "a long error body is cut short",
+    "tool": "comms_agents",
+    "args": {},
+    "routes": {
+      "GET /agents": {
+        "status": 409,
+        "body": {
+          "detail": "database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked "
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "HTTP 409: {\"detail\":\"database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked database is locked data",
+    "isError": true
   }
 ]

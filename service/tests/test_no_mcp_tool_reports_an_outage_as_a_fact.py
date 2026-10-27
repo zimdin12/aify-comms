@@ -1,6 +1,6 @@
 """No `comms_*` tool turns a service error into a confident statement about the fleet.
 
-THE FAILURE. `_api` returns the parsed body, or a dict carrying `detail` when the request failed.
+THE FAILURE (as first measured, under the old `_api` client, which returned a dict carrying `detail` when the request failed).
 A tool that reads its result without checking gets `{}` or `None` out of `.get(...)` and renders the
 absence as a fact -- to an AGENT, which then acts on it.
 
@@ -103,10 +103,6 @@ def _outage_response() -> httpx.Response:
     return httpx.Response(500, json=dict(ERROR))
 
 
-async def _failing_api(*args, **kwargs):
-    return dict(ERROR)
-
-
 async def _failing_call(*args, **kwargs):
     raise ServiceError(_outage_response())
 
@@ -116,7 +112,7 @@ async def _failing_request(*args, **kwargs):
 
 
 #: Each way a tool module reaches the service, and what that seam returns when the service is broken.
-SEAMS = {"_api": _failing_api, "call": _failing_call, "request": _failing_request}
+SEAMS = {"call": _failing_call, "request": _failing_request}
 
 
 #: Phrases that state something about the fleet. If a tool says one of these while the service is

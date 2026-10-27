@@ -62,6 +62,12 @@ BRIDGE_STAMP_ABSENT = "absent"
 BRIDGE_STAMP_INVALID = "invalid"
 
 
+def bridge_stamp_time(stamp: str) -> datetime:
+    """PURE. A `bridgeLastSeen` stamp as an aware time; one without a zone is UTC. Raises ValueError if unreadable."""
+    last = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    return last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+
+
 def bridge_stamp_state(environment, *, offline_seconds: int = SPAWN_CLAIMER_FRESH_SECONDS) -> str:
     """Classify `metadata.bridgeLastSeen`. PURE -- the caller resolves ABSENT against the authority.
 
@@ -78,11 +84,9 @@ def bridge_stamp_state(environment, *, offline_seconds: int = SPAWN_CLAIMER_FRES
     if not stamp:
         return BRIDGE_STAMP_ABSENT
     try:
-        last = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        last = bridge_stamp_time(stamp)
     except Exception:
         return BRIDGE_STAMP_INVALID
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
     window = timedelta(seconds=max(15, int(offline_seconds or 90)))
     age = datetime.now(timezone.utc) - last
     # A FUTURE stamp is not fresh. `age <= window` is satisfied for ever by one hours ahead, so a

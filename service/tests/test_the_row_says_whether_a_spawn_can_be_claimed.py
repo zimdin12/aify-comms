@@ -113,5 +113,46 @@ class TheRowSaysWhetherASpawnCanBeClaimedTests(unittest.TestCase):
         self.assertFalse(record["spawnClaim"]["canClaim"], "and must not have reached the claim")
 
 
+class AZoneFreeStampDoesNotBreakTheToolsTests(unittest.TestCase):
+    """A `bridgeLastSeen` without a zone is UTC to the service (`bridge_stamp_time`). The tools once
+    subtracted it from an aware time and crashed, losing the whole listing over one host (review of
+    b5d2a20a, 2026-10-27). The rows come from the real producer, beside a healthy second host."""
+
+    def _rows(self):
+        legacy = _environment_record_to_dict(_row({"bridgeLastSeen": "2020-01-01T00:00:00"}))
+        healthy = _environment_record_to_dict(_row({"bridgeLastSeen": _stamp(5)}))
+        legacy["id"], healthy["id"] = "legacy-env", "healthy-env"
+        self.assertEqual(legacy["spawnClaim"]["state"], BRIDGE_STAMP_STALE, "the control row is not the stale one")
+        return [legacy, healthy]
+
+    def _run(self, tool, **kwargs):
+        import asyncio
+        from unittest.mock import patch
+
+        from service.sse import environment_tools
+
+        async def answer(*args, **_):
+            return {"environments": self._rows()}
+
+        class _Ctx:
+            class request_context:  # noqa: N801 - the shape MCP hands a tool
+                class request:  # noqa: N801
+                    headers = {"x-aify-agent-id": "agent-a"}
+
+        with patch.object(environment_tools, "call", answer):
+            return asyncio.run(getattr(environment_tools, tool)(**({"ctx": _Ctx()} if tool == "comms_spawn" else {}), **kwargs))
+
+    def test_the_listing_keeps_both_hosts_and_ages_the_legacy_one(self):
+        out = self._run("comms_envs")
+        self.assertIn("- legacy-env [CANNOT SPAWN: no bridge since ", out)
+        self.assertIn("h ago]", out)
+        self.assertIn("- healthy-env [can spawn]", out)
+
+    def test_an_explicit_spawn_there_is_refused_not_crashed(self):
+        out = self._run("comms_spawn", agentId="new-C", role="coder", runtime="hermes", environmentId="legacy-env")
+        self.assertTrue(out.isError)
+        self.assertIn('Environment "legacy-env" CANNOT SPAWN: no bridge since ', out.content[0].text)
+
+
 if __name__ == "__main__":
     unittest.main()

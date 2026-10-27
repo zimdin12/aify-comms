@@ -17,6 +17,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from service.api_core.runtime import _normalize_runtime
+from service.env_status import bridge_stamp_time
 from service.sse.api_client import call
 from service.sse.caller import caller_id
 from service.sse.registration import register_tools
@@ -27,7 +28,7 @@ from service.sse.send_tools import SAFE_NAME, Priority
 def _stale_age(env: dict) -> str:
     stamp = str((env.get("metadata") or {}).get("bridgeLastSeen") or "").strip()
     try:
-        seen = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        seen = bridge_stamp_time(stamp)
     except ValueError:
         return ""
     seconds = max(0, round((datetime.now(timezone.utc) - seen).total_seconds()))

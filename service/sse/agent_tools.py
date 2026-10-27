@@ -1,50 +1,44 @@
-"""Registering an SSE client as an agent, and listing who else is here.
+"""Registering as the caller, and listing who else is here.
 
-Extracted from `mcp/sse_server.py` in v0.5.4 — bodies untouched.
-
-`comms_register` SAYS WHAT AN SSE CLIENT CANNOT DO, in its own description: it can coordinate work
-but cannot host a local runtime launch. That sentence is why this transport is a deliberately
-REDUCED tool surface rather than an incomplete one, and it is the first thing a connecting agent
-reads, so it moved with the code and is asserted rather than assumed.
+`comms_register` changes the caller's role and name, and nothing else. The caller is the request's header
+(0.9.11). Registering is the launcher's job at start-up: a registration is a full refresh of runtime,
+session, config and capabilities, and this caller has none of those facts, so a POST /agents from here
+would clear what the host recorded. An agent with no record is told so rather than given a thin one.
 
 `comms_agents` renders presence for every registered agent. Every field it prints has a default,
-because a half-registered row is a normal state — an agent that has never been seen has no
+because a half-registered row is a normal state -- an agent that has never been seen has no
 `lastSeen`, and rendering that as blank would read as "seen just now, with nothing to report".
-
-Patch `_api` HERE, not on the transport: these resolve it from this module.
 """
 
 from __future__ import annotations
+
+from urllib.parse import quote
 
 from mcp.server.fastmcp import Context
 
 from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.agent_summary import runtime_summary, wake_mode_summary
-from service.sse.api_client import api as _api, call
+from service.sse.api_client import ServiceError, call
 from service.sse.caller import caller_id, caller_or_none
 from service.sse.registration import register_tools
 from service.sse.rendering import tool_error
 from service.sse.tool_format import format_dispatch_state, format_outbound_activity
 
 
-async def comms_register(
-    ctx: Context,
-    role: str,
-    name: str = "",
-    cwd: str = "",
-    model: str = "",
-    instructions: str = "",
-) -> str:
-    """Register yourself, the agent this connection names, for messaging and presence. This service cannot host local runtime launches."""
-    # The agent registered is the request's header (0.9.11): a model-typed id could register as anyone.
+NOT_REGISTERED = ("You are not registered: your launcher (claude-aify, hermes-aify) registers you when it starts. "
+                  "Start through it; this tool then changes your role and name.")
+
+
+async def comms_register(ctx: Context, role: str, name: str = "") -> str:
+    """Change your role, and your name if given. Your launcher registered you at start-up; this keeps the runtime and session it recorded."""
     me = caller_id(ctx)
-    r = await _api("POST", "/agents", {
-        "agentId": me, "role": role, "name": name or me,
-        "cwd": cwd, "model": model, "instructions": instructions,
-    })
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f'Registered "{r.get("agentId", me)}" (role: {role}).'
+    try:
+        r = await call("PATCH", f"/agents/{quote(me, safe='')}/profile", {"role": role, "name": name})
+    except ServiceError as error:
+        if error.status == 404:
+            return tool_error(NOT_REGISTERED)
+        raise
+    return f'Updated "{r.get("agentId", me)}": role {r.get("role", role)}, name {r.get("name", name or me)}.'
 
 
 def _description_preview(info: dict) -> str:

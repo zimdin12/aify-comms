@@ -24,7 +24,12 @@ _NULL = {"type": "null"}
 
 
 def compact_schema(node):
-    """PURE. A JSON schema without titles, with each `anyOf: [T, null]` written as T and no `default: null`."""
+    """PURE. A JSON schema without titles, with each `anyOf: [T, null]` written as T and no `default: null`.
+
+    Folding null away is a contract choice, not only an annotation trim: the published schema then refuses
+    an explicit null that the service still accepts. It is the contract the JS tools publish (zod
+    `.optional()`), and it loses nothing because every folded argument is optional with a null default, so
+    leaving it out is the same call. `test_the_tool_list_is_held_at_its_size.py` holds that condition."""
     if isinstance(node, list):
         return [compact_schema(item) for item in node]
     if not isinstance(node, dict):

@@ -222,6 +222,11 @@ class AgentDescribeRequest(BaseModel):
     description: str
 
 
+class AgentProfileUpdate(BaseModel):
+    role: str
+    name: Optional[str] = None
+
+
 class AgentFavoriteUpdate(BaseModel):
     favorited: bool
 

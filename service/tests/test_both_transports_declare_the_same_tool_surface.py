@@ -57,6 +57,11 @@ DECLARED_DIFFERENCES = {
     ("comms_register", "stdio", "sessionHandle"): "launch/hosting detail an SSE client has no part in",
     ("comms_register", "stdio", "sessionMode"): "launch/hosting detail an SSE client has no part in",
     ("comms_register", "stdio", "description"): "not a launch detail; an omission, not a boundary",
+    # The service's comms_register changes role and name only (0.9.11): these are what the launcher
+    # registers at start-up, and a caller that sends them without the rest clears the host's record.
+    ("comms_register", "stdio", "cwd"): "registered by the launcher; the service copy changes the profile only",
+    ("comms_register", "stdio", "model"): "registered by the launcher; the service copy changes the profile only",
+    ("comms_register", "stdio", "instructions"): "registered by the launcher; the service copy changes the profile only",
     # The service registers the agent its X-Aify-Agent-Id header names (0.9.11). Not a reply-fixture
     # caller argument, because register is the one tool the fixtures do not cover: its JS copy also writes
     # this machine's bindings.

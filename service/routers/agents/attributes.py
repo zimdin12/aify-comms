@@ -38,7 +38,8 @@ from service.db import get_db
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
 from service.models import (
-    AgentDescribeRequest, AgentEffortUpdate, AgentFavoriteUpdate, AgentHerdrSpaceUpdate, AgentStatusUpdate,
+    AgentDescribeRequest, AgentEffortUpdate, AgentFavoriteUpdate, AgentHerdrSpaceUpdate, AgentProfileUpdate,
+    AgentStatusUpdate,
 )
 
 router = domain_router()
@@ -106,6 +107,30 @@ async def update_agent_description(agent_id: str, req: AgentDescribeRequest, req
         if ws:
             await ws.broadcast("agent_description_updated", {"agentId": agent_id, "description": description})
         return {"ok": True, "agentId": agent_id, "description": description}
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/profile")
+async def update_agent_profile(agent_id: str, req: AgentProfileUpdate, request: Request):
+    """Change an agent's role and name, and nothing its host registered: a registration is a full refresh
+    of runtime, session, config and capabilities, and a caller without the host's facts would clear them."""
+    validate_name(agent_id, "agent ID")
+    role = req.role.strip()
+    if not role:
+        raise HTTPException(422, "role must not be empty")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT name FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        name = (req.name or "").strip() or row["name"]
+        await db.execute("UPDATE agents SET role = ?, name = ? WHERE id = ?", (role, name, agent_id))
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_profile_updated", {"agentId": agent_id, "role": role, "name": name})
+        return {"ok": True, "agentId": agent_id, "role": role, "name": name}
     finally:
         await db.close()
 

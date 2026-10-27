@@ -22,7 +22,7 @@
 import fs from "fs";
 import path from "path";
 
-import { API_KEY, IS_REMOTE, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
+import { API_KEY, ERROR_BODY_LIMIT, IS_REMOTE, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
 import { SHARED_DIR } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
 
@@ -150,8 +150,15 @@ export function registerArtifactTools(server, z) {
         const options = { headers: {} };
         if (API_KEY) options.headers["X-API-Key"] = API_KEY;
         const res = await fetch(url, { ...options, redirect: "manual" });
-        if (!res.ok) {
+        if (res.status === 404) {
           return { content: [{ type: "text", text: `Artifact "${name}" not found.` }], isError: true };
+        }
+        // Any other failure says what failed: "not found" for an outage sends the agent looking for a file that exists.
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          let detail = text.slice(0, ERROR_BODY_LIMIT);
+          try { const parsed = JSON.parse(text); detail = parsed.detail || parsed.error || detail; } catch { /* not JSON */ }
+          return { content: [{ type: "text", text: `Reading "${name}" failed (HTTP ${res.status}): ${detail}` }], isError: true };
         }
         const contentType = res.headers.get("content-type") || "";
         // Binary file — save locally and return path

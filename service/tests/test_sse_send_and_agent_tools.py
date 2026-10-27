@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest.mock import patch
+
+import httpx
 
 from service.sse import agent_tools as ag
+from service.sse.api_client import ServiceError
 
 
 class _Api:
@@ -18,24 +22,16 @@ class _Api:
         self.payload = payload
         self.calls = []
 
-    async def __call__(self, method, path, json_data=None, params=None):
-        self.calls.append({"method": method, "path": path, "json": json_data, "params": params})
+    async def __call__(self, method, path, json_data=None, **kwargs):
+        self.calls.append({"method": method, "path": path, "json": json_data})
         return self.payload
 
 
 def _with_api(module, tool, payload, **kwargs):
-    """The tool run against canned answers on BOTH seams a module may use (`_api`, and the ported tools'
-    `call`), so a tool that moved seams cannot reach the real service from a test."""
+    """The tool run against canned answers from `call`, the seam every tool reaches the service by."""
     api = _Api(payload)
-    stubs = {name: api for name in ("_api", "call") if hasattr(module, name)}
-    originals = {name: getattr(module, name) for name in stubs}
-    for name, stub in stubs.items():
-        setattr(module, name, stub)
-    try:
+    with patch.object(module, "call", api):
         return asyncio.run(tool(**kwargs)), api
-    finally:
-        for name, original in originals.items():
-            setattr(module, name, original)
 
 
 def _caller(agent_id):
@@ -53,29 +49,28 @@ def _caller(agent_id):
 
 
 class AgentToolTests(unittest.TestCase):
-    def test_register_registers_the_caller_its_header_names(self):
-        _, api = _with_api(ag, ag.comms_register, {"agentId": "agent-a"}, ctx=_caller("agent-a"), role="coder")
-        self.assertEqual("agent-a", api.calls[0]["json"]["agentId"])
+    def test_register_changes_only_the_header_callers_profile(self):
+        """A registration would clear the host's runtime and session; the profile route cannot."""
+        out, api = _with_api(ag, ag.comms_register, {"agentId": "agent-a", "role": "coder", "name": "A"},
+                             ctx=_caller("agent-a"), role="coder", name="A")
+        self.assertEqual([(c["method"], c["path"], c["json"]) for c in api.calls],
+                         [("PATCH", "/agents/agent-a/profile", {"role": "coder", "name": "A"})])
+        self.assertEqual('Updated "agent-a": role coder, name A.', out)
 
-    def test_register_falls_back_to_the_id_when_no_name_is_given(self):
-        _, api = _with_api(ag, ag.comms_register, {"agentId": "a"}, ctx=_caller("a"), role="coder")
-        self.assertEqual("a", api.calls[0]["json"]["name"])
+    def test_an_unregistered_caller_is_told_its_launcher_registers_it(self):
+        """No thin record: one written before the launcher's would read generic until it was replaced."""
+        async def not_found(*args, **kwargs):
+            raise ServiceError(httpx.Response(404, json={"detail": "Agent 'a' not found"}))
+        with patch.object(ag, "call", not_found):
+            out = asyncio.run(ag.comms_register(ctx=_caller("a"), role="coder"))
+        self.assertTrue(out.isError)
+        self.assertEqual(ag.NOT_REGISTERED, out.content[0].text)
 
-    def test_register_surfaces_a_refusal(self):
-        out, _ = _with_api(ag, ag.comms_register, {"detail": "id already taken"},
-                           ctx=_caller("a"), role="coder")
-        self.assertEqual("Error: id already taken", out)
-
-    def test_register_reports_the_id_the_SERVER_accepted(self):
-        """The server may normalise the id; echoing the requested one would be a false receipt."""
-        out, _ = _with_api(ag, ag.comms_register, {"agentId": "a-1"}, ctx=_caller("A_1"), role="coder")
-        self.assertIn("a-1", out)
-
-    def test_the_description_still_says_an_SSE_client_cannot_host_a_launch(self):
-        """It is the first thing a connecting agent reads, and the reason this surface is REDUCED
-        rather than incomplete."""
-        doc = ag.comms_register.__doc__ or ""
-        self.assertIn("cannot host local runtime launches", doc)
+    def test_any_other_failure_is_reported_as_it_happened(self):
+        async def outage(*args, **kwargs):
+            raise ServiceError(httpx.Response(500, text="db locked"))
+        with patch.object(ag, "call", outage), self.assertRaises(ServiceError):
+            asyncio.run(ag.comms_register(ctx=_caller("a"), role="coder"))
 
     def test_presence_renders_a_half_registered_row_without_inventing_values(self):
         """An agent never seen has no lastSeen; blank would read as "seen, nothing to report". The reply

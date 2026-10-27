@@ -237,6 +237,8 @@ const HTTP_RETRY_ATTEMPTS = 3;
 const HTTP_RETRY_BASE_MS = 250;
 
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
+// Characters of an error body a tool reports, in both copies (service/sse/api_client.py).
+export const ERROR_BODY_LIMIT = 300;
 
 const RETRIABLE_POST_PATHS = new Set([
   "/agents",              // INSERT OR REPLACE — idempotent
@@ -313,7 +315,8 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
             keyForUrl(baseUrl, { refresh: true });
           }
           const text = await res.text();
-          const err = new Error(`HTTP ${res.status}: ${text}`);
+          // Cut short: an agent reads this, and a proxy's error page would push its answer out of context.
+          const err = new Error(`HTTP ${res.status}: ${text.slice(0, ERROR_BODY_LIMIT)}`);
           err.status = res.status;
           err.serverUrl = baseUrl;
           // 5xx is retriable as a transient server blip, but only on safe

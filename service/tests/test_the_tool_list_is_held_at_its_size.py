@@ -5,8 +5,9 @@ fleet (operator, 2026-10-26: the stack must not put excess context in front of a
 skills have: a list that grows fails, and one that shrinks must lower CEILING in the same commit, so the
 saving is kept rather than spent by the next change. Raising it is a decision argued in the commit.
 
-Measured as compact JSON of what FastMCP lists, the way `mcp/stdio/tests/tool-replies/replay.mjs` measures
-the JS tools (34 tools, 24,525 bytes on 2026-10-27).
+Measured as the UTF-8 bytes of compact JSON of what FastMCP lists. The JS tools, listed through
+`mcp/stdio/tests/tool-replies/replay.mjs` and measured the same way, were 34 tools in 24,533 bytes on
+2026-10-27.
 """
 
 import asyncio
@@ -17,18 +18,22 @@ from pathlib import Path
 SSE_SERVER = Path(__file__).resolve().parents[2] / "mcp" / "sse_server.py"
 
 #: Bytes, measured. Lower it when the list shrinks; the failure message gives the number.
-CEILING = 18695
+CEILING = 18580
 #: How far below CEILING the list may sit before the ceiling must come down to keep the saving.
 SLACK = 100
 
 
-def _tool_list_bytes() -> tuple[int, int]:
+def _fresh_server():
     spec = importlib.util.spec_from_file_location("sse_server_size_check", SSE_SERVER)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    tools = asyncio.run(module.mcp_server.list_tools())
+    return module.mcp_server
+
+
+def _tool_list_bytes() -> tuple[int, int]:
+    tools = asyncio.run(_fresh_server().list_tools())
     listed = [tool.model_dump(mode="json", exclude_none=True, by_alias=True) for tool in tools]
-    return len(listed), len(json.dumps(listed, separators=(",", ":"), ensure_ascii=False))
+    return len(listed), len(json.dumps(listed, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
 def test_the_tool_list_is_held_at_its_size():
@@ -38,7 +43,25 @@ def test_the_tool_list_is_held_at_its_size():
     assert size > CEILING - SLACK, f"tools/list shrank to {size} bytes: lower CEILING to {size} to keep the saving"
 
 
-def test_the_published_schema_drops_only_what_an_agent_cannot_use():
+def test_an_argument_published_without_null_is_one_an_agent_can_leave_out():
+    """The published schema refuses an explicit null the service accepts. That is safe only where null means
+    "not given": the argument is optional, and null is its default. A validating client then omits it, with
+    the same result. The JS tools publish the same schema and refuse null outright (zod `.optional()`)."""
+    folded = []
+    for tool in _fresh_server()._tool_manager.list_tools():
+        accepted = tool.fn_metadata.arg_model.model_json_schema(by_alias=True)
+        for name, prop in accepted.get("properties", {}).items():
+            if _NULL_TYPE in prop.get("anyOf", []) and _NULL_TYPE not in tool.parameters["properties"][name].get("anyOf", []):
+                folded.append(name)
+                assert name not in accepted.get("required", []), f"{tool.name}.{name}: null folded away from a required argument"
+                assert "default" in prop and prop["default"] is None, f"{tool.name}.{name}: null is not its default, so omitting it differs"
+    assert folded, "no nullable argument was folded; the check would pass on anything"
+
+
+_NULL_TYPE = {"type": "null"}
+
+
+def test_the_published_schema_drops_titles_and_the_null_branch_and_keeps_the_rest():
     """compact_schema: titles and `anyOf: [T, null]` / `default: null` go; a real union and a real default stay."""
     from service.sse.registration import compact_schema
 
