@@ -69,9 +69,22 @@ export const API_KEY_ENV_NAMES = ["AIFY_API_KEY", "CLAUDE_MCP_API_KEY"];
  * @param serverPath  absolute path to the bridge's `server.js`, as the hermes RUNTIME must read it
  * @param serverUrl   the service endpoint; empty means fall back to `${AIFY_SERVER_URL}`
  * @param apiKey      the service key; empty means emit no key lines at all
+ * @param transport   `stdio` (the bridge as a child) or `http` (the service's tools, no local process)
  */
-export function aifyEntryLines({ serverPath, serverUrl = "", apiKey = "" } = {}) {
+export function aifyEntryLines({ serverPath, serverUrl = "", apiKey = "", transport = "stdio" } = {}) {
   const url = (name) => (serverUrl ? JSON.stringify(serverUrl) : `"\${${name}}"`);
+  // 0.9.11: the service's own tools over HTTP, no comms process inside hermes. Hermes has no per-launch MCP
+  // flag, so the agent comes from the gateway's environment: hermes expands `${AIFY_AGENT_ID}` in headers and
+  // refuses to connect a remote server while one is unset (tools/mcp_tool_config.py, 0.21.5).
+  if (transport === "http") {
+    return [
+      "  aify-comms:",
+      `    url: ${serverUrl ? JSON.stringify(`${serverUrl.replace(/\/+$/, "")}/mcp/http`) : '"${AIFY_SERVER_URL}/mcp/http"'}`,
+      "    headers:",
+      '      X-Aify-Agent-Id: "${AIFY_AGENT_ID}"',
+      ...(apiKey ? [`      X-API-Key: ${JSON.stringify(apiKey)}`] : []),
+    ];
+  }
   return [
     "  aify-comms:",
     '    command: "node"',
@@ -171,6 +184,6 @@ export function patchHermesConfigFile(file, options) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [file, serverPath, serverUrl = "", apiKey = ""] = process.argv.slice(2);
-  patchHermesConfigFile(file, { serverPath, serverUrl, apiKey });
+  const [file, serverPath, serverUrl = "", apiKey = "", transport = "stdio"] = process.argv.slice(2);
+  patchHermesConfigFile(file, { serverPath, serverUrl, apiKey, transport });
 }

@@ -261,6 +261,7 @@ test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module"
   assert.match(invocation, /"\$node_server_path"/, "the bridge path is argument 2");
   assert.match(invocation, /"\$SERVER_URL"/, "the endpoint is argument 3");
   assert.match(invocation, /"\$api_key"/, "THE KEY is argument 4 -- the whole point");
+  assert.match(invocation, /"\$api_key" "\$\{MCP_TRANSPORT:-stdio\}"/, "the transport is argument 5, so --mcp-transport http reaches hermes");
 
   // And the variable is populated from the one resolver, not left empty.
   assert.match(installer, /api_key="\$\(aify_api_key\)"/);
@@ -293,4 +294,25 @@ test("the config module's own path is CONVERTED for a native-Windows node", () =
                "the module path is never converted, so native node gets a POSIX path it cannot open");
   assert.match(between, /is_git_bash_windows/,
                "the conversion is unguarded, which would hand Linux node a Windows path under WSL");
+});
+
+// 0.9.11 slice 4: with `--mcp-transport http` hermes reaches the service's own tools, and no comms process runs
+// inside it. Hermes has no per-launch MCP flag, so the agent is the gateway's `${AIFY_AGENT_ID}`.
+test("the http entry is the service's /mcp/http, the agent as hermes' ${AIFY_AGENT_ID}, the key literal", () => {
+  assert.deepEqual(aifyEntryLines({ serverPath: SERVER_PATH, serverUrl: `${URL_}/`, apiKey: "sk-live-9c1f", transport: "http" }), [
+    "  aify-comms:",
+    `    url: "${URL_}/mcp/http"`,
+    "    headers:",
+    '      X-Aify-Agent-Id: "${AIFY_AGENT_ID}"',
+    '      X-API-Key: "sk-live-9c1f"',
+  ]);
+  assert.ok(aifyEntryLines({ serverPath: SERVER_PATH, serverUrl: "", apiKey: "", transport: "http" })
+    .includes('    url: "${AIFY_SERVER_URL}/mcp/http"'), "no URL given: the wrapper's exported one");
+});
+
+test("switching an installed stdio entry to http leaves nothing of the child behind", () => {
+  const stdio = configWithAifyEntry("mcp_servers:\n", { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "k" });
+  assert.match(stdio, /command: "node"/, "control: the stdio entry has its command");
+  const http = configWithAifyEntry(stdio, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "k", transport: "http" });
+  assert.equal(http, `mcp_servers:\n  aify-comms:\n    url: "${URL_}/mcp/http"\n    headers:\n      X-Aify-Agent-Id: "\${AIFY_AGENT_ID}"\n      X-API-Key: "k"\n`);
 });

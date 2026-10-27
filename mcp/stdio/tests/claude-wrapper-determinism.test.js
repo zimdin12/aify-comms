@@ -114,5 +114,5 @@ test("claude-aify wrapper: the session-capture hooks are installed on every laun
 
 test("claude-aify wrapper: temp config files are cleaned up on exit", () => {
   const text = sharedText();
-  assert.match(text, /trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS"/, "must trap EXIT");
+  assert.match(text, /trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_COMMS_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS"/, "must trap EXIT, the per-launch comms entry included");
 });

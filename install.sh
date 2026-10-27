@@ -65,9 +65,9 @@ Examples:
                                 aify-env hosts every managed spawn. --delegate-spawns [url] is
                                 accepted as its old name; --no-delegate-spawns does nothing.
   Existing notification hooks refresh automatically; new legacy hooks need --standalone --with-hook.
-  --mcp-transport <stdio|sse>   how the launcher reaches MCP. Default stdio: the launcher spawns
-                                the local bridge from ~/.aify-comms. With sse it talks to
-                                <endpoint>/mcp/sse instead and needs no service code on this host.
+  --mcp-transport <stdio|sse|http>  how agents reach the comms tools. Default stdio: the local
+                                bridge from ~/.aify-comms. http: the service's <endpoint>/mcp/http,
+                                claude-aify adding it per launch (0.9.11). sse: <endpoint>/mcp/sse.
   --standalone runs only this installer; plain installs use the guided chain.
   --client pi is intentionally disabled: Pi (`omp --mode rpc`) is deprecated.
   --client opencode is intentionally disabled: OpenCode is not supported.
@@ -106,8 +106,8 @@ while [ $# -gt 0 ]; do
       # what was asked for -- the same failure the unsubstituted placeholder caused one level up.
       MCP_TRANSPORT="${2:-}"
       case "$MCP_TRANSPORT" in
-        stdio|sse) ;;
-        *) echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio or sse)" >&2
+        stdio|sse|http) ;;
+        *) echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio, sse or http)" >&2
            exit 78 ;;
       esac
       shift 2
@@ -1142,7 +1142,7 @@ _patch_hermes_config_at() {
   local cfg_mjs="$SCRIPT_DIR/scripts/hermes-mcp-config.mjs"
   if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then cfg_mjs="$(cygpath -w "$cfg_mjs")"; fi
   MSYS_NO_PATHCONV=1 node "$cfg_mjs" \
-    "$node_config_file" "$node_server_path" "$SERVER_URL" "$api_key"
+    "$node_config_file" "$node_server_path" "$SERVER_URL" "$api_key" "${MCP_TRANSPORT:-stdio}"
 }
 
 install_hermes_plugin() {
@@ -1811,6 +1811,7 @@ register_stdio_server() {
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
+    [ "${MCP_TRANSPORT:-}" = http ] && return  # claude-aify adds it per launch (mcp/stdio/comms-http-entry.mjs)
   elif [ "$cli" = "hermes" ]; then
     install_hermes_config
     return
