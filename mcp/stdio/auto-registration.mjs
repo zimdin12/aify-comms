@@ -91,8 +91,9 @@ export function registersAsTheAgent({ sessionMode, nestedSession }) {
 // The factory. `ensureDispatchLoop` is injected; see the header on why the retry makes this a
 // factory rather than an extra parameter.
 // `active`: whether a retry may still run. A process that has begun to leave answers false, so a refusal's
-// retry cannot register a process that already reported itself gone.
-export function makeAutoRegister({ ensureDispatchLoop, active = () => true }) {
+// retry cannot register a process that already reported itself gone. `onAttempt` receives each retry as it
+// starts, so an owner that waits for registration before leaving waits for that one too (review of e1dfe132).
+export function makeAutoRegister({ ensureDispatchLoop, active = () => true, onAttempt = () => {} }) {
   async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
     // Audit 2026-06-28: the environment bridge must NEVER auto-register as an agent, because
     // inheriting a parent agent's AIFY_AGENT_ID would make it self-register as a resident and
@@ -224,7 +225,7 @@ export function makeAutoRegister({ ensureDispatchLoop, active = () => true }) {
         const retriesLeft = Number.isFinite(_retriesLeft) ? _retriesLeft : 8;
         if (retriesLeft > 0) {
           const t = setTimeout(() => {
-            if (active()) autoRegisterConfiguredAgent(retriesLeft - 1).catch(() => {});
+            if (active()) onAttempt(autoRegisterConfiguredAgent(retriesLeft - 1).catch(() => {}));
           }, 30_000);
           if (typeof t.unref === "function") t.unref();
         } else {

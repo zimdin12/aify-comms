@@ -44,8 +44,11 @@ export class ResidentDuties {
     ownerId = BRIDGE_INSTANCE_ID,
     env = process.env,
     call = httpCall,
-    // A refused registration retries on its own timer; none may start once this process has decided to leave.
-    register = makeAutoRegister({ ensureDispatchLoop: () => {}, active: () => this.ended === null }),
+    // A refused registration retries on its own timer; none may start once this process has decided to leave,
+    // and each one that started is waited for like the first.
+    register = makeAutoRegister({
+      ensureDispatchLoop: () => {}, active: () => this.ended === null, onAttempt: (attempt) => this.track(attempt),
+    }),
     removeBinding = removeAgentBindingFile,
     boundMs = RESIDENT_LOST_BOUND_MS,
   } = {}) {
@@ -57,9 +60,14 @@ export class ResidentDuties {
 
   /** Register, then beat as the owner and report the session handle while the process lives. */
   start() {
-    this.registering = this.register().catch(() => {});
+    this.track(this.register().catch(() => {}));
     this.stops.push(...this.startBeats());
     return this;
+  }
+
+  /** Add a registration attempt to what leaving waits for. */
+  track(attempt) {
+    this.registering = Promise.all([this.registering, attempt]);
   }
 
   /** The owner's liveness beat and the session-handle beat; each returns its stop. */
