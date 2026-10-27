@@ -118,6 +118,15 @@ test("refresh preserves the owned MCP entry's explicit TEMP pins without borrowi
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("under a quoted mcp_servers section, the owned entry is refreshed in place and keeps its TEMP pins", () => {
+  // The section name is unquoted before it is compared: read as quoted, the owned entry looked like a leftover
+  // outside mcp_servers and was deleted with its pins (review of 2ed0be98).
+  const before = ['"mcp_servers":', "  aify-comms:", "    command: stale", "    env:", '      TEMP: "/tmp"', ""].join("\n");
+  const after = configWithAifyEntry(before, { serverPath: SERVER_PATH, serverUrl: URL_ });
+  assert.match(after, /^      TEMP: "\/tmp"$/m, "the pin was lost with the entry");
+  assert.equal((after.match(/^ {2}aify-comms:$/gm) || []).length, 1);
+});
+
 test("a refreshed per-turn MCP entry forwards its resident lifecycle owner", () => {
   const dir = tmpDir("aify-hermes-owner-");
   try {

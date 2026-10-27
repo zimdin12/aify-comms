@@ -42,3 +42,11 @@ def test_a_quoted_leftover_under_plugins_is_removed_and_the_plugin_setting_kept(
     assert "aify-comms" not in config["plugins"], "the stdio leftover under plugins must go"
     assert config["plugins"]["entries"]["aify-comms"] == {"allow_tool_override": False}
     assert config["mcp_servers"]["aify-comms"]["url"] == "http://h:8800/mcp/http"
+
+
+def test_a_leftover_whose_command_key_is_quoted_is_removed_too():
+    """`"command":` is the same key to YAML; the leftover check matched only the plain one (review of 2ed0be98)."""
+    config = patched('plugins:\n  aify-comms:\n    "command": node\n    args: [legacy/server.js]\n'
+                     "mcp_servers:\n  other:\n    url: u\n")
+    assert "aify-comms" not in (config["plugins"] or {}), "the quoted-command leftover under plugins must go"
+    assert config["mcp_servers"]["aify-comms"]["url"] == "http://h:8800/mcp/http"
