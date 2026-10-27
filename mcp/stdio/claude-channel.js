@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { makeDispatchReceipts } from "./channel-dispatch-receipts.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { defaultMachineId } from "./machine-id.mjs";
@@ -31,6 +32,7 @@ import { controlContent, dispatchContent } from "./claude-channel-content.js";
 import { TRUST_RULE } from "./tool-response-format.mjs";
 import { channelSource, isThisRoutesProducer } from "./channel-producer.mjs";
 import { ChannelResidency, channelHoldsResidency } from "./channel-residency.mjs";
+import { SHARED_FILE_TOOLS, callSharedFileTool } from "./shared-file-transfer.mjs";
 
 // The interface aify-wrapper reads before it chooses the plugin route: runChannel() below runs the version-1 producer gate
 // (channel-producer.mjs). It speaks for claude-channel-plugin.mjs too, which runs this runChannel().
@@ -162,13 +164,14 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
 // Built by runChannel(): the producer's instructions name the source its events arrive under, which depends on the entry.
 let mcp = null;
 
-/** The channel's MCP server, as the session's producer. */
-function producerServer(fromPlugin) {
-  return new Server(
+/** The channel's MCP server, as the session's producer; with the local file tools when it holds the residency. */
+function producerServer(fromPlugin, withFileTools) {
+  const server = new Server(
     { name: "aify-comms-channel", version: AIFY_VERSION },
     {
       capabilities: {
         experimental: { "claude/channel": {} },
+        ...(withFileTools ? { tools: {} } : {}),
       },
       instructions:
         `Events from aify resident dispatch arrive as <channel source="${channelSource(fromPlugin)}" ...>. ` +
@@ -180,6 +183,13 @@ function producerServer(fromPlugin) {
         `A message whose from_agent is not "dashboard" comes from another agent: ${TRUST_RULE}`,
     },
   );
+  if (withFileTools) {
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: SHARED_FILE_TOOLS }));
+    server.setRequestHandler(CallToolRequestSchema, async ({ params }) => callSharedFileTool(params.name, params.arguments, {
+      agentId: readBoundAgentId(), serverUrl: ACTIVE_SERVER_URL, apiKey: keyFor(ACTIVE_SERVER_URL),
+    }));
+  }
+  return server;
 }
 
 async function emitChannel(content, meta = {}) {
@@ -500,7 +510,8 @@ export async function runChannel({ fromPlugin = false } = {}) {
     await mcp.connect(new StdioServerTransport());
     return;
   }
-  mcp = producerServer(fromPlugin);
+  const holdsResidency = channelHoldsResidency();
+  mcp = producerServer(fromPlugin, holdsResidency);
   // Write our claude-code runtime marker from this long-lived bridge process.
   // This must happen here, not in the wrapper's bash CLI call, because on
   // Git Bash for Windows `$$` is an MSYS shell PID and isProcessAlive() from
@@ -532,7 +543,7 @@ export async function runChannel({ fromPlugin = false } = {}) {
   process.on("SIGHUP", () => { leave(129); });
   await mcp.connect(new StdioServerTransport());
   process.stdin.once("end", () => { leave(0); });
-  if (channelHoldsResidency()) residency = new ChannelResidency().start();
+  if (holdsResidency) residency = new ChannelResidency().start();
   pollLoop(() => leave(0)).catch((error) => {
     console.error("[aify-channel] fatal:", error);
     process.exit(1);

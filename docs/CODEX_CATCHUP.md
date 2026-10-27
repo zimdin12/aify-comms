@@ -21,7 +21,7 @@ It holds these duties alone (the 0.9.11 plan's slice 1 map, read 2026-10-26):
 | resident-lost at exit | the bridge | the loop, as hermes' managed host does it |
 | auto-registration, binding file | the bridge | the loop |
 | comms tools | the bridge's JS tools | the service's tools over Streamable HTTP, a `url` entry with header identity |
-| file upload and download | `comms_share` with a `filePath`, `comms_read` of a binary | undecided in 0.9.11 for hermes too; follow hermes' answer |
+| file upload and download | `comms_share` with a `filePath`, `comms_read` of a binary | Claude's channel serves `comms_share_file` and `comms_save_file` (`shared-file-transfer.mjs`); hermes' answer is undecided; Codex takes whichever its loop can host |
 
 ## Steps
 
@@ -31,6 +31,7 @@ It holds these duties alone (the 0.9.11 plan's slice 1 map, read 2026-10-26):
    it sends them is unchecked, so check it on a real Codex first.
 3. Re-run `install.sh --client codex`: Codex's install and skills on this host are stale since it was parked.
 4. Delete what only Codex kept alive: the JS tool modules (`mcp/stdio/*-tool(s).mjs`) and `server.js`'s tool
-   serving. This is the part of 0.9.11 slice 5 that waits on Codex.
+   serving. This is the part of 0.9.11 slice 5 that waits on Codex. With them goes `artifact-tools.mjs`'s
+   hand-built multipart upload; `shared-file-transfer.mjs` uploads with `FormData`.
 
 The 0.9.11 plan, with the slice 1 map: `docs/superpowers/plans/2026-10-26-0.9.11-one-local-comms-process.md`.
