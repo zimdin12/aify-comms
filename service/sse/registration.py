@@ -11,7 +11,7 @@ error text without a try/except the JS did not have.
 `compact_schema`: the published input schema without what pydantic adds and an agent cannot use: a `title`
 on every argument, and an optional argument spelled `anyOf: [type, null]` with `default: null`. 5,560 of
 the list's 24,500 bytes (measured 2026-10-27). Calls are still validated against FastMCP's own argument
-model, so nothing an agent may send changes.
+model; what the folded schema refuses that the service accepts is stated on `compact_schema`.
 """
 
 from __future__ import annotations

@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { ERROR_BODY_LIMIT } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
 
 export const SHARED_FILE_TOOLS = [
@@ -40,13 +41,23 @@ export const SHARED_FILE_TOOLS = [
   },
 ];
 
+/**
+ * PURE. Is this read response a stored file's own bytes? The read route sends a file as an attachment
+ * (`FileResponse(path, filename=name)`), typed from its name, so a shared `.json` file arrives as
+ * `application/json` too. Only text shared inline comes back as the `{content, meta}` envelope, which has no
+ * attachment header.
+ */
+export function isStoredFile(headers) {
+  return Boolean(headers.get("content-disposition")) || !(headers.get("content-type") || "").includes("application/json");
+}
+
 const text = (message, isError = false) => ({ content: [{ type: "text", text: message }], ...(isError ? { isError: true } : {}) });
 
 async function failure(res, what) {
   const body = await res.text().catch(() => "");
-  let detail = body.slice(0, 300);
+  let detail = body;
   try { const parsed = JSON.parse(body); detail = parsed.detail || parsed.error || detail; } catch { /* not JSON */ }
-  return text(`${what} failed (HTTP ${res.status}): ${detail}`, true);
+  return text(`${what} failed (HTTP ${res.status}): ${String(detail).slice(0, ERROR_BODY_LIMIT)}`, true);
 }
 
 /** Run one of SHARED_FILE_TOOLS as `agentId`, against the service at `serverUrl`. */
@@ -75,10 +86,9 @@ export async function callSharedFileTool(tool, args, { agentId, serverUrl, apiKe
     const res = await fetchImpl(`${serverUrl}/api/v1/shared/${encodeURIComponent(name)}`, { headers, redirect: "manual" });
     if (res.status === 404) return text(`Artifact "${name}" not found.`, true);
     if (!res.ok) return failure(res, `Reading "${name}"`);
-    // A text artifact arrives as JSON with its content; anything else is the file's own bytes.
-    const data = (res.headers.get("content-type") || "").includes("application/json")
-      ? Buffer.from(String((await res.json()).content ?? ""), "utf8")
-      : Buffer.from(await res.arrayBuffer());
+    const data = isStoredFile(res.headers)
+      ? Buffer.from(await res.arrayBuffer())
+      : Buffer.from(String((await res.json()).content ?? ""), "utf8");
     const target = String(args?.savePath || path.join(tmpDir, `aify-shared-${name}`));
     try { fs.writeFileSync(target, data); } catch (error) { return text(`Cannot write ${target}: ${error.code || error.message}`, true); }
     return text(`Saved "${name}" (${data.length} bytes) to ${target.replace(/\\/g, "/")}.`);

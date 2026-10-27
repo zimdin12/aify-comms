@@ -159,7 +159,7 @@ because it did not look. `node --check` only parses. The counts below are a snap
 authority, and a very different number means a wrong invocation before it means anything else.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5153 passed, 24 skipped
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5156 passed, 24 skipped
 cd mcp/stdio && node tests/run-all.mjs                 # 356 suites
 cd service/new_dashboard && node --test *.test.mjs     # 1953 tests
 cd ~/projects/aify-wrapper && npm test                 # 1163 tests, 65 skipped

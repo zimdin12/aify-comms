@@ -25,6 +25,7 @@ import path from "path";
 import { API_KEY, ERROR_BODY_LIMIT, IS_REMOTE, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
 import { SHARED_DIR } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
+import { isStoredFile } from "./shared-file-transfer.mjs";
 
 // Registers the three shared-artifact tools on an MCP server.
 //
@@ -156,13 +157,12 @@ export function registerArtifactTools(server, z) {
         // Any other failure says what failed: "not found" for an outage sends the agent looking for a file that exists.
         if (!res.ok) {
           const text = await res.text().catch(() => "");
-          let detail = text.slice(0, ERROR_BODY_LIMIT);
+          let detail = text;
           try { const parsed = JSON.parse(text); detail = parsed.detail || parsed.error || detail; } catch { /* not JSON */ }
-          return { content: [{ type: "text", text: `Reading "${name}" failed (HTTP ${res.status}): ${detail}` }], isError: true };
+          return { content: [{ type: "text", text: `Reading "${name}" failed (HTTP ${res.status}): ${String(detail).slice(0, ERROR_BODY_LIMIT)}` }], isError: true };
         }
-        const contentType = res.headers.get("content-type") || "";
-        // Binary file — save locally and return path
-        if (!contentType.includes("application/json")) {
+        // A stored file, whatever its type (a shared .json file too) — save locally and return path
+        if (isStoredFile(res.headers)) {
           const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
           const localPath = path.join(tmpDir, `aify-shared-${name}`);
           const buffer = Buffer.from(await res.arrayBuffer());

@@ -295,6 +295,30 @@
     "isError": true
   },
   {
+    "name": "a long JSON detail is cut short",
+    "tool": "comms_read",
+    "args": {
+      "name": "shot.png"
+    },
+    "routes": {
+      "GET /shared/shot.png": {
+        "status": 500,
+        "body": {
+          "detail": "owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable "
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared/shot.png",
+        "body": null
+      }
+    ],
+    "text": "Reading \"shot.png\" failed (HTTP 500): owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable owned database unavailable own",
+    "isError": true
+  },
+  {
     "name": "files: all",
     "tool": "comms_files",
     "args": {},

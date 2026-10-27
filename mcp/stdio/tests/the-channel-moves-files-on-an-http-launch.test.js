@@ -16,7 +16,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { SHARED_FILE_TOOLS, callSharedFileTool } from "../shared-file-transfer.mjs";
+import { ERROR_BODY_LIMIT } from "../aify-service-endpoint.mjs";
+import { SHARED_FILE_TOOLS, callSharedFileTool, isStoredFile } from "../shared-file-transfer.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const CHANNEL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-channel.js");
@@ -43,15 +44,22 @@ async function service() {
       const raw = Buffer.concat(chunks);
       if (req.method === "POST" && req.url === "/api/v1/shared") {
         const bytes = filePart(raw, req.headers["content-type"]);
+        const name = /name="name"\r\n\r\n([^\r]*)\r\n/.exec(raw.toString("latin1"))[1];
         uploads.push({ raw: raw.toString("latin1"), bytes });
-        stored.set("blob.bin", bytes);
-        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, name: "blob.bin" }));
+        stored.set(name, bytes);
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, name }));
         return;
       }
       const name = decodeURIComponent((/^\/api\/v1\/shared\/(.+)$/.exec(req.url) || [])[1] || "");
+      if (req.method === "GET" && name === INLINE.name) {
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ content: INLINE.content, meta: { from: AGENT } }));
+        return;
+      }
       if (req.method === "GET" && name) {
         if (!stored.has(name)) { res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ detail: "not found" })); return; }
-        res.writeHead(200, { "content-type": "application/octet-stream" }).end(stored.get(name));
+        // What the read route's FileResponse sends (test_a_shared_json_file_is_read_as_a_file.py): typed from the name.
+        const type = name.endsWith(".json") ? "application/json" : "application/octet-stream";
+        res.writeHead(200, { "content-type": type, "content-disposition": `attachment; filename="${name}"` }).end(stored.get(name));
         return;
       }
       const answer = req.url === "/api/v1/dispatch/controls/claim" ? { controls: [] } : req.url === "/api/v1/agents" ? { ok: true, agentId: AGENT } : {};
@@ -61,6 +69,8 @@ async function service() {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return { url: `http://127.0.0.1:${server.address().port}`, uploads, close: () => new Promise((r) => server.close(r)) };
 }
+
+const INLINE = { name: "inline.json", content: '{"answer":42}' };
 
 async function until(condition, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
@@ -166,4 +176,45 @@ test("refusals before any request: no bound agent, an unreadable file, an unknow
   assert.equal(unknown.isError, true);
   assert.deepEqual(requests, [], "a refusal reached the service");
   assert.deepEqual(SHARED_FILE_TOOLS.map((t) => t.inputSchema.required), [["filePath"], ["name"]]);
+});
+
+test("isStoredFile: an attachment is a file whatever its type; only unattached JSON is the inline envelope", () => {
+  const read = (headers) => isStoredFile(new Headers(headers));
+  assert.deepEqual([
+    read({ "content-type": "application/json", "content-disposition": 'attachment; filename="a.json"' }),
+    read({ "content-type": "application/octet-stream" }),
+    read({ "content-type": "application/json" }),
+  ], [true, true, false]);
+});
+
+test("a shared .json file saves byte-identical, and text shared inline saves as its content", async () => {
+  const svc = await service();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-files-json-"));
+  try {
+    const at = { serverUrl: svc.url, agentId: AGENT };
+    const files = { "ordinary.json": Buffer.from('{"answer":42}\n'), "document.json": Buffer.from('{"content":"inner text","other":17}\r\n') };
+    for (const [name, bytes] of Object.entries(files)) {
+      const source = path.join(dir, name);
+      fs.writeFileSync(source, bytes);
+      assert.equal((await callSharedFileTool("comms_share_file", { filePath: source }, at)).isError, undefined);
+      const target = path.join(dir, `saved-${name}`);
+      fs.writeFileSync(target, "an older file at the destination");
+      const saved = await callSharedFileTool("comms_save_file", { name, savePath: target }, at);
+      assert.equal(saved.isError, undefined, saved.content[0].text);
+      assert.equal(fs.readFileSync(target, "latin1"), bytes.toString("latin1"), `${name} was not saved as shared`);
+    }
+    const target = path.join(dir, "saved-inline.json");
+    await callSharedFileTool("comms_save_file", { name: INLINE.name, savePath: target }, at);
+    assert.equal(fs.readFileSync(target, "utf8"), INLINE.content);
+  } finally {
+    await svc.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failure's detail is cut at ERROR_BODY_LIMIT after it is taken out of a JSON body", async () => {
+  const detail = "owned database unavailable ".repeat(23);
+  const fetchImpl = async () => new Response(JSON.stringify({ detail }), { status: 500, headers: { "content-type": "application/json" } });
+  const failed = await callSharedFileTool("comms_save_file", { name: "blob.bin" }, { serverUrl: "http://127.0.0.1:9", fetchImpl, agentId: AGENT });
+  assert.deepEqual([failed.isError, failed.content[0].text], [true, `Reading "blob.bin" failed (HTTP 500): ${detail.slice(0, ERROR_BODY_LIMIT)}`]);
 });

@@ -7,7 +7,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { SCHEMAS_FILE, jsToolClient, loadCases, runCase, startService, toolSchemas } from "./tool-replies/replay.mjs";
 
@@ -33,6 +35,24 @@ test("an error body is cut at ERROR_BODY_LIMIT, the length the recorded long-err
   const recorded = cases.find((c) => c.name === "a long error body is cut short");
   assert.ok(recorded, "the long-error case is gone, so this limit is held by nothing");
   assert.equal(recorded.text.length, "HTTP 409: ".length + ERROR_BODY_LIMIT);
+});
+
+// Not a fixture: here the copies differ by design (the JS saves a local copy, the service cannot). The headers
+// are the read route's own for a shared .json file (test_a_shared_json_file_is_read_as_a_file.py).
+test("comms_read saves a shared .json FILE as a file, not as inline text", async () => {
+  const temp = mkdtempSync(path.join(os.tmpdir(), "aify-read-json-"));
+  const [before, after] = [process.env.TEMP, process.env.TMP];
+  Object.assign(process.env, { TEMP: temp, TMP: temp });
+  try {
+    const actual = await runCase(client, service, { tool: "comms_read", args: { name: "data.json" }, routes: {
+      "GET /shared/data.json": { body: { answer: 42 }, headers: { "content-disposition": 'attachment; filename="data.json"' } },
+    } });
+    assert.match(actual.text, /^Binary artifact "data\.json" \(13 bytes\)\nSaved to: /);
+    assert.equal(readFileSync(path.join(temp, "aify-shared-data.json"), "utf8"), '{"answer":42}');
+  } finally {
+    Object.assign(process.env, { TEMP: before, TMP: after });
+    rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test("the JS tools' public schemas are still the recorded ones", async () => {

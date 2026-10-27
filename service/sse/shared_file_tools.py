@@ -60,15 +60,17 @@ async def comms_read(name: str = Field(description="Artifact name to read")):
         return tool_error(f'Artifact "{name}" not found.')
     # Any other failure says what failed: "not found" for an outage sends the agent looking for a file that exists.
     if resp.status_code >= 300:
-        detail = resp.text[:ERROR_BODY_LIMIT]
+        detail = resp.text
         try:
             parsed = resp.json()
         except ValueError:
             parsed = {}
         if isinstance(parsed, dict):
             detail = parsed.get("detail") or parsed.get("error") or detail
-        return tool_error(f'Reading "{name}" failed (HTTP {resp.status_code}): {detail}')
-    if "application/json" not in resp.headers.get("content-type", ""):
+        return tool_error(f'Reading "{name}" failed (HTTP {resp.status_code}): {str(detail)[:ERROR_BODY_LIMIT]}')
+    # A stored file comes back as an attachment typed from its name, so a shared .json file is JSON too; only
+    # text shared inline is the {content, meta} envelope, with no attachment header.
+    if resp.headers.get("content-disposition") or "application/json" not in resp.headers.get("content-type", ""):
         return (f'Binary artifact "{name}" ({len(resp.content)} bytes). This service cannot hand you a local copy; '
                 "read it from an agent that has a local comms process.")
     r = resp.json()

@@ -90,7 +90,7 @@ export async function startService() {
       const key = `${req.method} ${normalizePath(req.url)}`;
       requests.push({ method: req.method, path: normalizePath(req.url), body: normalizeBody(raw, req.headers["content-type"]) });
       const answer = Object.hasOwn(routes, key) ? routes[key] : { status: 404, body: { detail: `no fixture route for ${key}` } };
-      res.writeHead(answer.status ?? 200, { "content-type": "application/json" });
+      res.writeHead(answer.status ?? 200, { "content-type": "application/json", ...answer.headers });
       res.end(JSON.stringify(withTimes(answer.body ?? {})));
     });
   });
