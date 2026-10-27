@@ -40,6 +40,18 @@ kept as evidence. Last reviewed 2026-10-13.
   on wrapper main and on the 0.9.10 branch, and Windows skips them, so they gate nothing until the test environment
   configures the channel. The hermes rows in the same files pass.
 
+## Found while proving the 0.9.11 switch (2026-10-28)
+
+- **`bridge-current` asks to relaunch every agent after a doctor-only commit.** It counts commits since a bridge's
+  build under `mcp/stdio`, excluding only `mcp/stdio/tests`, so a change to the doctor's own files reads as code the
+  bridges run. Seen after 97b43c34: 16 live bridges "running older code" that loads none of the changed files. Not
+  a relaunch signal. A name-pattern exclude would be wrong (`notify-check.js` is a runtime hook named like a
+  `*-check.mjs` doctor module); the fix is a derived set of files reachable from `doctor.js` and from no bridge entry.
+- **A Claude agent with the channel can receive one message twice.** The PostToolUse unread notice
+  (`notify-check.js`) and the channel's dispatch event both carry it when the message arrives mid-turn: message
+  1793142198531-dcb60c55 reached comms-tech-lead as a notice during a tool call and again as a channel event after the
+  turn. About 0.8 KB plus the body, paid twice. Not yet measured how often.
+
 ## Deferred by the 0.9.1 review (2026-10-13)
 
 - **aify-env ENV-3:** `aify-env agents --all` leaves out a member it cannot read, and an incomplete inventory reads
