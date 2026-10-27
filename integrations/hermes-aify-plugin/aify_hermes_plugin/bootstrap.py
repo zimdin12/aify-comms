@@ -8,6 +8,7 @@ import sys
 from types import ModuleType
 from typing import Callable
 
+from .file_tools import register as register_file_tools
 from .gateway_patch import patch_gateway_server
 from .patches import (
     patch_codex_runtime,
@@ -114,6 +115,10 @@ def install(ctx=None) -> None:  # noqa: ANN001 - hermes PluginContext
     global _INSTALLED
     for variable in _WRAPPER_PLUGINS:
         _register_wrapper_plugin(ctx, variable)
+    try:
+        register_file_tools(ctx)
+    except Exception as exc:  # an addition; hermes startup is not
+        _log(f"file tools not registered: {exc}")
     if _INSTALLED:
         return
     _INSTALLED = True
