@@ -83,7 +83,7 @@ from a different copy.
    `<runtime>-aify --aify-agent <id> --resume <handle>`.
 3. Restart managed agents one at a time with `comms_restart(agentId)` (dashboard Sessions → Restart).
 
-The process patterns (`server.js`, `claude-aify`) match every agent on the host, including your own
+Process patterns (`claude-channel.js`, `claude-aify`) match every agent here, including your own
 session and aify-env's managed workers, so stop processes by id, never by pattern.
 
 ## Machine ID shows `win32:unknown-host`

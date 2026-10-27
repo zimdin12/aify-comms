@@ -635,6 +635,15 @@ export function readBoundAgentId(bridgePid, { procRoot = "/proc", readFile = rea
   return "";
 }
 
+// A process running code from the installed bridge copy: Codex's server.js, Claude's claude-channel.js and
+// hermes' hermes-managed-host.js since 0.9.11 moved Claude and hermes tools onto HTTP. Matched by the
+// installed directory, not by a script name, so another repo's `mcp/stdio/server.js` (aify-project-graph
+// has one) is not counted and a new host entry point needs no edit here.
+export function runsInstalledBridgeCode(cmdline, bridgeDir) {
+  const prefix = `${bridgeDir.replace(/\\/g, "/").replace(/\/$/, "")}/`;
+  return String(cmdline).split("\0").some((arg) => /\.m?js$/.test(arg) && arg.replace(/\\/g, "/").startsWith(prefix));
+}
+
 export function readProcEnv(pid, { procRoot = "/proc", readFile = readFileSync } = {}) {
   const out = {};
   try {

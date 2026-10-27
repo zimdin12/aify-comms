@@ -99,11 +99,11 @@ const CEILINGS = {
   "aify-comms-debug/references/dashboard-console.md": 3_865,
   "aify-comms-debug/references/dispatch-bridges.md": 5_903,
   "aify-comms-debug/references/dispatch-delivery.md": 6_772,
-  "aify-comms-debug/references/dispatch-launch.md": 5_028,
+  "aify-comms-debug/references/dispatch-launch.md": 5_025,  // 0.9.11: the stdio bridge is gone for Claude and hermes, -3
   "aify-comms-debug/references/hermes.md": 8_826,
   "aify-comms-debug/references/lifecycle.md": 6_455,
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 7_003,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45; "resets by" -3; hermes to aify-env -10
+  "aify-comms-debug/references/status-model.md": 6_998,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45; "resets by" -3; hermes to aify-env -10; 0.9.11 server.js pattern -5
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

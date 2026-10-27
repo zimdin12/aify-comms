@@ -26,7 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { readBoundAgentId, readProcEnv } from "../doctor-predicates.js";
+import { readBoundAgentId, readProcEnv, runsInstalledBridgeCode } from "../doctor-predicates.js";
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "aify-doctor-proc-"));
 const PROC = path.join(ROOT, "proc");
@@ -199,6 +199,28 @@ test("a comm containing a SPACE breaks the ppid parse — recorded, not fixed", 
   fs.writeFileSync(path.join(TMP, "aify-agent-1000"), "sc-spaced", "utf-8");
   assert.equal(readBoundAgentId(212, opts), "",
     "the ppid parse now survives a spaced comm — update this note, it is a fix not a regression");
+});
+
+// ── runsInstalledBridgeCode: which processes `bridge-running` and `agent-identity` inspect ─────────
+// Since 0.9.11 a Claude or hermes agent runs no server.js; its comms code on the host is claude-channel.js
+// or hermes-managed-host.js. Matching "mcp/stdio/server.js" found none of them and read green.
+
+const INSTALLED = "/home/u/.aify-comms/mcp/stdio";
+const argv = (...args) => args.join("\0");
+
+test("every host entry point run from the installed copy is inspected", () => {
+  for (const script of ["server.js", "claude-channel.js", "hermes-managed-host.js"]) {
+    assert.equal(runsInstalledBridgeCode(argv("node", `${INSTALLED}/${script}`, "run", "a"), INSTALLED), true, script);
+  }
+});
+
+test("another repo's mcp/stdio/server.js is not a comms bridge", () => {
+  assert.equal(runsInstalledBridgeCode(argv("node", "--max-old-space-size=8192",
+    "/home/u/aify-project-graph/mcp/stdio/server.js"), INSTALLED), false);
+});
+
+test("a sibling directory sharing the prefix is not the installed copy", () => {
+  assert.equal(runsInstalledBridgeCode(argv("node", `${INSTALLED}-old/server.js`), INSTALLED), false);
 });
 
 test.after(() => {

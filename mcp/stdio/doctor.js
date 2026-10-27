@@ -82,6 +82,7 @@ import {
   // Moved out of THIS file in v0.5.4 so they could be tested — see the note where they used to sit.
   readBoundAgentId,
   readProcEnv,
+  runsInstalledBridgeCode,
   installedHostTier,
   spawnHostVerdict,
 } from "./doctor-predicates.js";
@@ -220,7 +221,7 @@ function checkRunningBridges() {
   for (const pid of readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
     let cmdline = "";
     try { cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8"); } catch { continue; }
-    if (!cmdline.includes("mcp/stdio/server.js")) continue;
+    if (!runsInstalledBridgeCode(cmdline, BRIDGE_DIR)) continue;
     running += 1;
     let startedMs;
     try { startedMs = statSync(`/proc/${pid}`).mtimeMs; } catch { continue; }
@@ -257,7 +258,7 @@ async function checkAgentIdentity() {
   for (const pid of readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
     let cmdline = "";
     try { cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8"); } catch { continue; }
-    if (!cmdline.includes("mcp/stdio/server.js")) continue;
+    if (!runsInstalledBridgeCode(cmdline, BRIDGE_DIR)) continue;
     // `--environment-bridge` NO LONGER EXISTS. v0.6.1 removed the flag and v0.6.2 deleted the
     // tier, so this branch can no longer fire on any current install. It is kept for a host
     // still running a pre-v0.6.1 bridge, where such a process IS legitimately id-less and

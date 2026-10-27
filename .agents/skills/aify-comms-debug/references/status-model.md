@@ -14,7 +14,7 @@ hooks post nothing to aify-env, so aify-env never sees the turn.
 
 ```bash
 # <ANONYMOUS> on a REGISTERED agent = this bug.
-for p in $(pgrep -f "aify-comms/mcp/stdio/server.js"); do
+for p in $(pgrep -f "aify-comms/mcp/stdio/.*js"); do
   aid=$(tr '\0' '\n' < /proc/$p/environ | grep -m1 '^AIFY_AGENT_ID=' | cut -d= -f2)
   ppid=$(awk '{print $4}' /proc/$p/stat)
   echo "${aid:-<ANONYMOUS>}  pid=$p  cwd=$(readlink /proc/$ppid/cwd)"
