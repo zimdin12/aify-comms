@@ -102,10 +102,10 @@ Not done, not scheduled; kept so they can be picked later. Each was checked agai
 - The WebGL renderer is skipped on narrow screens (V0.2 WS-4.2).
 - The dashboard says why its socket closed (V0.2 WS-4.3).
 
-**Tools and the SSE transport**
-- The five tools missing over SSE: `agent_info`, `contracts`, `status`, `describe`, `unsend`
-  (TARGET_ARCHITECTURE; audit finding 2).
-- The other SSE gaps from that audit: a dead worker's recorded console, send nonces, binary shares.
+**Tools and the service's MCP transport**
+- 0.9.11: `/mcp/http` serves every comms tool (the five the SSE transport lacked were ported) and `/mcp/sse`
+  is gone; binary files go through the Claude channel's and the hermes plugin's file tools.
+- Still to check from the same audit: a dead worker's recorded console, and send nonces.
 - Remove agent, delete session and clear record who asked (v0.6.1); only restart does.
 - A sender can opt out of message merging (v0.6.1).
 - A queued run can be interrupted, not only an active one (v0.6.1); unsending is the workaround.
