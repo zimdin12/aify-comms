@@ -32,6 +32,8 @@ It holds these duties alone (the 0.9.11 plan's slice 1 map, read 2026-10-26):
 3. Re-run `install.sh --client codex`: Codex's install and skills on this host are stale since it was parked.
 4. Delete what only Codex kept alive: the JS tool modules (`mcp/stdio/*-tool(s).mjs`) and `server.js`'s tool
    serving. This is the part of 0.9.11 slice 5 that waits on Codex. With them goes `artifact-tools.mjs`'s
-   hand-built multipart upload; `shared-file-transfer.mjs` uploads with `FormData`.
+   hand-built multipart upload; `shared-file-transfer.mjs` uploads with `FormData`. With them goes
+   `from` too: only the JS `comms_send` takes it (the service's names the caller by header and ignores
+   it), yet both reply hints still write `comms_send(from=...)`: `reply_contract.py` and `notify-notice.mjs`.
 
 The 0.9.11 plan, with the slice 1 map: `docs/superpowers/plans/2026-10-26-0.9.11-one-local-comms-process.md`.
