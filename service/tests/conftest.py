@@ -175,6 +175,20 @@ def _no_real_provider_login(monkeypatch):
     monkeypatch.setattr(usage_anthropic, "_credential_candidates", lambda: [])
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _tools_never_reach_the_live_service():
+    """The comms tools' API client points nowhere for the whole run.
+
+    Unset, it derives `127.0.0.1:<port>` from config, which is the LIVE service on this host: a tool test
+    whose stub missed the tool's real seam once sent a request there and got its 401 (0.9.11 slice 2).
+    A test that needs a service sets `_BASE_URL` to its own fake and restores this after.
+    """
+    from service.sse import api_client
+
+    api_client._BASE_URL = "http://127.0.0.1:9/api/v1"  # discard port: nothing answers there
+    yield
+
+
 @pytest.fixture
 def real_app_data_dir(monkeypatch, tmp_path):
     """For a test that runs `service.main.app`'s real lifespan, which opens `<data_dir>/aify.db`.

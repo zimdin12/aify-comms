@@ -24,12 +24,18 @@ class _Api:
 
 
 def _with_api(module, tool, payload, **kwargs):
+    """The tool run against canned answers on BOTH seams a module may use (`_api`, and the ported tools'
+    `call`), so a tool that moved seams cannot reach the real service from a test."""
     api = _Api(payload)
-    original, module._api = module._api, api
+    stubs = {name: api for name in ("_api", "call") if hasattr(module, name)}
+    originals = {name: getattr(module, name) for name in stubs}
+    for name, stub in stubs.items():
+        setattr(module, name, stub)
     try:
         return asyncio.run(tool(**kwargs)), api
     finally:
-        module._api = original
+        for name, original in originals.items():
+            setattr(module, name, original)
 
 
 class AgentToolTests(unittest.TestCase):

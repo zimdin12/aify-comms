@@ -29,6 +29,7 @@
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
 import { replyExpectationSummary } from "./tool-response-format.mjs";
 
 // PRIVATE, and byte-identical to the server.js original including its lack of an export.
@@ -38,6 +39,13 @@ import { replyExpectationSummary } from "./tool-response-format.mjs";
 // — `registerDispatchTools` — and a helper with no consumer outside the group stays inside it. A test
 // is not a consumer that justifies widening a module's API; the wording this produces is asserted
 // through `comms_contracts`, which is the only thing that calls it.
+const fence = (text) => "```\n" + String(text || "").replace(/```/g, "'''") + "\n```";
+
+function oneLine(text, limit) {
+  const flat = String(text || "").split(/\s+/).filter(Boolean).join(" ");
+  return flat.length <= limit ? flat : `${flat.slice(0, Math.max(limit - 1, 0)).trimEnd()}…`;
+}
+
 function summarizeContract(contract = {}) {
   const route = `${contract.from || "?"} -> ${contract.targetAgentId || "?"}`;
   const state = String(contract.state || "sent").replace(/_/g, " ");
@@ -95,7 +103,10 @@ export function registerDispatchTools(server, z) {
 
       const r = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(runId)}`);
       const run = r.run;
-      const events = (run.events || []).slice(-10).map((event) => `- ${event.createdAt} [${event.type}] ${event.body || ""}`);
+      // A run's summary, error and event bodies are written by the TARGET's runtime: another agent's text.
+      // Summary and error are fenced as an inbox body is; an event body is folded onto one clipped line so
+      // it keeps the list intact (the service's copy did this first, reviewer report 2026-08-18).
+      const events = (run.events || []).slice(-10).map((event) => `- ${event.createdAt} [${event.type}] ${oneLine(event.body, 200)}`);
       const controls = (run.controls || []).slice(-10).map((control) =>
         `- ${control.requestedAt} [${control.action}/${control.status}] ${control.from || "unknown"}${control.response ? ` -> ${control.response}` : ""}`
       );
@@ -107,15 +118,15 @@ export function registerDispatchTools(server, z) {
             `Status: ${run.status}\n` +
             `Reply: ${replyExpectationSummary(run)}\n` +
             `Runtime: ${run.runtime || "unknown"}\n` +
-            `Subject: ${run.subject}\n` +
+            `Subject: ${quoteUntrustedSubject(run.subject, 240)}\n` +
             `Requested: ${run.requestedAt}\n` +
             (run.startedAt ? `Started: ${run.startedAt}\n` : "") +
             (run.finishedAt ? `Finished: ${run.finishedAt}\n` : "") +
-            (run.blockedByActiveRun?.runId ? `Blocked by active run: ${run.blockedByActiveRun.runId}${run.blockedByActiveRun.subject ? ` (${run.blockedByActiveRun.subject})` : ""}\n` : "") +
+            (run.blockedByActiveRun?.runId ? `Blocked by active run: ${run.blockedByActiveRun.runId}${run.blockedByActiveRun.subject ? ` (${quoteUntrustedSubject(run.blockedByActiveRun.subject, 120)})` : ""}\n` : "") +
             (run.externalThreadId ? `Thread: ${run.externalThreadId}\n` : "") +
             (run.externalTurnId ? `Turn: ${run.externalTurnId}\n` : "") +
-            (run.summary ? `\nSummary:\n${run.summary}\n` : "") +
-            (run.error ? `\nError:\n${run.error}\n` : "") +
+            (run.summary ? `\nSummary:\n${fence(run.summary)}\n` : "") +
+            (run.error ? `\nError:\n${fence(run.error)}\n` : "") +
             (events.length ? `\nRecent events:\n${events.join("\n")}` : "") +
             (controls.length ? `\nRecent controls:\n${controls.join("\n")}` : ""),
         }],
@@ -128,19 +139,19 @@ export function registerDispatchTools(server, z) {
     "Who owes whom a reply or work, derived from messages and runs: what is open, what is overdue, and whether unread counts are real work.",
     {
       agentId: z.string().optional().describe("Contracts this agent owes"),
-      from: z.string().optional().describe("Contracts owed to this sender"),
+      fromAgent: z.string().optional().describe("Contracts owed to this sender"),
       state: z.enum(["open", "overdue", "working", "queued", "seen", "sent", "missing_reply", "failed", "answered", "closed"]).optional().describe("Filter by computed contract state. Defaults to open."),
       category: z.enum(["direct", "channel", "self_wake"]).optional().describe("Defaults to direct."),
       includeClosed: z.boolean().optional().describe("Include answered/closed recent contracts. Default false."),
       limit: z.number().int().min(1).max(200).optional().describe("Max contracts to return. Default 25."),
     },
-    async ({ agentId, from, state, category, includeClosed, limit }) => {
+    async ({ agentId, fromAgent, state, category, includeClosed, limit }) => {
       if (!IS_REMOTE) {
         return { content: [{ type: "text", text: "Work contracts require remote server mode." }], isError: true };
       }
       const params = new URLSearchParams();
       if (agentId) params.set("agentId", agentId);
-      if (from) params.set("fromAgent", from);
+      if (fromAgent) params.set("fromAgent", fromAgent);
       params.set("state", state || "open");
       params.set("category", category || "direct");
       if (includeClosed) params.set("includeClosed", "true");

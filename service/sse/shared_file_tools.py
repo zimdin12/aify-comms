@@ -1,134 +1,112 @@
-"""Sharing artifacts between agents: write one, read one, list them.
+"""Shared artifacts: share text, read, list, and take back (port of `mcp/stdio/artifact-tools.mjs`, service
+mode).
 
-Extracted from `mcp/sse_server.py` in v0.5.4 — a whole subject, bodies untouched.
-
-`comms_share` IS THE ONE TOOL IN THE TRANSPORT THAT DOES NOT GO THROUGH `_api`. The shared-file
-endpoint takes form-encoded data rather than JSON, so it builds the request itself — which is why
-this module imports `httpx` and `get_config` while its two neighbours need neither, and why the
-transport's own `import httpx` becomes dead the moment this file exists. That import survived an
-earlier slice only because the sweep caught me deleting it while `comms_share` was still using it,
-400 lines below.
-
-`comms_read` decides whether a payload has readable content or is a binary the server is holding,
-and says which. That is a conclusion an agent acts on, so it is tested rather than assumed.
-
-Patch `_api` HERE, not on the transport: these resolve it from this module.
+The service is not on the agent's machine, so it shares TEXT given as `content`; a file by `filePath` is
+the local channel's (0.9.11 plan: the tools that touch the agent's machine). For the same reason a binary
+artifact is described, not saved: there is no local path to hand back. The sharer and the one taking an
+artifact back is the CALLER, from the request's header.
 """
 
 from __future__ import annotations
 
-import httpx
+from urllib.parse import quote
 
-from service.config import get_config
+from mcp.server.fastmcp import Context
+from pydantic import Field
+
+from service.sse.api_client import call, request
+from service.sse.caller import caller_id
 from service.sse.registration import register_tools
-from service.sse.api_client import api as _api, api_url as _api_url
+from service.sse.rendering import tool_error
+from service.sse.send_tools import SAFE_NAME
 
 
-async def comms_share(from_agent: str, name: str, content: str, description: str = "") -> str:
-    """Share an artifact (code, results, text) with other agents."""
-    # Use form-encoded data to match the API
-    url = f"{_api_url()}/shared"
-    headers = {}
-    cfg = get_config()
-    if cfg.api_key:
-        headers["X-API-Key"] = cfg.api_key
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(url, headers=headers, data={
-            "from_agent": from_agent, "name": name, "content": content, "description": description,
-        })
-        r = resp.json()
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f'Shared "{r.get("name", name)}" ({r.get("size", 0)} bytes).'
-
-
-async def comms_read(name: str) -> str:
-    """Read a shared artifact by name."""
-    r = await _api("GET", f"/shared/{name}")
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    if r.get("content"):
-        meta = r.get("meta", {})
-        header = f"From: {meta.get('from', '?')} | {meta.get('sharedAt', '')}" if meta.get("from") else ""
-        if meta.get("description"):
-            header += f" | {meta['description']}"
-        return (header + "\n\n" + r["content"]) if header else r["content"]
-    return f'"{name}" -- binary file on server.'
-
-
-#: Hard ceiling on how many artifacts one `comms_files` reply may list, whatever the caller asks.
-#: A reply is read into an agent's context; an unbounded one is a context flood, not a listing.
 MAX_FILES_LIMIT = 200
 
 
-async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> str:
-    """List shared artifacts.
+def _bad_name(name: str):
+    if SAFE_NAME.match(name):
+        return None
+    return tool_error(f'Invalid name: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: "{name}"')
 
-    BOUNDED: `limit` caps the reply, `query` matches name or description, `fromAgent` filters by
-    sharer. The reply always says how many were WITHHELD -- a truncated list that does not admit
-    it is truncated reads as "that is everything".
 
-    An unbounded listing is a claim on your own context: the reply crowds out the work it was
-    meant to inform.
-    """
-    r = await _api("GET", "/shared")
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    files = r.get("files", [])
-    total = len(files)
-    needle = (query or "").strip().lower()
-    sharer = (fromAgent or "").strip().lower()
-    if sharer:
-        files = [f for f in files if str(f.get("from", "")).strip().lower() == sharer]
-    if needle:
-        files = [
-            f for f in files
-            if needle in str(f.get("name", "")).lower() or needle in str(f.get("description", "")).lower()
-        ]
-    matched = len(files)
-    # BOUNDED AT BOTH ENDS. `max(1, ...)` alone left the upper end open, so `limit=100000` dumped the
-    # whole table into an agent's context — which defeats the reason this tool takes a limit at all.
-    # Reported 2026-08-18 as a Low. The footer already tells the caller how many matched, so a clipped
-    # answer is visibly clipped rather than silently partial.
+async def comms_share(
+    ctx: Context,
+    name: str = Field(description="Artifact name (e.g. 'test-results.txt', 'screenshot.png')"),
+    content: str | None = Field(default=None, description="Text content"),
+    description: str | None = Field(default=None, description="Short description"),
+):
+    """Share a text artifact with other agents."""
+    if refusal := _bad_name(name):
+        return refusal
+    if not content:
+        return tool_error("Need content or filePath.")
+    resp = await request("POST", "/shared", form={"from_agent": caller_id(ctx), "name": name, "description": description or "", "content": content})
     try:
-        capped = min(MAX_FILES_LIMIT, max(1, int(limit)))
-    except (TypeError, ValueError):
-        capped = 50
-    shown = files[:capped]
+        r = resp.json()
+    except ValueError:
+        r = {}
+    if resp.status_code >= 300:
+        return tool_error(f"Share failed (HTTP {resp.status_code}): {r.get('detail') or r.get('error') or 'server rejected the upload'}")
+    return f'Shared "{r.get("name") or name}" on server.'
+
+
+async def comms_read(name: str = Field(description="Artifact name to read")):
+    """Read a shared artifact by name."""
+    if refusal := _bad_name(name):
+        return refusal
+    resp = await request("GET", f"/shared/{quote(name, safe='')}")
+    if resp.status_code >= 300:
+        return tool_error(f'Artifact "{name}" not found.')
+    if "application/json" not in resp.headers.get("content-type", ""):
+        return (f'Binary artifact "{name}" ({len(resp.content)} bytes). This service cannot hand you a local copy; '
+                "read it from an agent that has a local comms process.")
+    r = resp.json()
+    if r.get("content"):
+        meta = r.get("meta") or {}
+        header = (f"From: {meta['from']} | {meta.get('sharedAt') or ''}{' | ' + meta['description'] if meta.get('description') else ''}\n\n"
+                  if meta.get("from") else "")
+        return header + r["content"]
+    return f'"{name}" — empty or unreadable.'
+
+
+def _files_listing(files: list, query: str | None, from_agent: str | None, limit: float | None) -> str:
+    # BOUNDED AT BOTH ENDS: limit=100000 dumped the whole table into an agent's context (reported 2026-08-18).
+    cap = min(MAX_FILES_LIMIT, max(1, int(limit) if limit is not None else 50))
+    needle = (query or "").strip().lower()
+    sharer = (from_agent or "").strip().lower()
+    matched = [f for f in files if not sharer or str(f.get("from") or "").strip().lower() == sharer]
+    if needle:
+        matched = [f for f in matched if needle in str(f.get("name") or "").lower() or needle in str(f.get("description") or "").lower()]
+    shown = matched[:cap]
     if not shown:
-        # The total is only worth saying when a FILTER hid things — "0 matched, 333 exist" is the
-        # useful sentence. On a genuinely empty store it is noise, and an existing test says so.
-        if needle or sharer:
-            return f"No shared artifacts matching that filter. ({total} shared in total.)"
-        return "No shared artifacts."
-    lines = [
-        f"- {f['name']} ({f.get('size', 0)}B, from: {f.get('from', '?')}, {f.get('sharedAt', '')})"
-        + (f" -- {f['description']}" if f.get("description") else "")
-        for f in shown
-    ]
-    footer = f"\n\n(showing {len(shown)} of {matched} matched; {total} shared in total)"
-    if matched > len(shown):
-        footer += " — narrow with query=/fromAgent= or raise limit="
-    return "\n".join(lines) + footer
+        return f"No shared artifacts matching that filter. ({len(files)} shared in total.)" if (query or from_agent) else "No shared artifacts."
+    lines = [f"- {f.get('name')} ({f.get('size')}B, from: {f.get('from')}, {f.get('sharedAt')})"
+             + (f" -- {f['description']}" if f.get("description") else "") for f in shown]
+    more = " — narrow with query=/fromAgent= or raise limit=" if len(matched) > len(shown) else ""
+    return f"{chr(10).join(lines)}\n\n(showing {len(shown)} of {len(matched)} matched; {len(files)} shared in total){more}"
 
 
-async def comms_unshare(name: str, requestedBy: str) -> str:
-    """Delete a shared artifact you shared.
+async def comms_files(
+    query: str | None = Field(default=None, description="Match against artifact name or description"),
+    fromAgent: str | None = Field(default=None, description="Only artifacts shared by this agent"),
+    limit: float | None = Field(default=None, description="Max artifacts to list (default 50)"),
+):
+    """List shared artifacts. Narrow with query or fromAgent; raise limit to see more."""
+    return _files_listing((await call("GET", "/shared")).get("files") or [], query, fromAgent, limit)
 
-    Only the sharer or an operator surface may delete; the service enforces it.
-    """
-    r = await _api("DELETE", f"/shared/{name}", params={"requestedBy": requestedBy})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
+
+async def comms_unshare(ctx: Context, name: str = Field(description="Artifact name to delete")):
+    """Delete a shared artifact YOU shared, by name."""
+    try:
+        await call("DELETE", f"/shared/{quote(name, safe='')}?requestedBy={quote(caller_id(ctx), safe='')}")
+    except Exception as error:  # noqa: BLE001 - worded as the JS tool words it
+        return tool_error(f"Failed to delete artifact: {error}")
     return f'Deleted shared artifact "{name}".'
 
 
-#: Registered in the order they were declared in the transport. Named explicitly rather than swept
-#: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
-#: agent-callable tool by accident.
 TOOLS = (comms_share, comms_read, comms_files, comms_unshare)
 
 
 def register(mcp_server) -> None:
-    """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
     register_tools(mcp_server, TOOLS)

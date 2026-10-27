@@ -8,8 +8,21 @@ Subjects are another agent's text, so they are quoted onto one line by the servi
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from service.api_core.reply_expectation import _message_type_expects_reply
 from service.api_core.serialization import _quote_untrusted_subject
+
+
+def js_number(value) -> str:
+    """A number as JS `String(n)` writes it into a query: `20`, not `20.0`."""
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def iso_millis(timestamp_ms) -> str:
+    """Epoch milliseconds as JS `new Date(ms).toISOString()`: UTC, millisecond precision, `Z`."""
+    moment = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def format_dispatch_state(info: dict) -> str:

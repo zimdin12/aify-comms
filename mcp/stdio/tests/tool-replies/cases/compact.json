@@ -1,0 +1,414 @@
+[
+  {
+    "name": "handoff to the same id, from the liveliest session",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {
+            "agent-b": {
+              "role": "reviewer",
+              "runtime": "hermes",
+              "cwd": "C:/b"
+            }
+          }
+        }
+      },
+      "GET /sessions?agentId=agent-b&limit=100": {
+        "body": {
+          "sessions": [
+            {
+              "id": "s0",
+              "status": "ended",
+              "lastSeen": "2026-10-27T09:00:00Z"
+            },
+            {
+              "id": "s1",
+              "status": "stopped",
+              "lastSeen": "2026-10-27T07:00:00Z",
+              "environmentId": "pc-1",
+              "runtime": "hermes",
+              "workspace": "C:/w1"
+            },
+            {
+              "id": "s2",
+              "status": "stopped",
+              "startedAt": "2026-10-27T08:00:00Z",
+              "environmentId": "pc-2",
+              "workspace": "C:/w2"
+            }
+          ]
+        }
+      },
+      "GET /agents/agent-b/compact/handoff-brief?sessionId=s2": {
+        "body": {
+          "text": "You were agent-b.",
+          "recentMessages": 10
+        }
+      },
+      "POST /spawn-requests": {
+        "body": {
+          "spawnRequest": {
+            "id": "sr_1",
+            "status": "queued"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b&limit=100",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/compact/handoff-brief?sessionId=s2",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/spawn-requests",
+        "body": {
+          "createdBy": "agent-a",
+          "environmentId": "pc-2",
+          "agentId": "agent-b",
+          "role": "reviewer",
+          "name": "agent-b",
+          "runtime": "hermes",
+          "workspace": "C:/w2",
+          "initialMessage": "You were agent-b.",
+          "subject": "Handoff compact from agent-b",
+          "priority": "normal",
+          "mode": "managed-warm",
+          "resumePolicy": "fresh_context",
+          "metadata": {
+            "compactMode": "handoff",
+            "compactedFromAgentId": "agent-b",
+            "compactedFromSessionId": "s2",
+            "compactedBy": "agent-a",
+            "recentMessagesToRead": 10,
+            "sameAgentId": true
+          }
+        }
+      }
+    ],
+    "text": "Queued handoff compaction for same agent ID \"agent-b\" from \"agent-b\". Spawn request: sr_1 [queued]. The fresh session is told its previous session and to read its last 10 message(s); the old native session is not reused.",
+    "isError": false
+  },
+  {
+    "name": "handoff to a successor, every option, restarted by its host",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b",
+      "mode": "handoff",
+      "newAgentId": "agent-b2",
+      "role": "coder",
+      "environmentId": "pc-9",
+      "runtime": "claude",
+      "workspace": "W:/x",
+      "instructions": "finish the parser",
+      "recentMessages": 3,
+      "priority": "urgent"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {}
+        }
+      },
+      "GET /sessions?agentId=agent-b&limit=100": {
+        "body": {
+          "sessions": [
+            {
+              "id": "s1",
+              "status": "running"
+            }
+          ]
+        }
+      },
+      "GET /agents/agent-b/compact/handoff-brief?recentMessages=3&sessionId=s1": {
+        "body": {
+          "text": "Brief.",
+          "recentMessages": 3
+        }
+      },
+      "POST /spawn-requests": {
+        "body": {
+          "lifecycleRequest": {
+            "id": "lr_3",
+            "status": "pending"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b&limit=100",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/compact/handoff-brief?recentMessages=3&sessionId=s1",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/spawn-requests",
+        "body": {
+          "createdBy": "agent-a",
+          "environmentId": "pc-9",
+          "agentId": "agent-b2",
+          "role": "coder",
+          "name": "agent-b2",
+          "runtime": "claude-code",
+          "workspace": "W:/x",
+          "initialMessage": "Brief.\n\nInstructions:\nfinish the parser",
+          "subject": "Handoff compact from agent-b",
+          "priority": "urgent",
+          "mode": "managed-warm",
+          "resumePolicy": "fresh_context",
+          "metadata": {
+            "compactMode": "handoff",
+            "compactedFromAgentId": "agent-b",
+            "compactedFromSessionId": "s1",
+            "compactedBy": "agent-a",
+            "recentMessagesToRead": 3,
+            "sameAgentId": false
+          }
+        }
+      }
+    ],
+    "text": "Queued handoff compaction for successor \"agent-b2\" from \"agent-b\". Its host restarts it into a fresh conversation. Restart request: lr_3 [pending]. The fresh session is told its previous session and to read its last 3 message(s); the old native session is not reused.",
+    "isError": false
+  },
+  {
+    "name": "handoff with no session",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {}
+        }
+      },
+      "GET /sessions?agentId=agent-b&limit=100": {
+        "body": {
+          "sessions": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b&limit=100",
+        "body": null
+      }
+    ],
+    "text": "No managed session record found for \"agent-b\". Compact needs a dashboard-managed backing session. Use comms_spawn first or adopt the identity into an environment from the dashboard.",
+    "isError": true
+  },
+  {
+    "name": "handoff to a bad successor id",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b",
+      "newAgentId": "b/2"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {}
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "Invalid handoff agent ID: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: \"b/2\"",
+    "isError": true
+  },
+  {
+    "name": "native",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b",
+      "mode": "native"
+    },
+    "routes": {
+      "POST /agents/agent-b/compact/native": {
+        "body": {
+          "ok": true,
+          "command": "/compress",
+          "terminalId": "t1",
+          "controlId": "c1"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/compact/native",
+        "body": {
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "QUEUED /compress to agent-b's console (terminal t1, control c1). Not confirmation: the bytes reach the PTY, and whether it compacted shows on its console (comms_console_tail). It keeps its session.",
+    "isError": false
+  },
+  {
+    "name": "native refused",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b",
+      "mode": "native"
+    },
+    "routes": {
+      "POST /agents/agent-b/compact/native": {
+        "body": {
+          "ok": false,
+          "message": "agent-b is busy"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/compact/native",
+        "body": {
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "agent-b is busy",
+    "isError": true
+  },
+  {
+    "name": "native with handoff options",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b",
+      "mode": "native",
+      "role": "coder",
+      "recentMessages": 0
+    },
+    "routes": {},
+    "requests": [],
+    "text": "role, recentMessages apply to mode \"handoff\" only; native compaction types the runtime's own command and takes none of them.",
+    "isError": true
+  },
+  {
+    "name": "native with one handoff option",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b",
+      "mode": "native",
+      "workspace": "W:/x"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "workspace applies to mode \"handoff\" only; native compaction types the runtime's own command and takes none of them.",
+    "isError": true
+  },
+  {
+    "name": "a bad target",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "x y"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "Invalid target agent ID: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: \"x y\"",
+    "isError": true
+  },
+  {
+    "name": "a service error",
+    "tool": "comms_compact",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "targetAgentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents": {
+        "status": 409,
+        "body": {
+          "detail": "busy"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "HTTP 409: {\"detail\":\"busy\"}",
+    "isError": true
+  }
+]

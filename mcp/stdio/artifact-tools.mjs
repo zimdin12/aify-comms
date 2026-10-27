@@ -227,7 +227,9 @@ export function registerArtifactTools(server, z) {
       // the caller's harness refused to inline. An unbounded list is a claim on the agent's own
       // context: the reply crowds out the work it was supposed to inform. The footer always says how
       // many were withheld, for the same reason comms_search says what it searched.
-      const cap = Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : 50);
+      // BOUNDED AT BOTH ENDS, as the service's copy is: limit=100000 dumped the whole table into an
+      // agent's context (reported 2026-08-18).
+      const cap = Math.min(200, Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : 50));
       const render = (all) => {
         const needle = String(query || "").trim().toLowerCase();
         const sharer = String(fromAgent || "").trim().toLowerCase();

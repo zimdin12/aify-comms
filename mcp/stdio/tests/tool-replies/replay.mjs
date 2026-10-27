@@ -12,6 +12,10 @@
 //
 // The tool modules read the endpoint and the caller from the environment at import, so `jsToolClient` sets
 // them before importing, and one process serves one caller: every case is called as CALLER.
+//
+// ERROR CASES ANSWER 4xx. The bridge's `httpCall` retries a GET, PATCH or DELETE that gets a 5xx, which is
+// its network policy, not the tool's; the service calls its own API over loopback and does not retry. A
+// 5xx case would record the retry count, not the tool.
 
 import http from "node:http";
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
@@ -30,9 +34,13 @@ export function normalizePath(raw) {
   return `${url.pathname.replace(/^\/api\/v1/, "")}${query ? `?${query}` : ""}`;
 }
 
-/** A request body as recorded: a send's `clientNonce` is random per call, so only its presence is kept. */
-export function normalizeBody(raw) {
+/**
+ * A request body as recorded: JSON, or a form as `{form: {...}}`. A send's `clientNonce` is random per
+ * call, so only its presence is kept.
+ */
+export function normalizeBody(raw, contentType = "") {
   if (!raw) return null;
+  if (/x-www-form-urlencoded/i.test(contentType)) return { form: Object.fromEntries(new URLSearchParams(raw)) };
   const body = JSON.parse(raw);
   if (body && typeof body.clientNonce === "string" && body.clientNonce) body.clientNonce = "<nonce>";
   return body;
@@ -44,6 +52,22 @@ export function loadCases() {
     .flatMap((file) => JSON.parse(readFileSync(path.join(CASES_DIR, file), "utf8")).map((testCase) => ({ file, ...testCase })));
 }
 
+/**
+ * A route body with `<now-3h>`-style strings made into times, so a reply that states an age (a stale bridge's
+ * "3h ago") reads the same on every run. Units s, m, h; `<now>` alone is the present.
+ */
+export function withTimes(value, now = Date.now()) {
+  if (typeof value === "string") {
+    const match = /^<now(?:-(\d+)([smh]))?>$/.exec(value);
+    if (!match) return value;
+    const ago = match[1] ? Number(match[1]) * { s: 1e3, m: 6e4, h: 36e5 }[match[2]] : 0;
+    return new Date(now - ago).toISOString();
+  }
+  if (Array.isArray(value)) return value.map((item) => withTimes(item, now));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withTimes(v, now)]));
+  return value;
+}
+
 /** The loopback service. `serve(routes)` swaps the answers and clears the record; `requests` reads it. */
 export async function startService() {
   let routes = {};
@@ -53,10 +77,10 @@ export async function startService() {
     req.on("data", (chunk) => { raw += chunk; });
     req.on("end", () => {
       const key = `${req.method} ${normalizePath(req.url)}`;
-      requests.push({ method: req.method, path: normalizePath(req.url), body: normalizeBody(raw) });
+      requests.push({ method: req.method, path: normalizePath(req.url), body: normalizeBody(raw, req.headers["content-type"]) });
       const answer = Object.hasOwn(routes, key) ? routes[key] : { status: 404, body: { detail: `no fixture route for ${key}` } };
       res.writeHead(answer.status ?? 200, { "content-type": "application/json" });
-      res.end(JSON.stringify(answer.body ?? {}));
+      res.end(JSON.stringify(withTimes(answer.body ?? {})));
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -89,6 +113,25 @@ export async function jsToolClient(serviceUrl) {
   return client;
 }
 
+export const SCHEMAS_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "schemas.json");
+
+/** Every value a schema allows, wherever zod or pydantic put the `enum`. */
+function enumValues(node) {
+  if (!node || typeof node !== "object") return [];
+  return [...(Array.isArray(node.enum) ? node.enum : []), ...Object.values(node).flatMap((child) => enumValues(child))];
+}
+
+/** What the tools' public schemas promise a caller: the required arguments and each argument's allowed values. */
+export async function toolSchemas(client) {
+  const { tools } = await client.listTools();
+  return Object.fromEntries(tools.map((tool) => {
+    const properties = tool.inputSchema?.properties || {};
+    const enums = Object.fromEntries(Object.entries(properties)
+      .map(([name, schema]) => [name, [...new Set(enumValues(schema))].sort()]).filter(([, values]) => values.length));
+    return [tool.name, { required: [...(tool.inputSchema?.required || [])].sort(), enums }];
+  }).sort(([a], [b]) => (a < b ? -1 : 1)));
+}
+
 /**
  * Run one case: what the tool asked the service, and what it told the agent. A request no route answers
  * fails the case: two copies calling the same wrong path would agree on the fixture's 404 and pass.
@@ -96,8 +139,12 @@ export async function jsToolClient(serviceUrl) {
 export async function runCase(client, service, testCase) {
   service.serve(testCase.routes);
   const result = await client.callTool({ name: testCase.tool, arguments: testCase.args || {} });
-  const unrouted = service.requests.map((r) => `${r.method} ${r.path}`).filter((key) => !Object.hasOwn(testCase.routes || {}, key));
+  const asked = service.requests.map((r) => `${r.method} ${r.path}`);
+  const unrouted = asked.filter((key) => !Object.hasOwn(testCase.routes || {}, key));
   if (unrouted.length) throw new Error(`${testCase.name}: no route answers ${unrouted.join(", ")}`);
+  // EXHAUSTED: a route the tool never asked for is a call the case expected and did not happen.
+  const unused = Object.keys(testCase.routes || {}).filter((key) => !asked.includes(key));
+  if (unused.length) throw new Error(`${testCase.name}: the tool never asked ${unused.join(", ")}`);
   return {
     requests: service.requests,
     text: (result.content || []).map((part) => part.text ?? "").join("\n"),

@@ -40,14 +40,7 @@ ALIASES = {"from": "from_agent"}
 #:
 #: Every reason here was read out of the code it describes, not inferred from the parameter's name.
 DECLARED_DIFFERENCES = {
-    # comms_unshare names the actor after the WIRE FIELD its ownership check reads (`requestedBy`),
-    # where stdio spells it `from`. Goes when unshare takes the caller from the header (0.9.11).
-    ("comms_unshare", "stdio", "from_agent"): "stdio spells the actor `from` on every tool",
-    ("comms_unshare", "sse", "requestedBy"): "named after the endpoint's ownership-check field",
 
-    # The stdio bridge RUNS AS an agent and fills the actor from `AIFY_AGENT_ID` rather than asking.
-    # SSE serves arbitrary clients and has no ambient identity, so it must be told.
-    ("comms_console_input", "sse", "from_agent"): "SSE has no ambient identity; the bridge does",
 
     # A local-machine capability. The SSE server is reached over the network, so there is no path of
     # the caller's to read.

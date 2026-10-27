@@ -31,21 +31,34 @@ def api_url():
 class ServiceError(Exception):
     """A non-2xx answer, worded as the JS bridge's `httpCall` throws it: `HTTP <status>: <body>`."""
 
+    def __init__(self, response: httpx.Response):
+        super().__init__(f"HTTP {response.status_code}: {response.text}")
+        self.status = response.status_code
+        try:
+            self.payload = response.json()
+        except ValueError:
+            self.payload = {}
 
-async def call(method: str, path: str, body: dict | None = None) -> dict:
-    """The JS `httpCall` (0.9.11 port): the parsed answer, or `ServiceError` on any non-2xx.
 
-    `path` carries its own query string, as the JS tools build it. A tool that does not catch the error
-    reports it as its result, the way the JS SDK reports a thrown error (`registration.register_tools`).
-    """
+async def request(method: str, path: str, *, body: dict | None = None, form: dict | None = None) -> httpx.Response:
+    """One request to this service's API, as it answered. `path` carries its own query string."""
     headers = {}
     cfg = get_config()
     if cfg.api_key:
         headers["X-API-Key"] = cfg.api_key
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.request(method, f"{api_url()}{path}", headers=headers, json=body)
+        return await client.request(method, f"{api_url()}{path}", headers=headers, json=body, data=form)
+
+
+async def call(method: str, path: str, body: dict | None = None, *, form: dict | None = None) -> dict:
+    """The JS `httpCall` (0.9.11 port): the parsed answer, or `ServiceError` on any non-2xx.
+
+    A tool that does not catch the error reports it as its result, the way the JS SDK reports a thrown
+    error (`registration.register_tools`).
+    """
+    resp = await request(method, path, body=body, form=form)
     if resp.status_code >= 300:
-        raise ServiceError(f"HTTP {resp.status_code}: {resp.text}")
+        raise ServiceError(resp)
     return resp.json() if resp.text.strip() else {}
 
 

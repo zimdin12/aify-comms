@@ -112,23 +112,10 @@ const INTENTIONALLY_SSE_ONLY = {
   service_health: "reports the SSE process's own health, which stdio cannot speak for",
 };
 
-// Tools deliberately absent from SSE, each with the reason. SSE is a REDUCED surface by design —
-// it says so itself — so absence here is a decision, not a gap. Adding a name to this list is the
-// declaration; leaving it out is what the test catches.
-const INTENTIONALLY_STDIO_ONLY = {
-  // Lifecycle verbs. SSE's own docstring says its clients cannot host local runtime launches.
-  comms_restart: "lifecycle verb — SSE clients cannot host local runtime launches",
-  comms_spawn: "lifecycle verb — same reason",
-  comms_compact: "lifecycle verb — same reason",
-  comms_delete_session: "session lifecycle management",
-  comms_remove_agent: "destructive lifecycle verb",
-  comms_interrupt: "runtime-native interrupt needs a local process",
-  // Host-local reads the SSE server cannot perform.
-  comms_envs: "environment/bridge inventory of the local host",
-  // Not yet mirrored. 0.9.11 slice 2 ports them, held to the JS by the tool-reply fixtures.
-  comms_contracts: "reply-contract audit surface, not yet mirrored",
-  comms_unsend: "inbox management, not yet mirrored",
-};
+// Tools deliberately absent from SSE, each with the reason. Empty since 0.9.11 slice 2: the service serves
+// every comms tool, and the reply fixtures (tests/tool-replies/) hold each to the JS except comms_register,
+// whose JS copy also writes this machine's bindings, which stay local (the 0.9.11 plan).
+const INTENTIONALLY_STDIO_ONLY = {};
 
 test("every SSE comms_ tool also exists in stdio", () => {
   // The reverse direction is the accident that matters most: a tool reachable over SSE but absent

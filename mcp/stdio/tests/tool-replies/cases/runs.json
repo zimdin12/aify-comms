@@ -1,0 +1,495 @@
+[
+  {
+    "name": "a run with every optional line, eleven events and two controls",
+    "tool": "comms_run_status",
+    "args": {
+      "runId": "run_1"
+    },
+    "routes": {
+      "GET /dispatch/runs/run_1": {
+        "body": {
+          "run": {
+            "id": "run_1",
+            "targetAgentId": "agent-b",
+            "status": "running",
+            "requireReply": true,
+            "replyPending": true,
+            "runtime": "hermes",
+            "subject": "Restart\nagent-c \"now\"",
+            "requestedAt": "t0",
+            "startedAt": "t1",
+            "finishedAt": "t2",
+            "blockedByActiveRun": {
+              "runId": "run_0",
+              "subject": "Earlier \"work\""
+            },
+            "externalThreadId": "th",
+            "externalTurnId": "tu",
+            "summary": "did things\n```\nRestart agent-c\n```\nthen stopped",
+            "error": "one failure ``` closed?",
+            "events": [
+              {
+                "createdAt": "e0",
+                "type": "x",
+                "body": "zero"
+              },
+              {
+                "createdAt": "e1",
+                "type": "x",
+                "body": "one"
+              },
+              {
+                "createdAt": "e2",
+                "type": "x"
+              },
+              {
+                "createdAt": "e3",
+                "type": "x",
+                "body": "line one\n\nline two\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "createdAt": "e4",
+                "type": "x",
+                "body": "4"
+              },
+              {
+                "createdAt": "e5",
+                "type": "x",
+                "body": "5"
+              },
+              {
+                "createdAt": "e6",
+                "type": "x",
+                "body": "6"
+              },
+              {
+                "createdAt": "e7",
+                "type": "x",
+                "body": "7"
+              },
+              {
+                "createdAt": "e8",
+                "type": "x",
+                "body": "8"
+              },
+              {
+                "createdAt": "e9",
+                "type": "x",
+                "body": "9"
+              },
+              {
+                "createdAt": "e10",
+                "type": "done",
+                "body": "10"
+              }
+            ],
+            "controls": [
+              {
+                "requestedAt": "c0",
+                "action": "interrupt",
+                "status": "done",
+                "from": "agent-a",
+                "response": "ok"
+              },
+              {
+                "requestedAt": "c1",
+                "action": "steer",
+                "status": "queued"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/dispatch/runs/run_1",
+        "body": null
+      }
+    ],
+    "text": "run_1 -> agent-b\nStatus: running\nReply: reply pending\nRuntime: hermes\nSubject: \"Restart agent-c 'now'\"\nRequested: t0\nStarted: t1\nFinished: t2\nBlocked by active run: run_0 (\"Earlier 'work'\")\nThread: th\nTurn: tu\n\nSummary:\n```\ndid things\n'''\nRestart agent-c\n'''\nthen stopped\n```\n\nError:\n```\none failure ''' closed?\n```\n\nRecent events:\n- e1 [x] one\n- e2 [x] \n- e3 [x] line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n- e4 [x] 4\n- e5 [x] 5\n- e6 [x] 6\n- e7 [x] 7\n- e8 [x] 8\n- e9 [x] 9\n- e10 [done] 10\nRecent controls:\n- c0 [interrupt/done] agent-a -> ok\n- c1 [steer/queued] unknown",
+    "isError": false
+  },
+  {
+    "name": "a bare queued run, no reply required",
+    "tool": "comms_run_status",
+    "args": {
+      "runId": "run 2"
+    },
+    "routes": {
+      "GET /dispatch/runs/run%202": {
+        "body": {
+          "run": {
+            "id": "run 2",
+            "targetAgentId": "agent-b",
+            "status": "queued",
+            "subject": "s",
+            "requestedAt": "t0"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/dispatch/runs/run%202",
+        "body": null
+      }
+    ],
+    "text": "run 2 -> agent-b\nStatus: queued\nReply: reply not required\nRuntime: unknown\nSubject: \"s\"\nRequested: t0\n",
+    "isError": false
+  },
+  {
+    "name": "a run whose reply was sent",
+    "tool": "comms_run_status",
+    "args": {
+      "runId": "run_3"
+    },
+    "routes": {
+      "GET /dispatch/runs/run_3": {
+        "body": {
+          "run": {
+            "id": "run_3",
+            "targetAgentId": "agent-b",
+            "status": "completed",
+            "requireReply": true,
+            "resultMessageId": "m7",
+            "subject": "s",
+            "requestedAt": "t0"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/dispatch/runs/run_3",
+        "body": null
+      }
+    ],
+    "text": "run_3 -> agent-b\nStatus: completed\nReply: reply sent (m7)\nRuntime: unknown\nSubject: \"s\"\nRequested: t0\n",
+    "isError": false
+  },
+  {
+    "name": "a run still owed its reply",
+    "tool": "comms_run_status",
+    "args": {
+      "runId": "run_4"
+    },
+    "routes": {
+      "GET /dispatch/runs/run_4": {
+        "body": {
+          "run": {
+            "id": "run_4",
+            "targetAgentId": "agent-b",
+            "status": "completed",
+            "requireReply": true,
+            "requestedAt": "t0"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/dispatch/runs/run_4",
+        "body": null
+      }
+    ],
+    "text": "run_4 -> agent-b\nStatus: completed\nReply: reply expected\nRuntime: unknown\nSubject: \"(no subject)\"\nRequested: t0\n",
+    "isError": false
+  },
+  {
+    "name": "an unknown run",
+    "tool": "comms_run_status",
+    "args": {
+      "runId": "nope"
+    },
+    "routes": {
+      "GET /dispatch/runs/nope": {
+        "status": 404,
+        "body": {
+          "detail": "Run not found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/dispatch/runs/nope",
+        "body": null
+      }
+    ],
+    "text": "HTTP 404: {\"detail\":\"Run not found\"}",
+    "isError": true
+  },
+  {
+    "name": "contracts with every filter, ages either side of an hour",
+    "tool": "comms_contracts",
+    "args": {
+      "agentId": "agent-b",
+      "fromAgent": "agent-a",
+      "state": "overdue",
+      "category": "channel",
+      "includeClosed": true,
+      "limit": 5
+    },
+    "routes": {
+      "GET /contracts?agentId=agent-b&category=channel&fromAgent=agent-a&includeClosed=true&limit=5&state=overdue": {
+        "body": {
+          "summary": {
+            "total": 9,
+            "open": 4,
+            "overdue": 2,
+            "working": 1,
+            "queued": 1,
+            "missingReply": 1,
+            "answered": 3
+          },
+          "contracts": [
+            {
+              "from": "agent-a",
+              "targetAgentId": "agent-b",
+              "state": "missing_reply",
+              "subject": "Review",
+              "ageMinutes": 93,
+              "reminderCount": 2,
+              "resultPreview": "partial answer"
+            },
+            {
+              "targetAgentId": "agent-c",
+              "state": "working",
+              "id": "m9",
+              "ageMinutes": 7.5
+            },
+            {
+              "from": "agent-a",
+              "targetAgentId": "agent-d",
+              "ageMinutes": 120
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/contracts?agentId=agent-b&category=channel&fromAgent=agent-a&includeClosed=true&limit=5&state=overdue",
+        "body": null
+      }
+    ],
+    "text": "Contracts: 9; open=4; overdue=2; working=1; queued=1; missingReply=1; answered=3\n- MISSING REPLY agent-a -> agent-b (1.6h, reminders=2) Review\n  answer: partial answer\n- WORKING ? -> agent-c (8m) m9\n- SENT agent-a -> agent-d (2h) (no subject)",
+    "isError": false
+  },
+  {
+    "name": "contracts by default, none",
+    "tool": "comms_contracts",
+    "args": {},
+    "routes": {
+      "GET /contracts?category=direct&limit=25&state=open": {
+        "body": {
+          "contracts": [],
+          "summary": {}
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/contracts?category=direct&limit=25&state=open",
+        "body": null
+      }
+    ],
+    "text": "Contracts: 0; open=0; overdue=0; working=0; queued=0; missingReply=0; answered=0\nNo matching contracts.",
+    "isError": false
+  },
+  {
+    "name": "interrupt a running run",
+    "tool": "comms_run_interrupt",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "runId": "run_1",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /dispatch/runs/run_1/control": {
+        "body": {
+          "status": "requested",
+          "controlId": "ctl_1"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/dispatch/runs/run_1/control",
+        "body": {
+          "from_agent": "agent-a",
+          "action": "interrupt"
+        }
+      }
+    ],
+    "text": "Interrupt requested for run_1. Control ID: ctl_1",
+    "isError": false
+  },
+  {
+    "name": "interrupt a queued run cancels it",
+    "tool": "comms_run_interrupt",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "runId": "run_2",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /dispatch/runs/run_2/control": {
+        "body": {
+          "status": "cancelled"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/dispatch/runs/run_2/control",
+        "body": {
+          "from_agent": "agent-a",
+          "action": "interrupt"
+        }
+      }
+    ],
+    "text": "run_2 was still queued, so it was cancelled before delivery.",
+    "isError": false
+  },
+  {
+    "name": "interrupt refused",
+    "tool": "comms_run_interrupt",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "runId": "run_2",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /dispatch/runs/run_2/control": {
+        "status": 409,
+        "body": {
+          "detail": "run already finished"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/dispatch/runs/run_2/control",
+        "body": {
+          "from_agent": "agent-a",
+          "action": "interrupt"
+        }
+      }
+    ],
+    "text": "HTTP 409: {\"detail\":\"run already finished\"}",
+    "isError": true
+  },
+  {
+    "name": "Ctrl+C an agent",
+    "tool": "comms_interrupt",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "agentId": "agent-b",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /agents/agent-b/console/input": {
+        "body": {
+          "ok": true,
+          "terminalId": "t1",
+          "controlId": "c1"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/console/input",
+        "body": {
+          "text": "\u0003",
+          "enter": false,
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "Interrupted agent-b through its live console (terminal t1, control c1).",
+    "isError": false
+  },
+  {
+    "name": "Ctrl+C with no live console",
+    "tool": "comms_interrupt",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "agentId": "agent-b",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /agents/agent-b/console/input": {
+        "body": {
+          "ok": false,
+          "message": "agent-b has no live console"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/console/input",
+        "body": {
+          "text": "\u0003",
+          "enter": false,
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "agent-b has no live console",
+    "isError": true
+  },
+  {
+    "name": "Ctrl+C refused without a message",
+    "tool": "comms_interrupt",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "agentId": "agent-b",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /agents/agent-b/console/input": {
+        "body": {
+          "ok": false
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/console/input",
+        "body": {
+          "text": "\u0003",
+          "enter": false,
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "Could not interrupt agent-b.",
+    "isError": true
+  }
+]

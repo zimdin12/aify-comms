@@ -1,0 +1,471 @@
+[
+  {
+    "name": "envs in all four claim states",
+    "tool": "comms_envs",
+    "args": {},
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-1",
+              "label": "desk",
+              "status": "online",
+              "os": "windows",
+              "kind": "host",
+              "runtimes": [
+                {
+                  "runtime": "claude-code"
+                },
+                {
+                  "runtime": "hermes"
+                }
+              ],
+              "cwdRoots": [
+                "C:/work"
+              ],
+              "spawnClaim": {
+                "state": "fresh"
+              }
+            },
+            {
+              "id": "pc-2",
+              "status": "online",
+              "runtimes": [],
+              "spawnClaim": {
+                "state": "stale"
+              },
+              "metadata": {
+                "bridgeLastSeen": "<now-3h>"
+              }
+            },
+            {
+              "id": "pc-3",
+              "status": "offline",
+              "os": "linux",
+              "kind": "wsl",
+              "spawnClaim": {
+                "state": "invalid"
+              }
+            },
+            {
+              "id": "pc-4"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "4 environment(s):\n- pc-1 [can spawn] desk\n  advertised: online; windows/host; runtimes: claude-code, hermes; roots: C:/work\n- pc-2 [CANNOT SPAWN: no bridge since 3h ago] \n  advertised: online; unknown/unknown; runtimes: no runtimes; roots: no roots\n- pc-3 [CANNOT SPAWN: unreadable bridge timestamp] \n  advertised: offline; linux/wsl; runtimes: no runtimes; roots: no roots\n- pc-4 [spawn UNPROVEN: no bridge stamp on this row] \n  advertised: unknown; unknown/unknown; runtimes: no runtimes; roots: no roots",
+    "isError": false
+  },
+  {
+    "name": "no hosts",
+    "tool": "comms_envs",
+    "args": {},
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "No host is connected. aify-env hosts managed agents on each machine: ask the operator to check it with `aify-env doctor` and start it if none is serving that host.",
+    "isError": false
+  },
+  {
+    "name": "spawn on the first host that can claim it",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "agentId": "agent-n",
+      "role": "coder",
+      "runtime": "claude",
+      "initialMessage": "start here",
+      "envVars": {
+        "FOO": "1"
+      }
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-0",
+              "status": "online",
+              "runtimes": [
+                {
+                  "runtime": "claude-code"
+                }
+              ],
+              "spawnClaim": {
+                "state": "stale"
+              },
+              "metadata": {
+                "bridgeLastSeen": "<now-3h>"
+              }
+            },
+            {
+              "id": "pc-1",
+              "status": "online",
+              "runtimes": [
+                {
+                  "runtime": "claude-code"
+                }
+              ],
+              "cwdRoots": [
+                "C:/work",
+                "D:/x"
+              ],
+              "spawnClaim": {
+                "state": "fresh"
+              }
+            }
+          ]
+        }
+      },
+      "POST /spawn-requests": {
+        "body": {
+          "definitionRequest": {
+            "id": "dr_1",
+            "status": "pending"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/spawn-requests",
+        "body": {
+          "createdBy": "agent-a",
+          "environmentId": "pc-1",
+          "agentId": "agent-n",
+          "role": "coder",
+          "runtime": "claude-code",
+          "workspace": "C:/work",
+          "model": "",
+          "instructions": "",
+          "initialMessage": "start here",
+          "subject": "Brief agent-n",
+          "priority": "normal",
+          "mode": "managed-warm",
+          "resumePolicy": "native_first",
+          "envVars": {
+            "FOO": "1"
+          }
+        }
+      }
+    ],
+    "text": "Queued: asked the host of pc-1 to define \"agent-n\" (claude-code, C:/work); it is spawned once that host has defined it. Definition request: dr_1 [pending]. Not confirmation: comms_agent_info shows whether it started, and GET /api/v1/agent-definitions/agent-n/requests what the host did with the request (a refusal says why, and its consequence names the spawn).",
+    "isError": false
+  },
+  {
+    "name": "spawn on a named host with everything given",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "environmentId": "pc-2",
+      "agentId": "agent-n",
+      "role": "reviewer",
+      "runtime": "hermes-agent",
+      "workspace": "W:/p",
+      "name": "N",
+      "model": "m",
+      "instructions": "be brief",
+      "subject": "First",
+      "priority": "high"
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-2",
+              "status": "online",
+              "runtimes": [
+                {
+                  "runtime": "hermes"
+                }
+              ],
+              "spawnClaim": {
+                "state": "absent"
+              }
+            }
+          ]
+        }
+      },
+      "POST /spawn-requests": {
+        "body": {}
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/spawn-requests",
+        "body": {
+          "createdBy": "agent-a",
+          "environmentId": "pc-2",
+          "agentId": "agent-n",
+          "role": "reviewer",
+          "name": "N",
+          "runtime": "hermes",
+          "workspace": "W:/p",
+          "model": "m",
+          "instructions": "be brief",
+          "initialMessage": "",
+          "subject": "First",
+          "priority": "high",
+          "mode": "managed-warm",
+          "resumePolicy": "native_first"
+        }
+      }
+    ],
+    "text": "Queued: asked the host of pc-2 to define \"agent-n\" (hermes, W:/p); it is spawned once that host has defined it. Definition request: unknown [pending]. Not confirmation: comms_agent_info shows whether it started, and GET /api/v1/agent-definitions/agent-n/requests what the host did with the request (a refusal says why, and its consequence names the spawn).",
+    "isError": false
+  },
+  {
+    "name": "spawn where nothing runs the runtime",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "agentId": "agent-n",
+      "role": "coder",
+      "runtime": "codex"
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-1",
+              "status": "online",
+              "runtimes": [
+                {
+                  "runtime": "claude-code"
+                }
+              ],
+              "spawnClaim": {
+                "state": "fresh"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "No matching environment found for runtime \"codex\".\nAvailable environments:\n- pc-1 [can spawn] \n  advertised: online; unknown/unknown; runtimes: claude-code; roots: no roots",
+    "isError": true
+  },
+  {
+    "name": "spawn with no hosts",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "agentId": "agent-n",
+      "role": "coder",
+      "runtime": "codex"
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "No matching environment found for runtime \"codex\".\nNo environment bridges are connected.",
+    "isError": true
+  },
+  {
+    "name": "spawn on an offline host",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "environmentId": "pc-3",
+      "agentId": "agent-n",
+      "role": "coder",
+      "runtime": "codex"
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-3",
+              "status": "offline",
+              "spawnClaim": {
+                "state": "fresh"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "Environment \"pc-3\" is offline, not online. Start its bridge first.",
+    "isError": true
+  },
+  {
+    "name": "spawn on a host whose bridge stopped",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "environmentId": "pc-2",
+      "agentId": "agent-n",
+      "role": "coder",
+      "runtime": "codex"
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-2",
+              "status": "online",
+              "runtimes": [
+                {
+                  "runtime": "codex"
+                }
+              ],
+              "spawnClaim": {
+                "state": "stale"
+              },
+              "metadata": {
+                "bridgeLastSeen": "<now-90m>"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "Environment \"pc-2\" CANNOT SPAWN: no bridge since 90m ago. It is advertised as online, which is aify-env describing the host rather than offering to run anything -- a different fact, and the one that misled callers before this check existed. Start a claimer on that host and retry.",
+    "isError": true
+  },
+  {
+    "name": "spawn on a named host without the runtime",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "environmentId": "pc-1",
+      "agentId": "agent-n",
+      "role": "coder",
+      "runtime": "codex"
+    },
+    "routes": {
+      "GET /environments": {
+        "body": {
+          "environments": [
+            {
+              "id": "pc-1",
+              "status": "online",
+              "runtimes": [
+                {
+                  "runtime": "claude-code"
+                }
+              ],
+              "spawnClaim": {
+                "state": "fresh"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/environments",
+        "body": null
+      }
+    ],
+    "text": "Environment \"pc-1\" does not advertise runtime \"codex\".",
+    "isError": true
+  },
+  {
+    "name": "spawn a bad id",
+    "tool": "comms_spawn",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "agentId": "../x",
+      "role": "coder",
+      "runtime": "codex"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "Invalid agent ID: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: \"../x\"",
+    "isError": true
+  }
+]

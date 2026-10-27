@@ -34,6 +34,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import importlib
 
+import httpx
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
+
+from service.sse.api_client import ServiceError
+
 SSE_DIR = Path(__file__).resolve().parent.parent / "sse"
 
 
@@ -70,14 +76,47 @@ def _tools():
     return found
 
 
+class _Ctx:
+    """The MCP context a ported tool reads its caller from (the X-Aify-Agent-Id header, 0.9.11)."""
+
+    class request_context:  # noqa: N801 - the attribute path FastMCP's Context exposes
+        class request:  # noqa: N801
+            headers = {"x-aify-agent-id": "probe"}
+
+
 def _call_args(tool):
-    """Fill required parameters only; optional ones keep their defaults."""
+    """Fill required parameters only; optional ones keep their defaults. A ported tool declares its
+    arguments as pydantic `Field`s, whose default is the FieldInfo: required unless it carries one."""
     kwargs = {}
     for name, param in inspect.signature(tool).parameters.items():
-        if param.default is not inspect.Parameter.empty:
+        default = param.default
+        if isinstance(default, FieldInfo):
+            kwargs[name] = FILLER.get(name, "probe") if default.default is PydanticUndefined else default.default
             continue
-        kwargs[name] = FILLER.get(name, "probe")
+        if default is not inspect.Parameter.empty:
+            continue
+        kwargs[name] = _Ctx() if name == "ctx" else FILLER.get(name, "probe")
     return kwargs
+
+
+def _outage_response() -> httpx.Response:
+    return httpx.Response(500, json=dict(ERROR))
+
+
+async def _failing_api(*args, **kwargs):
+    return dict(ERROR)
+
+
+async def _failing_call(*args, **kwargs):
+    raise ServiceError(_outage_response())
+
+
+async def _failing_request(*args, **kwargs):
+    return _outage_response()
+
+
+#: Each way a tool module reaches the service, and what that seam returns when the service is broken.
+SEAMS = {"_api": _failing_api, "call": _failing_call, "request": _failing_request}
 
 
 #: Phrases that state something about the fleet. If a tool says one of these while the service is
@@ -85,6 +124,8 @@ def _call_args(tool):
 LIES = (
     "no agents registered", "no channels", "not found", "no results",
     "inbox empty", "no messages", "no files", "no runs",
+    # comms_usage said this for a 500 from /usage (review of 69b02b6d, 2026-10-27).
+    "no usage data",
 )
 
 
@@ -112,22 +153,21 @@ class NoMcpToolReportsAnOutageAsAFactTests(unittest.TestCase):
         )
 
     def test_no_tool_states_a_fact_when_the_service_is_broken(self) -> None:
-        async def failing(*args, **kwargs):
-            return dict(ERROR)
-
         offenders = []
         covered = 0
         skipped = []
         for module, tool in _tools():
-            # A transport that does not reach the service through `_api` cannot be probed this way.
+            # A transport that reaches the service through none of the SEAMS cannot be probed this way.
             # `container_tools` calls the app directly. RECORDED, not silently dropped: a gate that
             # quietly skips half its subjects reads exactly like one that passed.
-            if not hasattr(module, "_api"):
+            seams = {name: failing for name, failing in SEAMS.items() if hasattr(module, name)}
+            if not seams:
                 skipped.append(tool.__name__)
                 continue
             covered += 1
-            original = module._api
-            module._api = failing
+            originals = {name: getattr(module, name) for name in seams}
+            for name, failing in seams.items():
+                setattr(module, name, failing)
             try:
                 answer = str(asyncio.run(tool(**_call_args(tool))))
             except TypeError:
@@ -138,7 +178,8 @@ class NoMcpToolReportsAnOutageAsAFactTests(unittest.TestCase):
                 # A raise is not a lie. The transport turns it into an error for the agent.
                 answer = f"raised {type(exc).__name__}: {exc}"
             finally:
-                module._api = original
+                for name, original in originals.items():
+                    setattr(module, name, original)
             lowered = answer.lower()
             if any(phrase in lowered for phrase in LIES) and "error" not in lowered:
                 offenders.append(f"{tool.__name__} -> {answer.splitlines()[0][:70]!r}")

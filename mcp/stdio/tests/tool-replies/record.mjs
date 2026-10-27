@@ -6,7 +6,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { CASES_DIR, jsToolClient, runCase, startService } from "./replay.mjs";
+import { CASES_DIR, SCHEMAS_FILE, jsToolClient, runCase, startService, toolSchemas } from "./replay.mjs";
 
 const service = await startService();
 const client = await jsToolClient(service.url);
@@ -21,5 +21,7 @@ for (const file of readdirSync(CASES_DIR).filter((name) => name.endsWith(".json"
   writeFileSync(target, `${JSON.stringify(recorded, null, 2)}\n`);
   console.log(`${file}: ${recorded.length} case(s)`);
 }
+writeFileSync(SCHEMAS_FILE, `${JSON.stringify(await toolSchemas(client), null, 2)}\n`);
+console.log("schemas.json: the JS tools' required arguments and allowed values");
 await client.close();
 await service.close();

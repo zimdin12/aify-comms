@@ -54,13 +54,8 @@ def _description_preview(info: dict) -> str:
 
 async def comms_agents(ctx: Context):
     """List registered agents with role, status and unread count. Each line starts with the id to pass as comms_send `to`."""
-    r = await _api("GET", "/agents")
-    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
-    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
-    # one did not, so a 500 rendered as a confident fact about the fleet.
-    if "detail" in r:
-        return tool_error(f"Error: {r['detail']}")
-    entries = r.get("agents", {})
+    # AN OUTAGE IS NOT AN ANSWER: `call` raises on a failed request, and the agent is told so.
+    entries = (await call("GET", "/agents")).get("agents") or {}
     if not entries:
         return "No agents registered."
     # The id is the address (`to=` in comms_send), and the caller's own row says so (v0.7, H-A7).

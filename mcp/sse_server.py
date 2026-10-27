@@ -45,6 +45,9 @@ from service.sse.management_tools import register as _register_management_tools
 from service.sse.run_tools import register as _register_run_tools
 from service.sse.send_tools import register as _register_send_tools
 from service.sse.shared_file_tools import register as _register_shared_file_tools
+from service.sse.compact_tools import register as _register_compact_tools
+from service.sse.environment_tools import register as _register_environment_tools
+from service.sse.lifecycle_tools import register as _register_lifecycle_tools
 from service.sse.self_record_tools import register as _register_self_record_tools
 from service.sse.usage_tools import register as _register_usage_tools
 
@@ -188,6 +191,9 @@ _register_shared_file_tools(mcp_server)
 _register_management_tools(mcp_server)
 _register_usage_tools(mcp_server)
 _register_self_record_tools(mcp_server)
+_register_lifecycle_tools(mcp_server)
+_register_environment_tools(mcp_server)
+_register_compact_tools(mcp_server)
 
 
 def setup_mcp_server(app):

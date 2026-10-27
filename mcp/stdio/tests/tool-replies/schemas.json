@@ -1,0 +1,312 @@
+{
+  "comms_agent_info": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {}
+  },
+  "comms_agents": {
+    "required": [],
+    "enums": {}
+  },
+  "comms_channel_create": {
+    "required": [
+      "from",
+      "name"
+    ],
+    "enums": {}
+  },
+  "comms_channel_delete": {
+    "required": [
+      "channel",
+      "from"
+    ],
+    "enums": {}
+  },
+  "comms_channel_join": {
+    "required": [
+      "channel",
+      "from"
+    ],
+    "enums": {}
+  },
+  "comms_channel_leave": {
+    "required": [
+      "channel",
+      "from"
+    ],
+    "enums": {}
+  },
+  "comms_channel_list": {
+    "required": [],
+    "enums": {}
+  },
+  "comms_channel_read": {
+    "required": [
+      "channel"
+    ],
+    "enums": {}
+  },
+  "comms_channel_send": {
+    "required": [
+      "body",
+      "channel",
+      "from"
+    ],
+    "enums": {
+      "type": [
+        "approval",
+        "error",
+        "info",
+        "request",
+        "response",
+        "review"
+      ],
+      "priority": [
+        "high",
+        "normal",
+        "urgent"
+      ]
+    }
+  },
+  "comms_clear": {
+    "required": [
+      "target"
+    ],
+    "enums": {
+      "target": [
+        "agents",
+        "inbox",
+        "shared"
+      ]
+    }
+  },
+  "comms_compact": {
+    "required": [
+      "from",
+      "targetAgentId"
+    ],
+    "enums": {
+      "mode": [
+        "handoff",
+        "native"
+      ],
+      "priority": [
+        "high",
+        "normal",
+        "urgent"
+      ]
+    }
+  },
+  "comms_console_input": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {}
+  },
+  "comms_console_tail": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {}
+  },
+  "comms_contracts": {
+    "required": [],
+    "enums": {
+      "state": [
+        "answered",
+        "closed",
+        "failed",
+        "missing_reply",
+        "open",
+        "overdue",
+        "queued",
+        "seen",
+        "sent",
+        "working"
+      ],
+      "category": [
+        "channel",
+        "direct",
+        "self_wake"
+      ]
+    }
+  },
+  "comms_delete_session": {
+    "required": [
+      "sessionId"
+    ],
+    "enums": {}
+  },
+  "comms_describe": {
+    "required": [
+      "agentId",
+      "description"
+    ],
+    "enums": {}
+  },
+  "comms_envs": {
+    "required": [],
+    "enums": {}
+  },
+  "comms_files": {
+    "required": [],
+    "enums": {}
+  },
+  "comms_inbox": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {
+      "filter": [
+        "all",
+        "read",
+        "unread"
+      ],
+      "mode": [
+        "full",
+        "headers"
+      ]
+    }
+  },
+  "comms_interrupt": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {}
+  },
+  "comms_read": {
+    "required": [
+      "name"
+    ],
+    "enums": {}
+  },
+  "comms_register": {
+    "required": [
+      "agentId",
+      "role"
+    ],
+    "enums": {
+      "sessionMode": [
+        "managed",
+        "resident"
+      ]
+    }
+  },
+  "comms_remove_agent": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {}
+  },
+  "comms_restart": {
+    "required": [
+      "agentId"
+    ],
+    "enums": {}
+  },
+  "comms_run_interrupt": {
+    "required": [
+      "runId"
+    ],
+    "enums": {}
+  },
+  "comms_run_status": {
+    "required": [
+      "runId"
+    ],
+    "enums": {}
+  },
+  "comms_search": {
+    "required": [
+      "query"
+    ],
+    "enums": {
+      "scope": [
+        "all",
+        "inbox",
+        "shared"
+      ]
+    }
+  },
+  "comms_send": {
+    "required": [
+      "body",
+      "from",
+      "subject",
+      "type"
+    ],
+    "enums": {
+      "type": [
+        "approval",
+        "error",
+        "info",
+        "request",
+        "response",
+        "review"
+      ],
+      "priority": [
+        "high",
+        "normal",
+        "urgent"
+      ]
+    }
+  },
+  "comms_share": {
+    "required": [
+      "from",
+      "name"
+    ],
+    "enums": {}
+  },
+  "comms_spawn": {
+    "required": [
+      "agentId",
+      "from",
+      "role",
+      "runtime"
+    ],
+    "enums": {
+      "priority": [
+        "high",
+        "normal",
+        "urgent"
+      ]
+    }
+  },
+  "comms_status": {
+    "required": [
+      "agentId",
+      "status"
+    ],
+    "enums": {
+      "status": [
+        "blocked",
+        "focused",
+        "idle",
+        "researching",
+        "reviewing",
+        "testing",
+        "working"
+      ]
+    }
+  },
+  "comms_unsend": {
+    "required": [
+      "from",
+      "messageId"
+    ],
+    "enums": {}
+  },
+  "comms_unshare": {
+    "required": [
+      "from",
+      "name"
+    ],
+    "enums": {}
+  },
+  "comms_usage": {
+    "required": [],
+    "enums": {}
+  }
+}

@@ -1,0 +1,277 @@
+[
+  {
+    "name": "a live console, rebuilt after a restart",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "agent-b",
+      "lines": 5
+    },
+    "routes": {
+      "GET /agents/agent-b/console?lines=5": {
+        "body": {
+          "live": true,
+          "terminalId": "t1",
+          "status": "running",
+          "lines": 5,
+          "output": "$ ls\nfile",
+          "reconstructed": true
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/console?lines=5",
+        "body": null
+      }
+    ],
+    "text": "Console of agent-b (terminal t1, status running), last 5 lines:\nNOTE: this screen was rebuilt from the stored log after a service restart and the program has not redrawn it since; text may overlap or be missing.\n$ ls\nfile",
+    "isError": false
+  },
+  {
+    "name": "a live empty console, default lines",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b/console?lines=40": {
+        "body": {
+          "live": true,
+          "terminalId": "t1",
+          "status": "running",
+          "lines": 40,
+          "output": ""
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/console?lines=40",
+        "body": null
+      }
+    ],
+    "text": "Console of agent-b (terminal t1, status running), last 40 lines:\n(empty)",
+    "isError": false
+  },
+  {
+    "name": "a dead worker's last console, killed, from events",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b/console?lines=40": {
+        "body": {
+          "live": false,
+          "historical": true,
+          "terminalId": "t0",
+          "status": "exited",
+          "stoppedAt": "t9",
+          "exitSignal": "SIGKILL",
+          "recordedFrom": "events",
+          "failureLine": "out of memory",
+          "output": "last words"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/console?lines=40",
+        "body": null
+      }
+    ],
+    "text": "NOT LIVE — last recorded console of agent-b (terminal t0, exited at t9). This worker is gone; the output below is history.\n\nKilled by SIGKILL.\nRecovered from the terminal's recorded events; the output column held only its exit marker.\n\nCause: out of memory\n\nlast words",
+    "isError": false
+  },
+  {
+    "name": "a dead worker that exited with a code and recorded nothing",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "agent-b",
+      "lines": 200
+    },
+    "routes": {
+      "GET /agents/agent-b/console?lines=200": {
+        "body": {
+          "live": false,
+          "historical": true,
+          "terminalId": "t0",
+          "status": "exited",
+          "exitCode": 0
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/console?lines=200",
+        "body": null
+      }
+    ],
+    "text": "NOT LIVE — last recorded console of agent-b (terminal t0, exited). This worker is gone; the output below is history.\n\nExited with code 0.\n(nothing was recorded)",
+    "isError": false
+  },
+  {
+    "name": "no console at all",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b/console?lines=40": {
+        "body": {
+          "live": false
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/console?lines=40",
+        "body": null
+      }
+    ],
+    "text": "agent-b has no live console.",
+    "isError": false
+  },
+  {
+    "name": "no console, the service says why",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b/console?lines=40": {
+        "body": {
+          "live": false,
+          "message": "agent-b is resident; its console is not attached"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/console?lines=40",
+        "body": null
+      }
+    ],
+    "text": "agent-b is resident; its console is not attached",
+    "isError": false
+  },
+  {
+    "name": "tail of an unknown agent",
+    "tool": "comms_console_tail",
+    "args": {
+      "agentId": "ghost"
+    },
+    "routes": {
+      "GET /agents/ghost/console?lines=40": {
+        "status": 404,
+        "body": {
+          "detail": "Agent not found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/ghost/console?lines=40",
+        "body": null
+      }
+    ],
+    "text": "HTTP 404: {\"detail\":\"Agent not found\"}",
+    "isError": true
+  },
+  {
+    "name": "type an answer and Enter",
+    "tool": "comms_console_input",
+    "args": {
+      "agentId": "agent-b",
+      "text": "y"
+    },
+    "routes": {
+      "POST /agents/agent-b/console/input": {
+        "body": {
+          "ok": true,
+          "terminalId": "t1",
+          "controlId": "c2"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/console/input",
+        "body": {
+          "text": "y",
+          "enter": true,
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "Input QUEUED to agent-b's console (terminal t1, control c2). This is NOT confirmation: it proves only that the bytes were written to the PTY, not that the runtime acted on them. Read the console with comms_console_tail and check whether the draft is still at the prompt before assuming it worked — and do not retry blind, a repeated Enter has been observed to change nothing.",
+    "isError": false
+  },
+  {
+    "name": "just Enter",
+    "tool": "comms_console_input",
+    "args": {
+      "agentId": "agent-b",
+      "enter": false
+    },
+    "routes": {
+      "POST /agents/agent-b/console/input": {
+        "body": {
+          "ok": true,
+          "terminalId": "t1",
+          "controlId": "c3"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/console/input",
+        "body": {
+          "text": "",
+          "enter": false,
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "Input QUEUED to agent-b's console (terminal t1, control c3). This is NOT confirmation: it proves only that the bytes were written to the PTY, not that the runtime acted on them. Read the console with comms_console_tail and check whether the draft is still at the prompt before assuming it worked — and do not retry blind, a repeated Enter has been observed to change nothing.",
+    "isError": false
+  },
+  {
+    "name": "input refused",
+    "tool": "comms_console_input",
+    "args": {
+      "agentId": "agent-b",
+      "text": "y"
+    },
+    "routes": {
+      "POST /agents/agent-b/console/input": {
+        "body": {
+          "ok": false,
+          "message": "not your agent"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/agents/agent-b/console/input",
+        "body": {
+          "text": "y",
+          "enter": true,
+          "from": "agent-a"
+        }
+      }
+    ],
+    "text": "not your agent",
+    "isError": true
+  }
+]

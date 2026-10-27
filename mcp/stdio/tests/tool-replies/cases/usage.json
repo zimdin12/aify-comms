@@ -75,5 +75,69 @@
     ],
     "text": "No usage data yet (collector warming up).",
     "isError": false
+  },
+  {
+    "name": "the usage collector fails",
+    "tool": "comms_usage",
+    "args": {},
+    "routes": {
+      "GET /usage": {
+        "status": 409,
+        "body": {
+          "detail": "collector failed"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/usage",
+        "body": null
+      }
+    ],
+    "text": "HTTP 409: {\"detail\":\"collector failed\"}",
+    "isError": true
+  },
+  {
+    "name": "pools, and the caller's own lookup fails",
+    "tool": "comms_usage",
+    "args": {},
+    "routes": {
+      "GET /usage": {
+        "body": {
+          "pools": [
+            {
+              "source_id": "anthropic-max",
+              "weekly": {
+                "left_pct": 42
+              },
+              "five_hour": {
+                "left_pct": 80
+              }
+            }
+          ]
+        }
+      },
+      "GET /agents/agent-a": {
+        "status": 404,
+        "body": {
+          "detail": "Agent not found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/usage",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-a",
+        "body": null
+      }
+    ],
+    "text": "Quota pools (% remaining):\n- anthropic-max: weekly 42% left, 5h 80% left",
+    "isError": false
   }
 ]

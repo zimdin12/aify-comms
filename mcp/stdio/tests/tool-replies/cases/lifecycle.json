@@ -1,0 +1,535 @@
+[
+  {
+    "name": "remove an agent",
+    "tool": "comms_remove_agent",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "DELETE /agents/agent-b": {
+        "body": {
+          "ok": true
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/agents/agent-b",
+        "body": null
+      }
+    ],
+    "text": "Removed agent \"agent-b\". If it had a managed worker, its host stops that within about half a minute -- confirm with comms_agents or the environment's own process list if you need it gone before acting on that.",
+    "isError": false
+  },
+  {
+    "name": "remove an agent already gone",
+    "tool": "comms_remove_agent",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "DELETE /agents/agent-b": {
+        "body": {
+          "ok": false
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/agents/agent-b",
+        "body": null
+      }
+    ],
+    "text": "Agent \"agent-b\" was already absent; future auto re-registration is blocked until explicit register.",
+    "isError": false
+  },
+  {
+    "name": "remove queued for its host",
+    "tool": "comms_remove_agent",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "DELETE /agents/agent-b": {
+        "body": {
+          "queued": true,
+          "request": {
+            "id": "lr_1",
+            "status": "pending"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/agents/agent-b",
+        "body": null
+      }
+    ],
+    "text": "Removal of \"agent-b\" is queued as lifecycle request lr_1 [pending]; aify-env on its host carries it out. Read GET /agent-lifecycle-requests/lr_1 before acting on it.",
+    "isError": false
+  },
+  {
+    "name": "remove a bad id",
+    "tool": "comms_remove_agent",
+    "args": {
+      "agentId": "a/b"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "Invalid agent ID: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: \"a/b\"",
+    "isError": true
+  },
+  {
+    "name": "delete a session",
+    "tool": "comms_delete_session",
+    "args": {
+      "sessionId": " s1 "
+    },
+    "routes": {
+      "DELETE /sessions/s1": {
+        "body": {
+          "ok": true,
+          "agentId": "agent-b"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/sessions/s1",
+        "body": null
+      }
+    ],
+    "text": "Deleted inactive session \"s1\" for agent \"agent-b\".",
+    "isError": false
+  },
+  {
+    "name": "delete a session that stays",
+    "tool": "comms_delete_session",
+    "args": {
+      "sessionId": "s1"
+    },
+    "routes": {
+      "DELETE /sessions/s1": {
+        "body": {
+          "ok": false
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/sessions/s1",
+        "body": null
+      }
+    ],
+    "text": "Session \"s1\" was not deleted.",
+    "isError": false
+  },
+  {
+    "name": "delete an active session",
+    "tool": "comms_delete_session",
+    "args": {
+      "sessionId": "s1"
+    },
+    "routes": {
+      "DELETE /sessions/s1": {
+        "status": 409,
+        "body": {
+          "detail": "session is active"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/sessions/s1",
+        "body": null
+      }
+    ],
+    "text": "HTTP 409: {\"detail\":\"session is active\"}",
+    "isError": true
+  },
+  {
+    "name": "delete no session",
+    "tool": "comms_delete_session",
+    "args": {
+      "sessionId": "  "
+    },
+    "routes": {},
+    "requests": [],
+    "text": "sessionId is required.",
+    "isError": true
+  },
+  {
+    "name": "restart a managed agent's live session",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b": {
+        "body": {
+          "agent": {
+            "sessionMode": "managed"
+          }
+        }
+      },
+      "GET /sessions?agentId=agent-b": {
+        "body": {
+          "sessions": [
+            {
+              "id": "s0",
+              "status": "ended"
+            },
+            {
+              "id": "s1",
+              "status": "Running"
+            }
+          ]
+        }
+      },
+      "POST /sessions/s1/control": {
+        "body": {
+          "ok": true
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/sessions/s1/control",
+        "body": {
+          "action": "restart",
+          "from_agent": "agent-a"
+        }
+      }
+    ],
+    "text": "Managed session for \"agent-b\" restarted (session s1, action=restart); the live worker is stopped and aify-env starts the replacement.",
+    "isError": false
+  },
+  {
+    "name": "reset with a fresh context, queued",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "agent-b",
+      "freshContext": true
+    },
+    "routes": {
+      "GET /agents/agent-b": {
+        "body": {
+          "agent": {
+            "sessionMode": "managed"
+          }
+        }
+      },
+      "GET /sessions?agentId=agent-b": {
+        "body": {
+          "sessions": [
+            {
+              "id": "s0",
+              "status": "ended"
+            }
+          ]
+        }
+      },
+      "POST /sessions/s0/control": {
+        "body": {
+          "queued": true,
+          "request": {
+            "id": "lr_2",
+            "status": "pending"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/sessions/s0/control",
+        "body": {
+          "action": "recreate",
+          "from_agent": "agent-a"
+        }
+      }
+    ],
+    "text": "Restart of \"agent-b\" is queued as lifecycle request lr_2 [pending]; aify-env on its host carries it out. Read GET /agent-lifecycle-requests/lr_2 before acting on it.",
+    "isError": false
+  },
+  {
+    "name": "restart refused by the service",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b": {
+        "body": {
+          "agent": {
+            "sessionMode": "managed"
+          }
+        }
+      },
+      "GET /sessions?agentId=agent-b": {
+        "body": {
+          "sessions": [
+            {
+              "id": "s1",
+              "status": "starting"
+            }
+          ]
+        }
+      },
+      "POST /sessions/s1/control": {
+        "body": {
+          "ok": false,
+          "error": "booting"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b",
+        "body": null
+      },
+      {
+        "method": "POST",
+        "path": "/sessions/s1/control",
+        "body": {
+          "action": "restart",
+          "from_agent": "agent-a"
+        }
+      }
+    ],
+    "text": "Restart of \"agent-b\" was not accepted: booting.",
+    "isError": false
+  },
+  {
+    "name": "restart a resident",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b": {
+        "body": {
+          "agent": {
+            "sessionMode": "Resident"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b",
+        "body": null
+      }
+    ],
+    "text": "Agent \"agent-b\" is resident, not managed. Resident sessions are operator-owned and can't be restarted remotely — ask the operator to relaunch it, or use comms_run_interrupt to stop its current run.",
+    "isError": true
+  },
+  {
+    "name": "restart an agent with no sessions",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b": {
+        "body": {
+          "agent": {
+            "sessionMode": "managed"
+          }
+        }
+      },
+      "GET /sessions?agentId=agent-b": {
+        "body": {
+          "sessions": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/sessions?agentId=agent-b",
+        "body": null
+      }
+    ],
+    "text": "Agent \"agent-b\" has no session to restart — send it a message instead; a managed agent cold-starts a fresh worker on send.",
+    "isError": true
+  },
+  {
+    "name": "restart an agent with no session mode",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents/agent-b": {
+        "body": {
+          "agent": {}
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/agent-b",
+        "body": null
+      }
+    ],
+    "text": "Agent \"agent-b\" not found or has no session.",
+    "isError": true
+  },
+  {
+    "name": "restart an unknown agent",
+    "tool": "comms_restart",
+    "args": {
+      "agentId": "ghost"
+    },
+    "routes": {
+      "GET /agents/ghost": {
+        "status": 404,
+        "body": {
+          "detail": "Agent not found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents/ghost",
+        "body": null
+      }
+    ],
+    "text": "HTTP 404: {\"detail\":\"Agent not found\"}",
+    "isError": true
+  },
+  {
+    "name": "clear one agent's old inbox",
+    "tool": "comms_clear",
+    "args": {
+      "target": "inbox",
+      "agentId": "agent-b",
+      "olderThanHours": 48
+    },
+    "routes": {
+      "POST /clear": {
+        "body": {
+          "ok": true,
+          "cleared": {
+            "messages": 12,
+            "files": 0,
+            "agents": 0
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/clear",
+        "body": {
+          "target": "inbox",
+          "agentId": "agent-b",
+          "olderThanHours": 48
+        }
+      }
+    ],
+    "text": "Cleared: 12 messages.",
+    "isError": false
+  },
+  {
+    "name": "clear everything shared",
+    "tool": "comms_clear",
+    "args": {
+      "target": "shared"
+    },
+    "routes": {
+      "POST /clear": {
+        "body": {
+          "ok": true,
+          "cleared": {
+            "files": 3,
+            "agents": 1
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/clear",
+        "body": {
+          "target": "shared"
+        }
+      }
+    ],
+    "text": "Cleared: 3 files, 1 agents.",
+    "isError": false
+  },
+  {
+    "name": "clear finds nothing",
+    "tool": "comms_clear",
+    "args": {
+      "target": "agents",
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "POST /clear": {
+        "body": {
+          "ok": true,
+          "cleared": {}
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/clear",
+        "body": {
+          "target": "agents",
+          "agentId": "agent-b"
+        }
+      }
+    ],
+    "text": "Nothing to clear.",
+    "isError": false
+  }
+]

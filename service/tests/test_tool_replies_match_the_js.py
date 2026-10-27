@@ -12,7 +12,9 @@ is the skip count.
 import asyncio
 import importlib.util
 import json
+import re
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -37,14 +39,33 @@ def normalize_path(raw: str) -> str:
     return f"{path}?{query}" if query else path
 
 
-def normalize_body(raw: str):
-    """replay.mjs normalizeBody: a send's random `clientNonce` is recorded as present, not by value."""
+def normalize_body(raw: str, content_type: str = ""):
+    """replay.mjs normalizeBody: JSON, or a form as {"form": {...}}; a send's random `clientNonce` is
+    recorded as present, not by value."""
     if not raw:
         return None
+    if "x-www-form-urlencoded" in content_type.lower():
+        return {"form": dict(parse_qsl(raw, keep_blank_values=True))}
     body = json.loads(raw)
     if isinstance(body, dict) and isinstance(body.get("clientNonce"), str) and body["clientNonce"]:
         body["clientNonce"] = "<nonce>"
     return body
+
+
+def with_times(value, now: datetime | None = None):
+    """replay.mjs withTimes: `<now-3h>`-style strings in a route body become times."""
+    now = now or datetime.now(timezone.utc)
+    if isinstance(value, str):
+        match = re.fullmatch(r"<now(?:-(\d+)([smh]))?>", value)
+        if not match:
+            return value
+        ago = timedelta(**{{"s": "seconds", "m": "minutes", "h": "hours"}[match.group(2)]: int(match.group(1))}) if match.group(1) else timedelta()
+        return (now - ago).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if isinstance(value, list):
+        return [with_times(item, now) for item in value]
+    if isinstance(value, dict):
+        return {k: with_times(v, now) for k, v in value.items()}
+    return value
 
 
 def load_cases():
@@ -65,11 +86,12 @@ class FakeService:
                 length = int(self.headers.get("content-length") or 0)
                 raw = self.rfile.read(length).decode("utf-8") if length else ""
                 path = normalize_path(self.path)
-                service.requests.append({"method": self.command, "path": path, "body": normalize_body(raw)})
+                service.requests.append({"method": self.command, "path": path,
+                                         "body": normalize_body(raw, self.headers.get("content-type") or "")})
                 key = f"{self.command} {path}"
                 answer = service.routes.get(key, {"status": 404, "body": {"detail": f"no fixture route for {key}"}})
                 # Compact, as FastAPI and replay.mjs serialise it: an error's text carries the body verbatim.
-                body = json.dumps(answer.get("body", {}), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                body = json.dumps(with_times(answer.get("body", {})), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 self.send_response(answer.get("status", 200))
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(body)))
@@ -116,6 +138,40 @@ async def _call(transport, tool, args):
             )
     assert response.status_code == 200, response.text
     return json.loads(response.text)["result"]
+
+
+def _enum_values(node) -> list:
+    """replay.mjs enumValues: every value a schema allows, wherever pydantic put the `enum`."""
+    if isinstance(node, dict):
+        return list(node.get("enum") or []) + [v for child in node.values() for v in _enum_values(child)]
+    if isinstance(node, list):
+        return [v for child in node for v in _enum_values(child)]
+    return []
+
+
+def test_the_public_schemas_promise_what_the_js_promises(transport):
+    """Required arguments and allowed values, per tool the Python copy serves, the caller's argument aside.
+
+    Argument NAMES are compared by test_both_transports_declare_the_same_tool_surface.py.
+    """
+    js = json.loads((CASES_DIR.parent / "schemas.json").read_text(encoding="utf-8"))
+    caller_args: dict[str, set[str]] = {}
+    for param in load_cases():
+        case = param.values[0]
+        caller_args.setdefault(case["tool"], set()).update(case.get("callerArgs") or [])
+    tools = asyncio.run(transport.mcp_server.list_tools())
+    compared = []
+    for tool in tools:
+        if tool.name not in js or tool.name not in caller_args:  # ported tools are the ones with cases
+            continue
+        dropped = caller_args.get(tool.name, set())
+        expected = js[tool.name]
+        enums = {name: sorted(set(_enum_values(schema))) for name, schema in (tool.inputSchema.get("properties") or {}).items()}
+        actual = {"required": sorted(tool.inputSchema.get("required") or []), "enums": {k: v for k, v in enums.items() if v}}
+        assert actual == {"required": sorted(set(expected["required"]) - dropped),
+                          "enums": {k: v for k, v in expected["enums"].items() if k not in dropped}}, tool.name
+        compared.append(tool.name)
+    assert len(compared) >= 13, compared
 
 
 def test_there_are_cases_to_replay():

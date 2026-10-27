@@ -1,0 +1,1714 @@
+[
+  {
+    "name": "share text",
+    "tool": "comms_share",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "name": "notes.md",
+      "content": "line one\nline two & more",
+      "description": "my notes"
+    },
+    "routes": {
+      "POST /shared": {
+        "body": {
+          "name": "notes.md",
+          "size": 22
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/shared",
+        "body": {
+          "form": {
+            "from_agent": "agent-a",
+            "name": "notes.md",
+            "description": "my notes",
+            "content": "line one\nline two & more"
+          }
+        }
+      }
+    ],
+    "text": "Shared \"notes.md\" on server.",
+    "isError": false
+  },
+  {
+    "name": "share text without a description, renamed by the service",
+    "tool": "comms_share",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "name": "a.txt",
+      "content": "x"
+    },
+    "routes": {
+      "POST /shared": {
+        "body": {
+          "name": "a-1.txt"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/shared",
+        "body": {
+          "form": {
+            "from_agent": "agent-a",
+            "name": "a.txt",
+            "description": "",
+            "content": "x"
+          }
+        }
+      }
+    ],
+    "text": "Shared \"a-1.txt\" on server.",
+    "isError": false
+  },
+  {
+    "name": "share refused",
+    "tool": "comms_share",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "name": "a.txt",
+      "content": "x"
+    },
+    "routes": {
+      "POST /shared": {
+        "status": 413,
+        "body": {
+          "detail": "too large"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/shared",
+        "body": {
+          "form": {
+            "from_agent": "agent-a",
+            "name": "a.txt",
+            "description": "",
+            "content": "x"
+          }
+        }
+      }
+    ],
+    "text": "Share failed (HTTP 413): too large",
+    "isError": true
+  },
+  {
+    "name": "share refused without a reason",
+    "tool": "comms_share",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "name": "a.txt",
+      "content": "x"
+    },
+    "routes": {
+      "POST /shared": {
+        "status": 500,
+        "body": {}
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/shared",
+        "body": {
+          "form": {
+            "from_agent": "agent-a",
+            "name": "a.txt",
+            "description": "",
+            "content": "x"
+          }
+        }
+      }
+    ],
+    "text": "Share failed (HTTP 500): server rejected the upload",
+    "isError": true
+  },
+  {
+    "name": "share nothing",
+    "tool": "comms_share",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "name": "a.txt"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "Need content or filePath.",
+    "isError": true
+  },
+  {
+    "name": "share a bad name",
+    "tool": "comms_share",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "name": "../etc",
+      "content": "x"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "Invalid name: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: \"../etc\"",
+    "isError": true
+  },
+  {
+    "name": "read text with its sharer",
+    "tool": "comms_read",
+    "args": {
+      "name": "notes.md"
+    },
+    "routes": {
+      "GET /shared/notes.md": {
+        "body": {
+          "content": "line one",
+          "meta": {
+            "from": "agent-b",
+            "sharedAt": "t1",
+            "description": "notes"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared/notes.md",
+        "body": null
+      }
+    ],
+    "text": "From: agent-b | t1 | notes\n\nline one",
+    "isError": false
+  },
+  {
+    "name": "read text without meta",
+    "tool": "comms_read",
+    "args": {
+      "name": "plain.txt"
+    },
+    "routes": {
+      "GET /shared/plain.txt": {
+        "body": {
+          "content": "hello"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared/plain.txt",
+        "body": null
+      }
+    ],
+    "text": "hello",
+    "isError": false
+  },
+  {
+    "name": "read an empty artifact",
+    "tool": "comms_read",
+    "args": {
+      "name": "empty.txt"
+    },
+    "routes": {
+      "GET /shared/empty.txt": {
+        "body": {
+          "content": ""
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared/empty.txt",
+        "body": null
+      }
+    ],
+    "text": "\"empty.txt\" — empty or unreadable.",
+    "isError": false
+  },
+  {
+    "name": "read a missing artifact",
+    "tool": "comms_read",
+    "args": {
+      "name": "gone.txt"
+    },
+    "routes": {
+      "GET /shared/gone.txt": {
+        "status": 404,
+        "body": {
+          "detail": "not found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared/gone.txt",
+        "body": null
+      }
+    ],
+    "text": "Artifact \"gone.txt\" not found.",
+    "isError": true
+  },
+  {
+    "name": "files: all",
+    "tool": "comms_files",
+    "args": {},
+    "routes": {
+      "GET /shared": {
+        "body": {
+          "files": [
+            {
+              "name": "notes.md",
+              "size": 22,
+              "from": "agent-b",
+              "sharedAt": "t1",
+              "description": "notes"
+            },
+            {
+              "name": "img.png",
+              "size": 1024,
+              "from": "agent-a",
+              "sharedAt": "t2"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared",
+        "body": null
+      }
+    ],
+    "text": "- notes.md (22B, from: agent-b, t1) -- notes\n- img.png (1024B, from: agent-a, t2)\n\n(showing 2 of 2 matched; 2 shared in total)",
+    "isError": false
+  },
+  {
+    "name": "files: filtered by sharer and query, limited",
+    "tool": "comms_files",
+    "args": {
+      "fromAgent": "Agent-B",
+      "query": "NOTE",
+      "limit": 1
+    },
+    "routes": {
+      "GET /shared": {
+        "body": {
+          "files": [
+            {
+              "name": "notes.md",
+              "size": 22,
+              "from": "agent-b",
+              "sharedAt": "t1",
+              "description": "notes"
+            },
+            {
+              "name": "more-notes.md",
+              "size": 5,
+              "from": "agent-b",
+              "sharedAt": "t3",
+              "description": ""
+            },
+            {
+              "name": "img.png",
+              "size": 1024,
+              "from": "agent-a",
+              "sharedAt": "t2"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared",
+        "body": null
+      }
+    ],
+    "text": "- notes.md (22B, from: agent-b, t1) -- notes\n\n(showing 1 of 2 matched; 3 shared in total) — narrow with query=/fromAgent= or raise limit=",
+    "isError": false
+  },
+  {
+    "name": "files: a filter that matches nothing",
+    "tool": "comms_files",
+    "args": {
+      "query": "zzz"
+    },
+    "routes": {
+      "GET /shared": {
+        "body": {
+          "files": [
+            {
+              "name": "notes.md",
+              "size": 22,
+              "from": "agent-b",
+              "sharedAt": "t1"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared",
+        "body": null
+      }
+    ],
+    "text": "No shared artifacts matching that filter. (1 shared in total.)",
+    "isError": false
+  },
+  {
+    "name": "files: none",
+    "tool": "comms_files",
+    "args": {},
+    "routes": {
+      "GET /shared": {
+        "body": {
+          "files": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared",
+        "body": null
+      }
+    ],
+    "text": "No shared artifacts.",
+    "isError": false
+  },
+  {
+    "name": "unshare",
+    "tool": "comms_unshare",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "name": "notes.md",
+      "from": "agent-a"
+    },
+    "routes": {
+      "DELETE /shared/notes.md?requestedBy=agent-a": {
+        "body": {
+          "ok": true
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/shared/notes.md?requestedBy=agent-a",
+        "body": null
+      }
+    ],
+    "text": "Deleted shared artifact \"notes.md\".",
+    "isError": false
+  },
+  {
+    "name": "unshare refused",
+    "tool": "comms_unshare",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "name": "notes.md",
+      "from": "agent-a"
+    },
+    "routes": {
+      "DELETE /shared/notes.md?requestedBy=agent-a": {
+        "status": 403,
+        "body": {
+          "detail": "not yours"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/shared/notes.md?requestedBy=agent-a",
+        "body": null
+      }
+    ],
+    "text": "Failed to delete artifact: HTTP 403: {\"detail\":\"not yours\"}",
+    "isError": true
+  },
+  {
+    "name": "files: a huge limit is capped at 200, and says so",
+    "tool": "comms_files",
+    "args": {
+      "limit": 1000
+    },
+    "routes": {
+      "GET /shared": {
+        "body": {
+          "files": [
+            {
+              "name": "f000.txt",
+              "size": 0,
+              "from": "agent-b",
+              "sharedAt": "t0"
+            },
+            {
+              "name": "f001.txt",
+              "size": 1,
+              "from": "agent-b",
+              "sharedAt": "t1"
+            },
+            {
+              "name": "f002.txt",
+              "size": 2,
+              "from": "agent-b",
+              "sharedAt": "t2"
+            },
+            {
+              "name": "f003.txt",
+              "size": 3,
+              "from": "agent-b",
+              "sharedAt": "t3"
+            },
+            {
+              "name": "f004.txt",
+              "size": 4,
+              "from": "agent-b",
+              "sharedAt": "t4"
+            },
+            {
+              "name": "f005.txt",
+              "size": 5,
+              "from": "agent-b",
+              "sharedAt": "t5"
+            },
+            {
+              "name": "f006.txt",
+              "size": 6,
+              "from": "agent-b",
+              "sharedAt": "t6"
+            },
+            {
+              "name": "f007.txt",
+              "size": 7,
+              "from": "agent-b",
+              "sharedAt": "t7"
+            },
+            {
+              "name": "f008.txt",
+              "size": 8,
+              "from": "agent-b",
+              "sharedAt": "t8"
+            },
+            {
+              "name": "f009.txt",
+              "size": 9,
+              "from": "agent-b",
+              "sharedAt": "t9"
+            },
+            {
+              "name": "f010.txt",
+              "size": 10,
+              "from": "agent-b",
+              "sharedAt": "t10"
+            },
+            {
+              "name": "f011.txt",
+              "size": 11,
+              "from": "agent-b",
+              "sharedAt": "t11"
+            },
+            {
+              "name": "f012.txt",
+              "size": 12,
+              "from": "agent-b",
+              "sharedAt": "t12"
+            },
+            {
+              "name": "f013.txt",
+              "size": 13,
+              "from": "agent-b",
+              "sharedAt": "t13"
+            },
+            {
+              "name": "f014.txt",
+              "size": 14,
+              "from": "agent-b",
+              "sharedAt": "t14"
+            },
+            {
+              "name": "f015.txt",
+              "size": 15,
+              "from": "agent-b",
+              "sharedAt": "t15"
+            },
+            {
+              "name": "f016.txt",
+              "size": 16,
+              "from": "agent-b",
+              "sharedAt": "t16"
+            },
+            {
+              "name": "f017.txt",
+              "size": 17,
+              "from": "agent-b",
+              "sharedAt": "t17"
+            },
+            {
+              "name": "f018.txt",
+              "size": 18,
+              "from": "agent-b",
+              "sharedAt": "t18"
+            },
+            {
+              "name": "f019.txt",
+              "size": 19,
+              "from": "agent-b",
+              "sharedAt": "t19"
+            },
+            {
+              "name": "f020.txt",
+              "size": 20,
+              "from": "agent-b",
+              "sharedAt": "t20"
+            },
+            {
+              "name": "f021.txt",
+              "size": 21,
+              "from": "agent-b",
+              "sharedAt": "t21"
+            },
+            {
+              "name": "f022.txt",
+              "size": 22,
+              "from": "agent-b",
+              "sharedAt": "t22"
+            },
+            {
+              "name": "f023.txt",
+              "size": 23,
+              "from": "agent-b",
+              "sharedAt": "t23"
+            },
+            {
+              "name": "f024.txt",
+              "size": 24,
+              "from": "agent-b",
+              "sharedAt": "t24"
+            },
+            {
+              "name": "f025.txt",
+              "size": 25,
+              "from": "agent-b",
+              "sharedAt": "t25"
+            },
+            {
+              "name": "f026.txt",
+              "size": 26,
+              "from": "agent-b",
+              "sharedAt": "t26"
+            },
+            {
+              "name": "f027.txt",
+              "size": 27,
+              "from": "agent-b",
+              "sharedAt": "t27"
+            },
+            {
+              "name": "f028.txt",
+              "size": 28,
+              "from": "agent-b",
+              "sharedAt": "t28"
+            },
+            {
+              "name": "f029.txt",
+              "size": 29,
+              "from": "agent-b",
+              "sharedAt": "t29"
+            },
+            {
+              "name": "f030.txt",
+              "size": 30,
+              "from": "agent-b",
+              "sharedAt": "t30"
+            },
+            {
+              "name": "f031.txt",
+              "size": 31,
+              "from": "agent-b",
+              "sharedAt": "t31"
+            },
+            {
+              "name": "f032.txt",
+              "size": 32,
+              "from": "agent-b",
+              "sharedAt": "t32"
+            },
+            {
+              "name": "f033.txt",
+              "size": 33,
+              "from": "agent-b",
+              "sharedAt": "t33"
+            },
+            {
+              "name": "f034.txt",
+              "size": 34,
+              "from": "agent-b",
+              "sharedAt": "t34"
+            },
+            {
+              "name": "f035.txt",
+              "size": 35,
+              "from": "agent-b",
+              "sharedAt": "t35"
+            },
+            {
+              "name": "f036.txt",
+              "size": 36,
+              "from": "agent-b",
+              "sharedAt": "t36"
+            },
+            {
+              "name": "f037.txt",
+              "size": 37,
+              "from": "agent-b",
+              "sharedAt": "t37"
+            },
+            {
+              "name": "f038.txt",
+              "size": 38,
+              "from": "agent-b",
+              "sharedAt": "t38"
+            },
+            {
+              "name": "f039.txt",
+              "size": 39,
+              "from": "agent-b",
+              "sharedAt": "t39"
+            },
+            {
+              "name": "f040.txt",
+              "size": 40,
+              "from": "agent-b",
+              "sharedAt": "t40"
+            },
+            {
+              "name": "f041.txt",
+              "size": 41,
+              "from": "agent-b",
+              "sharedAt": "t41"
+            },
+            {
+              "name": "f042.txt",
+              "size": 42,
+              "from": "agent-b",
+              "sharedAt": "t42"
+            },
+            {
+              "name": "f043.txt",
+              "size": 43,
+              "from": "agent-b",
+              "sharedAt": "t43"
+            },
+            {
+              "name": "f044.txt",
+              "size": 44,
+              "from": "agent-b",
+              "sharedAt": "t44"
+            },
+            {
+              "name": "f045.txt",
+              "size": 45,
+              "from": "agent-b",
+              "sharedAt": "t45"
+            },
+            {
+              "name": "f046.txt",
+              "size": 46,
+              "from": "agent-b",
+              "sharedAt": "t46"
+            },
+            {
+              "name": "f047.txt",
+              "size": 47,
+              "from": "agent-b",
+              "sharedAt": "t47"
+            },
+            {
+              "name": "f048.txt",
+              "size": 48,
+              "from": "agent-b",
+              "sharedAt": "t48"
+            },
+            {
+              "name": "f049.txt",
+              "size": 49,
+              "from": "agent-b",
+              "sharedAt": "t49"
+            },
+            {
+              "name": "f050.txt",
+              "size": 50,
+              "from": "agent-b",
+              "sharedAt": "t50"
+            },
+            {
+              "name": "f051.txt",
+              "size": 51,
+              "from": "agent-b",
+              "sharedAt": "t51"
+            },
+            {
+              "name": "f052.txt",
+              "size": 52,
+              "from": "agent-b",
+              "sharedAt": "t52"
+            },
+            {
+              "name": "f053.txt",
+              "size": 53,
+              "from": "agent-b",
+              "sharedAt": "t53"
+            },
+            {
+              "name": "f054.txt",
+              "size": 54,
+              "from": "agent-b",
+              "sharedAt": "t54"
+            },
+            {
+              "name": "f055.txt",
+              "size": 55,
+              "from": "agent-b",
+              "sharedAt": "t55"
+            },
+            {
+              "name": "f056.txt",
+              "size": 56,
+              "from": "agent-b",
+              "sharedAt": "t56"
+            },
+            {
+              "name": "f057.txt",
+              "size": 57,
+              "from": "agent-b",
+              "sharedAt": "t57"
+            },
+            {
+              "name": "f058.txt",
+              "size": 58,
+              "from": "agent-b",
+              "sharedAt": "t58"
+            },
+            {
+              "name": "f059.txt",
+              "size": 59,
+              "from": "agent-b",
+              "sharedAt": "t59"
+            },
+            {
+              "name": "f060.txt",
+              "size": 60,
+              "from": "agent-b",
+              "sharedAt": "t60"
+            },
+            {
+              "name": "f061.txt",
+              "size": 61,
+              "from": "agent-b",
+              "sharedAt": "t61"
+            },
+            {
+              "name": "f062.txt",
+              "size": 62,
+              "from": "agent-b",
+              "sharedAt": "t62"
+            },
+            {
+              "name": "f063.txt",
+              "size": 63,
+              "from": "agent-b",
+              "sharedAt": "t63"
+            },
+            {
+              "name": "f064.txt",
+              "size": 64,
+              "from": "agent-b",
+              "sharedAt": "t64"
+            },
+            {
+              "name": "f065.txt",
+              "size": 65,
+              "from": "agent-b",
+              "sharedAt": "t65"
+            },
+            {
+              "name": "f066.txt",
+              "size": 66,
+              "from": "agent-b",
+              "sharedAt": "t66"
+            },
+            {
+              "name": "f067.txt",
+              "size": 67,
+              "from": "agent-b",
+              "sharedAt": "t67"
+            },
+            {
+              "name": "f068.txt",
+              "size": 68,
+              "from": "agent-b",
+              "sharedAt": "t68"
+            },
+            {
+              "name": "f069.txt",
+              "size": 69,
+              "from": "agent-b",
+              "sharedAt": "t69"
+            },
+            {
+              "name": "f070.txt",
+              "size": 70,
+              "from": "agent-b",
+              "sharedAt": "t70"
+            },
+            {
+              "name": "f071.txt",
+              "size": 71,
+              "from": "agent-b",
+              "sharedAt": "t71"
+            },
+            {
+              "name": "f072.txt",
+              "size": 72,
+              "from": "agent-b",
+              "sharedAt": "t72"
+            },
+            {
+              "name": "f073.txt",
+              "size": 73,
+              "from": "agent-b",
+              "sharedAt": "t73"
+            },
+            {
+              "name": "f074.txt",
+              "size": 74,
+              "from": "agent-b",
+              "sharedAt": "t74"
+            },
+            {
+              "name": "f075.txt",
+              "size": 75,
+              "from": "agent-b",
+              "sharedAt": "t75"
+            },
+            {
+              "name": "f076.txt",
+              "size": 76,
+              "from": "agent-b",
+              "sharedAt": "t76"
+            },
+            {
+              "name": "f077.txt",
+              "size": 77,
+              "from": "agent-b",
+              "sharedAt": "t77"
+            },
+            {
+              "name": "f078.txt",
+              "size": 78,
+              "from": "agent-b",
+              "sharedAt": "t78"
+            },
+            {
+              "name": "f079.txt",
+              "size": 79,
+              "from": "agent-b",
+              "sharedAt": "t79"
+            },
+            {
+              "name": "f080.txt",
+              "size": 80,
+              "from": "agent-b",
+              "sharedAt": "t80"
+            },
+            {
+              "name": "f081.txt",
+              "size": 81,
+              "from": "agent-b",
+              "sharedAt": "t81"
+            },
+            {
+              "name": "f082.txt",
+              "size": 82,
+              "from": "agent-b",
+              "sharedAt": "t82"
+            },
+            {
+              "name": "f083.txt",
+              "size": 83,
+              "from": "agent-b",
+              "sharedAt": "t83"
+            },
+            {
+              "name": "f084.txt",
+              "size": 84,
+              "from": "agent-b",
+              "sharedAt": "t84"
+            },
+            {
+              "name": "f085.txt",
+              "size": 85,
+              "from": "agent-b",
+              "sharedAt": "t85"
+            },
+            {
+              "name": "f086.txt",
+              "size": 86,
+              "from": "agent-b",
+              "sharedAt": "t86"
+            },
+            {
+              "name": "f087.txt",
+              "size": 87,
+              "from": "agent-b",
+              "sharedAt": "t87"
+            },
+            {
+              "name": "f088.txt",
+              "size": 88,
+              "from": "agent-b",
+              "sharedAt": "t88"
+            },
+            {
+              "name": "f089.txt",
+              "size": 89,
+              "from": "agent-b",
+              "sharedAt": "t89"
+            },
+            {
+              "name": "f090.txt",
+              "size": 90,
+              "from": "agent-b",
+              "sharedAt": "t90"
+            },
+            {
+              "name": "f091.txt",
+              "size": 91,
+              "from": "agent-b",
+              "sharedAt": "t91"
+            },
+            {
+              "name": "f092.txt",
+              "size": 92,
+              "from": "agent-b",
+              "sharedAt": "t92"
+            },
+            {
+              "name": "f093.txt",
+              "size": 93,
+              "from": "agent-b",
+              "sharedAt": "t93"
+            },
+            {
+              "name": "f094.txt",
+              "size": 94,
+              "from": "agent-b",
+              "sharedAt": "t94"
+            },
+            {
+              "name": "f095.txt",
+              "size": 95,
+              "from": "agent-b",
+              "sharedAt": "t95"
+            },
+            {
+              "name": "f096.txt",
+              "size": 96,
+              "from": "agent-b",
+              "sharedAt": "t96"
+            },
+            {
+              "name": "f097.txt",
+              "size": 97,
+              "from": "agent-b",
+              "sharedAt": "t97"
+            },
+            {
+              "name": "f098.txt",
+              "size": 98,
+              "from": "agent-b",
+              "sharedAt": "t98"
+            },
+            {
+              "name": "f099.txt",
+              "size": 99,
+              "from": "agent-b",
+              "sharedAt": "t99"
+            },
+            {
+              "name": "f100.txt",
+              "size": 100,
+              "from": "agent-b",
+              "sharedAt": "t100"
+            },
+            {
+              "name": "f101.txt",
+              "size": 101,
+              "from": "agent-b",
+              "sharedAt": "t101"
+            },
+            {
+              "name": "f102.txt",
+              "size": 102,
+              "from": "agent-b",
+              "sharedAt": "t102"
+            },
+            {
+              "name": "f103.txt",
+              "size": 103,
+              "from": "agent-b",
+              "sharedAt": "t103"
+            },
+            {
+              "name": "f104.txt",
+              "size": 104,
+              "from": "agent-b",
+              "sharedAt": "t104"
+            },
+            {
+              "name": "f105.txt",
+              "size": 105,
+              "from": "agent-b",
+              "sharedAt": "t105"
+            },
+            {
+              "name": "f106.txt",
+              "size": 106,
+              "from": "agent-b",
+              "sharedAt": "t106"
+            },
+            {
+              "name": "f107.txt",
+              "size": 107,
+              "from": "agent-b",
+              "sharedAt": "t107"
+            },
+            {
+              "name": "f108.txt",
+              "size": 108,
+              "from": "agent-b",
+              "sharedAt": "t108"
+            },
+            {
+              "name": "f109.txt",
+              "size": 109,
+              "from": "agent-b",
+              "sharedAt": "t109"
+            },
+            {
+              "name": "f110.txt",
+              "size": 110,
+              "from": "agent-b",
+              "sharedAt": "t110"
+            },
+            {
+              "name": "f111.txt",
+              "size": 111,
+              "from": "agent-b",
+              "sharedAt": "t111"
+            },
+            {
+              "name": "f112.txt",
+              "size": 112,
+              "from": "agent-b",
+              "sharedAt": "t112"
+            },
+            {
+              "name": "f113.txt",
+              "size": 113,
+              "from": "agent-b",
+              "sharedAt": "t113"
+            },
+            {
+              "name": "f114.txt",
+              "size": 114,
+              "from": "agent-b",
+              "sharedAt": "t114"
+            },
+            {
+              "name": "f115.txt",
+              "size": 115,
+              "from": "agent-b",
+              "sharedAt": "t115"
+            },
+            {
+              "name": "f116.txt",
+              "size": 116,
+              "from": "agent-b",
+              "sharedAt": "t116"
+            },
+            {
+              "name": "f117.txt",
+              "size": 117,
+              "from": "agent-b",
+              "sharedAt": "t117"
+            },
+            {
+              "name": "f118.txt",
+              "size": 118,
+              "from": "agent-b",
+              "sharedAt": "t118"
+            },
+            {
+              "name": "f119.txt",
+              "size": 119,
+              "from": "agent-b",
+              "sharedAt": "t119"
+            },
+            {
+              "name": "f120.txt",
+              "size": 120,
+              "from": "agent-b",
+              "sharedAt": "t120"
+            },
+            {
+              "name": "f121.txt",
+              "size": 121,
+              "from": "agent-b",
+              "sharedAt": "t121"
+            },
+            {
+              "name": "f122.txt",
+              "size": 122,
+              "from": "agent-b",
+              "sharedAt": "t122"
+            },
+            {
+              "name": "f123.txt",
+              "size": 123,
+              "from": "agent-b",
+              "sharedAt": "t123"
+            },
+            {
+              "name": "f124.txt",
+              "size": 124,
+              "from": "agent-b",
+              "sharedAt": "t124"
+            },
+            {
+              "name": "f125.txt",
+              "size": 125,
+              "from": "agent-b",
+              "sharedAt": "t125"
+            },
+            {
+              "name": "f126.txt",
+              "size": 126,
+              "from": "agent-b",
+              "sharedAt": "t126"
+            },
+            {
+              "name": "f127.txt",
+              "size": 127,
+              "from": "agent-b",
+              "sharedAt": "t127"
+            },
+            {
+              "name": "f128.txt",
+              "size": 128,
+              "from": "agent-b",
+              "sharedAt": "t128"
+            },
+            {
+              "name": "f129.txt",
+              "size": 129,
+              "from": "agent-b",
+              "sharedAt": "t129"
+            },
+            {
+              "name": "f130.txt",
+              "size": 130,
+              "from": "agent-b",
+              "sharedAt": "t130"
+            },
+            {
+              "name": "f131.txt",
+              "size": 131,
+              "from": "agent-b",
+              "sharedAt": "t131"
+            },
+            {
+              "name": "f132.txt",
+              "size": 132,
+              "from": "agent-b",
+              "sharedAt": "t132"
+            },
+            {
+              "name": "f133.txt",
+              "size": 133,
+              "from": "agent-b",
+              "sharedAt": "t133"
+            },
+            {
+              "name": "f134.txt",
+              "size": 134,
+              "from": "agent-b",
+              "sharedAt": "t134"
+            },
+            {
+              "name": "f135.txt",
+              "size": 135,
+              "from": "agent-b",
+              "sharedAt": "t135"
+            },
+            {
+              "name": "f136.txt",
+              "size": 136,
+              "from": "agent-b",
+              "sharedAt": "t136"
+            },
+            {
+              "name": "f137.txt",
+              "size": 137,
+              "from": "agent-b",
+              "sharedAt": "t137"
+            },
+            {
+              "name": "f138.txt",
+              "size": 138,
+              "from": "agent-b",
+              "sharedAt": "t138"
+            },
+            {
+              "name": "f139.txt",
+              "size": 139,
+              "from": "agent-b",
+              "sharedAt": "t139"
+            },
+            {
+              "name": "f140.txt",
+              "size": 140,
+              "from": "agent-b",
+              "sharedAt": "t140"
+            },
+            {
+              "name": "f141.txt",
+              "size": 141,
+              "from": "agent-b",
+              "sharedAt": "t141"
+            },
+            {
+              "name": "f142.txt",
+              "size": 142,
+              "from": "agent-b",
+              "sharedAt": "t142"
+            },
+            {
+              "name": "f143.txt",
+              "size": 143,
+              "from": "agent-b",
+              "sharedAt": "t143"
+            },
+            {
+              "name": "f144.txt",
+              "size": 144,
+              "from": "agent-b",
+              "sharedAt": "t144"
+            },
+            {
+              "name": "f145.txt",
+              "size": 145,
+              "from": "agent-b",
+              "sharedAt": "t145"
+            },
+            {
+              "name": "f146.txt",
+              "size": 146,
+              "from": "agent-b",
+              "sharedAt": "t146"
+            },
+            {
+              "name": "f147.txt",
+              "size": 147,
+              "from": "agent-b",
+              "sharedAt": "t147"
+            },
+            {
+              "name": "f148.txt",
+              "size": 148,
+              "from": "agent-b",
+              "sharedAt": "t148"
+            },
+            {
+              "name": "f149.txt",
+              "size": 149,
+              "from": "agent-b",
+              "sharedAt": "t149"
+            },
+            {
+              "name": "f150.txt",
+              "size": 150,
+              "from": "agent-b",
+              "sharedAt": "t150"
+            },
+            {
+              "name": "f151.txt",
+              "size": 151,
+              "from": "agent-b",
+              "sharedAt": "t151"
+            },
+            {
+              "name": "f152.txt",
+              "size": 152,
+              "from": "agent-b",
+              "sharedAt": "t152"
+            },
+            {
+              "name": "f153.txt",
+              "size": 153,
+              "from": "agent-b",
+              "sharedAt": "t153"
+            },
+            {
+              "name": "f154.txt",
+              "size": 154,
+              "from": "agent-b",
+              "sharedAt": "t154"
+            },
+            {
+              "name": "f155.txt",
+              "size": 155,
+              "from": "agent-b",
+              "sharedAt": "t155"
+            },
+            {
+              "name": "f156.txt",
+              "size": 156,
+              "from": "agent-b",
+              "sharedAt": "t156"
+            },
+            {
+              "name": "f157.txt",
+              "size": 157,
+              "from": "agent-b",
+              "sharedAt": "t157"
+            },
+            {
+              "name": "f158.txt",
+              "size": 158,
+              "from": "agent-b",
+              "sharedAt": "t158"
+            },
+            {
+              "name": "f159.txt",
+              "size": 159,
+              "from": "agent-b",
+              "sharedAt": "t159"
+            },
+            {
+              "name": "f160.txt",
+              "size": 160,
+              "from": "agent-b",
+              "sharedAt": "t160"
+            },
+            {
+              "name": "f161.txt",
+              "size": 161,
+              "from": "agent-b",
+              "sharedAt": "t161"
+            },
+            {
+              "name": "f162.txt",
+              "size": 162,
+              "from": "agent-b",
+              "sharedAt": "t162"
+            },
+            {
+              "name": "f163.txt",
+              "size": 163,
+              "from": "agent-b",
+              "sharedAt": "t163"
+            },
+            {
+              "name": "f164.txt",
+              "size": 164,
+              "from": "agent-b",
+              "sharedAt": "t164"
+            },
+            {
+              "name": "f165.txt",
+              "size": 165,
+              "from": "agent-b",
+              "sharedAt": "t165"
+            },
+            {
+              "name": "f166.txt",
+              "size": 166,
+              "from": "agent-b",
+              "sharedAt": "t166"
+            },
+            {
+              "name": "f167.txt",
+              "size": 167,
+              "from": "agent-b",
+              "sharedAt": "t167"
+            },
+            {
+              "name": "f168.txt",
+              "size": 168,
+              "from": "agent-b",
+              "sharedAt": "t168"
+            },
+            {
+              "name": "f169.txt",
+              "size": 169,
+              "from": "agent-b",
+              "sharedAt": "t169"
+            },
+            {
+              "name": "f170.txt",
+              "size": 170,
+              "from": "agent-b",
+              "sharedAt": "t170"
+            },
+            {
+              "name": "f171.txt",
+              "size": 171,
+              "from": "agent-b",
+              "sharedAt": "t171"
+            },
+            {
+              "name": "f172.txt",
+              "size": 172,
+              "from": "agent-b",
+              "sharedAt": "t172"
+            },
+            {
+              "name": "f173.txt",
+              "size": 173,
+              "from": "agent-b",
+              "sharedAt": "t173"
+            },
+            {
+              "name": "f174.txt",
+              "size": 174,
+              "from": "agent-b",
+              "sharedAt": "t174"
+            },
+            {
+              "name": "f175.txt",
+              "size": 175,
+              "from": "agent-b",
+              "sharedAt": "t175"
+            },
+            {
+              "name": "f176.txt",
+              "size": 176,
+              "from": "agent-b",
+              "sharedAt": "t176"
+            },
+            {
+              "name": "f177.txt",
+              "size": 177,
+              "from": "agent-b",
+              "sharedAt": "t177"
+            },
+            {
+              "name": "f178.txt",
+              "size": 178,
+              "from": "agent-b",
+              "sharedAt": "t178"
+            },
+            {
+              "name": "f179.txt",
+              "size": 179,
+              "from": "agent-b",
+              "sharedAt": "t179"
+            },
+            {
+              "name": "f180.txt",
+              "size": 180,
+              "from": "agent-b",
+              "sharedAt": "t180"
+            },
+            {
+              "name": "f181.txt",
+              "size": 181,
+              "from": "agent-b",
+              "sharedAt": "t181"
+            },
+            {
+              "name": "f182.txt",
+              "size": 182,
+              "from": "agent-b",
+              "sharedAt": "t182"
+            },
+            {
+              "name": "f183.txt",
+              "size": 183,
+              "from": "agent-b",
+              "sharedAt": "t183"
+            },
+            {
+              "name": "f184.txt",
+              "size": 184,
+              "from": "agent-b",
+              "sharedAt": "t184"
+            },
+            {
+              "name": "f185.txt",
+              "size": 185,
+              "from": "agent-b",
+              "sharedAt": "t185"
+            },
+            {
+              "name": "f186.txt",
+              "size": 186,
+              "from": "agent-b",
+              "sharedAt": "t186"
+            },
+            {
+              "name": "f187.txt",
+              "size": 187,
+              "from": "agent-b",
+              "sharedAt": "t187"
+            },
+            {
+              "name": "f188.txt",
+              "size": 188,
+              "from": "agent-b",
+              "sharedAt": "t188"
+            },
+            {
+              "name": "f189.txt",
+              "size": 189,
+              "from": "agent-b",
+              "sharedAt": "t189"
+            },
+            {
+              "name": "f190.txt",
+              "size": 190,
+              "from": "agent-b",
+              "sharedAt": "t190"
+            },
+            {
+              "name": "f191.txt",
+              "size": 191,
+              "from": "agent-b",
+              "sharedAt": "t191"
+            },
+            {
+              "name": "f192.txt",
+              "size": 192,
+              "from": "agent-b",
+              "sharedAt": "t192"
+            },
+            {
+              "name": "f193.txt",
+              "size": 193,
+              "from": "agent-b",
+              "sharedAt": "t193"
+            },
+            {
+              "name": "f194.txt",
+              "size": 194,
+              "from": "agent-b",
+              "sharedAt": "t194"
+            },
+            {
+              "name": "f195.txt",
+              "size": 195,
+              "from": "agent-b",
+              "sharedAt": "t195"
+            },
+            {
+              "name": "f196.txt",
+              "size": 196,
+              "from": "agent-b",
+              "sharedAt": "t196"
+            },
+            {
+              "name": "f197.txt",
+              "size": 197,
+              "from": "agent-b",
+              "sharedAt": "t197"
+            },
+            {
+              "name": "f198.txt",
+              "size": 198,
+              "from": "agent-b",
+              "sharedAt": "t198"
+            },
+            {
+              "name": "f199.txt",
+              "size": 199,
+              "from": "agent-b",
+              "sharedAt": "t199"
+            },
+            {
+              "name": "f200.txt",
+              "size": 200,
+              "from": "agent-b",
+              "sharedAt": "t200"
+            },
+            {
+              "name": "f201.txt",
+              "size": 201,
+              "from": "agent-b",
+              "sharedAt": "t201"
+            },
+            {
+              "name": "f202.txt",
+              "size": 202,
+              "from": "agent-b",
+              "sharedAt": "t202"
+            },
+            {
+              "name": "f203.txt",
+              "size": 203,
+              "from": "agent-b",
+              "sharedAt": "t203"
+            },
+            {
+              "name": "f204.txt",
+              "size": 204,
+              "from": "agent-b",
+              "sharedAt": "t204"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/shared",
+        "body": null
+      }
+    ],
+    "text": "- f000.txt (0B, from: agent-b, t0)\n- f001.txt (1B, from: agent-b, t1)\n- f002.txt (2B, from: agent-b, t2)\n- f003.txt (3B, from: agent-b, t3)\n- f004.txt (4B, from: agent-b, t4)\n- f005.txt (5B, from: agent-b, t5)\n- f006.txt (6B, from: agent-b, t6)\n- f007.txt (7B, from: agent-b, t7)\n- f008.txt (8B, from: agent-b, t8)\n- f009.txt (9B, from: agent-b, t9)\n- f010.txt (10B, from: agent-b, t10)\n- f011.txt (11B, from: agent-b, t11)\n- f012.txt (12B, from: agent-b, t12)\n- f013.txt (13B, from: agent-b, t13)\n- f014.txt (14B, from: agent-b, t14)\n- f015.txt (15B, from: agent-b, t15)\n- f016.txt (16B, from: agent-b, t16)\n- f017.txt (17B, from: agent-b, t17)\n- f018.txt (18B, from: agent-b, t18)\n- f019.txt (19B, from: agent-b, t19)\n- f020.txt (20B, from: agent-b, t20)\n- f021.txt (21B, from: agent-b, t21)\n- f022.txt (22B, from: agent-b, t22)\n- f023.txt (23B, from: agent-b, t23)\n- f024.txt (24B, from: agent-b, t24)\n- f025.txt (25B, from: agent-b, t25)\n- f026.txt (26B, from: agent-b, t26)\n- f027.txt (27B, from: agent-b, t27)\n- f028.txt (28B, from: agent-b, t28)\n- f029.txt (29B, from: agent-b, t29)\n- f030.txt (30B, from: agent-b, t30)\n- f031.txt (31B, from: agent-b, t31)\n- f032.txt (32B, from: agent-b, t32)\n- f033.txt (33B, from: agent-b, t33)\n- f034.txt (34B, from: agent-b, t34)\n- f035.txt (35B, from: agent-b, t35)\n- f036.txt (36B, from: agent-b, t36)\n- f037.txt (37B, from: agent-b, t37)\n- f038.txt (38B, from: agent-b, t38)\n- f039.txt (39B, from: agent-b, t39)\n- f040.txt (40B, from: agent-b, t40)\n- f041.txt (41B, from: agent-b, t41)\n- f042.txt (42B, from: agent-b, t42)\n- f043.txt (43B, from: agent-b, t43)\n- f044.txt (44B, from: agent-b, t44)\n- f045.txt (45B, from: agent-b, t45)\n- f046.txt (46B, from: agent-b, t46)\n- f047.txt (47B, from: agent-b, t47)\n- f048.txt (48B, from: agent-b, t48)\n- f049.txt (49B, from: agent-b, t49)\n- f050.txt (50B, from: agent-b, t50)\n- f051.txt (51B, from: agent-b, t51)\n- f052.txt (52B, from: agent-b, t52)\n- f053.txt (53B, from: agent-b, t53)\n- f054.txt (54B, from: agent-b, t54)\n- f055.txt (55B, from: agent-b, t55)\n- f056.txt (56B, from: agent-b, t56)\n- f057.txt (57B, from: agent-b, t57)\n- f058.txt (58B, from: agent-b, t58)\n- f059.txt (59B, from: agent-b, t59)\n- f060.txt (60B, from: agent-b, t60)\n- f061.txt (61B, from: agent-b, t61)\n- f062.txt (62B, from: agent-b, t62)\n- f063.txt (63B, from: agent-b, t63)\n- f064.txt (64B, from: agent-b, t64)\n- f065.txt (65B, from: agent-b, t65)\n- f066.txt (66B, from: agent-b, t66)\n- f067.txt (67B, from: agent-b, t67)\n- f068.txt (68B, from: agent-b, t68)\n- f069.txt (69B, from: agent-b, t69)\n- f070.txt (70B, from: agent-b, t70)\n- f071.txt (71B, from: agent-b, t71)\n- f072.txt (72B, from: agent-b, t72)\n- f073.txt (73B, from: agent-b, t73)\n- f074.txt (74B, from: agent-b, t74)\n- f075.txt (75B, from: agent-b, t75)\n- f076.txt (76B, from: agent-b, t76)\n- f077.txt (77B, from: agent-b, t77)\n- f078.txt (78B, from: agent-b, t78)\n- f079.txt (79B, from: agent-b, t79)\n- f080.txt (80B, from: agent-b, t80)\n- f081.txt (81B, from: agent-b, t81)\n- f082.txt (82B, from: agent-b, t82)\n- f083.txt (83B, from: agent-b, t83)\n- f084.txt (84B, from: agent-b, t84)\n- f085.txt (85B, from: agent-b, t85)\n- f086.txt (86B, from: agent-b, t86)\n- f087.txt (87B, from: agent-b, t87)\n- f088.txt (88B, from: agent-b, t88)\n- f089.txt (89B, from: agent-b, t89)\n- f090.txt (90B, from: agent-b, t90)\n- f091.txt (91B, from: agent-b, t91)\n- f092.txt (92B, from: agent-b, t92)\n- f093.txt (93B, from: agent-b, t93)\n- f094.txt (94B, from: agent-b, t94)\n- f095.txt (95B, from: agent-b, t95)\n- f096.txt (96B, from: agent-b, t96)\n- f097.txt (97B, from: agent-b, t97)\n- f098.txt (98B, from: agent-b, t98)\n- f099.txt (99B, from: agent-b, t99)\n- f100.txt (100B, from: agent-b, t100)\n- f101.txt (101B, from: agent-b, t101)\n- f102.txt (102B, from: agent-b, t102)\n- f103.txt (103B, from: agent-b, t103)\n- f104.txt (104B, from: agent-b, t104)\n- f105.txt (105B, from: agent-b, t105)\n- f106.txt (106B, from: agent-b, t106)\n- f107.txt (107B, from: agent-b, t107)\n- f108.txt (108B, from: agent-b, t108)\n- f109.txt (109B, from: agent-b, t109)\n- f110.txt (110B, from: agent-b, t110)\n- f111.txt (111B, from: agent-b, t111)\n- f112.txt (112B, from: agent-b, t112)\n- f113.txt (113B, from: agent-b, t113)\n- f114.txt (114B, from: agent-b, t114)\n- f115.txt (115B, from: agent-b, t115)\n- f116.txt (116B, from: agent-b, t116)\n- f117.txt (117B, from: agent-b, t117)\n- f118.txt (118B, from: agent-b, t118)\n- f119.txt (119B, from: agent-b, t119)\n- f120.txt (120B, from: agent-b, t120)\n- f121.txt (121B, from: agent-b, t121)\n- f122.txt (122B, from: agent-b, t122)\n- f123.txt (123B, from: agent-b, t123)\n- f124.txt (124B, from: agent-b, t124)\n- f125.txt (125B, from: agent-b, t125)\n- f126.txt (126B, from: agent-b, t126)\n- f127.txt (127B, from: agent-b, t127)\n- f128.txt (128B, from: agent-b, t128)\n- f129.txt (129B, from: agent-b, t129)\n- f130.txt (130B, from: agent-b, t130)\n- f131.txt (131B, from: agent-b, t131)\n- f132.txt (132B, from: agent-b, t132)\n- f133.txt (133B, from: agent-b, t133)\n- f134.txt (134B, from: agent-b, t134)\n- f135.txt (135B, from: agent-b, t135)\n- f136.txt (136B, from: agent-b, t136)\n- f137.txt (137B, from: agent-b, t137)\n- f138.txt (138B, from: agent-b, t138)\n- f139.txt (139B, from: agent-b, t139)\n- f140.txt (140B, from: agent-b, t140)\n- f141.txt (141B, from: agent-b, t141)\n- f142.txt (142B, from: agent-b, t142)\n- f143.txt (143B, from: agent-b, t143)\n- f144.txt (144B, from: agent-b, t144)\n- f145.txt (145B, from: agent-b, t145)\n- f146.txt (146B, from: agent-b, t146)\n- f147.txt (147B, from: agent-b, t147)\n- f148.txt (148B, from: agent-b, t148)\n- f149.txt (149B, from: agent-b, t149)\n- f150.txt (150B, from: agent-b, t150)\n- f151.txt (151B, from: agent-b, t151)\n- f152.txt (152B, from: agent-b, t152)\n- f153.txt (153B, from: agent-b, t153)\n- f154.txt (154B, from: agent-b, t154)\n- f155.txt (155B, from: agent-b, t155)\n- f156.txt (156B, from: agent-b, t156)\n- f157.txt (157B, from: agent-b, t157)\n- f158.txt (158B, from: agent-b, t158)\n- f159.txt (159B, from: agent-b, t159)\n- f160.txt (160B, from: agent-b, t160)\n- f161.txt (161B, from: agent-b, t161)\n- f162.txt (162B, from: agent-b, t162)\n- f163.txt (163B, from: agent-b, t163)\n- f164.txt (164B, from: agent-b, t164)\n- f165.txt (165B, from: agent-b, t165)\n- f166.txt (166B, from: agent-b, t166)\n- f167.txt (167B, from: agent-b, t167)\n- f168.txt (168B, from: agent-b, t168)\n- f169.txt (169B, from: agent-b, t169)\n- f170.txt (170B, from: agent-b, t170)\n- f171.txt (171B, from: agent-b, t171)\n- f172.txt (172B, from: agent-b, t172)\n- f173.txt (173B, from: agent-b, t173)\n- f174.txt (174B, from: agent-b, t174)\n- f175.txt (175B, from: agent-b, t175)\n- f176.txt (176B, from: agent-b, t176)\n- f177.txt (177B, from: agent-b, t177)\n- f178.txt (178B, from: agent-b, t178)\n- f179.txt (179B, from: agent-b, t179)\n- f180.txt (180B, from: agent-b, t180)\n- f181.txt (181B, from: agent-b, t181)\n- f182.txt (182B, from: agent-b, t182)\n- f183.txt (183B, from: agent-b, t183)\n- f184.txt (184B, from: agent-b, t184)\n- f185.txt (185B, from: agent-b, t185)\n- f186.txt (186B, from: agent-b, t186)\n- f187.txt (187B, from: agent-b, t187)\n- f188.txt (188B, from: agent-b, t188)\n- f189.txt (189B, from: agent-b, t189)\n- f190.txt (190B, from: agent-b, t190)\n- f191.txt (191B, from: agent-b, t191)\n- f192.txt (192B, from: agent-b, t192)\n- f193.txt (193B, from: agent-b, t193)\n- f194.txt (194B, from: agent-b, t194)\n- f195.txt (195B, from: agent-b, t195)\n- f196.txt (196B, from: agent-b, t196)\n- f197.txt (197B, from: agent-b, t197)\n- f198.txt (198B, from: agent-b, t198)\n- f199.txt (199B, from: agent-b, t199)\n\n(showing 200 of 205 matched; 205 shared in total) — narrow with query=/fromAgent= or raise limit=",
+    "isError": false
+  }
+]

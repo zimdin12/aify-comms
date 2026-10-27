@@ -12,7 +12,7 @@ from urllib.parse import quote
 from mcp.server.fastmcp import Context
 
 from service.sse.registration import register_tools
-from service.sse.api_client import api as _api
+from service.sse.api_client import call
 from service.sse.caller import caller_or_none
 
 
@@ -42,15 +42,17 @@ def personal_quota_line(agent_id: str, agent: dict) -> str:
 
 async def comms_usage(ctx: Context):
     """Remaining subscription quota per pool (Anthropic Claude, OpenAI ChatGPT-Codex) and which pool you draw on. Advisory: on a pool near 0%, hand work to a pool with headroom."""
-    pools = (await _api("GET", "/usage")).get("pools") or []
+    # `call` raises on a failed /usage: an outage is an error, never "warming up" (review of 69b02b6d).
+    pools = (await call("GET", "/usage")).get("pools") or []
     if not pools:
         return "No usage data yet (collector warming up)."
     mine = ""
     me = caller_or_none(ctx)
     if me:
-        info = await _api("GET", f"/agents/{quote(me, safe='')}")
-        if "detail" not in info:
-            mine = personal_quota_line(me, info.get("agent") or {})
+        try:
+            mine = personal_quota_line(me, (await call("GET", f"/agents/{quote(me, safe='')}")).get("agent") or {})
+        except Exception:  # noqa: BLE001 - best effort: the pool table is the answer
+            pass
     return "Quota pools (% remaining):\n" + "\n".join(_pool_line(p) for p in pools) + mine
 
 

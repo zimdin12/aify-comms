@@ -23,6 +23,7 @@ from service.sse.caller import caller_id
 from service.sse.registration import register_tools
 from service.sse.rendering import SAFETY_HEADER, tool_error
 from service.sse.send_tools import SAFE_NAME
+from service.sse.tool_format import js_number
 
 
 def _bad_name(name: str):
@@ -89,8 +90,7 @@ async def comms_channel_read(
     """Read recent messages from a channel."""
     if refusal := _bad_name(channel):
         return refusal
-    count = int(limit) if limit else 20
-    ch = await call("GET", f"{_path(channel)}?limit={count}")
+    ch = await call("GET", f"{_path(channel)}?limit={js_number(limit or 20)}")
     members = ch.get("members") or []
     messages = ch.get("messages") or []
     if not messages:

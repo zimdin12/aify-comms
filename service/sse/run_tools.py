@@ -1,120 +1,147 @@
-"""Watching and interrupting a dispatched run.
+"""Dispatched runs and who owes whom (port of `mcp/stdio/dispatch-tools.mjs`, service mode).
 
-Extracted from `mcp/sse_server.py` in v0.5.4. These two were not adjacent there — `comms_run_status`
-sat above the console pair and `comms_run_interrupt` below it — which is why they read as unrelated
-in the file and as one subject here: both answer questions about a RUN, not about the agent doing it.
+`comms_run_status` is all renderer: "reply expected" and "reply pending" are different states (nothing
+sent yet, against still owed), and events and controls show the last ten each, so an old event missing
+here is not missing from the run. Its subject is another agent's text and goes through the quoter (an
+agent once restarted itself on reading `Restart lc-coder` out of a summary, 2026-08-11).
 
-`comms_run_status` IS ALL RENDERER. Four of the run's fields decide one sentence about the reply —
-not required, sent, pending, or expected — and a caller waiting on a response acts on which of those
-it reads. "reply expected" and "reply pending" are different states of the world: one means nothing
-has been sent, the other that the run is still owed. It also truncates events and controls to the
-last ten each, which is fine as long as nothing reads the absence of an old event as its absence
-from the run.
-
-"Run not found" is deliberately distinct from an empty status: an unknown id and a run with nothing
-to report are not the same answer.
-
-THE SUBJECT LINE IS QUOTED, and was not until this move. It echoes text another agent wrote, on a
-bare line, in a reply that carries no safety header — the exact rendering an operator reported in
-2026-08-11 when an agent read `Restart lc-coder` out of a summary and restarted itself. The fix has
-existed since v0.5.1 and this call site never got it, because the gate enforcing it scanned
-`service/**` and this code lived under `mcp/`. Moving it into the package is what surfaced it: the
-defect did not arrive with the move, it became VISIBLE with it. Everything else here is byte-
-identical to what stood in the transport.
-
-Patch `_api` HERE, not on the transport: these resolve it from this module.
+The interrupts act as the CALLER, from the request's header. `comms_contracts` filters by sender with
+`fromAgent`, as `comms_inbox` and `comms_files` do.
 """
 
 from __future__ import annotations
 
+import math
+from typing import Literal
+from urllib.parse import quote, urlencode
+
+from mcp.server.fastmcp import Context
+from pydantic import Field
+
 from service.api_core.serialization import _quote_untrusted_subject
-from service.sse.rendering import fence as _fence
+from service.sse.api_client import call
+from service.sse.caller import caller_id
 from service.sse.registration import register_tools
-from service.sse.api_client import api as _api
+from service.sse.rendering import fence, tool_error
+from service.sse.tool_format import js_number
+
+ContractState = Literal["open", "overdue", "working", "queued", "seen", "sent", "missing_reply", "failed", "answered", "closed"]
 
 
-async def comms_run_status(runId: str) -> str:
-    """Inspect a dispatched run, including recent events and control requests."""
-    r = await _api("GET", f"/dispatch/runs/{runId}")
-    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
-    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
-    # one did not, so a 500 rendered as a confident fact about the fleet.
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    run = r.get("run")
-    if not run:
-        return f"Run not found: {runId}"
+def _reply_summary(run: dict) -> str:
     if not run.get("requireReply"):
-        reply_summary = "reply not required"
-    elif run.get("resultMessageId"):
-        reply_summary = f"reply sent ({run['resultMessageId']})"
-    elif run.get("replyPending"):
-        reply_summary = "reply pending"
-    else:
-        reply_summary = "reply expected"
-    lines = [
-        f"{run['id']} -> {run['targetAgentId']}",
-        f"Status: {run['status']}",
-        f"Reply: {reply_summary}",
-        f"Runtime: {run.get('runtime') or 'unknown'}",
-        f"Subject: {_quote_untrusted_subject(run.get('subject', ''))}",
-        f"Requested: {run.get('requestedAt', '')}",
-    ]
-    # FENCED, like the inbox fences a message body. A run's summary and error are written by the
-    # TARGET's runtime — free text from another agent — and this renders them into the reader's
-    # context. Bare, a summary that happens to contain an instruction reads as one, which is the
-    # operator-reported incident this transport already quotes subjects for. Reported by an external
-    # reviewer 2026-08-18 as "run_tools renders summary/body unfenced".
-    if run.get("summary"):
-        lines.extend(["", "Summary:", _fence(run["summary"])])
-    if run.get("error"):
-        lines.extend(["", "Error:", _fence(run["error"])])
-    events = run.get("events", [])[-10:]
-    if events:
-        lines.append("")
-        lines.append("Recent events:")
-        # Event bodies stay INLINE — they belong to a bulleted list and a fence would break it — but
-        # they are clipped to one line each. A multi-line body silently destroyed the list structure,
-        # and an unbounded one turned a status check into a wall of somebody else's output.
-        lines.extend([
-            f"- {event['createdAt']} [{event['type']}] {_one_line(event.get('body', ''), 200)}"
-            for event in events
-        ])
-    controls = run.get("controls", [])[-10:]
-    if controls:
-        lines.append("")
-        lines.append("Recent controls:")
-        lines.extend([
-            f"- {control['requestedAt']} [{control['action']}/{control['status']}] {control.get('from') or 'unknown'}"
-            + (f" -> {control['response']}" if control.get("response") else "")
-            for control in controls
-        ])
-    return "\n".join(lines)
+        return "reply not required"
+    if run.get("resultMessageId"):
+        return f"reply sent ({run['resultMessageId']})"
+    return "reply pending" if run.get("replyPending") else "reply expected"
 
 
-async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
-    """Request interruption of an active dispatched run."""
-    r = await _api("POST", f"/dispatch/runs/{runId}/control", {
-        "from_agent": from_agent,
-        "action": "interrupt",
-    })
-    if not r.get("ok"):
-        return r.get("detail", "Interrupt request failed.")
-    return f"Interrupt requested for {runId}. Control ID: {r['controlId']}"
-
-
-#: Registered in the order they were declared in the transport. Named explicitly rather than swept
-#: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
-#: agent-callable tool by accident.
-TOOLS = (comms_run_status, comms_run_interrupt)
-
-
-def _one_line(text: str, limit: int) -> str:
-    """Foreign text folded onto a single clipped line, for the bulleted lists below."""
+def _one_line(text, limit: int) -> str:
+    """Foreign text folded onto a single clipped line, for a bulleted list."""
     flat = " ".join(str(text or "").split())
     return flat if len(flat) <= limit else flat[: max(limit - 1, 0)].rstrip() + "…"
 
 
+def _js_round(value: float) -> float:
+    """JS Math.round: halves go up, not to even."""
+    return math.floor(value + 0.5)
+
+
+def _age(minutes) -> str:
+    try:
+        age = float(minutes or 0)
+    except (TypeError, ValueError):
+        return "?"
+    if not math.isfinite(age):
+        return "?"
+    return f"{js_number(_js_round(age / 6) / 10)}h" if age >= 60 else f"{js_number(_js_round(age))}m"
+
+
+def _contract_line(c: dict) -> str:
+    state = str(c.get("state") or "sent").replace("_", " ").upper()
+    reminders = f", reminders={c['reminderCount']}" if c.get("reminderCount") else ""
+    answer = f"\n  answer: {str(c['resultPreview'])[:180]}" if c.get("resultPreview") else ""
+    return (f"- {state} {c.get('from') or '?'} -> {c.get('targetAgentId') or '?'} ({_age(c.get('ageMinutes'))}{reminders}) "
+            f"{c.get('subject') or c.get('id') or '(no subject)'}{answer}")
+
+
+async def comms_run_status(runId: str = Field(description="Dispatch run ID")):
+    """Inspect a dispatched run: its status, recent events, and any control requests against it."""
+    run = (await call("GET", f"/dispatch/runs/{quote(runId, safe='')}"))["run"]
+    # The summary, error and event bodies are the TARGET runtime's text: fenced, and folded onto one line.
+    events = [f"- {e.get('createdAt')} [{e.get('type')}] {_one_line(e.get('body'), 200)}" for e in (run.get("events") or [])[-10:]]
+    controls = [f"- {c.get('requestedAt')} [{c.get('action')}/{c.get('status')}] {c.get('from') or 'unknown'}"
+                + (f" -> {c['response']}" if c.get("response") else "") for c in (run.get("controls") or [])[-10:]]
+    blocked = run.get("blockedByActiveRun") or {}
+    lines = [
+        f"{run.get('id')} -> {run.get('targetAgentId')}",
+        f"Status: {run.get('status')}",
+        f"Reply: {_reply_summary(run)}",
+        f"Runtime: {run.get('runtime') or 'unknown'}",
+        f"Subject: {_quote_untrusted_subject(run.get('subject'), 240)}",
+        f"Requested: {run.get('requestedAt')}",
+    ]
+    lines += [f"Started: {run['startedAt']}"] if run.get("startedAt") else []
+    lines += [f"Finished: {run['finishedAt']}"] if run.get("finishedAt") else []
+    if blocked.get("runId"):
+        subject = f" ({_quote_untrusted_subject(blocked['subject'], 120)})" if blocked.get("subject") else ""
+        lines.append(f"Blocked by active run: {blocked['runId']}{subject}")
+    lines += [f"Thread: {run['externalThreadId']}"] if run.get("externalThreadId") else []
+    lines += [f"Turn: {run['externalTurnId']}"] if run.get("externalTurnId") else []
+    text = "\n".join(lines) + "\n"
+    text += f"\nSummary:\n{fence(run['summary'])}\n" if run.get("summary") else ""
+    text += f"\nError:\n{fence(run['error'])}\n" if run.get("error") else ""
+    text += f"\nRecent events:\n" + "\n".join(events) if events else ""
+    text += f"\nRecent controls:\n" + "\n".join(controls) if controls else ""
+    return text
+
+
+async def comms_contracts(
+    agentId: str | None = Field(default=None, description="Contracts this agent owes"),
+    fromAgent: str | None = Field(default=None, description="Contracts owed to this sender"),
+    state: ContractState | None = Field(default=None, description="Filter by computed contract state. Defaults to open."),
+    category: Literal["direct", "channel", "self_wake"] | None = Field(default=None, description="Defaults to direct."),
+    includeClosed: bool | None = Field(default=None, description="Include answered/closed recent contracts. Default false."),
+    limit: int | None = Field(default=None, ge=1, le=200, description="Max contracts to return. Default 25."),
+):
+    """Who owes whom a reply or work, derived from messages and runs: what is open, what is overdue, and whether unread counts are real work."""
+    params = {k: v for k, v in (("agentId", agentId), ("fromAgent", fromAgent)) if v}
+    params.update(state=state or "open", category=category or "direct")
+    if includeClosed:
+        params["includeClosed"] = "true"
+    params["limit"] = str(limit or 25)
+    r = await call("GET", f"/contracts?{urlencode(params)}")
+    contracts, s = r.get("contracts") or [], r.get("summary") or {}
+    header = (f"Contracts: {s.get('total') or len(contracts)}; open={s.get('open') or 0}; overdue={s.get('overdue') or 0}; "
+              f"working={s.get('working') or 0}; queued={s.get('queued') or 0}; missingReply={s.get('missingReply') or 0}; "
+              f"answered={s.get('answered') or 0}")
+    return f"{header}\n" + ("\n".join(_contract_line(c) for c in contracts) if contracts else "No matching contracts.")
+
+
+async def comms_run_interrupt(ctx: Context, runId: str = Field(description="Dispatch run ID")):
+    """Interrupt an active dispatched RUN, or cancel one still queued. No dispatched run? Use comms_interrupt."""
+    try:
+        r = await call("POST", f"/dispatch/runs/{quote(runId, safe='')}/control", {"from_agent": caller_id(ctx), "action": "interrupt"})
+    except Exception as error:  # noqa: BLE001 - worded as the JS tool words it
+        return tool_error(str(error))
+    if r.get("status") == "cancelled":
+        return f"{runId} was still queued, so it was cancelled before delivery."
+    return f"Interrupt requested for {runId}. Control ID: {r.get('controlId')}"
+
+
+async def comms_interrupt(ctx: Context, agentId: str = Field(description="Target agent ID")):
+    """Send Ctrl+C to a managed agent's console. It also stops turns typed directly into the TUI. For a dispatched run use comms_run_interrupt, which is tracked."""
+    try:
+        r = await call("POST", f"/agents/{quote(agentId, safe='')}/console/input", {"text": "\u0003", "enter": False, "from": caller_id(ctx)})
+    except Exception as error:  # noqa: BLE001
+        return tool_error(str(error))
+    if not r.get("ok"):
+        return tool_error(r.get("message") or f"Could not interrupt {agentId}.")
+    return f"Interrupted {agentId} through its live console (terminal {r.get('terminalId')}, control {r.get('controlId')})."
+
+
+TOOLS = (comms_run_status, comms_contracts, comms_run_interrupt, comms_interrupt)
+
+
 def register(mcp_server) -> None:
-    """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
     register_tools(mcp_server, TOOLS)

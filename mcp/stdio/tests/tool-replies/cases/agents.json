@@ -64,5 +64,27 @@
     ],
     "text": "No agents registered.",
     "isError": false
+  },
+  {
+    "name": "the fleet listing fails",
+    "tool": "comms_agents",
+    "args": {},
+    "routes": {
+      "GET /agents": {
+        "status": 409,
+        "body": {
+          "detail": "database is locked"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "HTTP 409: {\"detail\":\"database is locked\"}",
+    "isError": true
   }
 ]

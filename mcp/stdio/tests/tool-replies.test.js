@@ -7,7 +7,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { jsToolClient, loadCases, runCase, startService } from "./tool-replies/replay.mjs";
+import { readFileSync } from "node:fs";
+
+import { SCHEMAS_FILE, jsToolClient, loadCases, runCase, startService, toolSchemas } from "./tool-replies/replay.mjs";
 
 const cases = loadCases();
 const service = await startService();
@@ -24,6 +26,10 @@ for (const testCase of cases) {
     assert.deepEqual(actual, { requests: testCase.requests, text: testCase.text, isError: testCase.isError });
   });
 }
+
+test("the JS tools' public schemas are still the recorded ones", async () => {
+  assert.deepEqual(await toolSchemas(client), JSON.parse(readFileSync(SCHEMAS_FILE, "utf8")));
+});
 
 test.after(async () => {
   await client.close();
