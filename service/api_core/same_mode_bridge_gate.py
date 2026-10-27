@@ -112,11 +112,8 @@ async def _enforce_same_mode_bridge_gate(
     transaction, per the DB-leaf rule in this module's docstring.
     """
     if row and bridge_id and not bool(getattr(req, "force", False)):
-        # ONE WRITE LOCK FROM THIS READ TO THE ROUTE'S COMMIT (0.9.11, review of 9f6e1a90). Requests on one worker
-        # still interleave at every await, so a check made outside it could pass, pause while a successor
-        # commits, and then write over the successor. Held here, a successor's registration waits for this one.
-        if not db.in_transaction:
-            await db.execute("BEGIN IMMEDIATE")
+        # Runs inside the registration route's write lock (routers/agents/registration.py), taken before its
+        # first read, so this check and the writes after it see what a concurrent registration committed.
         settings_for_guard = await _load_settings(db)
         conflict = await _fresh_same_mode_bridge_conflict(
             db,

@@ -13,11 +13,13 @@ import sqlite3
 import httpx
 
 from service.api_core import same_mode_bridge_gate
+from service.routers.agents import registration
 
 from service.tests._base import FastApiTestCase
 
 AGENT = "relaunched"
 HANDLE = "11111111-2222-4333-8444-555555555555"
+FIRST_HANDLE = "22222222-3333-4444-8555-666666666666"
 OLD, NEW = "owner-old", "owner-new"
 STARTED = {OLD: "2026-10-27T05:00:00.000Z", NEW: "2026-10-27T05:00:05.000Z", "owner-held": "2026-10-27T05:00:06.000Z",
            "owner-successor": "2026-10-27T05:00:07.000Z", "owner-newest": "2026-10-27T05:00:09.000Z"}
@@ -25,10 +27,10 @@ DELIVERY = f"channel-linux:test-host-{AGENT}"
 
 
 class ARetiredChannelOwnerStaysRetired(FastApiTestCase):
-    def _body(self, owner):
+    def _body(self, owner, agent=AGENT, handle=HANDLE):
         return {
-            "agentId": AGENT, "role": "coder", "runtime": "claude-code", "sessionMode": "resident", "machineId": "linux:test-host",
-            "bridgeId": owner, "sessionHandle": HANDLE, "runtimeConfig": {"channelEnabled": True}, "autoRegister": True,
+            "agentId": agent, "role": "coder", "runtime": "claude-code", "sessionMode": "resident", "machineId": "linux:test-host",
+            "bridgeId": owner, "sessionHandle": handle, "runtimeConfig": {"channelEnabled": True}, "autoRegister": True,
             "bridgeStartedAt": STARTED[owner],
         }
 
@@ -39,15 +41,15 @@ class ARetiredChannelOwnerStaysRetired(FastApiTestCase):
         res = self._post(owner)
         self.assertEqual(res.status_code, 200, res.text)
 
-    def _state(self):
+    def _state(self, agent=AGENT):
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
         try:
-            agent = conn.execute("SELECT runtime_state, status FROM agents WHERE id = ?", (AGENT,)).fetchone()
-            rows = {r["id"]: r["superseded_by"] for r in conn.execute("SELECT id, superseded_by FROM bridge_instances WHERE agent_id = ?", (AGENT,))}
+            row = conn.execute("SELECT runtime_state, status FROM agents WHERE id = ?", (agent,)).fetchone()
+            rows = {r["id"]: r["superseded_by"] for r in conn.execute("SELECT id, superseded_by FROM bridge_instances WHERE agent_id = ?", (agent,))}
         finally:
             conn.close()
-        return json.loads(agent["runtime_state"] or "{}").get("bridgeInstanceId"), rows
+        return json.loads(row["runtime_state"] or "{}").get("bridgeInstanceId"), rows
 
     def setUp(self):
         super().setUp()
@@ -120,6 +122,35 @@ class ARetiredChannelOwnerStaysRetired(FastApiTestCase):
         owner, rows = self._state()
         self.assertEqual(owner, "owner-successor", "the held older registration overwrote its successor")
         self.assertFalse(rows.get("owner-successor"), "the successor was superseded")
+
+    def test_two_first_registrations_overlapping_leave_the_newer_owner(self):
+        """No agent yet: the older one reads "no agent", is held, the newer one registers, the older one resumes."""
+        agent, held, release = "first-seen", "owner-held", asyncio.Event()
+        original = registration._enforce_driving_mode_switch_gate
+
+        async def read_then_hold(req, row, *rest):
+            if req.bridgeId == held:
+                await release.wait()
+            return await original(req, row, *rest)
+
+        async def interleave():
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self._app), base_url="http://test") as client:
+                older = asyncio.create_task(client.post("/api/v1/agents", json=self._body(held, agent, FIRST_HANDLE)))
+                await asyncio.sleep(0.3)
+                newer = asyncio.create_task(client.post("/api/v1/agents", json=self._body("owner-successor", agent, FIRST_HANDLE)))
+                await asyncio.sleep(0.3)
+                release.set()
+                return await older, await newer
+
+        registration._enforce_driving_mode_switch_gate = read_then_hold
+        try:
+            older, newer = asyncio.run(interleave())
+        finally:
+            registration._enforce_driving_mode_switch_gate = original
+        self.assertEqual((older.status_code, newer.status_code), (200, 200), (older.text, newer.text))
+        owner, rows = self._state(agent)
+        self.assertEqual(owner, "owner-successor", "the held first registration overwrote the newer one")
+        self.assertFalse(rows.get("owner-successor"), "the newer registration was superseded")
 
     def test_control_a_newer_process_of_the_session_still_takes_over(self):
         self._register("owner-newest")

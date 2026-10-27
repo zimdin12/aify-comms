@@ -169,6 +169,11 @@ async def _register_agent(req: AgentRegister, request: Request):
             runtime_config=runtime_config,
         )
         now = _now()
+        # ONE WRITE LOCK FROM THE FIRST READ TO THE COMMIT (0.9.11, reviews of 9f6e1a90 and e1dfe132). Requests on one
+        # worker interleave at every await: a registration that read "no agent yet" or "no newer owner" outside it
+        # could pause while a successor committed, then write over the successor. Under it a concurrent registration
+        # waits, so every read below is authoritative. Each path commits, or the closed connection rolls back.
+        await db.execute("BEGIN IMMEDIATE")
         tombstone = await _agent_tombstone(db, req.agentId)
         await _enforce_tombstone_registration_gate(req, tombstone)
         await _enforce_tombstone_resurrection_gate(db, req, tombstone)
