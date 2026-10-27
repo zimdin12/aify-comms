@@ -11,10 +11,6 @@
 // shapes of "forget" belong in one place, where a future edit that adds a fourth Map has an obvious
 // question to answer: does it join the reset?
 //
-// `LOCAL_RUNTIME_STATE` deliberately did NOT come along, though it is also a per-agent `Map` declared two
-// lines from these. It is local-mode auto-start state, it has one writer, and it is NOT part of either
-// reset. Type is not subject; the reset set is.
-//
 // A STATE OWNER, NOT A SERVICE LAYER. Around thirty functions read these Maps and every one of them
 // stayed where it was. This module exports the state and the invariant operation over it, and nothing
 // else — adding the readers would recreate the monolith at a new address.

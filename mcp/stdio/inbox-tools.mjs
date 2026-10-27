@@ -23,11 +23,8 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import fs from "fs";
-import path from "path";
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
-import { MESSAGES_DIR, markAsRead, readAgents, readInbox, writeAgents } from "./local-store.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
 import { SAFETY_HEADER, formatInboxHeaders, formatInboxMessage } from "./tool-response-format.mjs";
 
@@ -66,56 +63,23 @@ export function registerInboxTools(server, z) {
       const msgFilter = filter || "unread";
       const inboxMode = mode || "full";
 
-      if (IS_REMOTE) {
-        const params = new URLSearchParams({ filter: msgFilter, limit: String(maxN), mode: inboxMode });
-        if (fromAgent) params.set("fromAgent", fromAgent);
-        if (fromRole) params.set("fromRole", fromRole);
-        if (type) params.set("type", type);
-        if (messageId) params.set("messageId", messageId);
-        // SET ONLY WHEN TRUE. The route gates on `bool(peek)` over a STRING, so any non-empty
-        // value counts and `peek=false` would read as peek. Omitting is the only way to say no.
-        if (peek) params.set("peek", "1");
-        const r = await httpCall("GET", `/messages/inbox/${agentId}?${params}`);
-        if (!r.messages.length) {
-          return { content: [{ type: "text", text: messageId ? `Message ${messageId} not found in inbox.` : "Inbox empty." }] };
-        }
-        const formatter = inboxMode === "headers" ? formatInboxHeaders : formatInboxMessage;
-        const lines = r.messages.map((m) => formatter(m, null));
-        const trunc = r.total > r.showing ? `\n\n(Showing ${r.showing} of ${r.total}, newest first. Use limit param for more.)` : "";
-        return {
-          content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s):\n\n${lines.join("\n\n")}${trunc}` }],
-        };
-      }
-
-      const registry = readAgents();
-      if (registry.agents[agentId]) {
-        registry.agents[agentId].lastSeen = new Date().toISOString();
-        writeAgents(registry);
-      }
-
-      let messages = readInbox(agentId, messageId ? "all" : msgFilter);
-      if (fromAgent) messages = messages.filter((m) => m.from === fromAgent);
-      if (fromRole) {
-        messages = messages.filter((m) => {
-          const s = registry.agents[m.from];
-          return s && s.role === fromRole;
-        });
-      }
-      if (type) messages = messages.filter((m) => m.type === type);
-      if (messageId) messages = messages.filter((m) => m.id === messageId);
-
-      const total = messages.length;
-      if (total === 0) {
+      const params = new URLSearchParams({ filter: msgFilter, limit: String(maxN), mode: inboxMode });
+      if (fromAgent) params.set("fromAgent", fromAgent);
+      if (fromRole) params.set("fromRole", fromRole);
+      if (type) params.set("type", type);
+      if (messageId) params.set("messageId", messageId);
+      // SET ONLY WHEN TRUE. The route gates on `bool(peek)` over a STRING, so any non-empty
+      // value counts and `peek=false` would read as peek. Omitting is the only way to say no.
+      if (peek) params.set("peek", "1");
+      const r = await httpCall("GET", `/messages/inbox/${agentId}?${params}`);
+      if (!r.messages.length) {
         return { content: [{ type: "text", text: messageId ? `Message ${messageId} not found in inbox.` : "Inbox empty." }] };
       }
-
-      const shown = messages.slice(0, messageId ? 1 : maxN);
-      if (!peek) markAsRead(agentId, shown);
-
-      const formatted = shown.map((m) => (inboxMode === "headers" ? formatInboxHeaders(m, registry) : formatInboxMessage(m, registry)));
-      const truncNote = !messageId && total > maxN ? `\n\n(Showing ${maxN} of ${total}. Use limit param for more.)` : "";
+      const formatter = inboxMode === "headers" ? formatInboxHeaders : formatInboxMessage;
+      const lines = r.messages.map((m) => formatter(m, null));
+      const trunc = r.total > r.showing ? `\n\n(Showing ${r.showing} of ${r.total}, newest first. Use limit param for more.)` : "";
       return {
-        content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${total} message(s):\n\n${formatted.join("\n\n")}${truncNote}` }],
+        content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s):\n\n${lines.join("\n\n")}${trunc}` }],
       };
     }
   );
@@ -132,47 +96,18 @@ export function registerInboxTools(server, z) {
       from: z.string().describe("Your agent ID; must be the sender"),
     },
     async ({ messageId, from }) => {
-      if (IS_REMOTE) {
-        try {
-          // H4 (2026-08-18): the service now REQUIRES an actor and refuses a mismatch. It used to
-          // delete any message by id with no ownership check at all, which this tool exposed to
-          // every agent.
-          const r = await httpCall(
-            "DELETE",
-            `/messages/${encodeURIComponent(messageId)}?requestedBy=${encodeURIComponent(from || "")}`,
-          );
-          return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
-        } catch (e) {
-          return { content: [{ type: "text", text: `Failed to delete: ${e.message}` }], isError: true };
-        }
-      }
-      // Local mode. The id is matched EXACTLY against the stored message and the sender must be the
-      // caller: this matched a two-segment filename prefix in ANY inbox until 0.7.0, so an agent could
-      // delete another agent's message (v0.7 scan B18). A message sent to several recipients has one
-      // copy per inbox, and unsending takes back every copy.
-      const inbox = path.join(MESSAGES_DIR, "inbox");
-      let deleted = 0;
-      let notYours = 0;
       try {
-        for (const agentDir of fs.readdirSync(inbox)) {
-          const dir = path.join(inbox, agentDir);
-          if (!fs.statSync(dir).isDirectory()) continue;
-          for (const f of fs.readdirSync(dir)) {
-            if (!f.endsWith(".json")) continue;
-            let stored;
-            try { stored = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8")); } catch { continue; }
-            if (stored?.id !== messageId) continue;
-            if (stored.from !== from) { notYours += 1; continue; }
-            fs.unlinkSync(path.join(dir, f));
-            deleted += 1;
-          }
-        }
-      } catch { /* best effort */ }
-      if (deleted) return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
-      if (notYours) {
-        return { content: [{ type: "text", text: `Message ${messageId} was not sent by ${from}; only its sender may unsend it.` }], isError: true };
+        // H4 (2026-08-18): the service now REQUIRES an actor and refuses a mismatch. It used to
+        // delete any message by id with no ownership check at all, which this tool exposed to
+        // every agent.
+        const r = await httpCall(
+          "DELETE",
+          `/messages/${encodeURIComponent(messageId)}?requestedBy=${encodeURIComponent(from || "")}`,
+        );
+        return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Failed to delete: ${e.message}` }], isError: true };
       }
-      return { content: [{ type: "text", text: `Message ${messageId} not found.` }], isError: true };
     }
   );
 }

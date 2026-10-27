@@ -18,10 +18,9 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { boundAgentId, envAgentId } from "./bound-agent-id.mjs";
 import { runtimeSummary, wakeModeSummary } from "./agent-summary.mjs";
-import { readAgents, readInbox } from "./local-store.mjs";
 import { formatDispatchState, formatOutboundActivity } from "./tool-response-format.mjs";
 import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
@@ -46,30 +45,16 @@ export function registerAgentReportingTools(server, z) {
         const preview = desc.length > 160 ? `${desc.slice(0, 159)}…` : desc;
         return `\n    ${preview}`;
       };
-      if (IS_REMOTE) {
-        const r = await httpCall("GET", "/agents");
-        const entries = Object.entries(r.agents || {});
-        if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
-        // The id is the address (`to=` in comms_send), and the caller's own row says so: sending to
-        // yourself by accident, or hunting for your own id, are both avoidable (v0.7, H-A7).
-        const self = boundAgentId({ fallback: envAgentId() });
-        const lines = entries.map(([id, info]) => {
-          const status = info.status ? ` [${info.status}]` : "";
-          const you = id === self ? " (you)" : "";
-          return `- ${id}${you} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}${describeLine(info)}`;
-        });
-        return { content: [{ type: "text", text: `Address an agent by the id at the start of its line.\n${lines.join("\n")}` }] };
-      }
-
-      const registry = readAgents();
-      const entries = Object.entries(registry.agents);
+      const r = await httpCall("GET", "/agents");
+      const entries = Object.entries(r.agents || {});
       if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
+      // The id is the address (`to=` in comms_send), and the caller's own row says so: sending to
+      // yourself by accident, or hunting for your own id, are both avoidable (v0.7, H-A7).
       const self = boundAgentId({ fallback: envAgentId() });
       const lines = entries.map(([id, info]) => {
-        const unread = readInbox(id, "unread").length;
         const status = info.status ? ` [${info.status}]` : "";
         const you = id === self ? " (you)" : "";
-        return `- ${id}${you} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${unread} | last seen: ${info.lastSeen}${describeLine(info)}`;
+        return `- ${id}${you} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}${describeLine(info)}`;
       });
       return { content: [{ type: "text", text: `Address an agent by the id at the start of its line.\n${lines.join("\n")}` }] };
     }
@@ -86,53 +71,38 @@ export function registerAgentReportingTools(server, z) {
       agentId: z.string().describe("Agent ID to check"),
     },
     async ({ agentId }) => {
-      if (IS_REMOTE) {
+      try {
+        const agents = await httpCall("GET", "/agents");
+        const info = agents.agents?.[agentId];
+        if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
+
+        let lastRead = "unknown";
         try {
-          const agents = await httpCall("GET", "/agents");
-          const info = agents.agents?.[agentId];
-          if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
+          const lr = await httpCall("GET", `/agents/${agentId}/last-read`);
+          if (lr.lastRead) {
+            lastRead = `${quoteUntrustedSubject(lr.lastRead.subject)} from ${lr.lastRead.from} (read at ${lr.lastRead.readAt})`;
+          } else {
+            lastRead = "no messages read yet";
+          }
+        } catch { /* best effort */ }
 
-          let lastRead = "unknown";
-          try {
-            const lr = await httpCall("GET", `/agents/${agentId}/last-read`);
-            if (lr.lastRead) {
-              lastRead = `${quoteUntrustedSubject(lr.lastRead.subject)} from ${lr.lastRead.from} (read at ${lr.lastRead.readAt})`;
-            } else {
-              lastRead = "no messages read yet";
-            }
-          } catch { /* best effort */ }
-
-          return { content: [{ type: "text", text:
-            `${agentId} (${info.role}) [${info.status}]\n` +
-            `  Runtime: ${runtimeSummary(info)}\n` +
-            `  Wake mode: ${wakeModeSummary(info)}\n` +
-            // INBOUND facts, labelled as such. Every one of these was individually true during the
-            // 2026-08-10 outage while a reply sat undelivered, and a manager read them as evidence
-            // the lane was dead — three times. "Unread: 0" is about what this agent has not READ.
-            `  Unread (inbound): ${info.unread}\n` +
-            `  Last seen (registration liveness, not output): ${info.lastSeen}\n` +
-            `  Last read (inbound): ${lastRead}\n` +
-            // OUTBOUND — the question everyone was actually asking, and the one nothing answered.
-            `  ${formatOutboundActivity(info)}` +
-            (formatDispatchState(info) ? `\n${formatDispatchState(info)}` : "")
-          }] };
-        } catch (e) {
-          return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
-        }
+        return { content: [{ type: "text", text:
+          `${agentId} (${info.role}) [${info.status}]\n` +
+          `  Runtime: ${runtimeSummary(info)}\n` +
+          `  Wake mode: ${wakeModeSummary(info)}\n` +
+          // INBOUND facts, labelled as such. Every one of these was individually true during the
+          // 2026-08-10 outage while a reply sat undelivered, and a manager read them as evidence
+          // the lane was dead — three times. "Unread: 0" is about what this agent has not READ.
+          `  Unread (inbound): ${info.unread}\n` +
+          `  Last seen (registration liveness, not output): ${info.lastSeen}\n` +
+          `  Last read (inbound): ${lastRead}\n` +
+          // OUTBOUND — the question everyone was actually asking, and the one nothing answered.
+          `  ${formatOutboundActivity(info)}` +
+          (formatDispatchState(info) ? `\n${formatDispatchState(info)}` : "")
+        }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
       }
-
-      // Local mode
-      const registry = readAgents();
-      const info = registry.agents[agentId];
-      if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
-      const unread = readInbox(agentId, "unread").length;
-      return { content: [{ type: "text", text:
-        `${agentId} (${info.role}) [${info.status || "idle"}]\n` +
-        `  Runtime: ${runtimeSummary(info)}\n` +
-        `  Wake mode: ${wakeModeSummary(info)}\n` +
-        `  Unread: ${unread}\n` +
-        `  Last seen: ${info.lastSeen}`
-      }] };
     }
   );
 }

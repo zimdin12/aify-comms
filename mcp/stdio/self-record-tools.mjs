@@ -17,8 +17,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
-import { readAgents, writeAgents } from "./local-store.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
 
 // Registers the two self-record tools on an MCP server. A function rather than a module-scope side effect,
@@ -48,19 +47,8 @@ export function registerSelfRecordTools(server, z) {
     async ({ agentId, status, note }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
-      if (IS_REMOTE) {
-        const r = await httpCall("PATCH", `/agents/${agentId}`, { status, note });
-        return { content: [{ type: "text", text: `Status updated: ${r.agentId} → ${r.status}` }] };
-      }
-
-      const registry = readAgents();
-      if (!registry.agents[agentId]) {
-        return { content: [{ type: "text", text: `Agent "${agentId}" not found. Register first.` }], isError: true };
-      }
-      registry.agents[agentId].status = note ? `${status}: ${note}` : status;
-      registry.agents[agentId].lastSeen = new Date().toISOString();
-      writeAgents(registry);
-      return { content: [{ type: "text", text: `Status updated: ${agentId} → ${registry.agents[agentId].status}` }] };
+      const r = await httpCall("PATCH", `/agents/${agentId}`, { status, note });
+      return { content: [{ type: "text", text: `Status updated: ${r.agentId} → ${r.status}` }] };
     }
   );
 
@@ -78,9 +66,6 @@ export function registerSelfRecordTools(server, z) {
     async ({ agentId, description }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "comms_describe currently requires remote server mode." }], isError: true };
-      }
 
       try {
         const r = await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/description`, { description });

@@ -32,10 +32,8 @@
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
 import { mayClaimEnvironmentOwnership } from "./environment-ownership-claim.mjs";
-import fs from "fs";
-import path from "path";
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { writeAgentBindingFile } from "./binding-file.js";
 import { ACTIVE_RUNS, REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
@@ -43,7 +41,6 @@ import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
 import { AIFY_AGENT_ID, IS_MANAGED_DISPATCH } from "./launch-identity.mjs";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
-import { INBOX_DIR, readAgents, writeAgents } from "./local-store.mjs";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { residentIdentityWarning } from "./register-identity.js";
 import {
@@ -221,144 +218,100 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
       // captured before it had an identity to this agent. A no-op when one is already keyed.
       if (agentId) claimCapturedClaudeSession(agentId);
 
-      if (IS_REMOTE) {
-        const r = await httpCall("POST", "/agents", agentData);
-        let runtimeState = {};
+      const r = await httpCall("POST", "/agents", agentData);
+      let runtimeState = {};
+      try {
+        const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
+        runtimeState = agentInfo.agent?.runtimeState || {};
+      } catch {
+        // best effort
+      }
+      // WHOSE ANSWER THIS IS. Same rule as the auto-registration path: the field names the bridge
+      // that OWNS this agent, and a managed agent is owned by the environment bridge hosting its
+      // delivery loop, not by the sidecar registering it. See environment-ownership-claim.mjs for
+      // what two writers of this one field cost.
+      // NO `isEnvironmentBridge` ARGUMENT HERE, deliberately. This is the `comms_register` tool, run
+      // by an agent's own session; the environment bridge does not register itself through it, and
+      // `auto-registration.mjs` returns early for that process anyway. Passing the flag would add a
+      // NEW import of the environment-bridge marker, and a gate in this suite refuses that on the
+      // grounds that Phase 8 is retiring the command -- correctly, since a coupling site added
+      // today is one more to remove later.
+      if (mayClaimEnvironmentOwnership({ sessionMode: agentData.sessionMode }).claim) {
+        runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
         try {
-          const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-          runtimeState = agentInfo.agent?.runtimeState || {};
+          await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
+            runtimeState,
+          });
         } catch {
           // best effort
         }
-        // WHOSE ANSWER THIS IS. Same rule as the auto-registration path: the field names the bridge
-        // that OWNS this agent, and a managed agent is owned by the environment bridge hosting its
-        // delivery loop, not by the sidecar registering it. See environment-ownership-claim.mjs for
-        // what two writers of this one field cost.
-        // NO `isEnvironmentBridge` ARGUMENT HERE, deliberately. This is the `comms_register` tool, run
-        // by an agent's own session; the environment bridge does not register itself through it, and
-        // `auto-registration.mjs` returns early for that process anyway. Passing the flag would add a
-        // NEW import of the environment-bridge marker, and a gate in this suite refuses that on the
-        // grounds that Phase 8 is retiring the command -- correctly, since a coupling site added
-        // today is one more to remove later.
-        if (mayClaimEnvironmentOwnership({ sessionMode: agentData.sessionMode }).claim) {
-          runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
+      }
+      REMOTE_AGENT_STATE.set(agentId, {
+        info: {
+          ...agentData,
+          runtimeState,
+        },
+      });
+      const active = ACTIVE_RUNS.get(agentId);
+      if (active) {
+        await reconcileLocalActiveRun(agentId, REMOTE_AGENT_STATE.get(agentId), active);
+      }
+      try {
+        const agentsRes = await httpCall("GET", "/agents");
+        for (const [managedId, managedInfo] of Object.entries(agentsRes.agents || {})) {
+          if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
+          if ((managedInfo.managedBy || "") !== agentId) continue;
+          if ((managedInfo.machineId || "") !== resolvedMachineId) continue;
+          const managedRuntimeState = { ...(managedInfo.runtimeState || {}), bridgeInstanceId: BRIDGE_INSTANCE_ID };
           try {
-            await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
-              runtimeState,
+            await httpCall("PATCH", `/agents/${encodeURIComponent(managedId)}/runtime-state`, {
+              runtimeState: managedRuntimeState,
             });
           } catch {
             // best effort
           }
-        }
-        REMOTE_AGENT_STATE.set(agentId, {
-          info: {
-            ...agentData,
-            runtimeState,
-          },
-        });
-        const active = ACTIVE_RUNS.get(agentId);
-        if (active) {
-          await reconcileLocalActiveRun(agentId, REMOTE_AGENT_STATE.get(agentId), active);
-        }
-        try {
-          const agentsRes = await httpCall("GET", "/agents");
-          for (const [managedId, managedInfo] of Object.entries(agentsRes.agents || {})) {
-            if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
-            if ((managedInfo.managedBy || "") !== agentId) continue;
-            if ((managedInfo.machineId || "") !== resolvedMachineId) continue;
-            const managedRuntimeState = { ...(managedInfo.runtimeState || {}), bridgeInstanceId: BRIDGE_INSTANCE_ID };
-            try {
-              await httpCall("PATCH", `/agents/${encodeURIComponent(managedId)}/runtime-state`, {
-                runtimeState: managedRuntimeState,
-              });
-            } catch {
-              // best effort
-            }
-            REMOTE_AGENT_STATE.set(managedId, {
-              info: {
-                agentId: managedId,
-                role: managedInfo.role,
-                name: managedInfo.name,
-                cwd: managedInfo.cwd || DEFAULT_CWD,
-                model: managedInfo.model || "",
-                instructions: managedInfo.instructions || "",
-                runtime: managedInfo.runtime || "generic",
-                machineId: managedInfo.machineId || resolvedMachineId,
-                launchMode: managedInfo.launchMode || "managed",
-                sessionMode: managedInfo.sessionMode || "managed",
-                sessionHandle: managedInfo.sessionHandle || "",
-                managedBy: managedInfo.managedBy || agentId,
-                capabilities: managedInfo.capabilities || [],
-                runtimeConfig: managedInfo.runtimeConfig || {},
-                runtimeState: managedRuntimeState,
-              },
-            });
-            const active = ACTIVE_RUNS.get(managedId);
-            if (active) {
-              await reconcileLocalActiveRun(managedId, REMOTE_AGENT_STATE.get(managedId), active);
-            }
+          REMOTE_AGENT_STATE.set(managedId, {
+            info: {
+              agentId: managedId,
+              role: managedInfo.role,
+              name: managedInfo.name,
+              cwd: managedInfo.cwd || DEFAULT_CWD,
+              model: managedInfo.model || "",
+              instructions: managedInfo.instructions || "",
+              runtime: managedInfo.runtime || "generic",
+              machineId: managedInfo.machineId || resolvedMachineId,
+              launchMode: managedInfo.launchMode || "managed",
+              sessionMode: managedInfo.sessionMode || "managed",
+              sessionHandle: managedInfo.sessionHandle || "",
+              managedBy: managedInfo.managedBy || agentId,
+              capabilities: managedInfo.capabilities || [],
+              runtimeConfig: managedInfo.runtimeConfig || {},
+              runtimeState: managedRuntimeState,
+            },
+          });
+          const active = ACTIVE_RUNS.get(managedId);
+          if (active) {
+            await reconcileLocalActiveRun(managedId, REMOTE_AGENT_STATE.get(managedId), active);
           }
-        } catch {
-          // best effort
         }
-        ensureDispatchLoop();
-        return {
-          content: [{
-            type: "text",
-            text:
-              `Registered "${r.agentId}" (${resolvedSessionMode}, role: ${r.role}, runtime: ${resolvedRuntime}, machine: ${resolvedMachineId}).` +
-              (resolvedSessionHandle ? ` Session: ${resolvedSessionHandle}` : "") +
-              // Compare the sanitized launch identity, not raw MCP template values.
-              // This advisory does not diagnose the parent's hooks or delivery binding.
-              residentIdentityWarning({
-                registeredAgentId: r.agentId,
-                envAgentId: AIFY_AGENT_ID,
-                sessionMode: resolvedSessionMode,
-                runtime: resolvedRuntime,
-              }) +
-              (
-                resolvedRuntime === "codex" &&
-                hasCodexLiveAppServer(runtimeConfig) &&
-                !resolvedSessionHandle
-                  ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
-                  : (
-                    resolvedRuntime === "codex" &&
-                    codexLiveBinding?.ambiguous
-                      ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL") from that same live session.`
-                      : ""
-                  )
-              ),
-          }],
-        };
+      } catch {
+        // best effort
       }
-
-      const registry = readAgents();
-      registry.agents[agentId] = {
-        role,
-        name: name || agentId,
-        cwd: resolvedCwd,
-        model: model || "",
-        instructions: instructions || "",
-        runtime: resolvedRuntime,
-        machineId: resolvedMachineId,
-        launchMode: launchMode || "detached",
-        sessionMode: resolvedSessionMode,
-        sessionHandle: resolvedSessionHandle,
-        managedBy: managedBy || "",
-        capabilities,
-        runtimeConfig,
-        runtimeState: registry.agents[agentId]?.runtimeState || {},
-        registeredAt: new Date().toISOString(),
-        lastSeen: new Date().toISOString(),
-      };
-      writeAgents(registry);
-      fs.mkdirSync(path.join(INBOX_DIR, agentId), { recursive: true });
+      ensureDispatchLoop();
       return {
         content: [{
           type: "text",
           text:
-            `Registered "${agentId}" (${resolvedSessionMode}, role: ${role}, cwd: ${resolvedCwd}, runtime: ${resolvedRuntime}).` +
+            `Registered "${r.agentId}" (${resolvedSessionMode}, role: ${r.role}, runtime: ${resolvedRuntime}, machine: ${resolvedMachineId}).` +
             (resolvedSessionHandle ? ` Session: ${resolvedSessionHandle}` : "") +
+            // Compare the sanitized launch identity, not raw MCP template values.
+            // This advisory does not diagnose the parent's hooks or delivery binding.
+            residentIdentityWarning({
+              registeredAgentId: r.agentId,
+              envAgentId: AIFY_AGENT_ID,
+              sessionMode: resolvedSessionMode,
+              runtime: resolvedRuntime,
+            }) +
             (
               resolvedRuntime === "codex" &&
               hasCodexLiveAppServer(runtimeConfig) &&

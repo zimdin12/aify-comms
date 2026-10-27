@@ -1897,7 +1897,7 @@ register_claude_channel_server() {
 echo "=== aify-comms installer ==="
 echo "Repo: $SCRIPT_DIR"
 echo "Client: $CLIENT"
-echo "Server: ${SERVER_URL:-local mode (no shared server)}"
+echo "Server: ${SERVER_URL:-none, so every comms tool call will fail}"
 echo ""
 
 # Render-only mode: emit this client's wrapper and stop. Ahead of the hermes prebuild and of

@@ -12,7 +12,6 @@
 
 import { IS_REMOTE, SERVER_URL } from "./aify-service-endpoint.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
-import { MESSAGES_DIR } from "./local-store.mjs";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_VERSION } from "./version.js";
 
@@ -30,7 +29,8 @@ export async function main({
   // here rather than at import so importing server.js (the hermes warm-up does) attaches nothing.
   process.stdin.once("end", () => { shutdownWithStatus(0); });
   console.error(`aify-comms-mcp v${AIFY_VERSION} running on stdio`);
-  console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
+  // No local mode since 0.9.11: without a service URL every tool call fails, so say why at the start.
+  console.error(IS_REMOTE ? `Service: ${SERVER_URL}` : "No service URL (AIFY_SERVER_URL): every comms tool call will fail. Re-run install.sh with the service's endpoint.");
   console.error(`Working dir: ${DEFAULT_CWD}`);
   // "Never leave a bridge child behind." For an MCP-CHILD bridge (loaded by a
   // claude/codex/hermes harness), poll the controlling harness — the parent pid

@@ -166,17 +166,6 @@ test("A FAILED REMOTE REGISTRATION DOES NOT START IT", () => {
   assert.equal(r.loopCalls, 0, "nothing may start the dispatch loop when the registration failed");
 });
 
-test("LOCAL MODE REGISTERS WITHOUT STARTING IT, and without touching the network at all", () => {
-  // The other non-invocation branch. In local mode there is no service to poll, so the loop would spin
-  // against nothing. This also pins that local registration is genuinely offline: a single HTTP request
-  // here would mean the local path had a remote dependency.
-  const r = register({ remote: false });
-  assert.equal(r.error, null, `local registration should succeed: ${r.error}`);
-  assert.match(r.text, /Registered "reg-test-agent"/);
-  assert.equal(r.loopCalls, 0, "local mode has no service to poll and must not start the loop");
-  assert.deepEqual(r.requests, [], "local registration must make no HTTP requests");
-});
-
 test("THE MODULE ASKS FOR THE LOOP AND DOES NOT OWN IT", () => {
   // The structural claim that makes the injection defensible rather than a trick to shrink a number. If any
   // of these appeared here, registration would have taken ownership of process lifecycle.
@@ -233,7 +222,6 @@ test("the module reaches only owned leaves", () => {
     "./hermes-endpoint.js",
     "./launch-identity.mjs",
     "./local-active-run.mjs",
-    "./local-store.mjs",
     "./machine-id.mjs",
     "./register-helpers.js",
     "./register-identity.js",
@@ -242,8 +230,6 @@ test("the module reaches only owned leaves", () => {
     "./runtimes.js",
     "./safe-name.mjs",
     "./session-mode.mjs",
-    "fs",
-    "path",
   ], "a new import here is a new dependency for the registration path — review it");
   assert.ok(!imports.includes("./server.js"), "and never the file it was extracted from");
 });

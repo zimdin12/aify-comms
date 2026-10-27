@@ -307,7 +307,8 @@ class BridgeWriteBodyTests(unittest.TestCase):
         # (a POST /dispatch and a per-message POST /read), leaving exactly 70 parsed.
         # 65 -> 60 in 0.9.9 S2: the claude and codex turn detectors and the hook poster's comms half went, as
         # aify-env owns turns, leaving 64 parsed.
-        self.assertGreater(len(readable), 60, f"only {len(readable)} bodies parsed as literals")
+        # 60 -> 55 in 0.9.11: local mode's spawn-triggered-agent.mjs took its PATCH /ready, leaving 60 parsed.
+        self.assertGreater(len(readable), 55, f"only {len(readable)} bodies parsed as literals")
         modelled = [
             s for s in readable if self.routes.get((s.method, s.path))
         ]

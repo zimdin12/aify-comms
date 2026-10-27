@@ -125,9 +125,8 @@ test("no module is untested except the recorded backlog", () => {
     "these modules have no test importing them:\n  " + unexpected.join("\n  ")
       + "\nThe standard for this series is a real unit test that CALLS what a module exports. If a module "
       + "genuinely cannot be tested — it starts a process, or needs a role flag — say so in its test file "
-      + "and test what can be reached, as send-tools.mjs and spawn-triggered-agent.mjs do "
-      + "(both headers name the launch path they cannot reach). This sentence named two "
-      + "modules DELETED in v0.6.2 until 2026-09-09, so it pointed at code nobody could open.",
+      + "and test what can be reached. This sentence used to name modules as examples, and named "
+      + "deleted ones twice (v0.6.2, then 0.9.11's local mode), so it names none.",
   );
 });
 
@@ -155,7 +154,6 @@ test("the modules this series created are NOT in the backlog", () => {
   // new extractions.
   const RECENT = [
     "mcp/stdio/send-tools.mjs",
-    "mcp/stdio/spawn-triggered-agent.mjs",
     "service/new_dashboard/api-client.mjs",
     "service/new_dashboard/shared-files.mjs",
   ];

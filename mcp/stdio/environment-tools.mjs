@@ -26,7 +26,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { normalizeRuntime } from "./runtimes.js";
 import { validateName } from "./safe-name.mjs";
 // The SAME predicate `/spawn` is gated on, and the same one the doctor asks. Three instruments
@@ -83,9 +83,6 @@ export function registerEnvironmentTools(server, z) {
     "List environments (aify-env hosts). Use before comms_spawn to pick host, runtime and workspace. The bracket says whether a spawn can be CLAIMED there; `advertised:` only says the host exists.",
     {},
     async () => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent." }], isError: true };
-      }
       const r = await httpCall("GET", "/environments");
       const envs = r.environments || [];
       if (!envs.length) return { content: [{ type: "text", text: "No host is connected. aify-env hosts managed agents on each machine: ask the operator to check it with `aify-env doctor` and start it if none is serving that host." }] };
@@ -118,9 +115,6 @@ export function registerEnvironmentTools(server, z) {
       envVars: z.record(z.string(), z.string()).optional().describe("Extra worker env vars (NAME: value); AIFY_* is reserved"),
     },
     async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority, envVars }) => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent." }], isError: true };
-      }
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
       const resolvedRuntime = normalizeRuntime(runtime || "generic");
       const envs = (await httpCall("GET", "/environments")).environments || [];

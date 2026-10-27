@@ -6,8 +6,7 @@
 // from a half-written write. `parseJson` collapses all five shapes into "an object, or the caller's
 // fallback".
 //
-// v0.5.4 layer 0 of the server.js decomposition. Reviewer-cleared as a pre-spawn owner: it is one of the
-// three unowned things `spawnTriggeredAgent` reaches for, and it had no test.
+// v0.5.4 layer 0 of the server.js decomposition.
 //
 // THE `typeof value === "object"` BRANCH IS THE ONE THAT LOOKS WRONG AND IS NOT. It passes an
 // already-parsed object straight through, which makes the function idempotent — `parseJson(parseJson(x))`
@@ -19,7 +18,7 @@
 // error path. A corrupt `runtimeState` reads exactly like an absent one, so a caller cannot tell a
 // damaged record from a new agent. That is the right default here — a bridge that refused to start
 // because one agent's state column was truncated would be worse — but it means corruption is invisible
-// rather than reported. `local-store.mjs`'s `readAgents` makes the same trade for the same reason.
+// rather than reported.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 

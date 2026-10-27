@@ -72,26 +72,6 @@ test("every tool arrives with a description and a usable schema", () => {
   }
 });
 
-test("in local mode every dispatch tool refuses instead of half-working", () => {
-  // These all need the HTTP service. The failure that matters is not an exception — it is a tool that
-  // returns something plausible-looking while having reached nothing.
-  return Promise.all([...register()].map(async ([name, tool]) => {
-    const res = await tool.handler({ agentId: "a", runId: "r", to: "b", subject: "s", body: "x" });
-    assert.equal(res.isError, true, `${name} must report an error in local mode`);
-    assert.match(res.content[0].text, /remote|server mode/i, `${name} should say WHY it refused`);
-  }));
-});
-
-test("commsInterruptHandler refuses in local mode without calling anything", async () => {
-  let called = false;
-  const res = await commsInterruptHandler(
-    { agentId: "a" },
-    { httpCall: async () => { called = true; return { ok: true }; } },
-  );
-  assert.equal(res.isError, true);
-  assert.equal(called, false, "it must not reach the service before checking the mode");
-});
-
 test("the module exports its owner surface and nothing it merely happens to contain", async () => {
   // The reviewer's rule for group leaves: export `registerDispatchTools`, plus only helpers with a real
   // consumer outside the group. `commsInterruptHandler` qualifies — `console-tools.test.js` asserts its

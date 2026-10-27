@@ -185,7 +185,7 @@ export function keyForUrl(url, opts) {
 //: anything iterating destinations must ask `keyForUrl` per destination instead.
 let API_KEY = KEY_FOR_URL(SERVER_URL);
 
-// Whether this bridge talks to a remote service over HTTP or drives the local filesystem store.
+// Whether a service URL is configured. Without one every tool call fails (local mode was deleted in 0.9.11).
 //
 // Declared in `server.js` until v0.5.4, where it was one line — `!!SERVER_URL` — reading a value this
 // module already owned, and read from 55 places. That made it look like a dependency of whatever tool
@@ -279,6 +279,8 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
   // opts.timeoutMs overrides the default per-attempt abort timeout. Long-poll claim
   // calls pass a value larger than the server's max hold so the bridge does NOT abort
   // (and trip its failure counter) while the server is legitimately holding the request.
+  // With no URL the loop below never runs and the call would reject with `undefined`.
+  if (!IS_REMOTE) throw new Error("no aify-comms service URL is configured (AIFY_SERVER_URL); re-run install.sh with the service's endpoint");
   const callTimeoutMs = Math.max(1, Number(opts.timeoutMs) || HTTP_TIMEOUT_MS);
   const baseOptions = { method, headers: {} };
   // NO CREDENTIAL HERE. It is attached per destination inside the loop below, because this request

@@ -1,14 +1,7 @@
 // The two tools that SEND a message, and the delivery cluster they share.
 //
-// Extracted from server.js in v0.5.4 — the last tool registrations to leave it. They were parked together
-// behind `spawnTriggeredAgent`: both cold-start a managed target that is resting at `available`, and until
-// that function had an owner neither could move.
-//
-// WHY THEY ARE ONE MODULE, correcting what channel-tools.mjs predicted. That module's header says
-// `comms_channel_send` is "the fifth channel tool and belongs to this subject eventually". Measured before
-// moving: the two senders share TEN of their twelve imported names — the delivery cluster — while
-// channel-tools has six imports and four read-only tools. Putting the sender there would have doubled that
-// module's import surface and split the delivery cluster across two files. Subject beat category.
+// Extracted from server.js in v0.5.4 — the last tool registrations to leave it. One module because the two
+// share the send path and how its answer is rendered.
 //
 // Both decide WAKE. A direct send to an agent that cannot start is stored unwoken from 0.9.8 (an older
 // service refused it); a channel post is always stored and only the members that can start are woken. That is the property worth remembering when
@@ -16,16 +9,9 @@
 // not merely to append to an inbox.
 
 import { randomUUID } from "crypto";
-import fs from "fs";
-import path from "path";
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
-import { dedupePreserveOrder } from "./dedupe.mjs";
-import { MESSAGES_DIR, deliverMessage, readAgents, writeAgents } from "./local-store.mjs";
-import { canLaunchRuntime, normalizeRuntime } from "./runtimes.js";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
-import { normalizeSessionMode } from "./session-mode.mjs";
-import { spawnTriggeredAgent } from "./spawn-triggered-agent.mjs";
 import { formatSendRefusal, formatTriggeredSendResult } from "./send-result-format.mjs";
 import { formatQueuedRun } from "./tool-response-format.mjs";
 import { quoteUntrustedSubject } from "./quote-subject.mjs";
@@ -82,94 +68,29 @@ export function registerSendTools(server, z) {
       const forceQueue = queueIfBusy === true;
 
       // -- Remote mode --
-      if (IS_REMOTE) {
-        // Stable idempotency key (#240): minted once per logical send so httpCall can retry
-        // the POST safely on a transient socket error (the server collapses the retry to the
-        // original message) instead of dropping it. One nonce per tool call — a real second
-        // send is a new tool call with a fresh nonce.
-        const clientNonce = randomUUID();
-        const r = await httpCall("POST", "/messages/send", {
-          from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue, requireReply, clientNonce,
-        });
-        if (!r.ok) return formatSendRefusal(r);
+      // Stable idempotency key (#240): minted once per logical send so httpCall can retry
+      // the POST safely on a transient socket error (the server collapses the retry to the
+      // original message) instead of dropping it. One nonce per tool call — a real second
+      // send is a new tool call with a fresh nonce.
+      const clientNonce = randomUUID();
+      const r = await httpCall("POST", "/messages/send", {
+        from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue, requireReply, clientNonce,
+      });
+      if (!r.ok) return formatSendRefusal(r);
 
-        const dashboardOnly = (r.recipients || []).length > 0 && (r.recipients || []).every((rid) => rid === "dashboard");
-        if (shouldTrigger && (r.replayed || (r.recipients?.length > 0 && !dashboardOnly))) {
-          return formatTriggeredSendResult(r, { from, to, type, requireReply });
-        }
-
-        // Include recipient status in response
-        const statusParts = (r.recipients || []).map(rid => {
-          const info = r.recipientStatus?.[rid];
-          if (info) return `${rid} [${info.status}, ${info.unread} unread]`;
-          return rid;
-        });
-        return {
-          content: [{ type: "text", text: `Sent (${r.messageId}) to ${statusParts.join(", ")}. Subject: ${quoteUntrustedSubject(subject, 240)}` }],
-        };
+      const dashboardOnly = (r.recipients || []).length > 0 && (r.recipients || []).every((rid) => rid === "dashboard");
+      if (shouldTrigger && (r.replayed || (r.recipients?.length > 0 && !dashboardOnly))) {
+        return formatTriggeredSendResult(r, { from, to, type, requireReply });
       }
 
-      // -- Local mode --
-      const registry = readAgents();
-      if (registry.agents[from]) {
-        registry.agents[from].lastSeen = new Date().toISOString();
-        writeAgents(registry);
-      }
-
-      const messageId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
-      const message = { id: messageId, from, type, subject, body, priority: priority || "normal", inReplyTo };
-
-      const recipients = [];
-      if (to) recipients.push(to);
-      if (toRole) {
-        for (const [id, info] of Object.entries(registry.agents)) {
-          if (info.role === toRole && id !== from) recipients.push(id);
-        }
-      }
-      const uniqueRecipients = dedupePreserveOrder(recipients);
-      if (!uniqueRecipients.length) {
-        return { content: [{ type: "text", text: "No recipients found. Target may not be registered." }] };
-      }
-
-      for (const r of uniqueRecipients) deliverMessage(r, message);
-
-      if (shouldTrigger && uniqueRecipients.length > 0) {
-        const started = [];
-        const skipped = [];
-        for (const targetId of uniqueRecipients) {
-          const targetInfo = registry.agents[targetId] || {};
-          const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
-          const runtime = normalizeRuntime(targetInfo.runtime || "generic");
-          const capabilities = Array.isArray(targetInfo.capabilities) ? targetInfo.capabilities : [];
-          const residentRunnable = sessionMode === "resident" && capabilities.includes("resident-run") && targetInfo.sessionHandle;
-          const managedRunnable = sessionMode === "managed" && capabilities.includes("managed-run");
-          if (!residentRunnable && !managedRunnable) {
-            skipped.push(
-              sessionMode === "resident"
-                ? `${targetId} (resident session has no triggerable session handle; re-register this live session)`
-                : `${targetId} (managed session is missing launch capabilities)`,
-            );
-            continue;
-          }
-          if (!canLaunchRuntime(runtime)) {
-            skipped.push(`${targetId} (${runtime})`);
-            continue;
-          }
-          spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body });
-          started.push(`${targetId} (${runtime})`);
-        }
-        return {
-          content: [{
-            type: "text",
-            text:
-              `Sent + triggered locally for ${started.join(", ") || "no launchable recipients"}. Reply handoff tracking is only available in remote server mode.` +
-              (skipped.length ? `\nSkipped: ${skipped.join(", ")}` : ""),
-          }],
-        };
-      }
-
+      // Include recipient status in response
+      const statusParts = (r.recipients || []).map(rid => {
+        const info = r.recipientStatus?.[rid];
+        if (info) return `${rid} [${info.status}, ${info.unread} unread]`;
+        return rid;
+      });
       return {
-        content: [{ type: "text", text: `Sent (${messageId}) to ${uniqueRecipients.join(", ")}. Subject: ${subject}` }],
+        content: [{ type: "text", text: `Sent (${r.messageId}) to ${statusParts.join(", ")}. Subject: ${quoteUntrustedSubject(subject, 240)}` }],
       };
     }
   );
@@ -195,96 +116,34 @@ export function registerSendTools(server, z) {
       const forceQueue = queueIfBusy === true;
       const subject = `#${channel}: ${body.slice(0, 80)}`;
 
-      if (IS_REMOTE) {
-        const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
-          from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue,
-        });
-        if (!r.ok) {
-          const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);
-          return {
-            content: [{
-              type: "text",
-              text: `${r.error || `Channel message to #${channel} was not sent.`}${skipped.length ? `\nUnavailable: ${skipped.join("; ")}` : ""}`,
-            }],
-            isError: true,
-          };
-        }
-        if (shouldTrigger && (r.dispatchRuns?.length || r.notStarted?.length)) {
-          const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
-          const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
-          // No run created is not a start: the post is stored and every member's copy waits in its inbox.
-          const outcome = queued.length
-            ? `Dispatch: ${queued.join(", ")}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.`
-            : "No member was woken: the post and every member's inbox copy are stored.";
-          return {
-            content: [{
-              type: "text",
-              text: `Sent to #${channel}. ${outcome}` + (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
-            }],
-          };
-        }
-        return { content: [{ type: "text", text: `Sent to #${channel} (${r.members.length} members).` }] };
-      }
-
-      const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
-      if (!fs.existsSync(chFile)) {
-        return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
-      }
-      const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
-      if (!ch.members.includes(from)) {
-        return { content: [{ type: "text", text: `Not a member of #${channel}. Join first.` }], isError: true };
-      }
-      const msgId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
-      ch.messages.push({
-        id: msgId, from, type: type || "info", body, timestamp: Date.now(),
+      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
+        from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, steer: forceQueue ? false : (steer ?? true), queueIfBusy: forceQueue,
       });
-      fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
-      // Deliver to each member's inbox (except sender) so notifications work
-      const recipients = [];
-      for (const member of ch.members) {
-        if (member !== from) {
-          recipients.push(member);
-          deliverMessage(member, {
-            id: msgId, from, type: type || "info", source: "channel", channel, subject, body, priority: priority || "normal",
-          });
-        }
-      }
-      if (shouldTrigger && recipients.length > 0) {
-        const started = [];
-        const skipped = [];
-        const registry = readAgents();
-        for (const targetId of recipients) {
-          const targetInfo = registry.agents[targetId] || {};
-          const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
-          const runtime = normalizeRuntime(targetInfo.runtime || "generic");
-          const capabilities = Array.isArray(targetInfo.capabilities) ? targetInfo.capabilities : [];
-          const residentRunnable = sessionMode === "resident" && capabilities.includes("resident-run") && targetInfo.sessionHandle;
-          const managedRunnable = sessionMode === "managed" && capabilities.includes("managed-run");
-          if (!residentRunnable && !managedRunnable) {
-            skipped.push(
-              sessionMode === "resident"
-                ? `${targetId} (resident session has no triggerable session handle; re-register that live session)`
-                : `${targetId} (managed session is missing launch capabilities)`,
-            );
-            continue;
-          }
-          if (!canLaunchRuntime(runtime)) {
-            skipped.push(`${targetId} (${runtime})`);
-            continue;
-          }
-          spawnTriggeredAgent({ targetId, targetInfo, from, type: type || "info", subject, body });
-          started.push(`${targetId} (${runtime})`);
-        }
+      if (!r.ok) {
+        const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);
         return {
           content: [{
             type: "text",
-            text:
-              `Sent to #${channel} + triggered locally for ${started.join(", ") || "no launchable recipients"}.` +
-              (skipped.length ? `\nSkipped: ${skipped.join(", ")}` : ""),
+            text: `${r.error || `Channel message to #${channel} was not sent.`}${skipped.length ? `\nUnavailable: ${skipped.join("; ")}` : ""}`,
+          }],
+          isError: true,
+        };
+      }
+      if (shouldTrigger && (r.dispatchRuns?.length || r.notStarted?.length)) {
+        const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
+        const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
+        // No run created is not a start: the post is stored and every member's copy waits in its inbox.
+        const outcome = queued.length
+          ? `Dispatch: ${queued.join(", ")}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.`
+          : "No member was woken: the post and every member's inbox copy are stored.";
+        return {
+          content: [{
+            type: "text",
+            text: `Sent to #${channel}. ${outcome}` + (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
           }],
         };
       }
-      return { content: [{ type: "text", text: `Sent to #${channel} (${ch.members.length} members).` }] };
+      return { content: [{ type: "text", text: `Sent to #${channel} (${r.members.length} members).` }] };
     }
   );
 

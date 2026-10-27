@@ -22,7 +22,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { normalizeRuntime } from "./runtimes.js";
 import { validateName } from "./safe-name.mjs";
@@ -127,9 +127,6 @@ async function compactByHandoff({ from, targetAgentId, newAgentId, role, environ
 /** The tool's handler: every parameter named here, then handed to the mode that reads it. */
 async function commsCompactHandler(args) {
   const { from, targetAgentId, mode, newAgentId, role, environmentId, runtime, workspace, instructions, recentMessages, priority } = args;
-  if (!IS_REMOTE) {
-    return errorText("Managed compaction requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent.");
-  }
   try {
     validateName(from, "from agent ID");
     validateName(targetAgentId, "target agent ID");

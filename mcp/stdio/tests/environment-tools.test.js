@@ -38,56 +38,6 @@ test("the wrapper registers exactly the two environment tools", () => {
   }
 });
 
-test("comms_spawn's name guard sits BEHIND its remote-mode guard, so local mode cannot reach it", async () => {
-  // THIS TEST REPLACES A VACUOUS ONE, and the way it was caught is the point. I asserted that
-  // `comms_spawn` rejects traversal-shaped agent ids, passed four of them, and got `isError` every time —
-  // so it looked proven. Then removing the `validateName` call entirely killed NOTHING: the `IS_REMOTE`
-  // check runs first, so in local mode the handler returns before the name is ever examined. Every
-  // rejection I was crediting to the guard came from the mode check.
-  //
-  // A mutation that changes nothing is the only reliable way to find this. Four passing assertions about
-  // a code path that never executed would have read as coverage forever.
-  const spawn = tools.get("comms_spawn");
-  assert.ok(spawn.schema.agentId, "an agent id is required to spawn one");
-
-  // What IS true from here: the ordering. Asserted on source because it is an ordering fact, and it is
-  // what makes the guard untestable FROM THIS FILE — which needs local mode, and `IS_REMOTE` resolves
-  // once per process.
-  //
-  // THE GAP THIS NOTE RECORDED IS CLOSED (2026-08-17): `environment-tools-remote.test.js` runs the same
-  // handlers against a real service, where the mode guard passes and the name guard is the next thing to
-  // execute. Removing the `validateName` call now fails a test there — checked by doing it.
-  const src = readFileSync(path.join(STDIO, "environment-tools.mjs"), "utf-8");
-  const spawnBody = src.slice(src.indexOf('"comms_spawn"'));
-  const remoteAt = spawnBody.indexOf("if (!IS_REMOTE)");
-  const validateAt = spawnBody.indexOf("validateName(agentId");
-  assert.ok(remoteAt !== -1 && validateAt !== -1, "both guards must still exist");
-  assert.ok(
-    remoteAt < validateAt,
-    "the mode guard runs first; if that ever inverts, the local-mode refusal stops being reachable",
-  );
-
-  // And a bad id in local mode yields the MODE refusal, not the name one — the distinction the vacuous
-  // version could not see.
-  const res = await spawn.handler({ agentId: "../escape", runtime: "claude" });
-  assert.equal(res.isError, true);
-  assert.match(
-    text(res), /HTTP-backed aify-comms service|environment/i,
-    "in local mode the refusal comes from the mode check, not from name validation",
-  );
-  assert.doesNotMatch(text(res), /Invalid agent ID/, "the name guard is not reached here");
-});
-
-test("in local mode both tools refuse rather than pretending to have an environment", async () => {
-  // Environments are a service concept — a local filesystem store has none. A spawn that reported success
-  // here would leave a caller waiting for a worker that was never started.
-  for (const name of ["comms_envs", "comms_spawn"]) {
-    const res = await tools.get(name).handler({ agentId: "agent-a", runtime: "claude" });
-    assert.equal(res.isError, true, `${name} must report an error in local mode`);
-    assert.ok(!/undefined|\[object Object\]/.test(text(res)), `${name} leaked a placeholder: ${text(res)}`);
-  }
-});
-
 test("the shared renderer is PRIVATE, and is the only environment renderer in the group", () => {
   // The reviewer's rule for group leaves: export the owner surface, keep group-exclusive helpers inside.
   // Its output is asserted through the two tools rather than by importing it, and the property that

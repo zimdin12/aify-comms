@@ -56,7 +56,7 @@
   },
   "env": {
     "AIFY_SERVER_URL": {
-      "description": "aify-comms server URL (e.g. http://localhost:8800). Leave empty for local-only mode.",
+      "description": "aify-comms server URL (e.g. http://localhost:8800). Required: the comms tools have no local mode.",
       "required": false,
       "default": ""
     },

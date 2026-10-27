@@ -18,9 +18,6 @@ import {
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { reportResidentLost } from "./resident-lost.mjs";
 import {
-  INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
-} from "./local-store.mjs";
-import {
   ACTIVE_RUNS,
   interruptActiveRuns,
 } from "./bridge-agent-state.mjs";
@@ -28,7 +25,6 @@ import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -331,8 +327,6 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // A closed terminal window sends SIGHUP. Node's default action for it exits without running any
 // handler, so a resident never posted resident-lost and read `available` for the whole lease.
 process.on("SIGHUP", () => { shutdownWithStatus(129); });
-// LOCAL_RUNTIME_STATE moved to ./spawn-triggered-agent.mjs in v0.5.4 — all three of its uses
-// are inside that function, so it owns the Map.
 // VIRTUAL_TERMINALS_BY_AGENT moved to ./virtual-terminals.mjs in v0.5.4.
 // VIRTUAL_TERMINAL_INPUT moved to ./virtual-terminals.mjs in v0.5.4.
 
@@ -355,15 +349,8 @@ const AUTO_REREGISTER_AFTER_FAILURES = 4;
 
 // DELETED IN v0.6.2 with the environment bridge: TERMINAL_MANAGER. It was only ever populated by cluster code.
 
-// ── Local filesystem paths (used only in local mode) ─────────────────────────
-
-// ── Input validation ────────────────────────────────────────────────────────
-
-if (!IS_REMOTE) {
-  for (const dir of [MESSAGES_DIR, INBOX_DIR, SHARED_DIR]) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
+// DELETED IN 0.9.11: local mode, the file store a bridge with no service URL kept messages in (operator,
+// 2026-10-26). Every tool calls the service.
 
 // ── HTTP helper (remote mode) ────────────────────────────────────────────────
 

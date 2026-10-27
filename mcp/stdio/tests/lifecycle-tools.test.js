@@ -76,24 +76,6 @@ test("comms_restart refuses resident sessions, which are operator-owned", () => 
   assert.match(d, /comms_run_interrupt|operator/i, "…and what to do instead");
 });
 
-test("in local mode the remote-only tools refuse rather than half-acting", () => {
-  // These reach the service. A destructive tool that reports success having done nothing is worse than
-  // one that errors, because the caller then believes the state is gone.
-  // Assertions READ from the real messages rather than assumed. My first version matched
-  // /remote|server mode/ and failed — not because the code was wrong, but because the actual messages are
-  // BETTER than the generic phrasing I guessed at: each names the tool, the missing dependency, and what
-  // local mode lacks instead ("no runtime session table", "no managed session to restart"). Testing an
-  // invented message would have pushed the code toward the vaguer wording.
-  return Promise.all(["comms_delete_session", "comms_restart"].map(async (name) => {
-    const res = await tools.get(name).handler({ agentId: "agent-a", sessionId: "s1" });
-    assert.equal(res.isError, true, `${name} must report an error in local mode`);
-    const out = text(res);
-    assert.match(out, new RegExp(name), `${name}'s refusal should name the tool that refused`);
-    assert.match(out, /requires the HTTP-backed aify-comms service/, `${name} must name the missing dependency`);
-    assert.match(out, /local filesystem mode/, `${name} must say what local mode lacks`);
-  }));
-});
-
 test("the group is the write side of the forget invariant — it uses the owner, never its own copy", () => {
   // The property that made this cut possible. If any of these grew a private Map, the reset would stop
   // covering the state the rest of the bridge reads.

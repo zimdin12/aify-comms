@@ -20,14 +20,11 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 // Handlers exported as named functions so they can be unit-tested with an
 // injected httpCall. They default to the module-level httpCall in production.
 export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: call = httpCall } = {}) {
-  if (!IS_REMOTE) {
-    return { content: [{ type: "text", text: "Console tail is only available in remote server mode." }], isError: true };
-  }
   try {
     const n = Math.max(1, Math.min(Number(lines || 40), 200));
     const r = await call("GET", `/agents/${encodeURIComponent(agentId)}/console?lines=${n}`);
@@ -89,9 +86,6 @@ export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: ca
 }
 
 export async function commsConsoleInputHandler({ agentId, text, enter, from }, { httpCall: call = httpCall } = {}) {
-  if (!IS_REMOTE) {
-    return { content: [{ type: "text", text: "Console input is only available in remote server mode." }], isError: true };
-  }
   // NO CALLER IDENTITY, NO CALL -- and say so here rather than letting the server say it.
   //
   // The endpoint requires `from` and 400s without it, then 403s if it is not a REGISTERED

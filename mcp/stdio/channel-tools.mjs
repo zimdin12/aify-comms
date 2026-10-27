@@ -6,38 +6,18 @@
 // six: a count written once and never re-measured. Everything below that says "the four" means the
 // original four, and is left alone rather than silently renumbered.)
 //
-// THE GROUP IS DELIBERATELY INCOMPLETE, and this is the record of why rather than an oversight.
-// `comms_channel_send` is the fifth channel tool and it is NOT here: it is the only one that DELIVERS, and
-// delivery drags `spawnTriggeredAgent` — it must decide whether each member is reachable, cold-start one
-// that is not, and render what happened. It joins this module once that has an owner
-// (`docs/JS_SPAWN_TRIGGERED_AGENT_PACKET.md`). A reader who wonders where sending went should find this
-// paragraph, not a gap.
-//
-// v0.5.4 UPDATE — IT DID NOT JOIN THIS MODULE, and the prediction above is left standing so the reversal
-// is visible. Once `spawnTriggeredAgent` had an owner the question was measured rather than assumed:
-// `comms_channel_send` shares TEN of its twelve imported names with `comms_send`, so the two went to
-// `send-tools.mjs` together. Bringing it here would have doubled this module's import surface and split
-// the delivery cluster across two files. Subject beat category.
+// `comms_channel_send` is not here: it lives with `comms_send` in `send-tools.mjs`, because the two share
+// the send path. A reader who wonders where sending went should find this paragraph, not a gap.
 //
 // WHY THE SPLIT FALLS HERE AND NOT ON SIZE. These four are about a channel's EXISTENCE and CONTENTS, and
 // none of them wakes an agent. Measured, the four together reach zero local functions, zero mutable module
 // state, and exactly six imported names. `comms_channel_send` reaches thirteen. The dependency boundary
 // follows the subject — membership and content versus delivery — which is why it was worth cutting at all.
 //
-// LOCAL MODE MAKES A CHANNEL ONE JSON FILE — `channels/<name>.json`, holding its members and its messages
-// together. Not a directory per channel, which is what the first draft of this comment and its tests both
-// said: inboxes ARE a directory per agent, and I generalised from the store's other layout without checking.
-// So "does this channel exist" is a single-file question here, and a missing file must not be reported as an
-// empty channel — the absence-versus-emptiness distinction this repo has been bitten by in `comms_search`
-// and in `aify-comms doctor`'s `unknown-all`.
-//
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import fs from "fs";
-import path from "path";
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
-import { MESSAGES_DIR } from "./local-store.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
 import { SAFETY_HEADER } from "./tool-response-format.mjs";
 
@@ -62,25 +42,7 @@ export function registerChannelTools(server, z) {
     async ({ name, from, description }) => {
       try { validateName(name, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
-      if (IS_REMOTE) {
-        await httpCall("POST", "/channels", { name, createdBy: from, description });
-        return { content: [{ type: "text", text: `Channel #${name} created. You're a member.` }] };
-      }
-
-      const chDir = path.join(MESSAGES_DIR, "channels");
-      fs.mkdirSync(chDir, { recursive: true });
-      const chFile = path.join(chDir, `${name}.json`);
-      if (fs.existsSync(chFile)) {
-        return { content: [{ type: "text", text: `Channel #${name} already exists.` }] };
-      }
-      fs.writeFileSync(
-        chFile,
-        JSON.stringify({
-          name, description: description || "", createdBy: from,
-          createdAt: new Date().toISOString(),
-          members: [from], messages: [],
-        }, null, 2)
-      );
+      await httpCall("POST", "/channels", { name, createdBy: from, description });
       return { content: [{ type: "text", text: `Channel #${name} created. You're a member.` }] };
     }
   );
@@ -101,27 +63,9 @@ export function registerChannelTools(server, z) {
       const target = agentId || from;
       try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
-      if (IS_REMOTE) {
-        const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/join`, { agentId: target });
-        const action = target === from ? "Joined" : `Added ${target} to`;
-        return { content: [{ type: "text", text: `${action} #${channel}. Members: ${r.members.join(", ")}` }] };
-      }
-
-      const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
-      if (!fs.existsSync(chFile)) {
-        return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
-      }
-      const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
-      if (!ch.members.includes(target)) {
-        ch.members.push(target);
-        ch.messages.push({
-          id: `${Date.now()}`, from: "_system", type: "info",
-          body: `${target} joined`, timestamp: Date.now(),
-        });
-        fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
-      }
+      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/join`, { agentId: target });
       const action = target === from ? "Joined" : `Added ${target} to`;
-      return { content: [{ type: "text", text: `${action} #${channel}. Members: ${ch.members.join(", ")}` }] };
+      return { content: [{ type: "text", text: `${action} #${channel}. Members: ${r.members.join(", ")}` }] };
     }
   );
 
@@ -145,30 +89,11 @@ export function registerChannelTools(server, z) {
       const target = from;
       try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
-      if (IS_REMOTE) {
-        const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/leave`, { agentId: target });
-        if (!r.changed) {
-          return { content: [{ type: "text", text: `${target} is not a member of #${channel}; nothing to leave.` }] };
-        }
-        return { content: [{ type: "text", text: `Left #${channel}. Remaining members: ${r.members.join(", ") || "none"}` }] };
-      }
-
-      const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
-      if (!fs.existsSync(chFile)) {
-        return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
-      }
-      const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
-      const at = ch.members.indexOf(target);
-      if (at < 0) {
+      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/leave`, { agentId: target });
+      if (!r.changed) {
         return { content: [{ type: "text", text: `${target} is not a member of #${channel}; nothing to leave.` }] };
       }
-      ch.members.splice(at, 1);
-      ch.messages.push({
-        id: `${Date.now()}`, from: "_system", type: "info",
-        body: `${target} left`, timestamp: Date.now(),
-      });
-      fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
-      return { content: [{ type: "text", text: `Left #${channel}. Remaining members: ${ch.members.join(", ") || "none"}` }] };
+      return { content: [{ type: "text", text: `Left #${channel}. Remaining members: ${r.members.join(", ") || "none"}` }] };
     }
   );
 
@@ -189,16 +114,7 @@ export function registerChannelTools(server, z) {
       const maxN = limit || 20;
       let ch;
 
-      if (IS_REMOTE) {
-        ch = await httpCall("GET", `/channels/${encodeURIComponent(channel)}?limit=${maxN}`);
-      } else {
-        const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
-        if (!fs.existsSync(chFile)) {
-          return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
-        }
-        const data = JSON.parse(fs.readFileSync(chFile, "utf-8"));
-        ch = { ...data, totalMessages: data.messages.length, messages: data.messages.slice(-maxN) };
-      }
+      ch = await httpCall("GET", `/channels/${encodeURIComponent(channel)}?limit=${maxN}`);
 
       if (!ch.messages.length) {
         return {
@@ -228,23 +144,11 @@ export function registerChannelTools(server, z) {
     "List all channels.",
     {},
     async () => {
-      if (IS_REMOTE) {
-        const r = await httpCall("GET", "/channels");
-        if (!r.channels.length) return { content: [{ type: "text", text: "No channels." }] };
-        const lines = r.channels.map((c) =>
-          `#${c.name} -- ${c.description || "(no description)"} | ${c.members.length} members, ${c.messageCount} messages`
-        );
-        return { content: [{ type: "text", text: lines.join("\n") }] };
-      }
-
-      const chDir = path.join(MESSAGES_DIR, "channels");
-      if (!fs.existsSync(chDir)) return { content: [{ type: "text", text: "No channels." }] };
-      const files = fs.readdirSync(chDir).filter((f) => f.endsWith(".json"));
-      if (!files.length) return { content: [{ type: "text", text: "No channels." }] };
-      const lines = files.map((f) => {
-        const ch = JSON.parse(fs.readFileSync(path.join(chDir, f), "utf-8"));
-        return `#${ch.name} -- ${ch.description || "(no description)"} | ${ch.members.length} members, ${ch.messages.length} messages`;
-      });
+      const r = await httpCall("GET", "/channels");
+      if (!r.channels.length) return { content: [{ type: "text", text: "No channels." }] };
+      const lines = r.channels.map((c) =>
+        `#${c.name} -- ${c.description || "(no description)"} | ${c.members.length} members, ${c.messageCount} messages`
+      );
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
@@ -267,9 +171,6 @@ export function registerChannelTools(server, z) {
       // posted to it — shared history for every member, not just the caller's. Added 2026-08-18
       // together with the endpoint's ownership check; the tool without the check would have opened
       // the hole rather than closed it.
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Channel delete requires the remote service." }], isError: true };
-      }
       try {
         await httpCall("DELETE", `/channels/${encodeURIComponent(channel)}?requestedBy=${encodeURIComponent(from || "")}`);
         return { content: [{ type: "text", text: `Deleted channel #${channel} and its messages.` }] };

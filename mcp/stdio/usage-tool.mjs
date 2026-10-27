@@ -20,7 +20,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { personalQuotaLine } from "./usage-predicates.mjs";
 
@@ -35,9 +35,6 @@ export function registerUsageTool(server, z) {
     "Remaining subscription quota per pool (Anthropic Claude, OpenAI ChatGPT-Codex) and which pool you draw on. Advisory: on a pool near 0%, hand work to a pool with headroom.",
     {},
     async () => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Usage data requires remote server mode." }], isError: true };
-      }
       const r = await httpCall("GET", "/usage");
       const pools = (r && r.pools) || [];
       if (!pools.length) return { content: [{ type: "text", text: "No usage data yet (collector warming up)." }] };

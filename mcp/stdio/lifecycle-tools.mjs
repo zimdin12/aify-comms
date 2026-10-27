@@ -24,14 +24,11 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import fs from "fs";
-import path from "path";
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import {
   ACTIVE_RUNS, CONSECUTIVE_FAILURES, REMOTE_AGENT_STATE, forgetRemoteAgent,
 } from "./bridge-agent-state.mjs";
-import { INBOX_DIR, SHARED_DIR, readAgents, writeAgents } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
 
 // A DEFINED agent's restart or removal is queued for its host (D9c): say queued, never done.
@@ -60,32 +57,24 @@ export function registerLifecycleTools(server, z) {
     async ({ agentId }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
-      if (IS_REMOTE) {
-        const r = await httpCall("DELETE", `/agents/${encodeURIComponent(agentId)}`);
-        if (isQueued(r)) return { content: [{ type: "text", text: queuedText(r, `Removal of "${agentId}"`) }] };
-        forgetRemoteAgent(agentId);
-        return {
-          content: [{
-            type: "text",
-            // WHAT HAPPENS TO ITS WORKER, said rather than left to be discovered. Removing a managed
-            // agent used to leave a live process running that nothing could address, because the id
-            // was gone -- and this message said only "Removed", so a caller had no reason to look.
-            // The host now stops it within one control pass (it notices the terminal no longer
-            // exists), and a caller who needs it gone NOW should confirm rather than assume.
-            text: r.ok
-              ? `Removed agent "${agentId}". If it had a managed worker, its host stops that within `
-                + "about half a minute -- confirm with comms_agents or the environment's own process "
-                + "list if you need it gone before acting on that."
-              : `Agent "${agentId}" was already absent; future auto re-registration is blocked until explicit register.`,
-          }],
-        };
-      }
-
-      const registry = readAgents();
-      const existed = Boolean(registry.agents?.[agentId]);
-      if (registry.agents) delete registry.agents[agentId];
-      writeAgents(registry);
-      return { content: [{ type: "text", text: existed ? `Removed agent "${agentId}".` : `Agent "${agentId}" was not registered.` }] };
+      const r = await httpCall("DELETE", `/agents/${encodeURIComponent(agentId)}`);
+      if (isQueued(r)) return { content: [{ type: "text", text: queuedText(r, `Removal of "${agentId}"`) }] };
+      forgetRemoteAgent(agentId);
+      return {
+        content: [{
+          type: "text",
+          // WHAT HAPPENS TO ITS WORKER, said rather than left to be discovered. Removing a managed
+          // agent used to leave a live process running that nothing could address, because the id
+          // was gone -- and this message said only "Removed", so a caller had no reason to look.
+          // The host now stops it within one control pass (it notices the terminal no longer
+          // exists), and a caller who needs it gone NOW should confirm rather than assume.
+          text: r.ok
+            ? `Removed agent "${agentId}". If it had a managed worker, its host stops that within `
+              + "about half a minute -- confirm with comms_agents or the environment's own process "
+              + "list if you need it gone before acting on that."
+            : `Agent "${agentId}" was already absent; future auto re-registration is blocked until explicit register.`,
+        }],
+      };
     }
   );
 
@@ -103,12 +92,6 @@ export function registerLifecycleTools(server, z) {
       const id = String(sessionId || "").trim();
       if (!id) {
         return { content: [{ type: "text", text: "sessionId is required." }], isError: true };
-      }
-      if (!IS_REMOTE) {
-        return {
-          content: [{ type: "text", text: "comms_delete_session requires the HTTP-backed aify-comms service; local filesystem mode has no runtime session table." }],
-          isError: true,
-        };
       }
       try {
         const r = await httpCall("DELETE", `/sessions/${encodeURIComponent(id)}`);
@@ -140,9 +123,6 @@ export function registerLifecycleTools(server, z) {
     async ({ agentId, freshContext }) => {
       const id = String(agentId || "").trim();
       if (!id) return { content: [{ type: "text", text: "agentId is required." }], isError: true };
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "comms_restart requires the HTTP-backed aify-comms service; there is no managed session to restart in local filesystem mode." }], isError: true };
-      }
       try {
         const info = await httpCall("GET", `/agents/${encodeURIComponent(id)}`);
         const agent = info.agent || info;
@@ -200,88 +180,20 @@ export function registerLifecycleTools(server, z) {
       olderThanHours: z.number().optional().describe("Only clear items older than N hours"),
     },
     async ({ target, agentId, olderThanHours }) => {
-      if (IS_REMOTE) {
-        const r = await httpCall("POST", "/clear", { target, agentId, olderThanHours });
-        if (target === "agents" && agentId) {
-          forgetRemoteAgent(agentId);
-        } else if (target === "agents") {
-          REMOTE_AGENT_STATE.clear();
-          ACTIVE_RUNS.clear();
-          CONSECUTIVE_FAILURES.clear();
-        }
-        const c = r.cleared || {};
-        const parts = [];
-        if (c.messages) parts.push(`${c.messages} messages`);
-        if (c.files) parts.push(`${c.files} files`);
-        if (c.agents) parts.push(`${c.agents} agents`);
-        return { content: [{ type: "text", text: parts.length ? `Cleared: ${parts.join(", ")}.` : "Nothing to clear." }] };
+      const r = await httpCall("POST", "/clear", { target, agentId, olderThanHours });
+      if (target === "agents" && agentId) {
+        forgetRemoteAgent(agentId);
+      } else if (target === "agents") {
+        REMOTE_AGENT_STATE.clear();
+        ACTIVE_RUNS.clear();
+        CONSECUTIVE_FAILURES.clear();
       }
-
-      const cutoff = olderThanHours ? Date.now() - olderThanHours * 3600_000 : Infinity;
-      const cleared = { messages: 0, files: 0, agents: 0 };
-
-      // Clear inbox
-      if (target === "inbox") {
-        const dirs = agentId
-          ? [agentId]
-          : (() => { try { return fs.readdirSync(INBOX_DIR); } catch { return []; } })();
-
-        for (const dir of dirs) {
-          const dirPath = path.join(INBOX_DIR, dir);
-          try {
-            for (const f of fs.readdirSync(dirPath).filter((f) => f.endsWith(".json"))) {
-              const filePath = path.join(dirPath, f);
-              if (cutoff < Infinity) {
-                try {
-                  const msg = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-                  if (msg.timestamp > cutoff) continue;
-                } catch { /* delete anyway */ }
-              }
-              fs.unlinkSync(filePath);
-              cleared.messages++;
-            }
-          } catch { /* dir doesn't exist */ }
-        }
-      }
-
-      // Clear shared files
-      if (target === "shared") {
-        try {
-          for (const f of fs.readdirSync(SHARED_DIR)) {
-            const filePath = path.join(SHARED_DIR, f);
-            if (cutoff < Infinity) {
-              try {
-                if (fs.statSync(filePath).mtimeMs > cutoff) continue;
-              } catch { /* delete anyway */ }
-            }
-            fs.unlinkSync(filePath);
-            cleared.files++;
-          }
-        } catch { /* dir doesn't exist */ }
-      }
-
-      // Clear agent registry
-      if (target === "agents") {
-        const registry = readAgents();
-        if (agentId) {
-          if (registry.agents?.[agentId]) {
-            delete registry.agents[agentId];
-            cleared.agents = 1;
-          }
-          writeAgents(registry);
-        } else {
-          cleared.agents = Object.keys(registry.agents).length;
-          writeAgents({ agents: {} });
-        }
-      }
-
+      const c = r.cleared || {};
       const parts = [];
-      if (cleared.messages) parts.push(`${cleared.messages} messages`);
-      if (cleared.files) parts.push(`${cleared.files} shared files`);
-      if (cleared.agents) parts.push(`${cleared.agents} agents`);
-      return {
-        content: [{ type: "text", text: parts.length ? `Cleared: ${parts.join(", ")}.` : "Nothing to clear." }],
-      };
+      if (c.messages) parts.push(`${c.messages} messages`);
+      if (c.files) parts.push(`${c.files} files`);
+      if (c.agents) parts.push(`${c.agents} agents`);
+      return { content: [{ type: "text", text: parts.length ? `Cleared: ${parts.join(", ")}.` : "Nothing to clear." }] };
     }
   );
 }

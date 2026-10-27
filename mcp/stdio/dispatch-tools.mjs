@@ -27,7 +27,7 @@
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially, never in parallel) AND every
 // wrapper relaunches. Running bridges keep executing the copy they loaded at boot.
 
-import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { quoteUntrustedSubject } from "./quote-subject.mjs";
 import { replyExpectationSummary } from "./tool-response-format.mjs";
@@ -58,9 +58,6 @@ function summarizeContract(contract = {}) {
 }
 
 export async function commsInterruptHandler({ agentId, from }, { httpCall: call = httpCall } = {}) {
-  if (!IS_REMOTE) {
-    return { content: [{ type: "text", text: "Agent interrupt is only available in remote server mode." }], isError: true };
-  }
   try {
     const r = await call("POST", `/agents/${encodeURIComponent(agentId)}/console/input`, {
       text: "\u0003",
@@ -97,9 +94,6 @@ export function registerDispatchTools(server, z) {
       runId: z.string().describe("Dispatch run ID"),
     },
     async ({ runId }) => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Run status is only available in remote server mode." }], isError: true };
-      }
 
       const r = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(runId)}`);
       const run = r.run;
@@ -146,9 +140,6 @@ export function registerDispatchTools(server, z) {
       limit: z.number().int().min(1).max(200).optional().describe("Max contracts to return. Default 25."),
     },
     async ({ agentId, fromAgent, state, category, includeClosed, limit }) => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Work contracts require remote server mode." }], isError: true };
-      }
       const params = new URLSearchParams();
       if (agentId) params.set("agentId", agentId);
       if (fromAgent) params.set("fromAgent", fromAgent);
@@ -175,9 +166,6 @@ export function registerDispatchTools(server, z) {
       from: z.string().optional().describe("Your agent ID"),
     },
     async ({ runId, from }) => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Run control is only available in remote server mode." }], isError: true };
-      }
       try {
         const r = await httpCall("POST", `/dispatch/runs/${encodeURIComponent(runId)}/control`, {
           from_agent: from || "",

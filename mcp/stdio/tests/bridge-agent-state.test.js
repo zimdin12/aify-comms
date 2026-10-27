@@ -19,7 +19,7 @@ import {
   forgetRemoteAgent,
   interruptActiveRuns,
 } from "../bridge-agent-state.mjs";
-import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OWNED = [
@@ -108,29 +108,6 @@ test("THE RESET SET IS EXACTLY THESE THREE — a fourth coupled Map must fail th
     [...new Set(ownedCleared)].sort(), exported,
     "comms_clear's all-agents reset must clear every owned Map — a subset leaves inconsistent state",
   );
-});
-
-test("LOCAL_RUNTIME_STATE stayed in server.js, and is not part of this invariant", () => {
-  // It is also a per-agent Map declared two lines from these, and it deliberately did not come along: it
-  // is local-mode auto-start state, has one writer, and is in NEITHER reset. Type is not subject.
-  //
-  // Asserted as DECLARATION and USE, not as the bare word — the owner module's header explains at length
-  // why this Map did not come along, and a word-absence check fails on that explanation. Fifth time in
-  // this lane that a negative proof punished the documentation of the invariant it protects; the rule is
-  // now unconditional: never assert a name is absent, assert the thing it would DO is absent.
-  const owner = readFileSync(path.join(STDIO, "bridge-agent-state.mjs"), "utf-8");
-  assert.doesNotMatch(owner, /^(?:export\s+)?const LOCAL_RUNTIME_STATE\b/m, "this owner must not declare it");
-  assert.doesNotMatch(owner, /LOCAL_RUNTIME_STATE\.(get|set|delete|clear|has)\s*\(/, "…nor touch it");
-
-  // The last line here used to be `assert.match(server, /^const LOCAL_RUNTIME_STATE = new Map\(\);$/m)` —
-  // "it must still be declared in server.js". That was a pin on a REVIEWER RULING, not on this module's
-  // invariant, and it went red the day the ruling's premise changed: the Map moved out with
-  // `spawnTriggeredAgent` once all three of its uses turned out to be inside that function. The invariant
-  // this test guards is unaffected either way — LOCAL_RUNTIME_STATE is not one of the Maps this module
-  // resets. So the surviving assertion is the one that belongs here: exactly one owner, wherever it is.
-  const owners = declaringModules("LOCAL_RUNTIME_STATE");
-  assert.equal(owners.length, 1, `LOCAL_RUNTIME_STATE must have exactly one owner, found ${owners.length}`);
-  assert.notEqual(owners[0].file, "bridge-agent-state.mjs", "and that owner is not this module");
 });
 
 test("the bridge still uses all four names", () => {

@@ -213,8 +213,24 @@ test("IS_REMOTE is decided by the environment at load, in both directions", () =
     ).trim();
 
   assert.equal(read({ AIFY_SERVER_URL: "http://127.0.0.1:8800" }), "true", "a configured URL means remote");
-  assert.equal(read({}), "false", "no configured URL means local-filesystem mode");
+  assert.equal(read({}), "false", "no configured URL means no service");
   assert.equal(read({ CLAUDE_MCP_SERVER_URL: "http://127.0.0.1:8800" }), "true", "the legacy env var also counts");
+});
+
+test("a call with no service URL says so, rather than rejecting with undefined", () => {
+  // Local mode answered these until 0.9.11; now every tool reaches httpCall, whose loop over no URLs threw
+  // `lastError` while it was still undefined. Control: with a URL, the refusal is a different one.
+  const message = (env) =>
+    execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e",
+        'import { httpCall } from ' + JSON.stringify(pathToFileURL(path.join(STDIO, "aify-service-endpoint.mjs")).href)
+        + '; httpCall("POST", "/agents", { a: 1 }).catch((e) => process.stdout.write(String(e?.message)));'],
+      { env: { ...process.env, CLAUDE_MCP_SERVER_URL: "", AIFY_SERVER_URL: "", AIFY_SERVER_URLS: "", ...env }, encoding: "utf-8" },
+    ).trim();
+
+  assert.match(message({}), /no aify-comms service URL is configured \(AIFY_SERVER_URL\)/);
+  assert.doesNotMatch(message({ AIFY_SERVER_URL: "http://127.0.0.1:9" }), /no aify-comms service URL/);
 });
 
 // ── how a failed call is REPORTED ────────────────────────────────────────────
