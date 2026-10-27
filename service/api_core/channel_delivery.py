@@ -380,3 +380,13 @@ async def live_resident_session(db, agent_id: str) -> bool:
     # normaliser, which reads 'managed-warm' as resident (test_session_mode_vocabularies_stay_apart.py).
     return (session is not None and session["mode"] == "resident"
             and str(session["status"] or "").strip().lower() in _LIVE_SESSION_STATUSES)
+
+
+async def live_managed_worker(db, agent_row) -> bool:
+    """True when the agent's current session is a managed one in a live status and its worker is live by
+    `_has_live_worker_for`: a worker its host would refuse to start again. Its comms bridge may be booting or may
+    have stopped reporting; either way a message queues for it rather than starting a second one (2026-10-27)."""
+    session = await _current_agent_session_row(db, agent_row["id"])
+    return (session is not None and session["mode"] == "managed-warm"
+            and str(session["status"] or "").strip().lower() in _LIVE_SESSION_STATUSES
+            and await _has_live_worker_for(db, agent_row))

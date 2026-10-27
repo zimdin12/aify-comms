@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
-from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
+from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console, live_managed_worker
 from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
@@ -111,7 +111,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                 # managed worker is actually backing this agent; absent it,
                 # drop the leftover terminal so the coldstart branch below
                 # fires and a managed-warm worker is spawned.
-                if console_terminal and not await _has_live_managed_wrapper_child(db, recipient_id):
+                if console_terminal and not await _has_live_managed_wrapper_child(db, recipient_id) and not await live_managed_worker(db, row):
                     console_terminal = None
                 if not console_terminal:
                     console_terminal = await _ensure_managed_pty_for_dispatch(

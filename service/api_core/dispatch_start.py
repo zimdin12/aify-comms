@@ -45,7 +45,7 @@ from typing import Any, Optional
 from fastapi import HTTPException
 
 from service.api_core.agent_sessions import _session_handle_live_owner
-from service.api_core.channel_delivery import _has_live_worker_for, live_resident_session
+from service.api_core.channel_delivery import _has_live_worker_for, live_managed_worker, live_resident_session
 from service.api_core.definition_start import (
     CHANGED_WHILE_STARTING,
     StartRefused,
@@ -178,6 +178,17 @@ async def _coldstart_spawn_request_for_dispatch(
         return _coldstart_refusal(warnings, twin)
     if binding is None:
         return _coldstart_refusal(warnings, undefined_refusal(agent_id))
+    # A LIVE WORKER IS NOT STARTED AGAIN (2026-10-27). Its host refuses a second worker beside a live one, and
+    # settling that refused spawn ended the live session's row: comms-senior-dev's bridge stopped reporting while
+    # its terminal and session stayed live. The same answer, given here, creates and ends nothing.
+    if _agent_row is not None and await live_managed_worker(db, _agent_row):
+        live = await (await db.execute(
+            "SELECT id FROM terminal_sessions WHERE agent_id = ? AND status NOT IN ('stopped', 'failed') "
+            "ORDER BY updated_at DESC LIMIT 1", (agent_id,))).fetchone()
+        return _coldstart_refusal(
+            warnings,
+            f"its worker is still live{f' on terminal {live[0]}' if live else ''}, so a second one would be refused; "
+            "the message waits for that worker's comms bridge to report again")
 
     # Don't pile up duplicate cold-starts — a queued/claimed/recently-running spawn_request
     # is already a (possibly mid-boot) backing for this agent. Bug D fix (2026-07-02): the
