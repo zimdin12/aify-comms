@@ -35,7 +35,7 @@ Priority = Literal["normal", "high", "urgent"]
 
 COMMS_SEND_DESCRIPTION = (
     "Send a message to an agent by ID, or to every agent with a role. `dashboard` stores it for the operator without waking anyone: send there what they asked for, and problems that need a human. "
-    "A new message to an offline, stopped or misconfigured target, or one with no live wake path, is saved unwoken (older services refuse it); the answer says which. A reply is always stored. An `available` managed agent is cold-started by the send, and a `blocked` one gets it too. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. "
+    "A new message to an offline, stopped or misconfigured target, or one with no live wake path, is saved unwoken; the answer says which. A reply is always stored. An `available` managed agent is cold-started by the send, and a `blocked` one gets it too. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. "
     'REPLY WITH A TOOL CALL: comms_send(type="response", inReplyTo=<the message id>). That call is the reply and closes the run; your final plain text is never delivered. Requests, reviews, errors and dashboard asks owe a reply. Leave a response, approval, info or acknowledgement with no new question or work unanswered. Answer input typed into your terminal there. '
     "Omit requireReply to keep the type default: request, review and error owe a reply, the rest do not. Set requireReply=true to track a reply on the rest. If you set requireReply=false on a request, review or error, the recipient is told no reply is tracked while the Work Loop still tracks one. requireReply never affects waking."
 )

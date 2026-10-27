@@ -17,7 +17,7 @@ from pathlib import Path
 SSE_SERVER = Path(__file__).resolve().parents[2] / "mcp" / "sse_server.py"
 
 #: Bytes, measured. Lower it when the list shrinks; the failure message gives the number.
-CEILING = 24500
+CEILING = 18695
 #: How far below CEILING the list may sit before the ceiling must come down to keep the saving.
 SLACK = 100
 
@@ -36,3 +36,23 @@ def test_the_tool_list_is_held_at_its_size():
     assert count >= 30, f"only {count} tools listed; the measurement would be about the wrong thing"
     assert size <= CEILING, f"tools/list grew to {size} bytes over its ceiling of {CEILING}: pay for new bytes elsewhere"
     assert size > CEILING - SLACK, f"tools/list shrank to {size} bytes: lower CEILING to {size} to keep the saving"
+
+
+def test_the_published_schema_drops_only_what_an_agent_cannot_use():
+    """compact_schema: titles and `anyOf: [T, null]` / `default: null` go; a real union and a real default stay."""
+    from service.sse.registration import compact_schema
+
+    schema = {"title": "Args", "type": "object", "required": ["a"], "properties": {
+        "a": {"title": "A", "type": "string", "description": "kept"},
+        "b": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}], "default": None, "title": "B"},
+        "c": {"anyOf": [{"type": "string"}, {"type": "integer"}], "title": "C"},
+        "d": {"type": "boolean", "default": True, "title": "D"},
+        "title": {"type": "string", "title": "Title"},
+    }}
+    assert compact_schema(schema) == {"type": "object", "required": ["a"], "properties": {
+        "title": {"type": "string"},
+        "a": {"type": "string", "description": "kept"},
+        "b": {"type": "integer", "minimum": 1},
+        "c": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+        "d": {"type": "boolean", "default": True},
+    }}

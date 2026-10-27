@@ -115,7 +115,7 @@ async def comms_channel_list():
 
 
 async def comms_channel_delete(ctx: Context, channel: str = Field(description="Channel name to delete")):
-    """DESTRUCTIVE. Deletes a channel YOU created, its membership and EVERY message posted to it, shared history for every member. There is no undo. To stop receiving a channel, LEAVE it: deleting ends it for everybody. Only the creator may delete it."""
+    """DESTRUCTIVE. Deletes a channel YOU created, its membership and EVERY message posted to it, shared history for every member. There is no undo. To stop receiving a channel, LEAVE it: deleting ends it for everybody."""
     try:
         await call("DELETE", f"{_path(channel)}?requestedBy={quote(caller_id(ctx), safe='')}")
     except Exception as error:  # noqa: BLE001 - worded as the JS tool words it

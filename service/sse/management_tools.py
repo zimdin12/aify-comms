@@ -20,7 +20,7 @@ async def comms_clear(
     agentId: str | None = Field(default=None, description="Limit to one agent for target=inbox or target=agents"),
     olderThanHours: float | None = Field(default=None, description="Only clear items older than N hours"),
 ):
-    """DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes data for the WHOLE hub, not just for you. Without agentId, inbox and agents reach every agent and shared every artifact — other teams included. There is no undo and no confirmation prompt; the only safety is this sentence. Do NOT use it to tidy your own inbox (reading them marks them read; just leave them) or to remove one agent (use comms_remove_agent). Scope it as narrowly as the task allows: pass agentId, and prefer olderThanHours over a bare wipe. If you did not explicitly decide to destroy shared history, you want a different tool."""
+    """DESTRUCTIVE AND IRREVERSIBLE: deletes data for the WHOLE hub, not only yours. Without agentId, inbox and agents reach every agent and shared every artifact, other teams included. No undo, no confirmation. Not for tidying your inbox (reading marks it read) or removing one agent (comms_remove_agent). Pass agentId and prefer olderThanHours. If you did not decide to destroy shared history, use another tool."""
     body = {"target": target}
     if agentId is not None:
         body["agentId"] = agentId
