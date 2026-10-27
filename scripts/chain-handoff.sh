@@ -6,8 +6,8 @@
 # THE CHAIN IS ENTERED ONCE. install.sh calls this only with neither `--acquire-only` nor `--assets-only` and with no
 # AIFY_INSTALL_CHAIN mark, and the chain calls install.sh back only in those two modes. So the chain runs once.
 #
-# PRE-KEY REFUSALS. Options the chain does not carry (`--with-hook`, `--mcp-transport`,
-# `--env-endpoint`; install.sh passes them as WITH_HOOK, MCP_TRANSPORT and ENV_ENDPOINT_GIVEN) are refused first, then
+# PRE-KEY REFUSALS. Options the chain does not carry (`--with-hook`, `--env-endpoint`; install.sh passes them as
+# WITH_HOOK and ENV_ENDPOINT_GIVEN) are refused first, then
 # aify-env's place is settled and npm's write destinations checked. Only then is the key resolved, which can write
 # .env (`--with-api-key` generates one, WITH_API_KEY; an answer to the ask is kept), before anything is installed.
 #
@@ -38,7 +38,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 uncarried=""
 [ "${WITH_HOOK:-false}" = true ] && uncarried="$uncarried --with-hook"
-[ -n "${MCP_TRANSPORT:-}" ] && uncarried="$uncarried --mcp-transport"
 [ "${ENV_ENDPOINT_GIVEN:-false}" = true ] && uncarried="$uncarried --env-endpoint"
 if [ -n "$uncarried" ]; then
   echo "install.sh:$uncarried: not carried by the guided-install chain yet, so nothing was written." >&2

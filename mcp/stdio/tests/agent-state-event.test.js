@@ -255,20 +255,13 @@ test("G5 an aify-env that never answers and a stdin nobody closes cannot hold th
   }
 });
 
-test("G5 managed codex and hermes MCP configs forward the host-minted binding", async (t) => {
+// Hermes' entry is the service's /mcp/http since 0.9.11: no MCP child to forward the binding to.
+test("G5 the managed codex MCP config forwards the host-minted binding", async () => {
   const { managedCodexConfigText } = await import("../runtimes-codex.js");
-  const { aifyEntryLines } = await import("../../../scripts/hermes-mcp-config.mjs");
   const codex = managedCodexConfigText({ serverUrl: "http://127.0.0.2:9" });
-  const hermes = aifyEntryLines({ serverPath: SCRIPT }).join("\n");
-  await t.test("codex", () => {
-    assert.match(codex, /^hooks = false$/m, "managed Codex keeps its app-server turn source, not installed hooks");
-    for (const name of ["AIFY_ENV_URL", "AIFY_ENV_INSTANCE", "AIFY_LIFETIME"])
-      assert.ok(codex.match(/^env_vars = .+$/m)[0].includes(`"${name}"`), `codex ${name}`);
-  });
-  await t.test("hermes", () => {
-    for (const name of ["AIFY_ENV_URL", "AIFY_ENV_INSTANCE", "AIFY_LIFETIME"])
-      assert.ok(hermes.includes(`${name}: "\${${name}}"`), `hermes ${name}`);
-  });
+  assert.match(codex, /^hooks = false$/m, "managed Codex keeps its app-server turn source, not installed hooks");
+  for (const name of ["AIFY_ENV_URL", "AIFY_ENV_INSTANCE", "AIFY_LIFETIME"])
+    assert.ok(codex.match(/^env_vars = .+$/m)[0].includes(`"${name}"`), `codex ${name}`);
 });
 
 test("G5 test children cannot inherit a live env lifetime", () => {

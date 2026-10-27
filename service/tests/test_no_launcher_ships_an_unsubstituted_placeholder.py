@@ -66,11 +66,6 @@ def test_no_client_renders_a_literal_placeholder():
     )
 
 
-def test_the_http_transport_renders_clean_too():
-    """The non-default arm. A placeholder reachable only under a flag is still shipped text."""
-    assert _leftover(render("claude", "--mcp-transport", "http")) == {}
-
-
 def test_help_runs_clean_and_says_nothing_on_stderr():
     """`bash -n` parses; it does not run. Stray text above `set -euo pipefail` is valid shell that
     executes as a command, so a documentation line pasted into the file header becomes a
@@ -84,4 +79,4 @@ def test_help_runs_clean_and_says_nothing_on_stderr():
     )
     assert result.returncode == 0, result.stderr
     assert result.stderr.strip() == "", f"--help wrote to stderr: {result.stderr!r}"
-    assert "--mcp-transport" in result.stdout, "the transport flag is undocumented in --help"
+    assert "--client" in result.stdout, "--help printed no usage"

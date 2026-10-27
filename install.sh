@@ -65,9 +65,6 @@ Examples:
                                 aify-env hosts every managed spawn. --delegate-spawns [url] is
                                 accepted as its old name; --no-delegate-spawns does nothing.
   Existing notification hooks refresh automatically; new legacy hooks need --standalone --with-hook.
-  --mcp-transport <stdio|http>  how agents reach the comms tools. Default stdio: the local
-                                bridge from ~/.aify-comms. http: the service's <endpoint>/mcp/http,
-                                claude-aify adding it per launch (0.9.11).
   --standalone runs only this installer; plain installs use the guided chain.
   --client pi is intentionally disabled: Pi (`omp --mode rpc`) is deprecated.
   --client opencode is intentionally disabled: OpenCode is not supported.
@@ -75,7 +72,7 @@ EOF
 }
 
 while [ $# -gt 0 ]; do
-  case "$1" in --client|--mcp-transport|--emit-*wrappers) [ $# -ge 2 ] || { echo "install.sh: $1 needs a value" >&2; exit 1; } ;; esac
+  case "$1" in --client|--emit-*wrappers) [ $# -ge 2 ] || { echo "install.sh: $1 needs a value" >&2; exit 1; } ;; esac
   case "$1" in
     --client)
       CLIENT="${2:-}"
@@ -98,19 +95,6 @@ while [ $# -gt 0 ]; do
       ;;
     --no-delegate-spawns)
       shift
-      ;;
-    --mcp-transport)
-      # `stdio` spawns the local bridge from ~/.aify-comms; `http` reaches <endpoint>/mcp/http.
-      # Default stdio: repointing a live fleet is not a side effect.
-      # Refused rather than defaulted, or an ignored value renders a launcher that disagrees with
-      # what was asked for -- the same failure the unsubstituted placeholder caused one level up.
-      MCP_TRANSPORT="${2:-}"
-      case "$MCP_TRANSPORT" in
-        stdio|http) ;;
-        *) echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio or http)" >&2
-           exit 78 ;;
-      esac
-      shift 2
       ;;
     --prebuild-dry-run)
       PREBUILD_DRY_RUN=true
@@ -499,7 +483,8 @@ render_wrapper_template() {
   # THE TRANSPORT BRANCH: both arms are in every template and this picks the live one. Unsubstituted
   # until 2026-08-24, so every launcher carried the literal `@@MCP_TRANSPORT@@`, compared it to "sse",
   # and took the stdio arm by accident -- while aify-wrapper's installer had substituted it all along.
-  pairs+=("MCP_TRANSPORT=${MCP_TRANSPORT:-stdio}")
+  # 0.9.11: Claude and hermes take the comms tools from the service's /mcp/http; codex-aify has no such arm.
+  pairs+=("MCP_TRANSPORT=http")
   # WHICH SERVICE THIS LAUNCHER IS FOR. Same shape as the line above, one parameter later, which is
   # why no-unsubstituted-placeholder.test.js derives the check instead of listing known placeholders.
   pairs+=("SERVICE_NAME=aify-comms")
@@ -1107,21 +1092,10 @@ _patch_hermes_config_at() {
   local config_file="$1"
   local config_dir=""
   local node_config_file=""
-  local node_server_path=""
   config_dir="$(dirname "$config_file")"
   mkdir -p "$config_dir"
   touch "$config_file"
   node_config_file="$(path_for_node "$config_file")"
-  # Only convert to a Windows drive path when hermes actually runs as a native
-  # Windows binary. On WSL with a Linux hermes, path_for_windows_runtime would
-  # emit "D:\..." which Linux node can't open — the aify-comms MCP child then
-  # exits instantly ("Connection closed"), so no in-hermes bridge claims
-  # channel dispatches and managed hermes never answers. Mirror of the plugin
-  # path guard in install_hermes_wrapper.
-  node_server_path="$AIFY_BRIDGE_DIR/server.js"
-  if hermes_runtime_is_native_windows; then
-    node_server_path="$(path_for_windows_runtime "$node_server_path")"
-  fi
 
   # The entry itself is built by scripts/hermes-mcp-config.mjs. It lived HERE as ~90 lines of
   # JavaScript inside a single-quoted bash string, and that is precisely why a missing API key
@@ -1129,20 +1103,20 @@ _patch_hermes_config_at() {
   # prove that a line was written. As a module it is run by its test instead.
   local api_key; api_key="$(aify_api_key)"
   # THE SCRIPT PATH NEEDS CONVERTING AND THE ARGUMENTS MUST NOT BE. `MSYS_NO_PATHCONV=1` is here for
-  # the arguments -- two are already drive-letter paths that a second conversion would mangle -- but
+  # the arguments -- the config path is already a drive-letter path a second conversion would mangle -- but
   # it also suppresses conversion of this script's OWN path, so native node.exe was handed a literal
   # `/c/Docker/...`, resolved it against the drive root, and died with "Cannot find module
   # C:\c\Docker\...". Caught by a redeploy 2026-08-31; hermes MCP registration had been failing since
   # 9a2cfdca introduced this line the day before, and the installer reported it as a whole-client
   # failure rather than the one step that broke.
   #
-  # Guarded on `is_git_bash_windows`, NOT `hermes_runtime_is_native_windows` as the two call sites
+  # Guarded on `is_git_bash_windows`, NOT `hermes_runtime_is_native_windows` as the call sites
   # above are: those convert paths a native HERMES will later read, while this one is consumed by the
   # installer's own `node` -- which under WSL is Linux node and must keep its POSIX path.
   local cfg_mjs="$SCRIPT_DIR/scripts/hermes-mcp-config.mjs"
   if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then cfg_mjs="$(cygpath -w "$cfg_mjs")"; fi
   MSYS_NO_PATHCONV=1 node "$cfg_mjs" \
-    "$node_config_file" "$node_server_path" "$SERVER_URL" "$api_key" "${MCP_TRANSPORT:-stdio}"
+    "$node_config_file" "$SERVER_URL" "$api_key"
 }
 
 install_hermes_plugin() {
@@ -1804,14 +1778,14 @@ register_stdio_server() {
   local cli="$1"
   local server_name="aify-comms"
   local api_key; api_key="$(aify_api_key)"
-  local -a scope_args=()
 
   if [ "$cli" = "claude" ]; then
-    scope_args=(--scope user)
+    # 0.9.11: no machine-wide entry. claude-aify adds the service's /mcp/http per launch, naming its agent
+    # (mcp/stdio/comms-http-entry.mjs); an entry left from an older install is removed at every scope.
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
-    [ "${MCP_TRANSPORT:-}" = http ] && return  # claude-aify adds it per launch (mcp/stdio/comms-http-entry.mjs)
+    return
   elif [ "$cli" = "hermes" ]; then
     install_hermes_config
     return
@@ -1821,7 +1795,6 @@ register_stdio_server() {
 
   if [ -n "$SERVER_URL" ] && [ -n "$api_key" ]; then
     "$cli" mcp add "$server_name" \
-      "${scope_args[@]}" \
       --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env AIFY_API_KEY="$api_key" \
@@ -1829,13 +1802,11 @@ register_stdio_server() {
       -- node "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add "$server_name" \
-      "${scope_args[@]}" \
       --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       -- node "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
   else
     "$cli" mcp add "$server_name" \
-      "${scope_args[@]}" \
       -- node "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
   fi
 
@@ -1916,7 +1887,7 @@ fi
 
 # A plain run hands off once to aify-env's chain (S2) and ends with its status, BEFORE this installer resolves, makes
 # or stores any key: the handoff refuses what it cannot carry first, then resolves the key itself. --standalone stays.
-if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY="$WITH_API_KEY" WITH_HOOK="$WITH_HOOK" MCP_TRANSPORT="${MCP_TRANSPORT:-}" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
+if [ -z "$MODE" ] && [ -z "${AIFY_INSTALL_CHAIN:-}" ]; then WITH_API_KEY="$WITH_API_KEY" WITH_HOOK="$WITH_HOOK" ENV_ENDPOINT_GIVEN="$ENV_ENDPOINT_GIVEN" bash "$SCRIPT_DIR/scripts/chain-handoff.sh" "$CLIENT" "$SERVER_URL" "$SCRIPT_DIR/install.sh"; exit $?; fi
 # The full path's key: settled BEFORE the first config that carries it, NOT gated on `--with-api-key` (it GENERATES one;
 # gating the carry left clients 401'ing: test_install_carries_the_key_to_the_env*). ONE SCRIPT decides "what key" (H8).
 # Skipped in the chain's modes: the chain took the key and connect published it, which the bridge reads for its endpoint.
