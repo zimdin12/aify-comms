@@ -228,3 +228,37 @@ test("the config module's own path is CONVERTED for a native-Windows node", () =
   assert.match(between, /is_git_bash_windows/,
                "the conversion is unguarded, which would hand Linux node a Windows path under WSL");
 });
+
+// The guided chain installs assets with no key (aify-env holds it), so the CLI is handed an empty one. The entry is
+// where hermes reads the key, so the CLI resolves it the way every comms process does: the credential aify-env holds
+// for exactly this endpoint (review of switch 1ed207d2). Control: a credential bound to another endpoint is not used.
+for (const [bound, expected] of [["http://127.0.0.1:8899", "fixture-held-key"], ["http://127.0.0.1:9999", null]]) {
+  test(`an install with no key gives hermes the credential aify-env holds for ${bound === URL_ ? "this" : "another"} endpoint`, async () => {
+    const { execFileSync, spawnSync } = await import("node:child_process");
+    const { sealedChildEnv } = await import("./_child-env.mjs");
+    const home = tmpDir("aify-hermes-held-key-");
+    try {
+      const credentials = path.join(home, ".aify", "credentials");
+      fs.mkdirSync(credentials, { recursive: true });
+      const credential = path.join(credentials, "aify-comms-fixture.key");
+      fs.writeFileSync(credential, "fixture-held-key\n", { mode: 0o600 });
+      if (process.platform === "win32") {
+        execFileSync("icacls", [credential, "/inheritance:r", "/grant:r", `${process.env.USERNAME}:(F)`], { stdio: "ignore" });
+      }
+      const registry = path.join(home, ".aify", "services.json");
+      fs.writeFileSync(registry, JSON.stringify({ services: { "aify-comms": { endpoint: bound, credentialRef: "aify-comms-fixture.key" } } }));
+      const config = path.join(home, "config.yaml");
+      const run = spawnSync(process.execPath, [path.join(REPO, "scripts", "hermes-mcp-config.mjs"), config, URL_, ""], {
+        encoding: "utf8", timeout: 30_000,
+        env: sealedChildEnv({ HOME: home, USERPROFILE: home, AIFY_SERVICE_REGISTRY: registry }),
+      });
+      assert.equal(run.status, 0, run.stderr);
+      const text = fs.readFileSync(config, "utf8");
+      assert.match(text, /X-Aify-Agent-Id/, "CONTROL: the entry was written");
+      if (expected) assert.match(text, new RegExp(`X-API-Key: "${expected}"`));
+      else assert.doesNotMatch(text, /X-API-Key/, "a credential for another endpoint must not be sent here");
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+}

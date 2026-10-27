@@ -118,5 +118,9 @@ export function patchHermesConfigFile(file, options) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [file, serverUrl = "", apiKey = ""] = process.argv.slice(2);
-  patchHermesConfigFile(file, { serverUrl, apiKey });
+  // An assets-only install (the guided chain) passes no key: aify-env holds it, and this entry is where hermes reads
+  // it. So it is resolved here, bound to this endpoint, the one way every comms process resolves it: an exported key,
+  // else the credential aify-env holds for exactly this endpoint (review of switch 1ed207d2).
+  const resolve = async () => (await import("../mcp/stdio/aify-service-endpoint.mjs")).destinationKeyResolver(serverUrl)(serverUrl);
+  patchHermesConfigFile(file, { serverUrl, apiKey: apiKey || (serverUrl ? await resolve() : "") });
 }
