@@ -139,5 +139,49 @@
     ],
     "text": "Quota pools (% remaining):\n- anthropic-max: weekly 42% left, 5h 80% left",
     "isError": false
+  },
+  {
+    "name": "percentages the service sends as floats",
+    "tool": "comms_usage",
+    "args": {},
+    "routes": {
+      "GET /usage": {
+        "body": {
+          "pools": [
+            {
+              "source_id": "openai",
+              "weekly": {
+                "left_pct": 44
+              },
+              "five_hour": {
+                "left_pct": 12.5
+              }
+            }
+          ]
+        }
+      },
+      "GET /agents/agent-a": {
+        "body": {
+          "agent": {
+            "usageSource": "openai",
+            "poolWeeklyPctLeft": 44
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/usage",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-a",
+        "body": null
+      }
+    ],
+    "text": "Quota pools (% remaining):\n- openai: weekly 44% left, 5h 12.5% left\nYou (agent-a) → openai: 44% weekly left",
+    "isError": false
   }
 ]

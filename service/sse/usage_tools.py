@@ -14,11 +14,12 @@ from mcp.server.fastmcp import Context
 from service.sse.registration import register_tools
 from service.sse.api_client import call
 from service.sse.caller import caller_or_none
+from service.sse.tool_format import js_number
 
 
 def _left(window) -> str:
     pct = (window or {}).get("left_pct")
-    return "?" if pct is None else f"{pct}%"
+    return "?" if pct is None else f"{js_number(pct)}%"
 
 
 def _pool_line(pool: dict) -> str:
@@ -34,7 +35,7 @@ def personal_quota_line(agent_id: str, agent: dict) -> str:
     if not agent_id or not source:
         return ""
     weekly = agent.get("poolWeeklyPctLeft")
-    left = "?" if weekly is None else f"{weekly}%"
+    left = "?" if weekly is None else f"{js_number(weekly)}%"
     severity = str(agent.get("poolSeverity") or "").strip().lower() or ("critical" if agent.get("quotaCritical") else "")
     tag = f" [{severity}]" if severity and severity != "normal" else ""
     return f"\nYou ({agent_id}) → {source}: {left} weekly left{tag}"
