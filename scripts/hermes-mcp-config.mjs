@@ -113,11 +113,18 @@ function blockEnd(lines, start, indent) {
   return lines.length;
 }
 
-/** The top-level key a line sits under, or "" above the first one. */
+/** The top-level key a line sits under, unquoted, or "" above the first one. */
 function sectionOf(lines, index) {
-  for (let j = index; j >= 0; j--) if (isTopLevelKey(lines[j])) return lines[j].split(":")[0].trim();
+  for (let j = index; j >= 0; j--) if (isTopLevelKey(lines[j])) return lines[j].split(":")[0].trim().replace(/^(["'])(.*)\1$/, "$2");
   return "";
 }
+
+// A key line as YAML reads it: plain or quoted, a trailing comment allowed. A quoted `"aify-comms":` the matcher
+// missed was left beside the new entry, and a YAML reader kept the old one (review of switch 1ed207d2).
+const keyLine = (indent, name) => new RegExp(`^ {${indent}}(["']?)${name}\\1:[ \\t]*(?:#.*)?$`);
+const ENTRY_KEY = keyLine(2, "aify-comms");
+const SECTION_KEY = keyLine(0, "mcp_servers");
+const COMMAND_KEY = /^ {4}(["']?)command\1:/;
 
 // Preserve operator temp-directory pins from this entry only, including their YAML value blocks.
 function explicitTempPins(entryLines) {
@@ -154,18 +161,18 @@ export function configWithAifyEntry(text, options) {
   const lines = String(text || "").replace(/\s*$/, "").split(/\r?\n/);
 
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (!/^  aify-comms:[ \t]*$/.test(lines[i]) || sectionOf(lines, i) === "mcp_servers") continue;
+    if (!ENTRY_KEY.test(lines[i]) || sectionOf(lines, i) === "mcp_servers") continue;
     const end = blockEnd(lines, i, 2);
-    if (lines.slice(i + 1, end).some((line) => /^    command:/.test(line))) lines.splice(i, end - i);
+    if (lines.slice(i + 1, end).some((line) => COMMAND_KEY.test(line))) lines.splice(i, end - i);
   }
 
-  const mcpIndex = lines.findIndex((line) => /^mcp_servers:[ \t]*$/.test(line));
+  const mcpIndex = lines.findIndex((line) => SECTION_KEY.test(line));
   if (mcpIndex < 0) {
     const head = lines.filter(Boolean).join("\n");
     return `${head}${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`;
   }
   const sectionEnd = blockEnd(lines, mcpIndex, 0);
-  const existing = lines.findIndex((line, i) => i > mcpIndex && i < sectionEnd && /^  aify-comms:[ \t]*$/.test(line));
+  const existing = lines.findIndex((line, i) => i > mcpIndex && i < sectionEnd && ENTRY_KEY.test(line));
   if (existing >= 0) {
     const end = blockEnd(lines, existing, 2);
     const pins = explicitTempPins(lines.slice(existing, end));
