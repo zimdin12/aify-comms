@@ -28,6 +28,7 @@ import { normalizeSessionMode } from "./session-mode.mjs";
 import { spawnTriggeredAgent } from "./spawn-triggered-agent.mjs";
 import { formatSendRefusal, formatTriggeredSendResult } from "./send-result-format.mjs";
 import { formatQueuedRun } from "./tool-response-format.mjs";
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
 // EVERY AGENT PAYS THIS ON EVERY TURN. `tools/list` is always-loaded context, so a sentence here is
 // not written once -- it is re-read by every agent on every turn for the life of the fleet. It was
@@ -104,7 +105,7 @@ export function registerSendTools(server, z) {
           return rid;
         });
         return {
-          content: [{ type: "text", text: `Sent (${r.messageId}) to ${statusParts.join(", ")}. Subject: ${subject}` }],
+          content: [{ type: "text", text: `Sent (${r.messageId}) to ${statusParts.join(", ")}. Subject: ${quoteUntrustedSubject(subject, 240)}` }],
         };
       }
 

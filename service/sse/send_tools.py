@@ -1,119 +1,153 @@
-"""Sending work to another agent.
+"""Sending work to an agent or a channel (port of `mcp/stdio/send-tools.mjs`, service mode).
 
-Extracted from `mcp/sse_server.py` in v0.5.4 — bodies untouched. `comms_send` is the one way to hand
-work to an agent (DECISIONS.md, 0.7.5); it already fails visibly when live delivery is impossible.
+The sender is the request's header, never an argument. The send returns before anything claims the
+work, so every reply says what was CREATED and names who was NOT started; an agent that reads a hopeful
+ack reports a delivery that never happened (sc-manager, 2026-08-18).
 
-IT RENDERS WHO WILL *NOT* RECEIVE THE MESSAGE. A reply that names only the launched recipients lets
-a caller believe a team was reached when half of it was skipped — the same wrong-belief shape the
-channel and search renderers were audited for.
-
-`steer` and `queueIfBusy` are not independent: queueing and steering are opposite delivery choices,
-so `queueIfBusy=true` forces steer off in the request regardless of what was asked for.
-
-Patch `_api` HERE, not on the transport: the tool resolves it from this module.
+`queueIfBusy=true` forces steer off: queueing and steering are opposite delivery choices. An unset
+optional field is left out of the request, as the JS bridge's JSON leaves out `undefined`.
 """
 
 from __future__ import annotations
 
-from service.api_core.reply_expectation import _message_type_expects_reply
+import re
+import uuid
+from typing import Literal
+from urllib.parse import quote
+
+from mcp.server.fastmcp import Context
+from pydantic import Field
+
 from service.api_core.serialization import _quote_untrusted_subject
-from service.sse.api_client import api as _api
+from service.sse.api_client import call
+from service.sse.caller import caller_id
+from service.sse.registration import register_tools
+from service.sse.rendering import tool_error
+from service.sse.tool_format import awaiting_reply_note, format_queued_run
+
+ACK_NOTE = (" This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...)"
+            " before reporting delivery to anyone.")
+INCOMPLETE = "The service's answer was incomplete (no usable message id): whether it was stored or woken is not known."
+SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\Z")
+
+MessageType = Literal["request", "response", "info", "error", "review", "approval"]
+Priority = Literal["normal", "high", "urgent"]
+
+COMMS_SEND_DESCRIPTION = (
+    "Send a message to an agent by ID, or to every agent with a role. `dashboard` stores it for the operator without waking anyone: send there what they asked for, and problems that need a human. "
+    "A new message to an offline, stopped or misconfigured target, or one with no live wake path, is saved unwoken (older services refuse it); the answer says which. A reply is always stored. An `available` managed agent is cold-started by the send, and a `blocked` one gets it too. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. "
+    'REPLY WITH A TOOL CALL: comms_send(type="response", inReplyTo=<the message id>). That call is the reply and closes the run; your final plain text is never delivered. Requests, reviews, errors and dashboard asks owe a reply. Leave a response, approval, info or acknowledgement with no new question or work unanswered. Answer input typed into your terminal there. '
+    "Omit requireReply to keep the type default: request, review and error owe a reply, the rest do not. Set requireReply=true to track a reply on the rest. If you set requireReply=false on a request, review or error, the recipient is told no reply is tracked while the Work Loop still tracks one. requireReply never affects waking."
+)
 
 
-def awaiting_reply_note(from_agent: str, to: str, type: str, requireReply: bool | None = None) -> str:
-    """What the sender knows until the reply arrives. The stdio twin is `awaitingReplyNote` in
-    `mcp/stdio/tool-response-format.mjs` (v0.7, H-A2); said only when a reply is tracked (an explicit
-    requireReply wins over the type, as in `_dispatch_requires_reply`), and never on a message to
-    yourself, which IS your own next turn."""
-    owed = requireReply is True or (requireReply is not False and _message_type_expects_reply(type))
-    if not owed or (to and to == from_agent):
-        return ""
-    return (
-        " The reply arrives as a new message that wakes you; until it does you know nothing about its"
-        " result, so do not report, predict or redo that work."
-    )
+def _set(**fields) -> dict:
+    return {key: value for key, value in fields.items() if value is not None}
+
+
+def _unavailable(r: dict) -> str:
+    skipped = [f"{x.get('targetAgentId')}: {x.get('reason')}" + (f" ({x['recipientStatus']})" if x.get("recipientStatus") else "")
+               for x in r.get("notStarted") or []]
+    return f"\nUnavailable: {'; '.join(skipped)}" if skipped else ""
+
+
+def _stored_id(r: dict) -> str:
+    message_id = r.get("messageId")
+    return message_id if isinstance(message_id, str) and message_id.strip() else ""
+
+
+def _triggered_result(r: dict, from_agent: str, to: str | None, type: str, require_reply: bool | None) -> str:
+    if r.get("replayed"):
+        if not _stored_id(r):
+            return INCOMPLETE
+        return (f"Already sent: this matched an earlier send of the same message ({_stored_id(r)}), which the service stored. "
+                "Whether that send woke its recipients is not known from this answer, and nothing was woken again.")
+    queued = [format_queued_run(x) for x in r.get("dispatchRuns") or []]
+    consoles = [x.get("agentId") or x.get("targetAgentId") or x.get("terminalId") for x in r.get("consoleDeliveries") or []]
+    consoles = [c for c in consoles if c]
+    unwoken = [f"{x.get('targetAgentId')}: {x.get('reason')}" for x in r.get("notStarted") or []]
+    lines = []
+    if queued:
+        lines.append(f"Sent. Dispatch: {', '.join(queued)}.{ACK_NOTE}")
+    if consoles:
+        lines.append(f"Sent. Typed into the console of {', '.join(consoles)} (queued input, not proof the agent read it).")
+    if unwoken:
+        lines.append(f"Saved in the inbox, not woken: {'; '.join(unwoken)}.")
+        if r.get("notice"):
+            lines.append(r["notice"])
+    if not lines:
+        lines.append(f"Stored ({_stored_id(r)}). Whether a wake happened is not known from this answer." if _stored_id(r) else INCOMPLETE)
+    return "\n".join(lines) + awaiting_reply_note(from_agent, to, type, require_reply)
 
 
 async def comms_send(
-    from_agent: str,
-    type: str,
-    subject: str,
-    body: str,
-    to: str = "",
-    toRole: str = "",
-    inReplyTo: str = "",
-    priority: str = "normal",
-    silent: bool = False,
-    steer: bool | None = None,
-    queueIfBusy: bool = False,
-    requireReply: bool | None = None,
-) -> str:
-    """Send a live-gated message to an agent by ID or role. A new message to an offline, stopped, misconfigured or no-wake target fails without storing; a reply (inReplyTo or type=response) is stored anyway. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Reply tracking: omit requireReply for type defaults (request/review/error=true; info/response/approval=false); set true only when a normally optional message needs a tracked response; false on request/review/error tells the recipient no reply is tracked, yet the Work Loop still enrols them by type; on info/response/approval it changes nothing. requireReply does not control delivery or waking. Use silent=true only for legacy inbox-only delivery."""
+    ctx: Context,
+    type: MessageType = Field(description="Message type"),
+    subject: str = Field(description="Short subject"),
+    body: str = Field(description="Message content"),
+    to: str | None = Field(default=None, description="Target agent ID"),
+    toRole: str | None = Field(default=None, description="Send to all agents with this role"),
+    priority: Priority | None = Field(default=None, description="Message priority (default: normal)"),
+    inReplyTo: str | None = Field(default=None, description="Message ID this replies to"),
+    steer: bool | None = Field(default=None, description="Default true: a busy target that can steer gets it between tool calls; one that cannot gets it next turn."),
+    queueIfBusy: bool | None = Field(default=None, description="true: deliver next turn, behind its current work, even if it could steer. Overrides steer."),
+    requireReply: bool | None = Field(default=None, description="Leave unset; see the description."),
+):
     if not to and not toRole:
-        return "Error: need 'to' or 'toRole'"
-    should_trigger = not silent
-    force_queue = bool(queueIfBusy)
-    data = {
-        "from_agent": from_agent,
-        "type": type,
-        "subject": subject,
-        "body": body,
-        "priority": priority,
-        "trigger": should_trigger,
-        "steer": False if force_queue else (steer if steer is not None else True),
-        "queueIfBusy": force_queue,
-        "requireReply": requireReply,
-    }
-    if to:
-        data["to"] = to
-    if toRole:
-        data["toRole"] = toRole
-    if inReplyTo:
-        data["inReplyTo"] = inReplyTo
-    r = await _api("POST", "/messages/send", data)
+        return tool_error("Error: need 'to' or 'toRole'")
+    sender = caller_id(ctx)
+    force_queue = queueIfBusy is True
+    r = await call("POST", "/messages/send", _set(
+        from_agent=sender, to=to, toRole=toRole, type=type, subject=subject, body=body, priority=priority or "normal",
+        inReplyTo=inReplyTo, trigger=True, steer=False if force_queue else (True if steer is None else steer),
+        queueIfBusy=force_queue, requireReply=requireReply, clientNonce=str(uuid.uuid4()),
+    ))
     if not r.get("ok"):
-        # SAY WHAT THE SERVICE SAID. This fell back to "No recipients found." for EVERY failure,
-        # so a 400 explaining that the target is stopped, a validation error naming the bad field,
-        # and a genuine empty recipient list all reached the agent as the same sentence — and only
-        # one of them was true. Reported by an external reviewer 2026-08-18 as a Low; it is the same
-        # family as the transport returning a confident empty on a 500, and it misleads in the same
-        # direction: the agent believes it knows why and stops looking.
-        #
-        # `detail` is FastAPI's shape and `error` is this API's; both are the service explaining
-        # itself, and the fallback is only for the case where it said nothing at all.
-        detail = r.get("error") or r.get("detail")
-        if isinstance(detail, list):  # FastAPI validation errors arrive as a list of dicts
-            detail = "; ".join(str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail)
-        return str(detail) if detail else "Send failed, and the service gave no reason."
-    if should_trigger and r.get("recipients"):
-        queued = [
-            f"{run.get('targetAgentId', '?')} [{run.get('status', 'queued')}]"
-            + (f" -> {run.get('runId')}" if run.get("runId") else "")
-            for run in r.get("dispatchRuns", [])
-        ]
-        skipped = [f"{item.get('targetAgentId', '?')}: {item.get('reason', 'not started')}" for item in r.get("notStarted", [])]
-        note = f"Sent + live delivery for {', '.join(queued) if queued else 'no launchable recipients'}."
-        if skipped:
-            note += f" Not started: {'; '.join(skipped)}."
-        note += " This reports what was CREATED, not what was delivered: confirm with comms_run_status(...)."
-        return note + awaiting_reply_note(from_agent, to, type, requireReply)
-    # The sender's OWN subject, read back to the sender — not the foreign-text case the quoter was
-    # built for. Quoted anyway so the rule has no exceptions: an echo site that is safe "because of
-    # who wrote the text" is one refactor away from being reached by text somebody else wrote, and a
-    # gate with a carve-out is a gate somebody has to re-justify.
-    return (
-        f"Sent ({r['messageId']}) to {', '.join(r['recipients'])}. "
-        f"Subject: {_quote_untrusted_subject(subject, 240)}"
-    )
+        return tool_error(f"{r.get('error') or 'Message was not sent.'}{_unavailable(r)}")
+    recipients = r.get("recipients") or []
+    dashboard_only = bool(recipients) and all(rid == "dashboard" for rid in recipients)
+    if r.get("replayed") or (recipients and not dashboard_only):
+        return _triggered_result(r, sender, to, type, requireReply)
+    parts = []
+    for rid in recipients:
+        info = (r.get("recipientStatus") or {}).get(rid)
+        parts.append(f"{rid} [{info.get('status')}, {info.get('unread')} unread]" if info else rid)
+    return f"Sent ({r.get('messageId')}) to {', '.join(parts)}. Subject: {_quote_untrusted_subject(subject, 240)}"
 
 
-#: Registered in the order they were declared in the transport. Named explicitly rather than swept
-#: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
-#: agent-callable tool by accident.
-TOOLS = (comms_send,)
+comms_send.__doc__ = COMMS_SEND_DESCRIPTION
+
+
+async def comms_channel_send(
+    ctx: Context,
+    channel: str = Field(description="Channel name"),
+    body: str = Field(description="Message content"),
+    type: MessageType | None = Field(default=None, description="Message type (default: info)"),
+    priority: Priority | None = Field(default=None, description="Message priority (default: normal)"),
+    steer: bool | None = Field(default=None, description="Default true: busy members that can steer get it between tool calls; the rest get it next turn."),
+    queueIfBusy: bool | None = Field(default=None, description="true: deliver next turn for everyone. Overrides steer."),
+):
+    """Post to a channel. The post and every member's inbox copy are always stored. Members that cannot be woken (offline, stopped, misconfigured, or no live wake path) are listed under Not started. Busy members are steered or queued as with comms_send."""
+    if not SAFE_NAME.match(channel):
+        return tool_error(f'Invalid channel name: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: "{channel}"')
+    force_queue = queueIfBusy is True
+    r = await call("POST", f"/channels/{quote(channel, safe='')}/send", {
+        "from_agent": caller_id(ctx), "channel": channel, "body": body, "type": type or "info", "priority": priority or "normal",
+        "trigger": True, "steer": False if force_queue else (True if steer is None else steer), "queueIfBusy": force_queue,
+    })
+    if not r.get("ok"):
+        return tool_error(f"{r.get('error') or f'Channel message to #{channel} was not sent.'}{_unavailable(r)}")
+    if r.get("dispatchRuns") or r.get("notStarted"):
+        queued = [format_queued_run(x) for x in r.get("dispatchRuns") or []]
+        skipped = [f"{x.get('targetAgentId')}: {x.get('reason')}" for x in r.get("notStarted") or []]
+        return (f"Sent to #{channel}. Dispatch: {', '.join(queued) or 'started'}. This ack reports what was CREATED, not what was"
+                " delivered -- confirm with comms_run_status(...) before reporting delivery."
+                + (f"\nNot started: {'; '.join(skipped)}" if skipped else ""))
+    return f"Sent to #{channel} ({len(r.get('members') or [])} members)."
+
+
+TOOLS = (comms_send, comms_channel_send)
 
 
 def register(mcp_server) -> None:
-    """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
-    for tool in TOOLS:
-        mcp_server.tool(structured_output=False)(tool)
+    register_tools(mcp_server, TOOLS)

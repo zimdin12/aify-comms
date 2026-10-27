@@ -14,8 +14,9 @@ for (const file of readdirSync(CASES_DIR).filter((name) => name.endsWith(".json"
   const target = path.join(CASES_DIR, file);
   const cases = JSON.parse(readFileSync(target, "utf8"));
   const recorded = [];
-  for (const { name, tool, args, routes } of cases) {
-    recorded.push({ name, tool, args, routes, ...(await runCase(client, service, { tool, args, routes })) });
+  // Everything but the recorded fields is the case as written, and is kept as written.
+  for (const { requests, text, isError, ...written } of cases) {
+    recorded.push({ ...written, ...(await runCase(client, service, written)) });
   }
   writeFileSync(target, `${JSON.stringify(recorded, null, 2)}\n`);
   console.log(`${file}: ${recorded.length} case(s)`);

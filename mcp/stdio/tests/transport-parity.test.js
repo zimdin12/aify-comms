@@ -125,12 +125,8 @@ const INTENTIONALLY_STDIO_ONLY = {
   comms_interrupt: "runtime-native interrupt needs a local process",
   // Host-local reads the SSE server cannot perform.
   comms_envs: "environment/bridge inventory of the local host",
-  // Not yet mirrored. These are the ones worth revisiting — comms_agent_info especially, since
-  // audit finding 1 made it the place production is reported and an SSE caller cannot see it.
-  comms_agent_info: "health surface, not yet mirrored — REVISIT: carries outbound activity since v0.3.1",
+  // Not yet mirrored. 0.9.11 slice 2 ports them, held to the JS by the tool-reply fixtures.
   comms_contracts: "reply-contract audit surface, not yet mirrored",
-  comms_status: "status/focus write, not yet mirrored",
-  comms_describe: "registration-adjacent, not yet mirrored",
   comms_unsend: "inbox management, not yet mirrored",
 };
 

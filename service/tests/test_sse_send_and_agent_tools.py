@@ -1,27 +1,16 @@
-"""Send, register and presence — driven for the first time.
+"""Register and presence on the service's tool copy.
 
-The last four `comms_*` tools without a test. `comms_send` is the most-called tool on this transport
-and the one whose reply a caller most often acts on without re-checking.
-
-WHAT IS PINNED IS WHO DOES *NOT* GET THE MESSAGE. A send can partially succeed: some
-recipients launch, others are declined, and a reply naming only the launched ones lets a caller
-believe a team was reached when half of it was skipped. That is the same wrong-belief shape as the
-channel and search renderers, in the tool that carries the most traffic.
-
-The flag interaction is pinned too. `steer` and `queueIfBusy` are opposite delivery choices, not
-independent switches, so asking for both must resolve one way and not silently send a contradiction
-to the server.
+Send, channels and the full presence rows are held by the reply fixtures
+(`test_tool_replies_match_the_js.py`); what stays here is what they do not reach: registration, and an
+agent row with fields missing.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 import unittest
-from pathlib import Path
 
 from service.sse import agent_tools as ag
-from service.sse import send_tools as st
 
 
 class _Api:
@@ -41,141 +30,6 @@ def _with_api(module, tool, payload, **kwargs):
         return asyncio.run(tool(**kwargs)), api
     finally:
         module._api = original
-
-
-class SendTests(unittest.TestCase):
-    def test_no_addressee_is_refused_before_the_api_is_called(self):
-        api = _Api({})
-        original, st._api = st._api, api
-        try:
-            out = asyncio.run(st.comms_send(from_agent="me", type="info", subject="s", body="b"))
-        finally:
-            st._api = original
-        self.assertEqual("Error: need 'to' or 'toRole'", out)
-        self.assertEqual([], api.calls, "a malformed send must not reach the server at all")
-
-    def test_the_reply_names_the_recipients_the_server_DECLINED_to_start(self):
-        out, _ = _with_api(
-            st, st.comms_send,
-            {"ok": True, "recipients": ["a", "b"],
-             "dispatchRuns": [{"targetAgentId": "a", "runId": "r1", "status": "queued"}],
-             "notStarted": [{"targetAgentId": "b", "reason": "offline"}]},
-            from_agent="me", type="info", subject="s", body="b", to="a",
-        )
-        self.assertIn("Not started: b: offline", out)
-        self.assertIn("a [queued] -> r1", out)
-
-    def test_an_owed_reply_tells_the_sender_it_knows_nothing_until_the_reply(self):
-        """H-A2 on this transport: the stdio ack said it and this one did not, so an SSE sender was
-        free to narrate a result it had not received. Info and a self-send owe nothing and stay quiet."""
-        payload = {"ok": True, "recipients": ["a"],
-                   "dispatchRuns": [{"targetAgentId": "a", "runId": "r1", "status": "queued"}]}
-        owed, _ = _with_api(st, st.comms_send, payload,
-                            from_agent="me", type="request", subject="s", body="b", to="a")
-        self.assertIn("until it does you know nothing about its result", owed)
-        # requireReply=False: the run is created with no reply contract, so none is promised (v0.7.2).
-        for kwargs in ({"type": "info", "to": "a"}, {"type": "request", "to": "me"},
-                       {"type": "request", "to": "a", "requireReply": False}):
-            quiet, _ = _with_api(st, st.comms_send, payload, from_agent="me", subject="s", body="b", **kwargs)
-            self.assertNotIn("know nothing", quiet, kwargs)
-
-    def test_the_awaiting_note_is_the_stdio_twin_word_for_word(self):
-        """Two transports telling one agent two different things is the drift this pins. Read from
-        the JS source, never retyped here."""
-        source = (Path(__file__).resolve().parents[2] / "mcp" / "stdio" / "tool-response-format.mjs").read_text(encoding="utf-8")
-        body = source[source.index("export function awaitingReplyNote"):]
-        match = re.search(r'return "( The reply arrives[^"]*)"', body)
-        self.assertIsNotNone(match, "the stdio note moved; this reader no longer finds it")
-        self.assertEqual(match.group(1), st.awaiting_reply_note("me", "peer", "request"))
-
-    def test_a_send_that_launched_nothing_says_so(self):
-        out, _ = _with_api(
-            st, st.comms_send,
-            {"ok": True, "recipients": ["a"], "dispatchRuns": [],
-             "notStarted": [{"targetAgentId": "a", "reason": "stale"}]},
-            from_agent="me", type="info", subject="s", body="b", to="a",
-        )
-        self.assertIn("no launchable recipients", out)
-
-    def test_a_failed_send_returns_the_server_error_not_a_success_line(self):
-        out, _ = _with_api(st, st.comms_send, {"ok": False, "error": "target is offline"},
-                           from_agent="me", type="info", subject="s", body="b", to="ghost")
-        self.assertEqual("target is offline", out)
-
-    def test_a_failed_send_with_no_error_still_does_not_claim_delivery(self):
-        """It also must not INVENT one. The fallback used to be "No recipients found.", which was a
-        specific claim about why — asserted for every failure, including the ones that had a reason
-        and the ones that had nothing to do with recipients."""
-        out, _ = _with_api(st, st.comms_send, {"ok": False},
-                           from_agent="me", type="info", subject="s", body="b", to="ghost")
-        self.assertIn("failed", out.lower())
-        self.assertNotIn("Sent", out)
-        self.assertNotIn("No recipients found", out,
-                         "an unexplained failure was reported as a specific diagnosis")
-
-    def test_a_failed_send_REPORTS_THE_SERVICE_S_OWN_REASON(self):
-        """Reported by an external reviewer as a Low: every failure came back as "No recipients
-        found." — a stopped target, a validation error naming the bad field, and a genuinely empty
-        recipient list all read identically, and only one of them was true. Same family as a
-        transport turning a 500 into a confident empty: the agent believes it knows why and stops
-        looking."""
-        out, _ = _with_api(st, st.comms_send, {"ok": False, "error": 'target "ghost" is stopped'},
-                           from_agent="me", type="info", subject="s", body="b", to="ghost")
-        self.assertIn("is stopped", out)
-
-        detail, _ = _with_api(st, st.comms_send, {"ok": False, "detail": "agent not registered"},
-                              from_agent="me", type="info", subject="s", body="b", to="ghost")
-        self.assertIn("agent not registered", detail, "FastAPI's own error shape was dropped")
-
-        validation, _ = _with_api(
-            st, st.comms_send,
-            {"ok": False, "detail": [{"msg": "field required"}, {"msg": "bad type"}]},
-            from_agent="me", type="info", subject="s", body="b", to="ghost")
-        self.assertIn("field required", validation)
-        self.assertIn("bad type", validation)
-        self.assertNotIn("[object", validation)
-        self.assertNotIn("{'msg'", validation, "a validation list reached the agent as raw dicts")
-
-    def test_queueIfBusy_forces_steer_off_even_when_steer_was_asked_for(self):
-        """Opposite delivery choices. Sending both would leave the server to guess."""
-        _, api = _with_api(st, st.comms_send, {"ok": True, "messageId": "m", "recipients": ["a"]},
-                           from_agent="me", type="info", subject="s", body="b", to="a",
-                           queueIfBusy=True, steer=True)
-        sent = api.calls[0]["json"]
-        self.assertIs(False, sent["steer"])
-        self.assertIs(True, sent["queueIfBusy"])
-
-    def test_steer_defaults_on_and_can_be_turned_off_explicitly(self):
-        for asked, expected in ((None, True), (False, False), (True, True)):
-            _, api = _with_api(st, st.comms_send, {"ok": True, "messageId": "m", "recipients": ["a"]},
-                               from_agent="me", type="info", subject="s", body="b", to="a",
-                               steer=asked)
-            self.assertIs(expected, api.calls[0]["json"]["steer"], f"steer={asked}")
-
-    def test_silent_send_does_not_claim_live_delivery(self):
-        out, api = _with_api(st, st.comms_send,
-                             {"ok": True, "messageId": "m1", "recipients": ["a"],
-                              "dispatchRuns": [{"targetAgentId": "a", "runId": "r1"}]},
-                             from_agent="me", type="info", subject="s", body="b", to="a", silent=True)
-        self.assertNotIn("live delivery", out)
-        self.assertIn("m1", out)
-        self.assertIs(False, api.calls[0]["json"]["trigger"])
-
-    def test_optional_addressing_fields_are_omitted_when_unset(self):
-        _, api = _with_api(st, st.comms_send, {"ok": True, "messageId": "m", "recipients": ["a"]},
-                           from_agent="me", type="info", subject="s", body="b", toRole="coder")
-        sent = api.calls[0]["json"]
-        self.assertEqual("coder", sent["toRole"])
-        self.assertNotIn("to", sent)
-        self.assertNotIn("inReplyTo", sent)
-
-    def test_requireReply_is_passed_through_including_None(self):
-        """None means "use the type default" and is a THIRD state, not a missing value."""
-        for asked in (None, True, False):
-            _, api = _with_api(st, st.comms_send, {"ok": True, "messageId": "m", "recipients": ["a"]},
-                               from_agent="me", type="request", subject="s", body="b", to="a",
-                               requireReply=asked)
-            self.assertIs(asked, api.calls[0]["json"]["requireReply"], f"requireReply={asked}")
 
 
 class AgentToolTests(unittest.TestCase):

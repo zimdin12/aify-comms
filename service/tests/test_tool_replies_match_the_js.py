@@ -37,6 +37,16 @@ def normalize_path(raw: str) -> str:
     return f"{path}?{query}" if query else path
 
 
+def normalize_body(raw: str):
+    """replay.mjs normalizeBody: a send's random `clientNonce` is recorded as present, not by value."""
+    if not raw:
+        return None
+    body = json.loads(raw)
+    if isinstance(body, dict) and isinstance(body.get("clientNonce"), str) and body["clientNonce"]:
+        body["clientNonce"] = "<nonce>"
+    return body
+
+
 def load_cases():
     cases = []
     for file in sorted(CASES_DIR.glob("*.json")):
@@ -55,10 +65,11 @@ class FakeService:
                 length = int(self.headers.get("content-length") or 0)
                 raw = self.rfile.read(length).decode("utf-8") if length else ""
                 path = normalize_path(self.path)
-                service.requests.append({"method": self.command, "path": path, "body": json.loads(raw) if raw else None})
+                service.requests.append({"method": self.command, "path": path, "body": normalize_body(raw)})
                 key = f"{self.command} {path}"
                 answer = service.routes.get(key, {"status": 404, "body": {"detail": f"no fixture route for {key}"}})
-                body = json.dumps(answer.get("body", {})).encode("utf-8")
+                # Compact, as FastAPI and replay.mjs serialise it: an error's text carries the body verbatim.
+                body = json.dumps(answer.get("body", {}), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 self.send_response(answer.get("status", 200))
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(body)))
@@ -115,8 +126,12 @@ def test_there_are_cases_to_replay():
 def test_the_python_tool_matches_the_js(case, service, transport):
     if case["tool"] not in transport.mcp_server._tool_manager._tools:
         pytest.skip(f"{case['tool']} is not served by the Python copy yet")
+    # `callerArgs` name the JS arguments that carried the caller; the service reads the caller from the header.
+    args = dict(case.get("args") or {})
+    for name in case.get("callerArgs") or []:
+        assert args.pop(name) == CALLER, f"{name} must be the caller in a case that declares it a caller argument"
     service.routes, service.requests = case.get("routes") or {}, []
-    result = asyncio.run(_call(transport, case["tool"], case.get("args") or {}))
+    result = asyncio.run(_call(transport, case["tool"], args))
     text = "\n".join(part.get("text", "") for part in result.get("content", []))
     assert {"requests": service.requests, "text": text, "isError": bool(result.get("isError"))} == {
         "requests": case["requests"], "text": case["text"], "isError": case["isError"],

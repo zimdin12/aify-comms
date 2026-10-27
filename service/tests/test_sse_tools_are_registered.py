@@ -98,11 +98,12 @@ class SseToolsAreRegisteredTests(unittest.TestCase):
         """
         tool = next(t for t in asyncio.run(_load_transport().mcp_server.list_tools())
                     if t.name == "comms_channel_send")
+        # No sender argument: the caller is the request's X-Aify-Agent-Id header (0.9.11).
         self.assertEqual(
-            ["body", "channel", "from_agent", "priority", "queueIfBusy", "silent", "steer", "type"],
+            ["body", "channel", "priority", "queueIfBusy", "steer", "type"],
             sorted(tool.inputSchema.get("properties", {})),
         )
-        self.assertIn("live-gated message to a channel", tool.description or "")
+        self.assertIn("Post to a channel", tool.description or "")
 
 
 if __name__ == "__main__":

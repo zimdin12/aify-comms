@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import Context
 
+from service.sse.registration import register_tools
 from service.sse.api_client import api as _api
 from service.sse.caller import caller_or_none
 
@@ -57,5 +58,4 @@ TOOLS = (comms_usage,)
 
 
 def register(mcp_server) -> None:
-    for tool in TOOLS:
-        mcp_server.tool(structured_output=False)(tool)
+    register_tools(mcp_server, TOOLS)

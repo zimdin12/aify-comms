@@ -208,7 +208,8 @@ export function registerChannelTools(server, z) {
 
       const header = `#${channel} -- ${ch.totalMessages} messages, ${ch.members.length} members (${ch.members.join(", ")})`;
       const lines = ch.messages.map((m) => {
-        const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : "?";
+        // UTC, not the reader's locale: the service renders the same text for every agent (0.9.11).
+        const time = m.timestamp ? new Date(m.timestamp).toISOString().replace(/\.\d{3}Z$/, "Z") : "?";
         const safeBody = "```\n" + (m.body || "").replace(/```/g, "'''") + "\n```";
         return `[${time}] ${m.from}: ${safeBody}`;
       });

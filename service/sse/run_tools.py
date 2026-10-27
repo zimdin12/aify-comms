@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.rendering import fence as _fence
+from service.sse.registration import register_tools
 from service.sse.api_client import api as _api
 
 
@@ -116,5 +117,4 @@ def _one_line(text: str, limit: int) -> str:
 
 def register(mcp_server) -> None:
     """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
-    for tool in TOOLS:
-        mcp_server.tool(structured_output=False)(tool)
+    register_tools(mcp_server, TOOLS)

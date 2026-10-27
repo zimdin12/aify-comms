@@ -20,6 +20,7 @@ from __future__ import annotations
 import httpx
 
 from service.config import get_config
+from service.sse.registration import register_tools
 from service.sse.api_client import api as _api, api_url as _api_url
 
 
@@ -130,5 +131,4 @@ TOOLS = (comms_share, comms_read, comms_files, comms_unshare)
 
 def register(mcp_server) -> None:
     """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
-    for tool in TOOLS:
-        mcp_server.tool(structured_output=False)(tool)
+    register_tools(mcp_server, TOOLS)

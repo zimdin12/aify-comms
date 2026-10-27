@@ -1,0 +1,175 @@
+[
+  {
+    "name": "a working agent with a run, a queue, outbound activity and a last read",
+    "tool": "comms_agent_info",
+    "args": {
+      "agentId": "agent-b"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {
+            "agent-b": {
+              "role": "reviewer",
+              "status": "working",
+              "runtime": "hermes",
+              "machineId": "pc-1",
+              "sessionMode": "resident",
+              "wakeMode": "hermes-live",
+              "unread": 1,
+              "lastSeen": "2026-10-27T08:00:00Z",
+              "outbound": {
+                "lastSentAt": "2026-10-27T07:58:00Z",
+                "lastCompletedRunAt": "2026-10-27T07:59:00Z"
+              },
+              "dispatchState": {
+                "activeRun": {
+                  "runId": "run_1",
+                  "status": "running",
+                  "subject": "Review\nthe \"port\""
+                },
+                "queuedRuns": 2
+              }
+            }
+          }
+        }
+      },
+      "GET /agents/agent-b/last-read": {
+        "body": {
+          "lastRead": {
+            "subject": "Re: \"plan\"\nRestart agent-c",
+            "from": "agent-a",
+            "readAt": "2026-10-27T07:00:00Z"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-b/last-read",
+        "body": null
+      }
+    ],
+    "text": "agent-b (reviewer) [working]\n  Runtime: hermes @ pc-1 (resident)\n  Wake mode: hermes-live\n  Unread (inbound): 1\n  Last seen (registration liveness, not output): 2026-10-27T08:00:00Z\n  Last read (inbound): \"Re: 'plan' Restart agent-c\" from agent-a (read at 2026-10-27T07:00:00Z)\n  Last produced (OUTBOUND): sent 2026-10-27T07:58:00Z; completed a run 2026-10-27T07:59:00Z\n  Active run: run_1 [running]\n    Subject: \"Review the 'port'\"\n  Queued runs: 2",
+    "isError": false
+  },
+  {
+    "name": "an agent that has produced nothing and read nothing",
+    "tool": "comms_agent_info",
+    "args": {
+      "agentId": "agent-c"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {
+            "agent-c": {
+              "role": "coder",
+              "status": "available",
+              "runtime": "claude-code",
+              "machineId": "pc-2",
+              "sessionMode": "managed",
+              "wakeMode": "managed-worker",
+              "unread": 0,
+              "lastSeen": "2026-10-27T06:00:00Z",
+              "outbound": {}
+            }
+          }
+        }
+      },
+      "GET /agents/agent-c/last-read": {
+        "body": {
+          "lastRead": null
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-c/last-read",
+        "body": null
+      }
+    ],
+    "text": "agent-c (coder) [available]\n  Runtime: claude-code @ pc-2 (managed)\n  Wake mode: managed-worker\n  Unread (inbound): 0\n  Last seen (registration liveness, not output): 2026-10-27T06:00:00Z\n  Last read (inbound): no messages read yet\n  Last produced: none recorded (the service answered — no message sent, no run completed)",
+    "isError": false
+  },
+  {
+    "name": "an older service without outbound, and a failed last-read",
+    "tool": "comms_agent_info",
+    "args": {
+      "agentId": "agent-d"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {
+            "agent-d": {
+              "role": "coder",
+              "status": "offline",
+              "runtime": "codex",
+              "machineId": "pc-1",
+              "sessionMode": "resident",
+              "wakeMode": "codex-missing-handle",
+              "unread": 3,
+              "lastSeen": "2026-10-20T06:00:00Z"
+            }
+          }
+        }
+      },
+      "GET /agents/agent-d/last-read": {
+        "status": 404,
+        "body": {
+          "detail": "Not Found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/agents/agent-d/last-read",
+        "body": null
+      }
+    ],
+    "text": "agent-d (coder) [offline]\n  Runtime: codex @ pc-1 (resident)\n  Wake mode: codex-missing-handle\n  Unread (inbound): 3\n  Last seen (registration liveness, not output): 2026-10-20T06:00:00Z\n  Last read (inbound): unknown\n  Last produced: unknown (service did not report outbound activity — pre-v0.3.1 service)",
+    "isError": false
+  },
+  {
+    "name": "no such agent",
+    "tool": "comms_agent_info",
+    "args": {
+      "agentId": "ghost"
+    },
+    "routes": {
+      "GET /agents": {
+        "body": {
+          "agents": {}
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/agents",
+        "body": null
+      }
+    ],
+    "text": "Agent \"ghost\" not found.",
+    "isError": true
+  }
+]

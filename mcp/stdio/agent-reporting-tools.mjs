@@ -23,6 +23,7 @@ import { boundAgentId, envAgentId } from "./bound-agent-id.mjs";
 import { runtimeSummary, wakeModeSummary } from "./agent-summary.mjs";
 import { readAgents, readInbox } from "./local-store.mjs";
 import { formatDispatchState, formatOutboundActivity } from "./tool-response-format.mjs";
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
 // Registers the two agent-reporting tools on an MCP server. A function rather than a module-scope side
 // effect, so a fake server can capture the registrations and a test can call the handlers without an MCP
@@ -95,7 +96,7 @@ export function registerAgentReportingTools(server, z) {
           try {
             const lr = await httpCall("GET", `/agents/${agentId}/last-read`);
             if (lr.lastRead) {
-              lastRead = `"${lr.lastRead.subject}" from ${lr.lastRead.from} (read at ${lr.lastRead.readAt})`;
+              lastRead = `${quoteUntrustedSubject(lr.lastRead.subject)} from ${lr.lastRead.from} (read at ${lr.lastRead.readAt})`;
             } else {
               lastRead = "no messages read yet";
             }

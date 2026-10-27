@@ -30,6 +30,14 @@ export function normalizePath(raw) {
   return `${url.pathname.replace(/^\/api\/v1/, "")}${query ? `?${query}` : ""}`;
 }
 
+/** A request body as recorded: a send's `clientNonce` is random per call, so only its presence is kept. */
+export function normalizeBody(raw) {
+  if (!raw) return null;
+  const body = JSON.parse(raw);
+  if (body && typeof body.clientNonce === "string" && body.clientNonce) body.clientNonce = "<nonce>";
+  return body;
+}
+
 /** Every case file, in a stable order. */
 export function loadCases() {
   return readdirSync(CASES_DIR).filter((name) => name.endsWith(".json")).sort()
@@ -45,7 +53,7 @@ export async function startService() {
     req.on("data", (chunk) => { raw += chunk; });
     req.on("end", () => {
       const key = `${req.method} ${normalizePath(req.url)}`;
-      requests.push({ method: req.method, path: normalizePath(req.url), body: raw ? JSON.parse(raw) : null });
+      requests.push({ method: req.method, path: normalizePath(req.url), body: normalizeBody(raw) });
       const answer = Object.hasOwn(routes, key) ? routes[key] : { status: 404, body: { detail: `no fixture route for ${key}` } };
       res.writeHead(answer.status ?? 200, { "content-type": "application/json" });
       res.end(JSON.stringify(answer.body ?? {}));
@@ -81,10 +89,15 @@ export async function jsToolClient(serviceUrl) {
   return client;
 }
 
-/** Run one case: what the tool asked the service, and what it told the agent. */
+/**
+ * Run one case: what the tool asked the service, and what it told the agent. A request no route answers
+ * fails the case: two copies calling the same wrong path would agree on the fixture's 404 and pass.
+ */
 export async function runCase(client, service, testCase) {
   service.serve(testCase.routes);
   const result = await client.callTool({ name: testCase.tool, arguments: testCase.args || {} });
+  const unrouted = service.requests.map((r) => `${r.method} ${r.path}`).filter((key) => !Object.hasOwn(testCase.routes || {}, key));
+  if (unrouted.length) throw new Error(`${testCase.name}: no route answers ${unrouted.join(", ")}`);
   return {
     requests: service.requests,
     text: (result.content || []).map((part) => part.text ?? "").join("\n"),

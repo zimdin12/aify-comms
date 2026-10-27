@@ -18,6 +18,7 @@ SSE-only NAME list next door, and as `NOT_AGENT_COLUMNS` in the rename gate.
 from __future__ import annotations
 
 import ast
+import json
 import unittest
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from service.tests.tool_schemas import tool_parameters
 
 REPO = Path(__file__).resolve().parents[2]
 SSE = REPO / "service" / "sse"
+CASES = REPO / "mcp" / "stdio" / "tests" / "tool-replies" / "cases"
 
 #: Parameters the SSE transport takes for its own plumbing, never from a caller's tool call.
 PLUMBING = frozenset({"self", "ctx", "context", "request"})
@@ -38,24 +40,10 @@ ALIASES = {"from": "from_agent"}
 #:
 #: Every reason here was read out of the code it describes, not inferred from the parameter's name.
 DECLARED_DIFFERENCES = {
-    # The two deletes added on 2026-08-18 name the actor after the WIRE FIELD whose ownership check
-    # they trigger -- `requestedBy` is what the endpoint refuses to act without -- while stdio names
-    # the actor `from` on every tool it has. Cosmetic, and the SSE spelling is the clearer of the
-    # two: it says whose authority is being checked rather than who is talking.
-    ("comms_channel_delete", "stdio", "from_agent"): "stdio spells the actor `from` on every tool",
-    ("comms_channel_delete", "sse", "requestedBy"): "named after the endpoint's ownership-check field",
+    # comms_unshare names the actor after the WIRE FIELD its ownership check reads (`requestedBy`),
+    # where stdio spells it `from`. Goes when unshare takes the caller from the header (0.9.11).
     ("comms_unshare", "stdio", "from_agent"): "stdio spells the actor `from` on every tool",
     ("comms_unshare", "sse", "requestedBy"): "named after the endpoint's ownership-check field",
-
-    # stdio can join ANOTHER agent to a channel; SSE joins the caller and passes `from_agent` as the
-    # member. NOT closed here: who may add somebody else to a channel is a permissions question, and
-    # widening or narrowing it is not a parity decision to make from a test.
-    ("comms_channel_join", "stdio", "agentId"): "stdio can join an agent other than the caller",
-
-    # `silent=true` is legacy inbox-only delivery -- the SSE docstring says so in those words. stdio
-    # hardcodes `shouldTrigger = true` and never grew the parameter.
-    ("comms_channel_send", "sse", "silent"): "legacy inbox-only delivery; stdio never grew it",
-    ("comms_send", "sse", "silent"): "legacy inbox-only delivery; stdio never grew it",
 
     # The stdio bridge RUNS AS an agent and fills the actor from `AIFY_AGENT_ID` rather than asking.
     # SSE serves arbitrary clients and has no ambient identity, so it must be told.
@@ -77,6 +65,20 @@ DECLARED_DIFFERENCES = {
     ("comms_register", "stdio", "sessionMode"): "launch/hosting detail an SSE client has no part in",
     ("comms_register", "stdio", "description"): "not a launch detail; an omission, not a boundary",
 }
+
+
+def caller_arguments() -> set[tuple[str, str, str]]:
+    """The stdio arguments that carry the CALLER, as the reply fixtures name them (`callerArgs`).
+
+    The service copy takes the caller from the request's X-Aify-Agent-Id header (0.9.11), so it has no
+    such parameter by design. Derived from the fixtures rather than listed again here: each is already
+    exercised there, as the argument the service copy drops.
+    """
+    found = set()
+    for path in sorted(CASES.glob("*.json")):
+        for case in json.loads(path.read_text(encoding="utf-8")):
+            found |= {(case["tool"], "stdio", ALIASES.get(name, name)) for name in case.get("callerArgs") or []}
+    return found
 
 
 def sse_tool_parameters() -> dict[str, set[str]]:
@@ -122,10 +124,11 @@ class BothTransportsDeclareTheSameToolSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(len(set(stdio) & set(sse)), 20, "the shared surface looks truncated")
         for side, schemas in (("stdio", stdio), ("sse", sse)):
             self.assertIn("body", schemas.get("comms_send", set()), f"{side} lost comms_send's body")
+        self.assertIn(("comms_send", "stdio", "from_agent"), caller_arguments(), "the fixture reader found no caller arguments")
 
     def test_every_parameter_difference_is_declared_with_a_reason(self):
         undeclared = sorted(differences(tool_parameters(), sse_tool_parameters())
-                            - set(DECLARED_DIFFERENCES))
+                            - set(DECLARED_DIFFERENCES) - caller_arguments())
         self.assertEqual(
             [], undeclared,
             "one transport declares a parameter the other does not, and nothing says why. Either "

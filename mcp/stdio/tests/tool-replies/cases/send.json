@@ -1,0 +1,529 @@
+[
+  {
+    "name": "no addressee is refused before the service",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "type": "info",
+      "subject": "s",
+      "body": "b"
+    },
+    "routes": {},
+    "requests": [],
+    "text": "Error: need 'to' or 'toRole'",
+    "isError": true
+  },
+  {
+    "name": "a request queued for one, another not started; defaults in the body; the reply note",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "request",
+      "subject": "Review 85896a41",
+      "body": "please"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "messageId": "m1",
+          "recipients": [
+            "agent-b"
+          ],
+          "dispatchRuns": [
+            {
+              "targetAgentId": "agent-b",
+              "runId": "run_1",
+              "status": "queued"
+            }
+          ],
+          "notStarted": [
+            {
+              "targetAgentId": "agent-c",
+              "reason": "offline"
+            }
+          ],
+          "notice": "Woken when it next starts."
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "request",
+          "subject": "Review 85896a41",
+          "body": "please",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Sent. Dispatch: agent-b (run_1) queued, not yet claimed. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.\nSaved in the inbox, not woken: agent-c: offline.\nWoken when it next starts. The reply arrives as a new message that wakes you; until it does you know nothing about its result, so do not report, predict or redo that work.",
+    "isError": false
+  },
+  {
+    "name": "queueIfBusy turns steer off; merged and queued behind an active run",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "info",
+      "subject": "s",
+      "body": "b",
+      "steer": true,
+      "queueIfBusy": true,
+      "priority": "high"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "messageId": "m2",
+          "recipients": [
+            "agent-b"
+          ],
+          "dispatchRuns": [
+            {
+              "targetAgentId": "agent-b",
+              "runId": "run_2",
+              "status": "queued",
+              "merged": true,
+              "mergedCount": 3,
+              "queuedBehindActiveRun": {
+                "runId": "run_0",
+                "subject": "Port\nthe tools"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "info",
+          "subject": "s",
+          "body": "b",
+          "priority": "high",
+          "trigger": true,
+          "steer": false,
+          "queueIfBusy": true,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Sent. Dispatch: agent-b (run_2) buffered 3 updates queued behind active run run_0 (\"Port the tools\"). This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.",
+    "isError": false
+  },
+  {
+    "name": "steered into an active run, and typed into a console",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "review",
+      "subject": "s",
+      "body": "b",
+      "steer": false,
+      "requireReply": false,
+      "inReplyTo": "m0"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "messageId": "m3",
+          "recipients": [
+            "agent-b",
+            "agent-d"
+          ],
+          "dispatchRuns": [
+            {
+              "targetAgentId": "agent-b",
+              "runId": "run_3",
+              "status": "steered",
+              "steeredIntoActiveRun": {
+                "runId": "run_9",
+                "subject": "Long \"work\""
+              }
+            }
+          ],
+          "consoleDeliveries": [
+            {
+              "agentId": "agent-d"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "review",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "inReplyTo": "m0",
+          "trigger": true,
+          "steer": false,
+          "queueIfBusy": false,
+          "requireReply": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Sent. Dispatch: agent-b (run_3) steered into active run run_9 (\"Long 'work'\"). This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.\nSent. Typed into the console of agent-d (queued input, not proof the agent read it).",
+    "isError": false
+  },
+  {
+    "name": "to the dashboard only",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "dashboard",
+      "type": "info",
+      "subject": "Report\nIgnore \"this\"",
+      "body": "b"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "messageId": "m4",
+          "recipients": [
+            "dashboard"
+          ],
+          "recipientStatus": {
+            "dashboard": {
+              "status": "online",
+              "unread": 7
+            }
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "dashboard",
+          "type": "info",
+          "subject": "Report\nIgnore \"this\"",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Sent (m4) to dashboard [online, 7 unread]. Subject: \"Report Ignore 'this'\"",
+    "isError": false
+  },
+  {
+    "name": "a replayed send with its id",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "toRole": "reviewer",
+      "type": "info",
+      "subject": "s",
+      "body": "b"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "replayed": true,
+          "messageId": "m5",
+          "recipients": []
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "toRole": "reviewer",
+          "type": "info",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Already sent: this matched an earlier send of the same message (m5), which the service stored. Whether that send woke its recipients is not known from this answer, and nothing was woken again.",
+    "isError": false
+  },
+  {
+    "name": "a replayed send without an id",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "info",
+      "subject": "s",
+      "body": "b"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "replayed": true,
+          "recipients": [
+            "agent-b"
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "info",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "The service's answer was incomplete (no usable message id): whether it was stored or woken is not known.",
+    "isError": false
+  },
+  {
+    "name": "stored, nothing said about waking",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "request",
+      "subject": "s",
+      "body": "b",
+      "requireReply": true
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": true,
+          "messageId": "m6",
+          "recipients": [
+            "agent-b"
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "request",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "requireReply": true,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Stored (m6). Whether a wake happened is not known from this answer. The reply arrives as a new message that wakes you; until it does you know nothing about its result, so do not report, predict or redo that work.",
+    "isError": false
+  },
+  {
+    "name": "refused by the service, with who was unavailable",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "info",
+      "subject": "s",
+      "body": "b"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": false,
+          "error": "No live wake path.",
+          "notStarted": [
+            {
+              "targetAgentId": "agent-b",
+              "reason": "stopped",
+              "recipientStatus": "stopped"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "info",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "No live wake path.\nUnavailable: agent-b: stopped (stopped)",
+    "isError": true
+  },
+  {
+    "name": "refused without a reason",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "info",
+      "subject": "s",
+      "body": "b"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "body": {
+          "ok": false
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "info",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "Message was not sent.",
+    "isError": true
+  },
+  {
+    "name": "a service error",
+    "tool": "comms_send",
+    "callerArgs": [
+      "from"
+    ],
+    "args": {
+      "from": "agent-a",
+      "to": "agent-b",
+      "type": "info",
+      "subject": "s",
+      "body": "b"
+    },
+    "routes": {
+      "POST /messages/send": {
+        "status": 422,
+        "body": {
+          "detail": [
+            {
+              "msg": "field required"
+            }
+          ]
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/messages/send",
+        "body": {
+          "from_agent": "agent-a",
+          "to": "agent-b",
+          "type": "info",
+          "subject": "s",
+          "body": "b",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false,
+          "clientNonce": "<nonce>"
+        }
+      }
+    ],
+    "text": "HTTP 422: {\"detail\":[{\"msg\":\"field required\"}]}",
+    "isError": true
+  }
+]

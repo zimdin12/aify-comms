@@ -139,7 +139,7 @@ test("the module kept no state and reaches only owned leaves", () => {
     // Sorted: "agent-" precedes "aify-" because 'g' < 'i'. Written the other way round first, which is a
     // reminder that a deepEqual against a hand-written sorted list tests my sorting as much as the code's.
     "./agent-summary.mjs", "./aify-service-endpoint.mjs", "./bound-agent-id.mjs", "./local-store.mjs",
-    "./tool-response-format.mjs",
+    "./quote-subject.mjs", "./tool-response-format.mjs",
   ]);
 });
 

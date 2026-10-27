@@ -1,172 +1,130 @@
-"""The five channel tools: group chat across agents, over SSE.
+"""Channels: group chat across agents (port of `mcp/stdio/channel-tools.mjs`, service mode).
 
-Extracted from `mcp/sse_server.py` in v0.5.4 — a whole subject, moved with its bodies untouched.
+The caller is the request's header: it creates, joins, leaves and deletes as itself. `comms_channel_join`
+may still add ANOTHER agent, named by `agentId`. Posting is `comms_channel_send` in send_tools.py, beside
+`comms_send`, as in the JS.
 
-TWO OF THESE FORM CONCLUSIONS rather than relaying a payload, which is the class of bug the SSE
-renderers were audited for. `comms_channel_read` decides whether "no messages yet" is the honest
-answer and wraps every body in a fence so a message cannot escape into the reader's own context;
-`comms_channel_send` turns a dispatch result into a sentence about who WILL receive it, including
-the recipients the server declined to start. A caller acts on those sentences, and until now nothing
-called a line of either.
-
-`_api`, `_fence` and `SAFETY_HEADER` are imported under the private names the bodies already used,
-so not a character of them moved. NOTE FOR ANYONE WRITING A TEST: the transport's own tests swap
-`sse_server._api`; these tools resolve `_api` from THIS module, so patch it here — a patch on the
-transport now silently affects nothing.
+Every message body read back is another agent's text: it is fenced so it cannot close the fence and
+continue as the reader's own context, under the safety header. Times print in UTC, so every reader sees
+the same text whatever its locale.
 """
 
 from __future__ import annotations
 
-from service.sse.api_client import api as _api
-from service.sse.rendering import SAFETY_HEADER, fence as _fence
+from datetime import datetime, timezone
+from urllib.parse import quote
+
+from mcp.server.fastmcp import Context
+from pydantic import Field
+
+from service.clock import ISO_SECONDS
+from service.sse.api_client import call
+from service.sse.caller import caller_id
+from service.sse.registration import register_tools
+from service.sse.rendering import SAFETY_HEADER, tool_error
+from service.sse.send_tools import SAFE_NAME
 
 
-async def comms_channel_create(name: str, from_agent: str, description: str = "") -> str:
-    """Create a new channel (group chat) for multiple agents to communicate."""
-    r = await _api("POST", "/channels", {"name": name, "createdBy": from_agent, "description": description})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
+def _bad_name(name: str):
+    if SAFE_NAME.match(name):
+        return None
+    return tool_error(f'Invalid channel name: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: "{name}"')
+
+
+def _path(channel: str) -> str:
+    return f"/channels/{quote(channel, safe='')}"
+
+
+def _utc(timestamp_ms) -> str:
+    if not timestamp_ms:
+        return "?"
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).strftime(ISO_SECONDS)
+
+
+async def comms_channel_create(
+    ctx: Context,
+    name: str = Field(description="Channel name (e.g. 'backend-team', 'code-review')"),
+    description: str | None = Field(default=None, description="Channel description"),
+):
+    """Create a channel (group chat). You join it automatically."""
+    if refusal := _bad_name(name):
+        return refusal
+    body = {"name": name, "createdBy": caller_id(ctx)}
+    if description is not None:
+        body["description"] = description
+    await call("POST", "/channels", body)
     return f"Channel #{name} created. You're a member."
 
 
-async def comms_channel_join(channel: str, from_agent: str) -> str:
-    """Join an existing channel."""
-    r = await _api("POST", f"/channels/{channel}/join", {"agentId": from_agent})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    return f"Joined #{channel}. Members: {', '.join(r.get('members', []))}"
+async def comms_channel_join(
+    ctx: Context,
+    channel: str = Field(description="Channel name to join"),
+    agentId: str | None = Field(default=None, description="Agent to add (omit to join yourself)"),
+):
+    """Join a channel yourself, or add another agent to a channel."""
+    me = caller_id(ctx)
+    target = agentId or me
+    if refusal := _bad_name(channel):
+        return refusal
+    r = await call("POST", f"{_path(channel)}/join", {"agentId": target})
+    action = "Joined" if target == me else f"Added {target} to"
+    return f"{action} #{channel}. Members: {', '.join(r.get('members') or [])}"
 
 
-async def comms_channel_leave(channel: str, from_agent: str) -> str:
-    """Stop receiving a channel, without destroying it for anyone else.
-
-    This is the NON-destructive exit, and the one comms_channel_delete tells you to prefer. Leaving
-    removes only your own membership; the channel and its history stay for every other member.
-
-    `POST /channels/{name}/leave` has existed the whole time and no transport exposed it, while
-    comms_channel_delete's description said "to simply stop receiving it, leave instead" -- pointing
-    agents at a capability they could not reach, so the only exit an agent could actually take was
-    the one that ends the channel for everybody.
-    """
-    r = await _api("POST", f"/channels/{channel}/leave", {"agentId": from_agent})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
+async def comms_channel_leave(ctx: Context, channel: str = Field(description="Channel name to leave")):
+    """Leave a channel: removes only your membership. The channel and its history stay for every other member."""
+    me = caller_id(ctx)
+    if refusal := _bad_name(channel):
+        return refusal
+    r = await call("POST", f"{_path(channel)}/leave", {"agentId": me})
     if not r.get("changed"):
-        return f"Not a member of #{channel}; nothing to leave."
-    return f"Left #{channel}. Remaining members: {', '.join(r.get('members', [])) or 'none'}"
+        return f"{me} is not a member of #{channel}; nothing to leave."
+    return f"Left #{channel}. Remaining members: {', '.join(r.get('members') or []) or 'none'}"
 
 
-async def comms_channel_send(
-    channel: str,
-    from_agent: str,
-    body: str,
-    type: str = "info",
-    priority: str = "normal",
-    silent: bool = False,
-    steer: bool | None = None,
-    queueIfBusy: bool = False,
-) -> str:
-    """Send a live-gated message to a channel. The post and every member's inbox copy are always stored; members that cannot start now (offline, stopped, misconfigured or no wake path) are not woken and are named under Not started. Busy steer-capable members receive ordinary sends as current-run steer; busy live non-steer members queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available."""
-    should_trigger = not silent
-    force_queue = bool(queueIfBusy)
-    r = await _api("POST", f"/channels/{channel}/send", {
-        "from_agent": from_agent, "channel": channel, "body": body, "type": type, "priority": priority,
-        "trigger": should_trigger, "silent": silent, "steer": False if force_queue else (steer if steer is not None else True),
-        "queueIfBusy": force_queue,
-    })
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    if should_trigger and (r.get("dispatchRuns") or r.get("notStarted")):
-        queued = [
-            (
-                f"{run.get('targetAgentId', '?')} ({run.get('runId', '?')})"
-                + f" [{run.get('status', 'queued')}]"
-                + (
-                    f" queued behind active run {run['queuedBehindActiveRun']['runId']}"
-                    if run.get("queuedBehindActiveRun", {}).get("runId")
-                    else ""
-                )
-            )
-            for run in r.get("dispatchRuns", [])
-        ]
-        skipped = [f"{item.get('targetAgentId', '?')}: {item.get('reason', 'not started')}" for item in r.get("notStarted", [])]
-        note = f"Sent to #{channel} with live delivery for {', '.join(queued) if queued else 'no launchable recipients'}."
-        if skipped:
-            note += f" Not started: {'; '.join(skipped)}."
-        # No awaiting-reply note: a channel run tracks no reply (require_reply=False in
-        # routers/channel_send.py), so it would promise one nothing owes (v0.7.2).
-        note += " Use comms_run_status(...) to inspect progress."
-        return note
-    return f"Sent to #{channel} ({r.get('members', {})  if isinstance(r.get('members'), int) else len(r.get('members', []))} members)."
-
-
-async def comms_channel_read(channel: str, limit: int = 20) -> str:
+async def comms_channel_read(
+    channel: str = Field(description="Channel name"),
+    limit: float | None = Field(default=None, description="Number of messages (default: 20, newest first)"),
+):
     """Read recent messages from a channel."""
-    r = await _api("GET", f"/channels/{channel}", params={"limit": str(limit)})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    msgs = r.get("messages", [])
-    if not msgs:
-        return f"#{channel} -- no messages yet. Members: {', '.join(r.get('members', []))}"
-    header = f"#{channel} -- {r.get('totalMessages', len(msgs))} messages, {len(r.get('members', []))} members ({', '.join(r.get('members', []))})"
-    lines = []
-    for m in msgs:
-        t = m.get("timestamp", "")
-        safe_body = _fence(m.get("body", ""))
-        lines.append(f"[{t}] {m.get('from', '?')}: {safe_body}")
+    if refusal := _bad_name(channel):
+        return refusal
+    count = int(limit) if limit else 20
+    ch = await call("GET", f"{_path(channel)}?limit={count}")
+    members = ch.get("members") or []
+    messages = ch.get("messages") or []
+    if not messages:
+        return f"#{channel} -- no messages yet. Members: {', '.join(members)}"
+    header = f"#{channel} -- {ch.get('totalMessages')} messages, {len(members)} members ({', '.join(members)})"
+    lines = [
+        f"[{_utc(m.get('timestamp'))}] {m.get('from')}: ```\n{(m.get('body') or '').replace('```', chr(39) * 3)}\n```"
+        for m in messages
+    ]
     return f"{SAFETY_HEADER}\n\n{header}\n\n" + "\n\n".join(lines)
 
 
-async def comms_channel_list() -> str:
+async def comms_channel_list():
     """List all channels."""
-    r = await _api("GET", "/channels")
-    # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
-    # can branch on it, and that fix's own note says "every caller in this package checks" -- this
-    # one did not, so a 500 rendered as a confident fact about the fleet.
-    if "detail" in r:
-        return f"Error: {r['detail']}"
-    channels = r.get("channels", [])
+    channels = (await call("GET", "/channels")).get("channels") or []
     if not channels:
         return "No channels."
-    lines = [
-        f"#{c['name']} -- {c.get('description', '(no description)')} | "
-        f"{c.get('members', 0) if isinstance(c.get('members'), int) else len(c.get('members', []))} members, "
-        f"{c.get('messageCount', 0)} messages"
+    return "\n".join(
+        f"#{c.get('name')} -- {c.get('description') or '(no description)'} | {len(c.get('members') or [])} members, {c.get('messageCount')} messages"
         for c in channels
-    ]
-    return "\n".join(lines)
+    )
 
 
-async def comms_channel_delete(channel: str, requestedBy: str) -> str:
-    """Delete a channel you created, along with its messages.
-
-    THE MOST DESTRUCTIVE DELETE AN AGENT CAN REACH: it removes the channel, its membership and
-    EVERY MESSAGE ever posted to it -- shared history for every member, not just your own.
-
-    To stop receiving a channel's messages, LEAVE it (comms_channel_leave). Deleting ends it for
-    everybody, so only the creator or an operator surface may do so and the service enforces that.
-    """
-    r = await _api("DELETE", f"/channels/{channel}", params={"requestedBy": requestedBy})
-    if "detail" in r:
-        return f"Error: {r['detail']}"
+async def comms_channel_delete(ctx: Context, channel: str = Field(description="Channel name to delete")):
+    """DESTRUCTIVE. Deletes a channel YOU created, its membership and EVERY message posted to it, shared history for every member. There is no undo. To stop receiving a channel, LEAVE it: deleting ends it for everybody. Only the creator may delete it."""
+    try:
+        await call("DELETE", f"{_path(channel)}?requestedBy={quote(caller_id(ctx), safe='')}")
+    except Exception as error:  # noqa: BLE001 - worded as the JS tool words it
+        return tool_error(f"Failed to delete channel: {error}")
     return f"Deleted channel #{channel} and its messages."
 
 
-#: Registered in the order they were declared in the transport. Named explicitly rather than swept
-#: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
-#: agent-callable tool by accident.
-TOOLS = (
-    comms_channel_create,
-    comms_channel_join,
-    comms_channel_leave,
-    comms_channel_send,
-    comms_channel_read,
-    comms_channel_list,
-    comms_channel_delete,
-)
+TOOLS = (comms_channel_create, comms_channel_join, comms_channel_leave, comms_channel_read, comms_channel_list, comms_channel_delete)
 
 
 def register(mcp_server) -> None:
-    """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
-    for tool in TOOLS:
-        mcp_server.tool(structured_output=False)(tool)
+    register_tools(mcp_server, TOOLS)

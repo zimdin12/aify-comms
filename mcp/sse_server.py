@@ -45,6 +45,7 @@ from service.sse.management_tools import register as _register_management_tools
 from service.sse.run_tools import register as _register_run_tools
 from service.sse.send_tools import register as _register_send_tools
 from service.sse.shared_file_tools import register as _register_shared_file_tools
+from service.sse.self_record_tools import register as _register_self_record_tools
 from service.sse.usage_tools import register as _register_usage_tools
 
 logger = logging.getLogger(__name__)
@@ -57,9 +58,10 @@ client_name_var: ContextVar[str] = ContextVar("client_name", default="unknown")
 config = get_config()
 # STATELESS, JSON (0.9.11): each `/mcp/http` call stands alone, so a service rebuild costs a connected agent
 # nothing; a stateful session would answer 404 to every agent after each deploy.
-# NO HOST ALLOW-LIST: FastMCP's default refuses any Host but localhost (421), which locks out an agent that
-# reaches this service by another name (WSL, another PC). The API-key middleware authenticates every request,
-# and a DNS-rebinding page holds no key: the dashboard's cookie belongs to the service's own origin.
+# NO SECOND HOST ALLOW-LIST: FastMCP's default refuses any Host but localhost (421), which locks out an agent
+# that reaches this service by another name (WSL, another PC). The Host/Origin guard is the service's own
+# CrossSiteBrowserMiddleware (service/main.py, browser_origin.py), which covers /mcp like every route,
+# whether or not an API key is set.
 # Each module registers its tools with `structured_output=False`: a `-> str` tool otherwise carries an output
 # schema in `tools/list` that every agent pays for in context (3,148 bytes over 22 tools, measured 2026-10-27),
 # and a tool may return `rendering.tool_error(...)` to report a failure the way the JS tools do.
@@ -185,6 +187,7 @@ _register_shared_file_tools(mcp_server)
 
 _register_management_tools(mcp_server)
 _register_usage_tools(mcp_server)
+_register_self_record_tools(mcp_server)
 
 
 def setup_mcp_server(app):

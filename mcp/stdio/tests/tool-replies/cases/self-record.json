@@ -1,0 +1,184 @@
+[
+  {
+    "name": "status with a note",
+    "tool": "comms_status",
+    "callerArgs": [
+      "agentId"
+    ],
+    "args": {
+      "agentId": "agent-a",
+      "status": "working",
+      "note": "porting the tools"
+    },
+    "routes": {
+      "PATCH /agents/agent-a": {
+        "body": {
+          "agentId": "agent-a",
+          "status": "working"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/agents/agent-a",
+        "body": {
+          "status": "working",
+          "note": "porting the tools"
+        }
+      }
+    ],
+    "text": "Status updated: agent-a → working",
+    "isError": false
+  },
+  {
+    "name": "status without a note sends none",
+    "tool": "comms_status",
+    "callerArgs": [
+      "agentId"
+    ],
+    "args": {
+      "agentId": "agent-a",
+      "status": "idle"
+    },
+    "routes": {
+      "PATCH /agents/agent-a": {
+        "body": {
+          "agentId": "agent-a",
+          "status": "idle"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/agents/agent-a",
+        "body": {
+          "status": "idle"
+        }
+      }
+    ],
+    "text": "Status updated: agent-a → idle",
+    "isError": false
+  },
+  {
+    "name": "status refused by the service",
+    "tool": "comms_status",
+    "callerArgs": [
+      "agentId"
+    ],
+    "args": {
+      "agentId": "agent-a",
+      "status": "idle"
+    },
+    "routes": {
+      "PATCH /agents/agent-a": {
+        "status": 404,
+        "body": {
+          "detail": "Agent 'agent-a' not found"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/agents/agent-a",
+        "body": {
+          "status": "idle"
+        }
+      }
+    ],
+    "text": "HTTP 404: {\"detail\":\"Agent 'agent-a' not found\"}",
+    "isError": true
+  },
+  {
+    "name": "describe, long text previewed",
+    "tool": "comms_describe",
+    "callerArgs": [
+      "agentId"
+    ],
+    "args": {
+      "agentId": "agent-a",
+      "description": "Builds the comms service and its tools; ports the JS tool surface to the service so one implementation serves every agent over HTTP, with identity from the header."
+    },
+    "routes": {
+      "PATCH /agents/agent-a/description": {
+        "body": {
+          "agentId": "agent-a",
+          "description": "Builds the comms service and its tools; ports the JS tool surface to the service so one implementation serves every agent over HTTP, with identity from the header."
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/agents/agent-a/description",
+        "body": {
+          "description": "Builds the comms service and its tools; ports the JS tool surface to the service so one implementation serves every agent over HTTP, with identity from the header."
+        }
+      }
+    ],
+    "text": "Description updated for agent-a: Builds the comms service and its tools; ports the JS tool surface to the service so one implementation serves every agen…",
+    "isError": false
+  },
+  {
+    "name": "describe cleared",
+    "tool": "comms_describe",
+    "callerArgs": [
+      "agentId"
+    ],
+    "args": {
+      "agentId": "agent-a",
+      "description": ""
+    },
+    "routes": {
+      "PATCH /agents/agent-a/description": {
+        "body": {
+          "agentId": "agent-a",
+          "description": ""
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/agents/agent-a/description",
+        "body": {
+          "description": ""
+        }
+      }
+    ],
+    "text": "Description updated for agent-a (cleared)",
+    "isError": false
+  },
+  {
+    "name": "describe refused",
+    "tool": "comms_describe",
+    "callerArgs": [
+      "agentId"
+    ],
+    "args": {
+      "agentId": "agent-a",
+      "description": "x"
+    },
+    "routes": {
+      "PATCH /agents/agent-a/description": {
+        "status": 403,
+        "body": {
+          "detail": "not yours"
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/agents/agent-a/description",
+        "body": {
+          "description": "x"
+        }
+      }
+    ],
+    "text": "Describe error: HTTP 403: {\"detail\":\"not yours\"}",
+    "isError": true
+  }
+]

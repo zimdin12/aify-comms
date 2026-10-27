@@ -28,6 +28,27 @@ def api_url():
     return _BASE_URL
 
 
+class ServiceError(Exception):
+    """A non-2xx answer, worded as the JS bridge's `httpCall` throws it: `HTTP <status>: <body>`."""
+
+
+async def call(method: str, path: str, body: dict | None = None) -> dict:
+    """The JS `httpCall` (0.9.11 port): the parsed answer, or `ServiceError` on any non-2xx.
+
+    `path` carries its own query string, as the JS tools build it. A tool that does not catch the error
+    reports it as its result, the way the JS SDK reports a thrown error (`registration.register_tools`).
+    """
+    headers = {}
+    cfg = get_config()
+    if cfg.api_key:
+        headers["X-API-Key"] = cfg.api_key
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.request(method, f"{api_url()}{path}", headers=headers, json=body)
+    if resp.status_code >= 300:
+        raise ServiceError(f"HTTP {resp.status_code}: {resp.text}")
+    return resp.json() if resp.text.strip() else {}
+
+
 async def api(method: str, path: str, json_data: dict = None, params: dict = None) -> dict:
     """Call the internal REST API."""
     url = f"{api_url()}{path}"

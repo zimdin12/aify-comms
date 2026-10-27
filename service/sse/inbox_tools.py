@@ -21,6 +21,7 @@ intercept nothing and the tests would reach for the network instead.
 
 from __future__ import annotations
 
+from service.sse.registration import register_tools
 from service.sse.api_client import api as _api
 from service.api_core.message_view import _sender_label
 from service.api_core.serialization import _quote_untrusted_subject
@@ -156,5 +157,4 @@ TOOLS = (comms_inbox, comms_search)
 
 def register(mcp_server) -> None:
     """Apply `@mcp_server.tool()` to each tool, where the declarations used to stand."""
-    for tool in TOOLS:
-        mcp_server.tool(structured_output=False)(tool)
+    register_tools(mcp_server, TOOLS)
