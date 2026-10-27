@@ -14,33 +14,90 @@
 // call, with no error naming the cause. The opencode and pi config writers
 // passed the key, and those two installs were DISABLED; the enabled one did not.
 //
-// THE KEY IS A LITERAL. Emitted as the `X-API-Key` header when there is one, and omitted entirely when there
-// is not: the launchers do not export it, so a `${VAR}` could only ever resolve to empty and turn a missing key
-// into a wrong one.
-//
-// 0.9.11: HTTP ONLY. Hermes takes the comms tools from the service's /mcp/http. The stdio child this entry used
-// to start (with its forwarded env and TEMP pins) is gone; an entry left from an older install is replaced.
+// WHY THE KEY IS NOT GIVEN THE `${VAR}` FALLBACK THE URLS GET. Hermes filters env down to
+// `_SAFE_ENV_KEYS` before spawning a stdio MCP child, and resolves `${VAR}` at spawn time from
+// its OWN env, which it inherits from the hermes-aify wrapper. The wrapper exports the URLs; it
+// does not export the key (0 occurrences across all four launcher templates, against a control of
+// 2/8/5 for `SERVER_URL`). An interpolation that can only ever resolve to empty would write an
+// empty credential and turn a missing key into a wrong one. So the key is emitted as a literal
+// when there is one, and omitted entirely when there is not -- the same `if (apiKey)` shape the
+// opencode and pi installers already use.
 
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /**
- * The `aify-comms:` block, as YAML lines at hermes' two-space `mcp_servers` indent: the service's /mcp/http.
+ * Env names forwarded verbatim to the MCP child, each as a `${NAME}` hermes resolves at spawn.
  *
- * Hermes has no per-launch MCP flag, so the agent comes from the gateway's environment: hermes expands
- * `${AIFY_AGENT_ID}` in headers and refuses to connect a remote server while one is unset
- * (tools/mcp_tool_config.py, 0.21.5).
- *
- * @param serverUrl   the service endpoint; empty means fall back to `${AIFY_SERVER_URL}`
- * @param apiKey      the service key; empty means emit no key line at all
+ * Hermes passes only `_SAFE_ENV_KEYS` (PATH, HOME and friends) to a stdio MCP child, so anything
+ * the bridge needs has to be named here explicitly. `AIFY_AGENT_ID`, `AIFY_SESSION_MODE` and
+ * `AIFY_MANAGED_VIA_WRAPPER` are load-bearing rather than informational: without them the inner
+ * bridge never registers in `bridge_instances` and dispatch sits queued for ever -- observed
+ * 2026-05-26 with the wrapper PTY attached, the hermes TUI rendered and the MCP server loaded,
+ * but no `/agents` POST. `AIFY_COMMS_AGENT_ID` and `AIFY_TERMINAL_ID` are kept for symmetry with
+ * `terminalChildEnv`.
+ * A per-turn MCP child's lifecycle owner must cross that same filter: closing
+ * the child is not the resident managed host ending.
  */
-export function aifyEntryLines({ serverUrl = "", apiKey = "" } = {}) {
+export const FORWARDED_ENV_NAMES = [
+  "AIFY_AGENT_ID",
+  "AIFY_COMMS_AGENT_ID",
+  "AIFY_AGENT_ROLE",
+  "AIFY_AGENT_CWD",
+  "AIFY_SESSION_MODE",
+  "AIFY_RESIDENT_LIFECYCLE_OWNER",
+  "AIFY_SESSION_HANDLE",
+  "AIFY_EXPLICIT_SESSION_HANDLE",
+  "AIFY_RUNTIME",
+  "AIFY_TERMINAL_ID",
+  "AIFY_MANAGED_VIA_WRAPPER",
+  "AIFY_ENV_URL",
+  "AIFY_ENV_INSTANCE",
+  "AIFY_LIFETIME",
+  "HERMES_SESSION_ID",
+  "AIFY_HERMES_GATEWAY_URL",
+  "AIFY_HERMES_GATEWAY_TOKEN",
+  "HERMES_TUI_GATEWAY_URL",
+];
+
+/** The env names that carry the service API key. Both are read by the bridge; both are set. */
+export const API_KEY_ENV_NAMES = ["AIFY_API_KEY", "CLAUDE_MCP_API_KEY"];
+
+/**
+ * The `aify-comms:` block, as YAML lines at hermes' two-space `mcp_servers` indent.
+ *
+ * @param serverPath  absolute path to the bridge's `server.js`, as the hermes RUNTIME must read it
+ * @param serverUrl   the service endpoint; empty means fall back to `${AIFY_SERVER_URL}`
+ * @param apiKey      the service key; empty means emit no key lines at all
+ * @param transport   `stdio` (the bridge as a child) or `http` (the service's tools, no local process)
+ */
+export function aifyEntryLines({ serverPath, serverUrl = "", apiKey = "", transport = "stdio" } = {}) {
+  const url = (name) => (serverUrl ? JSON.stringify(serverUrl) : `"\${${name}}"`);
+  // 0.9.11: the service's own tools over HTTP, no comms process inside hermes. Hermes has no per-launch MCP
+  // flag, so the agent comes from the gateway's environment: hermes expands `${AIFY_AGENT_ID}` in headers and
+  // refuses to connect a remote server while one is unset (tools/mcp_tool_config.py, 0.21.5).
+  if (transport === "http") {
+    return [
+      "  aify-comms:",
+      `    url: ${serverUrl ? JSON.stringify(`${serverUrl.replace(/\/+$/, "")}/mcp/http`) : '"${AIFY_SERVER_URL}/mcp/http"'}`,
+      "    headers:",
+      '      X-Aify-Agent-Id: "${AIFY_AGENT_ID}"',
+      ...(apiKey ? [`      X-API-Key: ${JSON.stringify(apiKey)}`] : []),
+    ];
+  }
   return [
     "  aify-comms:",
-    `    url: ${serverUrl ? JSON.stringify(`${serverUrl.replace(/\/+$/, "")}/mcp/http`) : '"${AIFY_SERVER_URL}/mcp/http"'}`,
-    "    headers:",
-    '      X-Aify-Agent-Id: "${AIFY_AGENT_ID}"',
-    ...(apiKey ? [`      X-API-Key: ${JSON.stringify(apiKey)}`] : []),
+    '    command: "node"',
+    "    args:",
+    `      - ${JSON.stringify(serverPath)}`,
+    "    env:",
+    ...FORWARDED_ENV_NAMES.map((name) => `      ${name}: "\${${name}}"`),
+    // HTTP mode is reached ONLY when one of these is set (server.js:94); otherwise the child
+    // silently falls back to the local `.messages/` FILE store and replies never reach the
+    // service. A literal is preferred when we have one because it depends on no env at all.
+    `      AIFY_SERVER_URL: ${url("AIFY_SERVER_URL")}`,
+    `      CLAUDE_MCP_SERVER_URL: ${url("CLAUDE_MCP_SERVER_URL")}`,
+    ...(apiKey ? API_KEY_ENV_NAMES.map((name) => `      ${name}: ${JSON.stringify(apiKey)}`) : []),
   ];
 }
 
@@ -69,12 +126,27 @@ const ENTRY_KEY = keyLine(2, "aify-comms");
 const SECTION_KEY = keyLine(0, "mcp_servers");
 const COMMAND_KEY = /^ {4}(["']?)command\1:/;
 
+// Preserve operator temp-directory pins from this entry only, including their YAML value blocks.
+function explicitTempPins(entryLines) {
+  const envAt = entryLines.findIndex((line) => /^    env:[ \t]*(?:#.*)?$/.test(line));
+  if (envAt < 0) return [];
+  const end = blockEnd(entryLines, envAt, 4);
+  const pins = [];
+  for (let i = envAt + 1; i < end; i++) {
+    if (!/^      (["']?)(TEMP|TMP|TMPDIR)\1:/.test(entryLines[i])) continue;
+    const valueEnd = blockEnd(entryLines, i, 6);
+    pins.push(...entryLines.slice(i, valueEnd));
+    i = valueEnd - 1;
+  }
+  return pins;
+}
+
 /**
  * Return `text` with the aify-comms MCP entry present exactly once, under `mcp_servers:`.
  *
  * PURE: no filesystem, no process state. The entry is REPLACED in place when `mcp_servers:` has one,
- * so re-running the installer refreshes it (a skip-if-exists guard once left operators on an entry that
- * predated the env expansion); otherwise it is inserted under `mcp_servers:`, or a
+ * so re-running the installer refreshes its env block (a skip-if-exists guard once left operators on
+ * an entry that predated the env expansion); otherwise it is inserted under `mcp_servers:`, or a
  * whole section is appended.
  *
  * ONLY INSIDE `mcp_servers:`. This used to replace the first indented `aify-comms:` anywhere, and
@@ -102,7 +174,9 @@ export function configWithAifyEntry(text, options) {
   const sectionEnd = blockEnd(lines, mcpIndex, 0);
   const existing = lines.findIndex((line, i) => i > mcpIndex && i < sectionEnd && ENTRY_KEY.test(line));
   if (existing >= 0) {
-    lines.splice(existing, blockEnd(lines, existing, 2) - existing, ...entry);
+    const end = blockEnd(lines, existing, 2);
+    const pins = explicitTempPins(lines.slice(existing, end));
+    lines.splice(existing, end - existing, ...entry, ...pins);
   } else {
     lines.splice(mcpIndex + 1, 0, ...entry);
   }
@@ -117,10 +191,6 @@ export function patchHermesConfigFile(file, options) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [file, serverUrl = "", apiKey = ""] = process.argv.slice(2);
-  // An assets-only install (the guided chain) passes no key: aify-env holds it, and this entry is where hermes reads
-  // it. So it is resolved here, bound to this endpoint, the one way every comms process resolves it: an exported key,
-  // else the credential aify-env holds for exactly this endpoint (review of switch 1ed207d2).
-  const resolve = async () => (await import("../mcp/stdio/aify-service-endpoint.mjs")).destinationKeyResolver(serverUrl)(serverUrl);
-  patchHermesConfigFile(file, { serverUrl, apiKey: apiKey || (serverUrl ? await resolve() : "") });
+  const [file, serverPath, serverUrl = "", apiKey = "", transport = "stdio"] = process.argv.slice(2);
+  patchHermesConfigFile(file, { serverPath, serverUrl, apiKey, transport });
 }

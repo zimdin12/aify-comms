@@ -39,9 +39,6 @@ export function fixedFields() {
     endpointEnv: [...ENDPOINT_ENV_NAMES],
     keyEnv: [...API_KEY_ENV_NAMES],
     agentState: { path: AGENT_STATE_PATH },
-    // 0.9.11: launchers for this service take its comms tools from /mcp/http. Declared here so a launcher the guided
-    // chain renders (no --mcp-transport) follows it too: aify-wrapper reads it from the registry entry.
-    mcpTransport: "http",
   };
 }
 

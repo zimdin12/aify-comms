@@ -16,11 +16,8 @@
 // `scripts/hermes-mcp-config.mjs` is what makes the assertions below possible at all.
 //
 // BOTH HALVES ARE TESTED ON PURPOSE. Running the module proves the entry is built correctly; the
-// installer test proves the INSTALLER passes a key to it. A module that is perfect and a call site that
+// last test proves the INSTALLER passes a key to it. A module that is perfect and a call site that
 // hands it nothing is a green suite over a dead feature, which this repo has shipped before.
-//
-// 0.9.11: the entry is the service's /mcp/http, the agent as hermes' `${AIFY_AGENT_ID}`. The stdio child an
-// older install wrote is replaced whole.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -32,62 +29,138 @@ import {
   aifyEntryLines,
   configWithAifyEntry,
   patchHermesConfigFile,
+  API_KEY_ENV_NAMES,
+  FORWARDED_ENV_NAMES,
 } from "../../../scripts/hermes-mcp-config.mjs";
 import { tmpDir } from "./_tmpdir.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
+const SERVER_PATH = "/native/base/mcp/stdio/server.js";
 const URL_ = "http://127.0.0.1:8899";
 
-const entry = (apiKey) => aifyEntryLines({ serverUrl: URL_, apiKey }).join("\n");
-
-test("the entry is the service's /mcp/http, the agent as hermes' ${AIFY_AGENT_ID}, the key literal", () => {
-  assert.deepEqual(aifyEntryLines({ serverUrl: `${URL_}/`, apiKey: "sk-live-9c1f" }), [
-    "  aify-comms:",
-    `    url: "${URL_}/mcp/http"`,
-    "    headers:",
-    '      X-Aify-Agent-Id: "${AIFY_AGENT_ID}"',
-    '      X-API-Key: "sk-live-9c1f"',
-  ]);
-});
+const entry = (apiKey) =>
+  aifyEntryLines({ serverPath: SERVER_PATH, serverUrl: URL_, apiKey }).join("\n");
 
 test("with no key configured, the entry carries no key line at all", () => {
   const text = entry("");
-  assert.ok(!text.includes("X-API-Key"), "the key header must be absent when there is no key");
-  // POSITIVE CONTROL: the same search DOES find what is really there, so the absence is real.
-  assert.ok(entry("k").includes("X-API-Key"));
+  for (const name of API_KEY_ENV_NAMES) {
+    assert.ok(!text.includes(name), `${name} must be absent when there is no key`);
+  }
+  // POSITIVE CONTROL for the assertion above: the same search DOES find what is really there,
+  // so the absences are real absences and not a broken search.
+  assert.match(text, /AIFY_SERVER_URL: "http:\/\/127\.0\.0\.1:8899"/);
+});
+
+test("with a key configured, every key env name is emitted with that exact value", () => {
+  const text = entry("sk-live-9c1f");
+  for (const name of API_KEY_ENV_NAMES) {
+    assert.ok(
+      text.includes(`      ${name}: "sk-live-9c1f"`),
+      `${name} must carry the literal key`,
+    );
+  }
 });
 
 test("the key is a LITERAL, never a ${VAR} hermes would resolve to nothing", () => {
-  // The launchers do not export the key, so an interpolation could only ever resolve to empty,
-  // turning a missing credential into a wrong one.
+  // Hermes filters env to _SAFE_ENV_KEYS and resolves ${VAR} from its own env, inherited from the
+  // hermes-aify wrapper -- which does not export the key. An interpolation here could only ever
+  // resolve to empty, turning a missing credential into a wrong one.
   const text = entry("sk-live-9c1f");
-  assert.ok(text.includes('X-API-Key: "sk-live-9c1f"'));
-  assert.ok(!/X-API-Key: "\$\{/.test(text), "the key must not be an interpolation");
-  // Control: the agent IS an interpolation, so this test can tell the two shapes apart.
-  assert.ok(text.includes('X-Aify-Agent-Id: "${AIFY_AGENT_ID}"'));
+  for (const name of API_KEY_ENV_NAMES) {
+    assert.ok(!text.includes(`${name}: "\${${name}}"`), `${name} must not be an interpolation`);
+  }
+  // Control: the forwarded names ARE interpolations, so this test can tell the two shapes apart.
+  assert.ok(text.includes('AIFY_AGENT_ID: "${AIFY_AGENT_ID}"'));
 });
 
 test("the URL keeps its ${VAR} fallback when no URL was given, because the wrapper exports it", () => {
-  assert.ok(aifyEntryLines({ serverUrl: "", apiKey: "" }).includes('    url: "${AIFY_SERVER_URL}/mcp/http"'));
+  const text = aifyEntryLines({ serverPath: SERVER_PATH, serverUrl: "", apiKey: "" }).join("\n");
+  assert.ok(text.includes('AIFY_SERVER_URL: "${AIFY_SERVER_URL}"'));
+  assert.ok(text.includes('CLAUDE_MCP_SERVER_URL: "${CLAUDE_MCP_SERVER_URL}"'));
 });
 
-test("an older install's stdio entry is REPLACED whole, never duplicated, and neighbours survive", () => {
+test("every forwarded env name reaches the entry", () => {
+  const text = entry("");
+  for (const name of FORWARDED_ENV_NAMES) {
+    assert.ok(text.includes(`      ${name}: "\${${name}}"`), `${name} missing`);
+  }
+});
+
+test("refresh preserves the owned MCP entry's explicit TEMP pins without borrowing another server's", () => {
+  const dir = tmpDir("aify-hermes-temp-pins-");
+  try {
+    const file = path.join(dir, "config.yaml");
+    const pins = ['      TEMP: "/tmp"', '      TMP: "/tmp"', '      TMPDIR: "/tmp"'];
+    const other = '  other:\n    command: other\n    env:\n      TEMP: "/unrelated"';
+    fs.writeFileSync(file, ["mcp_servers:", other, "  aify-comms:", "    command: stale",
+      "    env:", ...pins, '      AIFY_SERVER_URL: "http://stale"', ""].join("\n"));
+    const options = { serverPath: SERVER_PATH, serverUrl: URL_ };
+    patchHermesConfigFile(file, options);
+    const once = fs.readFileSync(file, "utf8");
+    const owned = once.slice(once.indexOf("  aify-comms:\n"));
+    const ownedLines = owned.split("\n");
+    assert.deepEqual(ownedLines.filter((line) => /^      (TEMP|TMP|TMPDIR):/.test(line)), pins,
+      "all three explicit pins survive the refresh");
+    for (const [index, line] of ownedLines.entries()) {
+      if (!/^      (TEMP|TMP|TMPDIR):/.test(line)) continue;
+      const parent = ownedLines.slice(0, index).findLast((prior) => /^ {4}[^\s#][^:]*:/.test(prior));
+      assert.equal(parent, "    env:", `${line.trim()} must remain inside env:`);
+    }
+    assert.ok(once.includes(other), "another server is unchanged");
+    assert.ok(!owned.includes("/unrelated"), "another server's pin is not imported");
+    assert.ok(!owned.includes("http://stale"), "the rest of the entry is still refreshed");
+    patchHermesConfigFile(file, options);
+    assert.equal(fs.readFileSync(file, "utf8"), once, "retaining pins is idempotent");
+    const withoutPins = configWithAifyEntry(`mcp_servers:\n${other}\n`, options);
+    assert.ok(!withoutPins.slice(withoutPins.indexOf("  aify-comms:\n"), withoutPins.indexOf("  other:\n")).includes("TEMP:"),
+      "a new entry gets no invented pin from its neighbour");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("under a quoted mcp_servers section, the owned entry is refreshed in place and keeps its TEMP pins", () => {
+  // The section name is unquoted before it is compared: read as quoted, the owned entry looked like a leftover
+  // outside mcp_servers and was deleted with its pins (review of 2ed0be98).
+  const before = ['"mcp_servers":', "  aify-comms:", "    command: stale", "    env:", '      TEMP: "/tmp"', ""].join("\n");
+  const after = configWithAifyEntry(before, { serverPath: SERVER_PATH, serverUrl: URL_ });
+  assert.match(after, /^      TEMP: "\/tmp"$/m, "the pin was lost with the entry");
+  assert.equal((after.match(/^ {2}aify-comms:$/gm) || []).length, 1);
+});
+
+test("a refreshed per-turn MCP entry forwards its resident lifecycle owner", () => {
+  const dir = tmpDir("aify-hermes-owner-");
+  try {
+    const file = path.join(dir, "config.yaml");
+    fs.writeFileSync(file, "model: fixture\nmcp_servers:\n  aify-comms:\n    command: node\n");
+    patchHermesConfigFile(file, { serverPath: SERVER_PATH, serverUrl: URL_ });
+    const text = fs.readFileSync(file, "utf8");
+    assert.match(text, /^      AIFY_AGENT_ID: "\$\{AIFY_AGENT_ID\}"$/m, "the existing forwarding control reaches the file");
+    assert.doesNotMatch(text, /AIFY_MISSING_CONTROL/, "an unrequested variable is absent");
+    assert.match(text, /^      AIFY_RESIDENT_LIFECYCLE_OWNER: "\$\{AIFY_RESIDENT_LIFECYCLE_OWNER\}"$/m,
+      "a per-turn MCP child must receive the launcher's lifecycle owner");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an existing aify-comms entry is REPLACED, never duplicated, and neighbours survive", () => {
   const before = [
     "mcp_servers:",
     "  aify-comms:",
-    '    command: "node"',
-    "    args:",
-    '      - "/native/base/mcp/stdio/server.js"',
+    "    command: node",
     "    env:",
-    '      TEMP: "/tmp"',
     '      AIFY_SERVER_URL: "http://stale"',
     "  keepme:",
     "    command: bar",
     "",
   ].join("\n");
-  const after = configWithAifyEntry(before, { serverUrl: URL_, apiKey: "sk-new" });
-  assert.equal(after, `mcp_servers:\n  aify-comms:\n    url: "${URL_}/mcp/http"\n    headers:\n      X-Aify-Agent-Id: "\${AIFY_AGENT_ID}"\n      X-API-Key: "sk-new"\n  keepme:\n    command: bar\n`);
+  const after = configWithAifyEntry(before, {
+    serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "sk-new",
+  });
+  assert.equal((after.match(/^ {2}aify-comms:$/gm) || []).length, 1, "exactly one entry");
+  assert.ok(!after.includes("http://stale"), "the stale env block is gone");
+  assert.ok(after.includes("  keepme:"), "an unrelated server is untouched");
+  assert.ok(after.includes('AIFY_API_KEY: "sk-new"'));
 });
 
 test("patching twice is idempotent", () => {
@@ -95,7 +168,7 @@ test("patching twice is idempotent", () => {
   try {
     const file = path.join(dir, "config.yaml");
     fs.writeFileSync(file, "model: gpt-5\n");
-    const opts = { serverUrl: URL_, apiKey: "sk-two" };
+    const opts = { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "sk-two" };
     patchHermesConfigFile(file, opts);
     const once = fs.readFileSync(file, "utf8");
     patchHermesConfigFile(file, opts);
@@ -152,7 +225,7 @@ const blocksUnder = (text, section) => {
 };
 
 test("the entry is written under mcp_servers only, and hermes' own plugin setting survives", () => {
-  const after = configWithAifyEntry(HERMES_LIKE, { serverUrl: URL_, apiKey: "sk-new" });
+  const after = configWithAifyEntry(HERMES_LIKE, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "sk-new" });
   assert.equal(blocksUnder(after, "mcp_servers"), 1, "exactly one entry under mcp_servers");
   assert.equal(blocksUnder(after, "plugins"), 0, "the MCP block left under plugins is removed");
   assert.match(after, /^ {2}entries:\n {4}aify-comms:\n {6}allow_tool_override: false$/m,
@@ -160,15 +233,15 @@ test("the entry is written under mcp_servers only, and hermes' own plugin settin
   assert.ok(!after.includes("stale-in-mcp") && !after.includes("stale-in-plugins"));
   assert.ok(after.includes("  aify-project-graph:") && after.includes("platform_toolsets: {}"), "neighbours survive");
   assert.match(after, /^known_plugin_toolsets:\n {2}aify-comms:\n {4}- comms_send$/m, "another section's aify-comms key is not ours to replace");
-  assert.ok(after.includes('X-API-Key: "sk-new"'));
-  assert.equal(configWithAifyEntry(after, { serverUrl: URL_, apiKey: "sk-new" }), after, "idempotent");
+  assert.ok(after.includes('AIFY_API_KEY: "sk-new"'));
+  assert.equal(configWithAifyEntry(after, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "sk-new" }), after, "idempotent");
 });
 
 test("with only the plugin setting present, the entry is inserted under mcp_servers, not over it", () => {
   const withoutEntry = HERMES_LIKE.replace(/  aify-comms:\n    command: node\n    env:\n      AIFY_SERVER_URL: http:\/\/stale-in-plugins\n/, "")
     .replace(/  aify-comms:\n    command: node\n    env:\n      AIFY_SERVER_URL: http:\/\/stale-in-mcp\n/, "");
   assert.equal(blocksUnder(withoutEntry, "plugins") + blocksUnder(withoutEntry, "mcp_servers"), 0, "fixture control");
-  const after = configWithAifyEntry(withoutEntry, { serverUrl: URL_, apiKey: "" });
+  const after = configWithAifyEntry(withoutEntry, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "" });
   assert.equal(blocksUnder(after, "mcp_servers"), 1);
   assert.equal(blocksUnder(after, "plugins"), 0);
   assert.match(after, /^ {4}aify-comms:\n {6}allow_tool_override: false$/m);
@@ -176,7 +249,7 @@ test("with only the plugin setting present, the entry is inserted under mcp_serv
 
 test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module", () => {
   // The failure this guards is a module that builds a perfect entry while install.sh hands it
-  // no key. Asserting the module alone would stay green through exactly that.
+  // three arguments and no key. Asserting the module alone would stay green through exactly that.
   const installer = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
   const lines = installer.split("\n");
   // Match the INVOCATION, not the comment above it that names the same file -- the first
@@ -193,8 +266,11 @@ test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module"
 
   // The invocation continues onto the next line via a trailing backslash; read both.
   const invocation = lines.slice(at, at + 2).join(" ");
-  assert.match(invocation, /"\$node_config_file" "\$SERVER_URL" "\$api_key"/,
-               "the config file, the endpoint and THE KEY, in the module's argument order");
+  assert.match(invocation, /"\$node_config_file"/, "the config file is argument 1");
+  assert.match(invocation, /"\$node_server_path"/, "the bridge path is argument 2");
+  assert.match(invocation, /"\$SERVER_URL"/, "the endpoint is argument 3");
+  assert.match(invocation, /"\$api_key"/, "THE KEY is argument 4 -- the whole point");
+  assert.match(invocation, /"\$api_key" "\$\{MCP_TRANSPORT:-stdio\}"/, "the transport is argument 5, so --mcp-transport http reaches hermes");
 
   // And the variable is populated from the one resolver, not left empty.
   assert.match(installer, /api_key="\$\(aify_api_key\)"/);
@@ -202,15 +278,15 @@ test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module"
 
 test("the config module's own path is CONVERTED for a native-Windows node", () => {
   // REGRESSION, and it cost a whole client. `MSYS_NO_PATHCONV=1` is set on this invocation to protect
-  // its ARGUMENTS -- the config path is already a drive-letter path a second conversion would mangle --
-  // and it also suppressed conversion of the script's own path. Native node.exe was handed a literal
+  // its ARGUMENTS -- two are already drive-letter paths a second conversion would mangle -- and it
+  // also suppressed conversion of the script's own path. Native node.exe was handed a literal
   // `/c/Docker/...`, resolved it against the drive root, and died:
   //   Cannot find module 'C:\c\Docker\aify-comms\scripts\hermes-mcp-config.mjs'
   // Introduced 2026-08-30 by 9a2cfdca and caught by a redeploy the next day. Every hermes install in
   // between registered NO MCP server, and the installer reported a whole-client failure rather than
   // the one step that broke -- so the symptom pointed nowhere near the cause.
   //
-  // THE GUARD IS `is_git_bash_windows`, not `hermes_runtime_is_native_windows` as the call sites
+  // THE GUARD IS `is_git_bash_windows`, not `hermes_runtime_is_native_windows` as the two call sites
   // above it use, and that difference is load-bearing: those convert paths a native HERMES reads
   // later, while this one is consumed by the installer's OWN node, which under WSL is Linux node and
   // must keep a POSIX path. A reader tidying the inconsistency away breaks WSL installs.
@@ -229,36 +305,23 @@ test("the config module's own path is CONVERTED for a native-Windows node", () =
                "the conversion is unguarded, which would hand Linux node a Windows path under WSL");
 });
 
-// The guided chain installs assets with no key (aify-env holds it), so the CLI is handed an empty one. The entry is
-// where hermes reads the key, so the CLI resolves it the way every comms process does: the credential aify-env holds
-// for exactly this endpoint (review of switch 1ed207d2). Control: a credential bound to another endpoint is not used.
-for (const [bound, expected] of [["http://127.0.0.1:8899", "fixture-held-key"], ["http://127.0.0.1:9999", null]]) {
-  test(`an install with no key gives hermes the credential aify-env holds for ${bound === URL_ ? "this" : "another"} endpoint`, async () => {
-    const { execFileSync, spawnSync } = await import("node:child_process");
-    const { sealedChildEnv } = await import("./_child-env.mjs");
-    const home = tmpDir("aify-hermes-held-key-");
-    try {
-      const credentials = path.join(home, ".aify", "credentials");
-      fs.mkdirSync(credentials, { recursive: true });
-      const credential = path.join(credentials, "aify-comms-fixture.key");
-      fs.writeFileSync(credential, "fixture-held-key\n", { mode: 0o600 });
-      if (process.platform === "win32") {
-        execFileSync("icacls", [credential, "/inheritance:r", "/grant:r", `${process.env.USERNAME}:(F)`], { stdio: "ignore" });
-      }
-      const registry = path.join(home, ".aify", "services.json");
-      fs.writeFileSync(registry, JSON.stringify({ services: { "aify-comms": { endpoint: bound, credentialRef: "aify-comms-fixture.key" } } }));
-      const config = path.join(home, "config.yaml");
-      const run = spawnSync(process.execPath, [path.join(REPO, "scripts", "hermes-mcp-config.mjs"), config, URL_, ""], {
-        encoding: "utf8", timeout: 30_000,
-        env: sealedChildEnv({ HOME: home, USERPROFILE: home, AIFY_SERVICE_REGISTRY: registry }),
-      });
-      assert.equal(run.status, 0, run.stderr);
-      const text = fs.readFileSync(config, "utf8");
-      assert.match(text, /X-Aify-Agent-Id/, "CONTROL: the entry was written");
-      if (expected) assert.match(text, new RegExp(`X-API-Key: "${expected}"`));
-      else assert.doesNotMatch(text, /X-API-Key/, "a credential for another endpoint must not be sent here");
-    } finally {
-      fs.rmSync(home, { recursive: true, force: true });
-    }
-  });
-}
+// 0.9.11 slice 4: with `--mcp-transport http` hermes reaches the service's own tools, and no comms process runs
+// inside it. Hermes has no per-launch MCP flag, so the agent is the gateway's `${AIFY_AGENT_ID}`.
+test("the http entry is the service's /mcp/http, the agent as hermes' ${AIFY_AGENT_ID}, the key literal", () => {
+  assert.deepEqual(aifyEntryLines({ serverPath: SERVER_PATH, serverUrl: `${URL_}/`, apiKey: "sk-live-9c1f", transport: "http" }), [
+    "  aify-comms:",
+    `    url: "${URL_}/mcp/http"`,
+    "    headers:",
+    '      X-Aify-Agent-Id: "${AIFY_AGENT_ID}"',
+    '      X-API-Key: "sk-live-9c1f"',
+  ]);
+  assert.ok(aifyEntryLines({ serverPath: SERVER_PATH, serverUrl: "", apiKey: "", transport: "http" })
+    .includes('    url: "${AIFY_SERVER_URL}/mcp/http"'), "no URL given: the wrapper's exported one");
+});
+
+test("switching an installed stdio entry to http leaves nothing of the child behind", () => {
+  const stdio = configWithAifyEntry("mcp_servers:\n", { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "k" });
+  assert.match(stdio, /command: "node"/, "control: the stdio entry has its command");
+  const http = configWithAifyEntry(stdio, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "k", transport: "http" });
+  assert.equal(http, `mcp_servers:\n  aify-comms:\n    url: "${URL_}/mcp/http"\n    headers:\n      X-Aify-Agent-Id: "\${AIFY_AGENT_ID}"\n      X-API-Key: "k"\n`);
+});

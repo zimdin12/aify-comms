@@ -145,8 +145,6 @@ function normaliseEntry(entry) {
   // Only when true. Writing `strictMcp: false` everywhere would make an opt-in that nobody chose look
   // like a decision somebody made.
   if (entry.strictMcp === true) normalised.strictMcp = true;
-  // How launchers reach this service's tools (aify-wrapper renders them from it). Kept only when declared.
-  if (typeof entry.mcpTransport === "string") normalised.mcpTransport = entry.mcpTransport;
   // The shared reader validates this opt-in. Keep its literal values unchanged.
   if (Object.hasOwn(entry, "agentState")) normalised.agentState = structuredClone(entry.agentState);
   // WHERE THE KEY FILE IS, and never what is in it. Same rule as `keyEnv` and the same reason: this

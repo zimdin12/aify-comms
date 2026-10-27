@@ -15,10 +15,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
 import { SERVICE_NAME, upsertService } from "./service-registry.mjs";
 // The two servers come from the spec this service serves (`/.well-known/aify-service`), so the entry
 // written here and the one a connect renders from that spec name the same servers.
-import { fixedFields, renderStdioMcp } from "./service-spec.mjs";
+import { renderStdioMcp } from "./service-spec.mjs";
 
 const EXIT_CONFIG = 78;
 // SERVICE_NAME is imported from service-registry.mjs, which owns the registry concept.
@@ -43,10 +44,16 @@ try {
 
 const result = upsertService(existing, SERVICE_NAME, {
   endpoint,
-  // The fields the served spec carries, from its one source: endpointEnv and keyEnv from the bridge's own lists
-  // (a name the registry does not declare is INHERITED from whatever launched the runtime, one service's
-  // credential reaching another's bridge), agentState, and mcpTransport.
-  ...fixedFields(),
+  // Declared from the bridge's own list rather than typed here. A name the bridge reads but the
+  // registry does not declare gets INHERITED from whatever launched the runtime, because a runtime's
+  // per-server MCP env block is key-scoped.
+  endpointEnv: ENDPOINT_ENV_NAMES,
+  // Declared for the same reason as the endpoint names, and it was the half left undone. A per-server
+  // MCP env block is key-scoped, so a key name the bridge reads but the registry does not declare is
+  // INHERITED from whatever launched the runtime -- one service's credential reaching another
+  // service's bridge, accepted or refused for reasons visible from neither side.
+  keyEnv: API_KEY_ENV_NAMES,
+  agentState: { path: "/api/v1/agent-state" },
   // WHERE THE KEY FILE IS, when the installer stored one. `keyEnv` only reaches a process somebody
   // exported a variable into, and nothing on this host does that for aify-env -- which is why
   // enabling API_KEY made every advertisement 401 in silence. This is the other half: one basename

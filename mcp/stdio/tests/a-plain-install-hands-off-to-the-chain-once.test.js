@@ -81,7 +81,7 @@ function handoff(bins, env = {}) {
   const PATH = `${toBash(bins.dir)}:${toBash(bins.dir)}/bin:/usr/bin:/bin`;
   const run = spawnSync(BASH, [toBash(path.join(bins.dir, "scripts", "chain-handoff.sh")), "claude", "http://comms.test:8800", "/src/install.sh"], {
     encoding: "utf8", input: "",
-    env: sealedChildEnv({ PATH, AIFY_API_KEY: "", WITH_API_KEY: undefined, WITH_HOOK: undefined, ENV_ENDPOINT_GIVEN: undefined, ...env }),
+    env: sealedChildEnv({ PATH, AIFY_API_KEY: "", WITH_API_KEY: undefined, WITH_HOOK: undefined, MCP_TRANSPORT: undefined, ENV_ENDPOINT_GIVEN: undefined, ...env }),
   });
   const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
   return { status: run.status, stderr: run.stderr, calls, lines: calls.trim().split("\n").filter(Boolean) };
@@ -219,7 +219,7 @@ test("an aify-env on PATH runs only when it is npm's own bin for the global pack
 });
 
 test("options the chain does not carry are refused before anything is installed or run", () => {
-  const cases = [["WITH_HOOK", "true", "--with-hook"], ["ENV_ENDPOINT_GIVEN", "true", "--env-endpoint"]];
+  const cases = [["WITH_HOOK", "true", "--with-hook"], ["MCP_TRANSPORT", "http", "--mcp-transport"], ["ENV_ENDPOINT_GIVEN", "true", "--env-endpoint"]];
   for (const [variable, value, flag] of cases) {
     const out = handoff(fakeBins(["npm", "node"]), { [variable]: value, WITH_API_KEY: "true" });
     assert.equal(out.status, 64, flag);
@@ -313,7 +313,7 @@ test("through the installer itself, early refusals precede real key persistence;
       encoding: "utf8", input: "",
       env: sealedChildEnv({
         PATH: `${toBash(bins.dir)}:/usr/bin:/bin`, MODE: mode, SCRIPT_DIR: toBash(root), AIFY_ENV_FILE: toBash(envFile),
-        WITH_API_KEY: "true", WITH_HOOK: "false", ENV_ENDPOINT_GIVEN: "false",
+        WITH_API_KEY: "true", WITH_HOOK: "false", ENV_ENDPOINT_GIVEN: "false", MCP_TRANSPORT: undefined,
         API_KEY: undefined, AIFY_API_KEY: undefined, CLAUDE_MCP_API_KEY: undefined, AIFY_INSTALL_CHAIN: undefined,
         CLIENT: "claude", SERVER_URL: "http://c.test:8800", EMIT_WRAPPERS_DIR: "", PREBUILD_DRY_RUN: "false", ...extra,
       }),
@@ -321,7 +321,7 @@ test("through the installer itself, early refusals precede real key persistence;
     const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
     return { status: r.status, stderr: r.stderr, calls, env: fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf8") : null };
   };
-  for (const [variable, value] of [["WITH_HOOK", "true"], ["ENV_ENDPOINT_GIVEN", "true"]]) {
+  for (const [variable, value] of [["WITH_HOOK", "true"], ["MCP_TRANSPORT", "http"], ["ENV_ENDPOINT_GIVEN", "true"]]) {
     fs.rmSync(envFile, { force: true });
     const absent = run("", { [variable]: value });
     assert.equal(absent.status, 64, `${variable}: ${absent.stderr}`);

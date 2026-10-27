@@ -28,8 +28,7 @@
           "command": "node",
           "name": "aify-comms-channel"
         }
-      ],
-      "mcpTransport": "http"
+      ]
     }
   },
   "version": 1
