@@ -30,6 +30,7 @@ import {
 import { controlContent, dispatchContent } from "./claude-channel-content.js";
 import { TRUST_RULE } from "./tool-response-format.mjs";
 import { channelSource, isThisRoutesProducer } from "./channel-producer.mjs";
+import { ChannelResidency, channelHoldsResidency } from "./channel-residency.mjs";
 
 // The interface aify-wrapper reads before it chooses the plugin route: runChannel() below runs the version-1 producer gate
 // (channel-producer.mjs). It speaks for claude-channel-plugin.mjs too, which runs this runChannel().
@@ -261,7 +262,7 @@ function pidIsAlive(pid) {
   }
 }
 
-async function pollLoop() {
+async function pollLoop(onParentGone) {
   // Capture the original controlling parent pid ONCE (the managed claude.exe),
   // up front so both the liveness-beat gate (below) and the self-exit guard
   // (further down) read the same value.
@@ -309,8 +310,7 @@ async function pollLoop() {
         );
         stopParentGuard();
         stopLiveness();
-        try { removeOwnMarker(); } catch { /* best effort */ }
-        process.exit(0);
+        onParentGone();
       }
     }, PARENT_GUARD_CHECK_MS);
     if (typeof parentGuardTimer.unref === "function") parentGuardTimer.unref();
@@ -514,11 +514,26 @@ export async function runChannel({ fromPlugin = false } = {}) {
   } catch (error) {
     console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
   }
-  process.on("exit", removeOwnMarker);
-  process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
-  process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
+  // Started after the connection, so Claude's MCP start-up never waits on a registration (channel-residency.mjs).
+  let residency = null;
+  let leaving = false;
+  // Every way out takes this once: a signal, Claude closing stdin, or the parent gone.
+  const leave = async (code) => {
+    if (leaving) return;
+    leaving = true;
+    await residency?.end();
+    removeOwnMarker();
+    process.exit(code);
+  };
+  process.on("exit", () => { removeOwnMarker(); residency?.dropBinding(); });
+  process.on("SIGINT", () => { leave(130); });
+  process.on("SIGTERM", () => { leave(143); });
+  // A closed terminal window sends SIGHUP, whose default exits without running any handler.
+  process.on("SIGHUP", () => { leave(129); });
   await mcp.connect(new StdioServerTransport());
-  pollLoop().catch((error) => {
+  process.stdin.once("end", () => { leave(0); });
+  if (channelHoldsResidency()) residency = new ChannelResidency().start();
+  pollLoop(() => leave(0)).catch((error) => {
     console.error("[aify-channel] fatal:", error);
     process.exit(1);
   });
