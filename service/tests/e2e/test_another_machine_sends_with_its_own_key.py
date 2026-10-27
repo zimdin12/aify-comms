@@ -70,7 +70,7 @@ def test_a_client_cannot_write_the_machine_itself(stack):
     ("GET", "/api/v1/agents"),                      # the roster, which carries gateway tokens
     ("POST", "/api/v1/agents"),                     # registering here: the operator said it must not
     ("GET", f"/api/v1/messages/inbox/{HOME}"),      # a local agent's mail
-    ("GET", "/mcp/sse"),                            # the MCP transport, a mount rather than a route
+    ("POST", "/mcp/http"),                          # the MCP transport, a mount rather than a route
 ])
 def test_the_key_opens_nothing_else(stack, method, path):
     body = {"agentId": REMOTE, "role": "manager", "runtime": "generic"} if method == "POST" else None

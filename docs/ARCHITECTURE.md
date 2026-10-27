@@ -20,7 +20,7 @@ another is the most common way a change appears not to work.
 
 | | Runs where | Reload by | Holds |
 |---|---|---|---|
-| **Service** | containers `aify-comms-service` (API, port 8800) and `aify-comms-dashboard-next` (dashboard, port 8801) | `bash scripts/stamp.sh && docker compose up -d --build` | FastAPI control plane, SQLite, dispatch, the dashboard, the SSE MCP transport |
+| **Service** | containers `aify-comms-service` (API, port 8800) and `aify-comms-dashboard-next` (dashboard, port 8801) | `bash scripts/stamp.sh && docker compose up -d --build` | FastAPI control plane, SQLite, dispatch, the dashboard, the MCP transport (`/mcp/http`) |
 | **Bridge** | the host, one per agent: the MCP stdio server each agent's runtime starts from `~/.aify-comms` | `install.sh`, **then relaunch the agent** | MCP tools, runtime adapters, the dispatch claim and delivery loops. No PTYs |
 | **Host tier** | the host, one per environment: **[aify-env](https://github.com/zimdin12/aify-env)**, a separate repo | restart `aify-env`, which is the operator's action | processes and PTYs, spawn claiming, terminal controls, console streaming. The only spawner |
 | **Wrapper** | the host, a launcher on PATH, from the [aify-wrapper](https://github.com/zimdin12/aify-wrapper) package | `install.sh` alone: it is text written at install time | `claude-aify`, `codex-aify`, `hermes-aify` (and `pi-aify`, deprecated): resolve the runtime CLI, export the identity environment, wire the MCP config, exec the runtime |
@@ -76,7 +76,7 @@ service/db.py, schema.py       SQLite. A pooled connection per call; writes seri
 ```
 
 `service/sse/**` is a **parallel entry point, not a layer**: the `comms_*` MCP tools agents reach
-over the SSE transport. It calls the same API over HTTP through `service/sse/api_client.py` rather
+over `/mcp/http` (named for the SSE transport, deleted in 0.9.11). It calls the same API over HTTP through `service/sse/api_client.py` rather
 than importing the handlers, so a tool's behaviour is tested by patching `_api` *in the tool's own
 module*; each resolves it locally, by design.
 

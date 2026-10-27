@@ -65,9 +65,9 @@ Examples:
                                 aify-env hosts every managed spawn. --delegate-spawns [url] is
                                 accepted as its old name; --no-delegate-spawns does nothing.
   Existing notification hooks refresh automatically; new legacy hooks need --standalone --with-hook.
-  --mcp-transport <stdio|sse|http>  how agents reach the comms tools. Default stdio: the local
+  --mcp-transport <stdio|http>  how agents reach the comms tools. Default stdio: the local
                                 bridge from ~/.aify-comms. http: the service's <endpoint>/mcp/http,
-                                claude-aify adding it per launch (0.9.11). sse: <endpoint>/mcp/sse.
+                                claude-aify adding it per launch (0.9.11).
   --standalone runs only this installer; plain installs use the guided chain.
   --client pi is intentionally disabled: Pi (`omp --mode rpc`) is deprecated.
   --client opencode is intentionally disabled: OpenCode is not supported.
@@ -100,14 +100,14 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --mcp-transport)
-      # `stdio` spawns the local bridge from ~/.aify-comms; `sse` talks to <endpoint>/mcp/sse and
-      # needs no service code here. Default stdio: repointing a live fleet is not a side effect.
+      # `stdio` spawns the local bridge from ~/.aify-comms; `http` reaches <endpoint>/mcp/http.
+      # Default stdio: repointing a live fleet is not a side effect.
       # Refused rather than defaulted, or an ignored value renders a launcher that disagrees with
       # what was asked for -- the same failure the unsubstituted placeholder caused one level up.
       MCP_TRANSPORT="${2:-}"
       case "$MCP_TRANSPORT" in
-        stdio|sse|http) ;;
-        *) echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio, sse or http)" >&2
+        stdio|http) ;;
+        *) echo "install.sh: unknown --mcp-transport '$MCP_TRANSPORT' (expected stdio or http)" >&2
            exit 78 ;;
       esac
       shift 2

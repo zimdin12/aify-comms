@@ -219,7 +219,7 @@ test("an aify-env on PATH runs only when it is npm's own bin for the global pack
 });
 
 test("options the chain does not carry are refused before anything is installed or run", () => {
-  const cases = [["WITH_HOOK", "true", "--with-hook"], ["MCP_TRANSPORT", "sse", "--mcp-transport"], ["ENV_ENDPOINT_GIVEN", "true", "--env-endpoint"]];
+  const cases = [["WITH_HOOK", "true", "--with-hook"], ["MCP_TRANSPORT", "http", "--mcp-transport"], ["ENV_ENDPOINT_GIVEN", "true", "--env-endpoint"]];
   for (const [variable, value, flag] of cases) {
     const out = handoff(fakeBins(["npm", "node"]), { [variable]: value, WITH_API_KEY: "true" });
     assert.equal(out.status, 64, flag);
@@ -321,7 +321,7 @@ test("through the installer itself, early refusals precede real key persistence;
     const calls = fs.existsSync(bins.log) ? fs.readFileSync(bins.log, "utf8") : "";
     return { status: r.status, stderr: r.stderr, calls, env: fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf8") : null };
   };
-  for (const [variable, value] of [["WITH_HOOK", "true"], ["MCP_TRANSPORT", "sse"], ["ENV_ENDPOINT_GIVEN", "true"]]) {
+  for (const [variable, value] of [["WITH_HOOK", "true"], ["MCP_TRANSPORT", "http"], ["ENV_ENDPOINT_GIVEN", "true"]]) {
     fs.rmSync(envFile, { force: true });
     const absent = run("", { [variable]: value });
     assert.equal(absent.status, 64, `${variable}: ${absent.stderr}`);

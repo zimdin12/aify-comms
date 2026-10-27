@@ -87,18 +87,12 @@ Four gaps between the system and the target.
 1. **The client path still installs aify-comms code.** aify-comms' own `install.sh --client <runtime>`
    is today the client installer: it writes the service's entry into `~/.aify/services.json` and copies
    the MCP bridge into `~/.aify-comms`, which every launcher using the default stdio transport runs.
-   `--mcp-transport sse` renders a launcher that talks to `<endpoint>/mcp/sse` instead, and the
-   container serves the `comms_*` tools over it, so `~/.aify-comms` stops being load-bearing the
-   moment every launcher on a host uses it.
-
-   It is not a free swap. The SSE surface is reduced by design and
-   `mcp/stdio/tests/transport-parity.test.js` requires every difference to be declared. Eight of the
-   thirteen missing tools are principled: `comms_spawn`, `comms_restart`, `comms_compact`,
-   `comms_interrupt`, `comms_delete_session`, `comms_remove_agent` need a local process;
-   `comms_usage`, `comms_envs` read host state a container cannot see. The other five
-   are absent only because nobody mirrored them: `comms_agent_info`, `comms_contracts`,
-   `comms_status`, `comms_describe`, `comms_unsend`. Mirroring those five is ordinary work, not a
-   decision.
+   `--mcp-transport http` (0.9.11) renders launchers whose Claude and hermes sessions take the
+   `comms_*` tools from the container's `<endpoint>/mcp/http`, with the agent's id in a header. The
+   deprecated `/mcp/sse` was deleted in 0.9.11. `~/.aify-comms` stays load-bearing for the Claude
+   channel, the hermes delivery loop and Codex, which keeps its local tool process until
+   `docs/CODEX_CATCHUP.md`; `mcp/stdio/tests/transport-parity.test.js` holds the two tool copies equal
+   meanwhile.
 
 2. **The verifier is still a host command.** `aify-comms` on PATH is a verifier and nothing else:
    `doctor`, `--check`, `--version`, `--help`; anything else exits 2 naming aify-env. `aify-doctor`

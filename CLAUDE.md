@@ -29,7 +29,7 @@ a decision and points at the rest. Usage docs for someone installing aify-comms 
 
 ## Three repos, one product
 
-- **aify-comms** (this repo): the service container (FastAPI, SQLite, dashboard, SSE MCP transport),
+- **aify-comms** (this repo): the service container (FastAPI, SQLite, dashboard, the MCP transport),
   the host-side MCP stdio bridge every agent runs, the installer, and the `aify-comms` verifier.
 - **[aify-env](https://github.com/zimdin12/aify-env)**: the host tier. It owns processes and PTYs,
   claims and runs managed spawns, streams consoles, and advertises what the host can run. It is the
@@ -102,7 +102,7 @@ holds that.
 | `mcp/stdio/*-predicates.js`, `mcp/stdio/*-check.mjs` | Pure, unit-tested logic pulled out of the bridge and the doctor, so it fails a test instead of production. A `*-check.mjs` holds a whole doctor check, call site included, because importing `doctor.js` runs the doctor. Which files make up the doctor is derived (`mcp/stdio/tests/doctor-sources.mjs`, `service/tests/doctor_sources.py`), never listed. |
 | `mcp/stdio/service-registry.mjs`, `register-service-cli.mjs` | Writes this service's entry into the shared registry `~/.aify/services.json`, which is how aify-env and the launchers learn the service exists. It owns only its own key and refuses an unreadable or wrong-version registry rather than rewriting it. |
 | `mcp/stdio/node_modules/aify-wrapper/wrappers/` | The launcher templates `install.sh` renders. To move the pin, **delete `node_modules/aify-wrapper`**, run `npm install "aify-wrapper@github:zimdin12/aify-wrapper#<sha>"`, then grep the installed templates for the change: npm trusts a tree that matches the lock and will otherwise keep the old code while reporting success. Editing the sha by hand and running a bare `npm install` installs the right code but leaves the lock entry's `version` and `integrity` from the old commit. |
-| `mcp/sse_server.py` | The SSE MCP transport, inside the container. |
+| `mcp/sse_server.py` | The MCP transport inside the container: Streamable HTTP at `/mcp/http` (the SSE it was named for was deleted in 0.9.11). |
 | `install.sh` | Client installer: `--client <runtime>` (claude, codex or hermes), `--with-hook`, `--with-api-key`. `--emit-wrappers <dir>` renders a launcher and exits before npm or any config change, and `--prebuild-dry-run` exercises the hermes web_dist branch without npm; both exist so tests can run the real installer on a machine with a live fleet. |
 | `scripts/installed-endpoint.sh`, `hook-installed.sh`, `api-key.sh` | Read back what the host already chose (endpoint, hook, key) so an update keeps it. `api-key.sh` reuses an existing key rather than rotating, because a new key 401s every installed bridge. |
 | `examples/team-setup/` | An example team definition. |
@@ -159,7 +159,7 @@ because it did not look. `node --check` only parses. The counts below are a snap
 authority, and a very different number means a wrong invocation before it means anything else.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5165 passed, 24 skipped
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5164 passed, 24 skipped
 cd mcp/stdio && node tests/run-all.mjs                 # 355 suites
 cd service/new_dashboard && node --test *.test.mjs     # 1953 tests
 cd ~/projects/aify-wrapper && npm test                 # 1174 tests, 65 skipped

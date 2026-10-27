@@ -18,7 +18,7 @@ This is `aify-comms`: a FastAPI service and dashboard for agent communication, l
 | `GET /api/v1/sessions` | Managed/runtime session records |
 | `GET /api/v1/messages/recent` | Recent message activity |
 | `GET /api/v1/analytics` | Dashboard analytics |
-| `GET /mcp/sse` | SSE MCP transport |
+| `POST /mcp/http` | MCP transport (Streamable HTTP; `X-Aify-Agent-Id` names the caller) |
 
 ## Files To Modify
 

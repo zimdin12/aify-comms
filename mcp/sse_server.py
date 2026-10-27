@@ -1,5 +1,5 @@
-"""The comms tools over MCP, inside the service container: Streamable HTTP at `/mcp/http`, and the deprecated
-SSE at `/mcp/sse` until 0.9.11 slice 5 deletes it.
+"""The comms tools over MCP, inside the service container: Streamable HTTP at `/mcp/http`. The deprecated SSE
+transport at `/mcp/sse` was deleted in 0.9.11; the file and `service/sse/` keep their names.
 
 Every tool is declared in a `service/sse/*_tools.py` module and registered here. They live under `service/`
 because `mcp/` is not this repo's package: `import mcp` resolves to the PyPI distribution FastMCP comes from,
@@ -49,13 +49,11 @@ for _module in TOOL_MODULES:
 
 
 def setup_mcp_server(app):
-    """Mount both MCP transports onto the FastAPI app, and return the Streamable HTTP lifetime.
+    """Mount Streamable HTTP onto the FastAPI app, and return its lifetime.
 
-    One mount for both: a mount owns its whole prefix, so a second one under `/mcp` would never be reached.
     The caller enters the returned context for the app's lifetime; Streamable HTTP refuses requests without it.
     """
     cfg = get_config()
-    http_app = mcp_server.streamable_http_app()
-    app.mount(cfg.mcp_path_prefix, Starlette(routes=[*mcp_server.sse_app().routes, *http_app.routes]))
-    logger.info(f"MCP mounted at {cfg.mcp_path_prefix}/http (Streamable HTTP) and {cfg.mcp_path_prefix}/sse")
+    app.mount(cfg.mcp_path_prefix, Starlette(routes=mcp_server.streamable_http_app().routes))
+    logger.info(f"MCP mounted at {cfg.mcp_path_prefix}/http (Streamable HTTP)")
     return mcp_server.session_manager.run()

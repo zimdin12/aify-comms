@@ -40,7 +40,6 @@ def test_http_removes_the_user_scope_entry_and_adds_none(tmp_path):
     assert not [c for c in calls if c.startswith("mcp add")], calls
 
 
-@pytest.mark.parametrize("transport", ["stdio", "sse"])
-def test_control_the_other_transports_still_add_the_bridge(tmp_path, transport):
-    adds = [c for c in claude_calls(tmp_path, transport) if c.startswith("mcp add aify-comms --scope user")]
+def test_control_stdio_still_adds_the_bridge(tmp_path):
+    adds = [c for c in claude_calls(tmp_path, "stdio") if c.startswith("mcp add aify-comms --scope user")]
     assert len(adds) == 1 and adds[0].endswith("-- node /bridge/server.js"), adds

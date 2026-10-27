@@ -62,11 +62,6 @@ GET  http://localhost:8800/route/qdrant/collections
 
 Do not use this for current `aify-comms` installs. Use `install.claude.md`, `install.codex.md`, or `install.hermes.md` instead.
 
-### MCP SSE:
-```
-claude mcp add legacy-aify-service --transport sse http://localhost:8800/mcp/sse
-```
-
 ### MCP stdio:
 ```
 cd mcp/stdio && npm install

@@ -66,9 +66,9 @@ def test_no_client_renders_a_literal_placeholder():
     )
 
 
-def test_the_sse_transport_renders_clean_too():
+def test_the_http_transport_renders_clean_too():
     """The non-default arm. A placeholder reachable only under a flag is still shipped text."""
-    assert _leftover(render("claude", "--mcp-transport", "sse")) == {}
+    assert _leftover(render("claude", "--mcp-transport", "http")) == {}
 
 
 def test_help_runs_clean_and_says_nothing_on_stderr():
