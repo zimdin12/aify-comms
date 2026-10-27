@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
-from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console, live_managed_worker
+from service.api_core.channel_delivery import (
+    _CHANNEL_MANAGED_RUNTIMES,
+    _insert_messages_via_console,
+    live_managed_worker,
+)
 from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
