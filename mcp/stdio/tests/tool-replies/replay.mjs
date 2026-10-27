@@ -26,23 +26,34 @@ import { fileURLToPath } from "node:url";
 export const CASES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases");
 export const CALLER = "agent-a";
 
-/** A request path with its query parameters sorted, so the two languages' encodings compare equal. */
+/**
+ * A request path under the API prefix, with its query parameters sorted, so the two languages' encodings compare
+ * equal. A path outside the prefix keeps a marker, so no route answers it: the real service would not either.
+ */
 export function normalizePath(raw) {
   const url = new URL(raw, "http://fixture");
   const pairs = [...url.searchParams.entries()].sort(([a, x], [b, y]) => (a < b ? -1 : a > b ? 1 : x < y ? -1 : x > y ? 1 : 0));
   const query = new URLSearchParams(pairs).toString();
-  return `${url.pathname.replace(/^\/api\/v1/, "")}${query ? `?${query}` : ""}`;
+  const path = url.pathname.startsWith("/api/v1/") ? url.pathname.slice("/api/v1".length) : `<outside /api/v1>${url.pathname}`;
+  return `${path}${query ? `?${query}` : ""}`;
 }
 
+const seenNonces = new Set();
+
 /**
- * A request body as recorded: JSON, or a form as `{form: {...}}`. A send's `clientNonce` is random per
- * call, so only its presence is kept.
+ * A request body as recorded: JSON, or a form as `{form: {...}}`. A send's `clientNonce` is random per call, so a
+ * new one is kept as `<nonce>` and one seen before as `<repeated nonce>`: the service replays a repeated nonce as the
+ * earlier message, so a constant one would turn every later send into a replay.
  */
 export function normalizeBody(raw, contentType = "") {
   if (!raw) return null;
   if (/x-www-form-urlencoded/i.test(contentType)) return { form: Object.fromEntries(new URLSearchParams(raw)) };
   const body = JSON.parse(raw);
-  if (body && typeof body.clientNonce === "string" && body.clientNonce) body.clientNonce = "<nonce>";
+  if (body && typeof body.clientNonce === "string" && body.clientNonce) {
+    const nonce = body.clientNonce;
+    body.clientNonce = seenNonces.has(nonce) ? "<repeated nonce>" : "<nonce>";
+    seenNonces.add(nonce);
+  }
   return body;
 }
 

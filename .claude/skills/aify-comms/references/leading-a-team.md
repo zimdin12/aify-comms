@@ -48,7 +48,7 @@ finance, or any work split across people who cannot see each other's desks.
 - Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
 - **Presence is not progress.** `online` proves a live worker and `lastSeen` proves a heartbeat; neither proves work or session resumption. Measure a lane by its latest evidenced output — for example a commit, push, merge, deploy, test result, or delivered artifact — and keep those states distinct.
 - If an agent is `online`/`available` and owes a contract, send a focused status probe or rebrief.
-- `comms_console_input` success means bytes reached the PTY, not that the runtime acted (5 writes reported success on a draft that never submitted). Send one attempt, re-read `comms_console_tail`, then escalate; an ordinary `comms_send` is what woke those agents.
+- `comms_console_input` success means the input was queued: not written, not acted on (5 writes reported success on a draft that never submitted). Send one attempt, re-read `comms_console_tail`, then escalate; an ordinary `comms_send` is what woke those agents.
 - **Console tools are managed-only.** Resident agents have no aify-owned console, so `comms_console_tail`/`comms_console_input` report "no live console." For a resident agent your levers are `comms_send` (ask for a `[STATUS]` with evidence) and the dashboard; **Switch to managed** if you need a console to peek into.
 - If a worker replies with repeated vague status, demand `[REVIEW]` or `[HOLD]` with evidence.
 - If context is noisy, compact another managed agent: `comms_compact(from="<your-id>", targetAgentId="other")`.

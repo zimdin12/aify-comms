@@ -132,7 +132,7 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
     // ~15 minutes retrying a lever that could not work (C8). The write is only QUEUED, and even a
     // completed control proves nothing beyond "bytes reached the PTY". Say that.
     return {
-      content: [{ type: "text", text: `Input QUEUED to ${agentId}'s console (terminal ${r.terminalId}, control ${r.controlId}). This is NOT confirmation: it proves only that the bytes were written to the PTY, not that the runtime acted on them. Read the console with comms_console_tail and check whether the draft is still at the prompt before assuming it worked — and do not retry blind, a repeated Enter has been observed to change nothing.` }],
+      content: [{ type: "text", text: `Input QUEUED to ${agentId}'s console (terminal ${r.terminalId}, control ${r.controlId}). This is NOT confirmation: queued, not yet written. The control completes when the bytes reach the PTY, and even then that does not show the runtime acted on them. Read the console with comms_console_tail and check whether the draft is still at the prompt before assuming it worked — and do not retry blind, a repeated Enter has been observed to change nothing.` }],
     };
   } catch (error) {
     return { content: [{ type: "text", text: error.message }], isError: true };
@@ -140,7 +140,7 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
 }
 
 export const CONSOLE_INPUT_TOOL_DESCRIPTION =
-  "Recovery-only: types into another managed agent's live console. Read the console first with comms_console_tail, and use this only to answer a prompt you saw there. Do not inject normal work messages, reminders or duplicate sends. NOT RELIABLE AS A SUBMIT: success means the bytes reached the PTY, not that the runtime acted (five writes reported success on a draft that never submitted). If one attempt does not visibly change the console, escalate to the operator.";
+  "Recovery-only: types into another managed agent's live console. Read the console first with comms_console_tail, and use this only to answer a prompt you saw there. Do not inject normal work messages, reminders or duplicate sends. NOT RELIABLE AS A SUBMIT: success means the input was queued: not written, not acted on (five writes reported success on a draft that never submitted). If one attempt does not visibly change the console, escalate to the operator.";
 
 // Registers the two console tools. A function rather than a module-scope side effect, so a fake server
 // can capture the registrations and a test can call the handlers without an MCP transport. `z` is the

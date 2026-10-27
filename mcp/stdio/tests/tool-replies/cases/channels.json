@@ -172,6 +172,39 @@
     "isError": false
   },
   {
+    "name": "leave with members remaining",
+    "tool": "comms_channel_leave",
+    "args": {
+      "channel": "review",
+      "from": "agent-a"
+    },
+    "routes": {
+      "POST /channels/review/leave": {
+        "body": {
+          "changed": true,
+          "members": [
+            "agent-b",
+            "agent-c"
+          ]
+        }
+      }
+    },
+    "callerArgs": [
+      "from"
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/channels/review/leave",
+        "body": {
+          "agentId": "agent-a"
+        }
+      }
+    ],
+    "text": "Left #review. Remaining members: agent-b, agent-c",
+    "isError": false
+  },
+  {
     "name": "leave a channel you are not in",
     "tool": "comms_channel_leave",
     "callerArgs": [
@@ -437,6 +470,54 @@
       }
     ],
     "text": "Sent to #review. Dispatch: agent-b (run_5) queued, not yet claimed. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.\nNot started: agent-c: offline",
+    "isError": false
+  },
+  {
+    "name": "post: nobody could be woken",
+    "tool": "comms_channel_send",
+    "args": {
+      "channel": "review",
+      "from": "agent-a",
+      "body": "ship it"
+    },
+    "routes": {
+      "POST /channels/review/send": {
+        "body": {
+          "ok": true,
+          "members": [
+            "a",
+            "b"
+          ],
+          "dispatchRuns": [],
+          "notStarted": [
+            {
+              "targetAgentId": "agent-b",
+              "reason": "offline"
+            }
+          ]
+        }
+      }
+    },
+    "callerArgs": [
+      "from"
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/channels/review/send",
+        "body": {
+          "from_agent": "agent-a",
+          "channel": "review",
+          "body": "ship it",
+          "type": "info",
+          "priority": "normal",
+          "trigger": true,
+          "steer": true,
+          "queueIfBusy": false
+        }
+      }
+    ],
+    "text": "Sent to #review. No member was woken: the post and every member's inbox copy are stored.\nNot started: agent-b: offline",
     "isError": false
   },
   {

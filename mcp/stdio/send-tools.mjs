@@ -212,12 +212,14 @@ export function registerSendTools(server, z) {
         if (shouldTrigger && (r.dispatchRuns?.length || r.notStarted?.length)) {
           const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
           const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
+          // No run created is not a start: the post is stored and every member's copy waits in its inbox.
+          const outcome = queued.length
+            ? `Dispatch: ${queued.join(", ")}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.`
+            : "No member was woken: the post and every member's inbox copy are stored.";
           return {
             content: [{
               type: "text",
-              text:
-                `Sent to #${channel}. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.` +
-                (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
+              text: `Sent to #${channel}. ${outcome}` + (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
             }],
           };
         }

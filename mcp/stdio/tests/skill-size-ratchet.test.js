@@ -69,7 +69,7 @@ const CEILINGS = {
   // 15_758 -> 15_819 on 2026-09-27 (0.7.5), a raise: the operator asked for native compaction, and
   // the compact bullet now describes two modes and when native is refused instead of one mode and a
   // refusal. Most of the new text is paid for by the dead `mode="internal"` sentence it replaces.
-  "aify-comms/references/leading-a-team.md": 15_909,
+  "aify-comms/references/leading-a-team.md": 15_907,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
   // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
   // 9_286 -> 9_284 and 10_062 -> 10_059 on 2026-09-28: `shell` now says background WORK (hermes too), paid in-row.

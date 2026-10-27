@@ -140,9 +140,11 @@ async def comms_channel_send(
     if r.get("dispatchRuns") or r.get("notStarted"):
         queued = [format_queued_run(x) for x in r.get("dispatchRuns") or []]
         skipped = [f"{x.get('targetAgentId')}: {x.get('reason')}" for x in r.get("notStarted") or []]
-        return (f"Sent to #{channel}. Dispatch: {', '.join(queued) or 'started'}. This ack reports what was CREATED, not what was"
-                " delivered -- confirm with comms_run_status(...) before reporting delivery."
-                + (f"\nNot started: {'; '.join(skipped)}" if skipped else ""))
+        # No run created is not a start: the post is stored and every member's copy waits in its inbox.
+        outcome = (f"Dispatch: {', '.join(queued)}. This ack reports what was CREATED, not what was delivered -- confirm with "
+                   "comms_run_status(...) before reporting delivery." if queued
+                   else "No member was woken: the post and every member's inbox copy are stored.")
+        return f"Sent to #{channel}. {outcome}" + (f"\nNot started: {'; '.join(skipped)}" if skipped else "")
     return f"Sent to #{channel} ({len(r.get('members') or [])} members)."
 
 

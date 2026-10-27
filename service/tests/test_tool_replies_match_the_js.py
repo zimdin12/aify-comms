@@ -32,23 +32,28 @@ CALLER = "agent-a"  # replay.mjs CALLER
 
 
 def normalize_path(raw: str) -> str:
-    """replay.mjs normalizePath: no /api/v1 prefix, query parameters sorted."""
+    """replay.mjs normalizePath: under the API prefix, query parameters sorted; outside it, marked so no route answers."""
     parts = urlsplit(raw)
-    path = parts.path[len("/api/v1"):] if parts.path.startswith("/api/v1") else parts.path
+    path = parts.path[len("/api/v1"):] if parts.path.startswith("/api/v1/") else f"<outside /api/v1>{parts.path}"
     query = urlencode(sorted(parse_qsl(parts.query, keep_blank_values=True)))
     return f"{path}?{query}" if query else path
 
 
+_SEEN_NONCES: set[str] = set()
+
+
 def normalize_body(raw: str, content_type: str = ""):
-    """replay.mjs normalizeBody: JSON, or a form as {"form": {...}}; a send's random `clientNonce` is
-    recorded as present, not by value."""
+    """replay.mjs normalizeBody: JSON, or a form as {"form": {...}}; a send's random `clientNonce` is recorded as
+    `<nonce>` when new and `<repeated nonce>` when seen before (the service replays a repeated one)."""
     if not raw:
         return None
     if "x-www-form-urlencoded" in content_type.lower():
         return {"form": dict(parse_qsl(raw, keep_blank_values=True))}
     body = json.loads(raw)
     if isinstance(body, dict) and isinstance(body.get("clientNonce"), str) and body["clientNonce"]:
-        body["clientNonce"] = "<nonce>"
+        nonce = body["clientNonce"]
+        body["clientNonce"] = "<repeated nonce>" if nonce in _SEEN_NONCES else "<nonce>"
+        _SEEN_NONCES.add(nonce)
     return body
 
 
