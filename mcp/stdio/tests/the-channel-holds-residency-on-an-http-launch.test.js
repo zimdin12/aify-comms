@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A Claude launch whose comms tools come over HTTP has no `server.js`, so its channel registers the agent, beats as
 // its owner, and on the way out reports resident-lost and removes the binding it wrote (0.9.11 slice 3,
-// channel-residency.mjs). A launch that still runs `server.js` leaves all of that to it.
+// resident-duties.mjs). A launch that still runs `server.js` leaves all of that to it.
 //
 // THE REAL ENTRY, RUN AS CLAUDE RUNS IT: claude-channel.js spawned as a stdio MCP server against a recording
 // stand-in for the service, in a sealed TEMP and HOME. Leaving is Claude closing stdin. What arrived is read from
@@ -16,19 +16,19 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { ChannelResidency, channelHoldsResidency } from "../channel-residency.mjs";
+import { ResidentDuties, holdsResidentDuties } from "../resident-duties.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const CHANNEL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-channel.js");
 const AGENT = "residency-witness";
 
-async function service() {
+async function service(bindingPath) {
   const requests = [];
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {
-      requests.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : {} });
+      requests.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : {}, bound: fs.existsSync(bindingPath) });
       const answer = req.url === "/api/v1/dispatch/controls/claim" ? { controls: [] }
         : req.url === "/api/v1/agents" ? { ok: true, agentId: AGENT } : {};
       res.writeHead(200, { "content-type": "application/json" });
@@ -53,8 +53,8 @@ async function until(condition, timeoutMs = 20_000) {
 
 /** One channel launch: started, given time to register, then closed the way Claude closes it. */
 async function launch(commsMcp) {
-  const svc = await service();
   const w = world();
+  const svc = await service(w.binding());
   // On a launch that still runs server.js, server.js registered and wrote this binding; the channel only reads it.
   if (!commsMcp) fs.writeFileSync(w.binding(), JSON.stringify({ agentId: AGENT, pid: process.pid }));
   const child = spawn(process.execPath, [CHANNEL], {
@@ -73,12 +73,13 @@ async function launch(commsMcp) {
   // A residency launch is ready once it registered and bound; the control, once the channel has beaten.
   await until(() => (commsMcp ? registered() && fs.existsSync(w.binding()) : svc.requests.length > 0));
   const boundWhileRunning = fs.existsSync(w.binding());
+  const bindingWhileRunning = boundWhileRunning ? JSON.parse(fs.readFileSync(w.binding(), "utf8")) : null;
   child.stdin.end();
   const kill = setTimeout(() => child.kill(), 10_000);
   const code = await exited;
   clearTimeout(kill);
   await svc.close();
-  const result = { requests: svc.requests, code, stderr, boundWhileRunning, boundAfter: fs.existsSync(w.binding()) };
+  const result = { requests: svc.requests, code, stderr, boundWhileRunning, bindingWhileRunning, boundAfter: fs.existsSync(w.binding()) };
   fs.rmSync(w.dir, { recursive: true, force: true });
   return result;
 }
@@ -92,6 +93,12 @@ test("an http launch's channel registers, binds, beats as owner, and on stdin cl
   assert.equal(registration.body.runtime, "claude-code");
   assert.equal(registration.body.sessionMode, "resident");
   assert.ok(run.boundWhileRunning, "the channel never wrote the binding file");
+  assert.equal(run.bindingWhileRunning.startedAt, registration.body.bridgeStartedAt,
+    "the binding does not carry this process's start, so a late answer to an older process could replace it");
+  // Review of 9f6e1a90: anything written after a later request can land after a successor's registration.
+  const readBack = run.requests.find((r) => r.method === "GET" && r.url === `/api/v1/agents/${AGENT}`);
+  assert.equal(readBack?.bound, true, "the binding was not written before the registration's read-back");
+  assert.deepEqual(run.requests.filter((r) => r.url.endsWith("/runtime-state")), [], "the route stores the owner; a later write can restore a retired one");
   const ownerBeat = run.requests.find((r) => r.url === `/api/v1/agents/${AGENT}/heartbeat` && r.body.bridgeKind === "resident");
   assert.equal(ownerBeat?.body.bridgeId, owner, "the owner beat does not carry the registration's id");
   const lost = run.requests.filter((r) => r.url === `/api/v1/agents/${AGENT}/resident-lost`);
@@ -112,15 +119,50 @@ test("control: a launch still running server.js leaves registration and resident
 });
 
 test("the decision: only an http launch, and never an RPC child", () => {
-  assert.equal(channelHoldsResidency({ AIFY_COMMS_MCP: "http" }), true);
-  assert.equal(channelHoldsResidency({ AIFY_COMMS_MCP: "HTTP " }), true);
-  assert.equal(channelHoldsResidency({}), false);
-  assert.equal(channelHoldsResidency({ AIFY_COMMS_MCP: "http", AIFY_BRIDGE_DISABLED: "1" }), false);
+  assert.equal(holdsResidentDuties({ AIFY_COMMS_MCP: "http" }), true);
+  assert.equal(holdsResidentDuties({ AIFY_COMMS_MCP: "HTTP " }), true);
+  assert.equal(holdsResidentDuties({}), false);
+  assert.equal(holdsResidentDuties({ AIFY_COMMS_MCP: "http", AIFY_BRIDGE_DISABLED: "1" }), false);
+});
+
+test("leaving while the registration is still in flight reports the loss after it lands, within the one bound", async () => {
+  // Review of 9f6e1a90: a loss reported first is ignored as bridge_not_current, then the registration makes a gone
+  // process the owner.
+  const order = [];
+  let land;
+  const duties = new ResidentDuties({
+    agentId: AGENT, ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident" }, boundMs: 2000,
+    call: async (method, url) => { order.push(url.endsWith("/resident-lost") ? "loss" : url); return {}; },
+    register: () => new Promise((resolve) => { land = () => { order.push("registered"); resolve(); }; }),
+    removeBinding: () => {},
+  });
+  duties.startBeats = () => [];  // the real beats would reach whatever service this process's environment names
+  duties.start();
+  const leaving = duties.end();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(order, [], "the loss was reported while the registration was still in flight");
+  land();
+  await leaving;
+  assert.deepEqual(order, ["registered", "loss"]);
+});
+
+test("leaving reports resident-lost only when this process owns the lifecycle; hermes-aify names its managed host", async () => {
+  const sent = async (env) => {
+    const calls = [];
+    const duties = new ResidentDuties({
+      agentId: AGENT, ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident", ...env },
+      call: async (method, url) => { calls.push(url); return {}; }, register: async () => {}, removeBinding: () => {},
+    });
+    await duties.end();
+    return calls.filter((url) => url.endsWith("/resident-lost")).length;
+  };
+  assert.equal(await sent({ AIFY_RESIDENT_LIFECYCLE_OWNER: "managed-host" }), 0);
+  assert.equal(await sent({}), 1, "control: a Claude channel, which owns its lifecycle, reports");
 });
 
 test("leaving is bounded: a service that never answers holds the exit for the bound, and the binding still goes", async () => {
   const removed = [];
-  const residency = new ChannelResidency({
+  const residency = new ResidentDuties({
     agentId: AGENT, ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident" },
     call: () => new Promise(() => {}), register: async () => {}, removeBinding: (args) => removed.push(args), boundMs: 50,
   });

@@ -285,6 +285,7 @@ async def _register_via_adopted_console_terminal(
             session_handle=session_handle,
             terminal_id=terminal_id,
             bridge_build=req.bridgeBuild or "",
+            started_at=req.bridgeStartedAt or "",
             now=now,
         )
     await _invalidate_agent_live_state(db, req.agentId)

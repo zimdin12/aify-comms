@@ -69,6 +69,13 @@ def test_a_call_without_the_header_is_refused_not_guessed(transport):
     assert is_error and "x-aify-agent-id" in text, text
 
 
+@pytest.mark.parametrize("unexpanded", ["${AIFY_AGENT_ID}", "${env:AIFY_AGENT_ID}"])
+def test_an_unexpanded_header_is_refused_not_taken_as_an_agent(transport, unexpanded):
+    """A hermes no launcher gave an id sends its installed entry's `${AIFY_AGENT_ID}` as written."""
+    is_error, text = _text(asyncio.run(_call(transport, _tool_call("test_whoami"), {"x-aify-agent-id": unexpanded})))
+    assert is_error and "unexpanded" in text, text
+
+
 def test_a_host_other_than_localhost_is_served(transport):
     """FastMCP's default answers 421 to any Host but localhost; an agent on WSL or another PC uses another name."""
     response = asyncio.run(_call(

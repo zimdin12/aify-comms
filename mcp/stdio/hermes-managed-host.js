@@ -38,6 +38,7 @@ import {
 } from "./hermes-env.mjs";
 import { runResolveSessionCli } from "./hermes-active-session.mjs";
 import { runDeliveryLoop } from "./hermes-delivery-loop.mjs";
+import { ResidentDuties, holdsResidentDuties } from "./resident-duties.mjs";
 import { gatewayFromLaunch } from "./hermes-gateway-source.mjs";
 
 loadSettingsEnv();
@@ -506,7 +507,16 @@ export async function runCli(argv, deps = {}) {
   }
   if (mode === "run") {
     const agentId = String(argv[1] || "").trim() || readBoundAgentId();
-    await runDeliveryLoop(agentId, deps);
+    // On an HTTP-tools launch no MCP child registers this agent, so the loop does (resident-duties.mjs). Its own
+    // SIGTERM teardown exits the process, which still runs the `exit` handler that drops the binding.
+    const { holdsResident = holdsResidentDuties, makeDuties = (id) => new ResidentDuties({ agentId: id }) } = deps;
+    const duties = holdsResident() ? makeDuties(agentId).start() : null;
+    if (duties) process.once("exit", () => duties.dropBinding());
+    try {
+      await runDeliveryLoop(agentId, deps);
+    } finally {
+      await duties?.end();
+    }
     return { mode: "run", agentId };
   }
   // No subcommand: behave like the old main loop (resolve the bound agent and

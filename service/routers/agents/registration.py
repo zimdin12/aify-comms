@@ -343,6 +343,7 @@ async def _register_agent(req: AgentRegister, request: Request):
                 terminal_id=terminal_id,
                 managed_wrapper_child=managed_wrapper_child,
                 bridge_build=req.bridgeBuild or "",
+                started_at=req.bridgeStartedAt or "",
                 now=now,
             )
         await _invalidate_agent_live_state(db, req.agentId)

@@ -400,6 +400,9 @@ BRIDGE_INSTANCE_MIGRATIONS = {
     # v0.7.4: a session a nested `claude` took over is offered back to the bridge it superseded, which
     # reclaims it by beating (api_core/nested_session_handback.py).
     "handback_offer": "ALTER TABLE bridge_instances ADD COLUMN handback_offer TEXT",
+    # 0.9.11: when the registering process started (its `bridgeStartedAt`), so an older process of the same
+    # session cannot take the agent back from its successor (api_core/same_mode_bridge_gate.py).
+    "started_at": "ALTER TABLE bridge_instances ADD COLUMN started_at TEXT DEFAULT ''",
 }
 
 

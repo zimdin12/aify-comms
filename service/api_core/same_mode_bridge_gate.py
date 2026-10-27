@@ -57,7 +57,7 @@ async def _fresh_same_mode_bridge_conflict(
     cutoff = max(15, int(lease_seconds or 150))
     cursor = await db.execute(
         """
-        SELECT id, last_seen, bridge_kind, session_handle
+        SELECT id, last_seen, bridge_kind, session_handle, started_at
         FROM bridge_instances
         WHERE agent_id = ?
           AND machine_id = ?
@@ -112,6 +112,11 @@ async def _enforce_same_mode_bridge_gate(
     transaction, per the DB-leaf rule in this module's docstring.
     """
     if row and bridge_id and not bool(getattr(req, "force", False)):
+        # ONE WRITE LOCK FROM THIS READ TO THE ROUTE'S COMMIT (0.9.11, review of 9f6e1a90). Requests on one worker
+        # still interleave at every await, so a check made outside it could pass, pause while a successor
+        # commits, and then write over the successor. Held here, a successor's registration waits for this one.
+        if not db.in_transaction:
+            await db.execute("BEGIN IMMEDIATE")
         settings_for_guard = await _load_settings(db)
         conflict = await _fresh_same_mode_bridge_conflict(
             db,
@@ -138,6 +143,19 @@ async def _enforce_same_mode_bridge_gate(
             (conflict["session_handle"] if conflict and "session_handle" in conflict.keys() else "") or ""
         ).strip()
         if conflict and incoming_handle and incoming_handle == conflict_handle:
+            # AN OLDER PROCESS DOES NOT TAKE THE SESSION BACK (0.9.11, review of 9f6e1a90). Two comms processes of
+            # one session can have their registrations answered out of order: the successor registers, then the
+            # retired process's registration arrives and would take the agent over, and its exit then took the
+            # agent offline under a live successor. Both stamps must be readable; either missing proceeds as before.
+            incoming_start = _iso_to_epoch(str(getattr(req, "bridgeStartedAt", "") or ""))
+            held_start = _iso_to_epoch(str(conflict["started_at"] or ""))
+            if incoming_start and held_start and incoming_start < held_start:
+                # Worded so the bridge's refusal retry, which waits for a live predecessor to age out, does not
+                # fire: this process is the one that is out of date.
+                raise HTTPException(409, (
+                    f"agent '{req.agentId}' session {incoming_handle} is held by a process that started after this "
+                    "one; an older process does not take the session back."
+                ))
             # IN-FLIGHT PROTECTION (the Phase-4 operator-chosen invariant stays): a
             # prior bridge actively driving a claimed/running run is genuinely-live
             # evidence — never silently supersede it; the hard 409 below stands and

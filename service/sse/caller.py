@@ -38,4 +38,11 @@ def caller_id(ctx) -> str:
             f"this connection names no agent: the launcher sets the {HEADER} header for its agent; "
             "relaunch through it"
         )
+    # Hermes' installed entry says `${AIFY_AGENT_ID}`, which hermes fills from the gateway's environment; a
+    # hermes no launcher gave an id sends the text unexpanded.
+    if "${" in agent_id:
+        raise NoCaller(
+            f"this connection's {HEADER} header is an unexpanded {agent_id}: this session was not started by "
+            "its launcher (hermes-aify), so it has no agent id"
+        )
     return agent_id

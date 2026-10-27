@@ -2329,6 +2329,26 @@ test("runCli: 'run <id>' routes to the delivery loop", async () => {
   assert.ok(findCall(calls, "POST", "/dispatch/claim"));
 });
 
+// 0.9.11: on an HTTP-tools launch no MCP child inside hermes registers the agent, so the loop holds the resident
+// duties (resident-duties.mjs) for its whole run, and only then.
+for (const http of [true, false]) {
+  test(`runCli: 'run <id>' ${http ? "holds" : "control: does not hold"} the resident duties on ${http ? "an HTTP-tools" : "a server.js"} launch`, async () => {
+    const fetchImpl = makeFakeFetch();
+    const { httpCall, calls } = makeAifyHttp({ release: true });
+    const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+    const events = [];
+    const duties = { start() { events.push(`start, ${calls.length} calls`); return this; }, async end() { events.push(`end, ${calls.length > 0 ? "after" : "before"} the loop`); }, dropBinding() {} };
+    await runCli(["run", "sc-hermes"], {
+      httpCall, gatewaySource: fakeGateway, fetchImpl, openWs: async () => ws, installTeardown: () => {},
+      sleepImpl: async () => {}, serverUrl: "http://127.0.0.1:8800", maxIterations: 2,
+      holdsResident: () => http,
+      makeDuties: (id) => { events.push(`made for ${id}`); return duties; },
+    });
+    assert.deepEqual(events, http ? ["made for sc-hermes", "start, 0 calls", "end, after the loop"] : []);
+    assert.ok(findCall(calls, "POST", "/dispatch/claim"), "the loop did not run");
+  });
+}
+
 // ---------------------------------------------------------------------------
 // makeInFlightProbe — the re-pulse gate (#3 false-working fix + #172 safety)
 // ---------------------------------------------------------------------------

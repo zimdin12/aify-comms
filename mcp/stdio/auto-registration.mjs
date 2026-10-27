@@ -24,7 +24,6 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { mayClaimEnvironmentOwnership } from "./environment-ownership-claim.mjs";
 import {
   AIFY_AGENT_ID,
   AIFY_AGENT_ROLE,
@@ -91,7 +90,9 @@ export function registersAsTheAgent({ sessionMode, nestedSession }) {
 
 // The factory. `ensureDispatchLoop` is injected; see the header on why the retry makes this a
 // factory rather than an extra parameter.
-export function makeAutoRegister({ ensureDispatchLoop }) {
+// `active`: whether a retry may still run. A process that has begun to leave answers false, so a refusal's
+// retry cannot register a process that already reported itself gone.
+export function makeAutoRegister({ ensureDispatchLoop, active = () => true }) {
   async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
     // Audit 2026-06-28: the environment bridge must NEVER auto-register as an agent, because
     // inheriting a parent agent's AIFY_AGENT_ID would make it self-register as a resident and
@@ -179,6 +180,18 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
     };
     try {
       const r = await httpCall("POST", "/agents", payload);
+      // THE BINDING FIRST, with nothing awaited since the registration's answer, and never over a younger
+      // process's (`startedAt`): a successor in the same parent (Claude reconnecting its MCP servers) registers and
+      // writes its own, and this answer may arrive after it (review of 9f6e1a90).
+      try {
+        writeAgentBindingFile({ pid: process.ppid || process.pid, agentId: AIFY_AGENT_ID, bridgeId: BRIDGE_INSTANCE_ID, startedAt: BRIDGE_STARTED_AT });
+      } catch {
+        // Best effort; notification hooks can still operate after explicit comms_register.
+      }
+      // NO OWNER WRITE HERE. The registration route stores the owner itself (`registration_owner_bridge_id`,
+      // service/api_core/ownership_authority.py): this bridge for a resident, the environment bridge's answer
+      // kept for a managed agent. A PATCH that followed it here could arrive after a successor registered and
+      // hand the agent back to this retired process, whose exit then took the agent offline (review of 9f6e1a90).
       let runtimeState = {};
       try {
         const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}`);
@@ -186,38 +199,7 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
       } catch {
         // Best effort.
       }
-      // WHOSE ANSWER THIS IS. `runtimeState.bridgeInstanceId` names the bridge that OWNS this agent,
-      // and for a managed agent that is the environment bridge hosting its delivery loop -- not this
-      // per-session sidecar. Writing it here made the field a race between two processes with two
-      // meanings, and `aify-comms doctor` then reported a live, answering agent as an orphaned loop
-      // "bound to no live bridge", advising a bridge relaunch that reaps the fleet.
-      // No `isEnvironmentBridge`: this function returns above when that is what we are, and a gate
-      // in this suite refuses a second reference to a marker Phase 8 is retiring.
-      const ownership = mayClaimEnvironmentOwnership({
-        sessionMode: resolvedSessionMode,
-        managedWrapperChild: payload.managedWrapperChild === true,
-      });
-      // NO `pendingTakeover` TERM. It read `r.ownershipTransition === "pending_resident_takeover"`
-      // or a `runtimeState.pendingResidentTakeover` naming this bridge, and the service retired both
-      // in `e3c3ce8c` (2026-05-26): every remaining mention of that key in the service is a `pop`,
-      // and the transition vocabulary is `console_terminal_attached` / `manual_switch_required`. So
-      // the term was always false and this read `if (ownership.claim)`. Parking a resident that
-      // registers against a driving managed agent is the SERVICE's job now -- the
-      // `manualResidentCandidate` path returns `manual_switch_required` and never lets it drive.
-      if (ownership.claim) {
-        runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
-        try {
-          await httpCall("PATCH", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/runtime-state`, { runtimeState });
-        } catch {
-          // Best effort.
-        }
-      }
       REMOTE_AGENT_STATE.set(AIFY_AGENT_ID, { info: { ...payload, runtimeState } });
-      try {
-        writeAgentBindingFile({ pid: process.ppid || process.pid, agentId: AIFY_AGENT_ID, bridgeId: BRIDGE_INSTANCE_ID });
-      } catch {
-        // Best effort; notification hooks can still operate after explicit comms_register.
-      }
       ensureDispatchLoop();
       const transition = r.ownershipTransition ? ` (${r.ownershipTransition})` : "";
       console.error(`[aify] auto-registered "${AIFY_AGENT_ID}" as resident ${runtime}${sessionHandle ? ` session ${sessionHandle}` : ""}${transition}`);
@@ -242,7 +224,7 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
         const retriesLeft = Number.isFinite(_retriesLeft) ? _retriesLeft : 8;
         if (retriesLeft > 0) {
           const t = setTimeout(() => {
-            autoRegisterConfiguredAgent(retriesLeft - 1).catch(() => {});
+            if (active()) autoRegisterConfiguredAgent(retriesLeft - 1).catch(() => {});
           }, 30_000);
           if (typeof t.unref === "function") t.unref();
         } else {

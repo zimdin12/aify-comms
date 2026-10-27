@@ -31,7 +31,7 @@ import {
 import { controlContent, dispatchContent } from "./claude-channel-content.js";
 import { TRUST_RULE } from "./tool-response-format.mjs";
 import { channelSource, isThisRoutesProducer } from "./channel-producer.mjs";
-import { ChannelResidency, channelHoldsResidency } from "./channel-residency.mjs";
+import { ResidentDuties, holdsResidentDuties } from "./resident-duties.mjs";
 import { SHARED_FILE_TOOLS, callSharedFileTool } from "./shared-file-transfer.mjs";
 
 // The interface aify-wrapper reads before it chooses the plugin route: runChannel() below runs the version-1 producer gate
@@ -510,7 +510,7 @@ export async function runChannel({ fromPlugin = false } = {}) {
     await mcp.connect(new StdioServerTransport());
     return;
   }
-  const holdsResidency = channelHoldsResidency();
+  const holdsResidency = holdsResidentDuties();
   mcp = producerServer(fromPlugin, holdsResidency);
   // Write our claude-code runtime marker from this long-lived bridge process.
   // This must happen here, not in the wrapper's bash CLI call, because on
@@ -525,7 +525,7 @@ export async function runChannel({ fromPlugin = false } = {}) {
   } catch (error) {
     console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
   }
-  // Started after the connection, so Claude's MCP start-up never waits on a registration (channel-residency.mjs).
+  // Started after the connection, so Claude's MCP start-up never waits on a registration (resident-duties.mjs).
   let residency = null;
   let leaving = false;
   // Every way out takes this once: a signal, Claude closing stdin, or the parent gone.
@@ -543,7 +543,7 @@ export async function runChannel({ fromPlugin = false } = {}) {
   process.on("SIGHUP", () => { leave(129); });
   await mcp.connect(new StdioServerTransport());
   process.stdin.once("end", () => { leave(0); });
-  if (holdsResidency) residency = new ChannelResidency().start();
+  if (holdsResidency) residency = new ResidentDuties().start();
   pollLoop(() => leave(0)).catch((error) => {
     console.error("[aify-channel] fatal:", error);
     process.exit(1);

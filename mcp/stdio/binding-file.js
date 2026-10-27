@@ -32,13 +32,31 @@ export function readAgentBindingFile({ pid, dir = "" } = {}) {
   }
 }
 
-export function writeAgentBindingFile({ pid, agentId, bridgeId = "", dir = "" } = {}) {
+/**
+ * Bind `pid` to an agent. With `startedAt` (the writing process's start, ISO), a binding written by a process that
+ * started LATER is kept: two comms processes under one parent (Claude reconnecting its MCP servers) can see their
+ * registration answers arrive out of order, and the older one must not take the binding back (review of 9f6e1a90).
+ *
+ * BEST-EFFORT ORDERING, NOT COMPARE-AND-REPLACE. The read and the write are two steps: an older writer that read
+ * before its successor wrote still overwrites it, and its exit then removes that binding. Only an older answer that
+ * arrives after the successor's write is refused. A start that is equal to the held one, or unreadable on either
+ * side, does not refuse. A start orders writers; it does not identify an owner. Returns whether it wrote.
+ */
+export function writeAgentBindingFile({ pid, agentId, bridgeId = "", startedAt = "", dir = "" } = {}) {
   const payload = {
     agentId: String(agentId || "").trim(),
     bridgeId: String(bridgeId || "").trim(),
     pid: Number(pid || process.pid) || process.pid,
+    ...(startedAt ? { startedAt } : {}),
   };
-  fs.writeFileSync(bindingFilePathForPid(payload.pid, dir), JSON.stringify(payload));
+  const file = bindingFilePathForPid(payload.pid, dir);
+  if (startedAt) {
+    let held = "";
+    try { held = String(JSON.parse(fs.readFileSync(file, "utf-8")).startedAt || ""); } catch { /* none, or not ours to judge */ }
+    if (held && Date.parse(held) > Date.parse(startedAt)) return false;
+  }
+  fs.writeFileSync(file, JSON.stringify(payload));
+  return true;
 }
 
 export function removeAgentBindingFile({ pid, bridgeId = "", dir = "" } = {}) {
