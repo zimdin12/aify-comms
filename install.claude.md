@@ -105,6 +105,8 @@ many start at once, leaving the channel server unregistered and messages undeliv
 
 - No machine-wide `aify-comms` MCP entry: `claude-aify` adds the service's `/mcp/http` per launch, as its
   agent, and the installer removes an entry an older install left. A plain `claude` has no comms tools.
+  After installing, add one line to the host's global agent guide (`~/.claude/CLAUDE.md`) so a plain session
+  knows where they are: `aify-comms tools come only through claude-aify --aify-agent <id>; a plain claude has none.`
 - The `aify-channel` plugin, whose `aify-comms-channel` server delivers messages.
 - Skills in `~/.claude/skills` and slash commands in `~/.claude/commands/aify-comms`.
 - `claude-aify` and the `aify-comms` verifier in `~/.local/bin`.
