@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { ERROR_BODY_LIMIT } from "./aify-service-endpoint.mjs";
+import { ERROR_BODY_LIMIT, NO_SERVICE_URL } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
 
 export const SHARED_FILE_TOOLS = [
@@ -63,6 +63,7 @@ async function failure(res, what) {
 /** Run one of SHARED_FILE_TOOLS as `agentId`, against the service at `serverUrl`. */
 export async function callSharedFileTool(tool, args, { agentId, serverUrl, apiKey = "", fetchImpl = fetch, tmpDir = process.env.TEMP || process.env.TMP || "/tmp" }) {
   const headers = apiKey ? { "X-API-Key": apiKey } : {};
+  if (!serverUrl) return text(NO_SERVICE_URL, true);
   if (!agentId) return text("This session is not registered yet, so a share would have no sender.", true);
   if (tool === "comms_share_file") {
     const filePath = String(args?.filePath || "");

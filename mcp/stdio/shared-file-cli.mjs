@@ -21,7 +21,6 @@ export function hermesSchemas(tools = SHARED_FILE_TOOLS) {
 
 async function runSharedFileCli([tool, json = "{}"]) {
   if (tool === "--list") return { text: JSON.stringify(hermesSchemas()), isError: false };
-  if (!SERVER_URL) return { text: "No aify-comms service URL is configured (AIFY_SERVER_URL).", isError: true };
   let args;
   try { args = JSON.parse(json); } catch { return { text: `The arguments are not JSON: ${json.slice(0, 80)}`, isError: true }; }
   const result = await callSharedFileTool(tool, args, { agentId: AIFY_AGENT_ID, serverUrl: SERVER_URL, apiKey: keyForUrl(SERVER_URL) });

@@ -17,7 +17,7 @@
 import fs from "fs";
 import path from "path";
 
-import { API_KEY, ERROR_BODY_LIMIT, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
+import { API_KEY, ERROR_BODY_LIMIT, IS_REMOTE, NO_SERVICE_URL, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
 import { validateName } from "./safe-name.mjs";
 import { isStoredFile } from "./shared-file-transfer.mjs";
 
@@ -43,6 +43,8 @@ export function registerArtifactTools(server, z) {
     },
     async ({ from, name, content, filePath, description }) => {
       try { validateName(name); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+      // These two fetch directly (multipart, raw bytes), so they say what httpCall says when there is no service.
+      if (!IS_REMOTE) return { content: [{ type: "text", text: NO_SERVICE_URL }], isError: true };
 
       const headers = {};
       if (API_KEY) headers["X-API-Key"] = API_KEY;
@@ -111,6 +113,7 @@ export function registerArtifactTools(server, z) {
     },
     async ({ name }) => {
       try { validateName(name); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+      if (!IS_REMOTE) return { content: [{ type: "text", text: NO_SERVICE_URL }], isError: true };
 
       const url = `${SERVER_URL}/api/v1/shared/${encodeURIComponent(name)}`;
       const options = { headers: {} };

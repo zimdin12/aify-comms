@@ -52,3 +52,13 @@ test("the module exports only its owner surface, and kept no state", () => {
     "a group leaf exports its wrapper and nothing it merely happens to contain",
   );
 });
+
+test("with no service URL, share and read say so instead of throwing on a relative URL", async () => {
+  // They fetch directly (multipart, raw bytes), past httpCall's refusal (review of 12e9cf37).
+  const { NO_SERVICE_URL } = await import("../aify-service-endpoint.mjs");
+  for (const [name, args] of [["comms_share", { from: "a", name: "n.txt", content: "x" }], ["comms_read", { name: "n.txt" }]]) {
+    const res = await tools.get(name).handler(args);
+    assert.equal(res.isError, true, name);
+    assert.equal(res.content[0].text, NO_SERVICE_URL, name);
+  }
+});
