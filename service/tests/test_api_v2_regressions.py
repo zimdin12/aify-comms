@@ -4,6 +4,7 @@ import tempfile
 import time
 import asyncio
 import unittest
+import uuid
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -1730,11 +1731,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         initial_message: str = "",
         defined: bool = True,
         before_running=None,
+        queue=None,
     ):
         """A managed agent with a running session, defined on its host: since D8 only a defined agent's console is started
         for it (pre-tag review of 0.9, F2). `defined=False` is an agent running from before D8 with no definition, whose
         stop and console paths are the service's own, not its host's. `before_running` runs between the claim and the
-        running report, where a host creates the worker's console."""
+        running report, where a console the service starts (a console-start recovery) lands. `queue` returns the id of a
+        spawn request already queued, in place of the automatic cold start."""
         self._heartbeat_environment(
             terminal=terminal,
             pty=terminal,
@@ -1749,8 +1752,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self._outlive_the_in_flight_window(agent_id)
         # D8: defined on its host, and woken as a message wakes it, which is the spawn request a start makes.
-        spawn_id = spawn_defined(self, agent_id, environment_id="linux:test-host:default", machine_id="linux:test-host",
-                                 bridge_id="bridge-current", runtime=runtime, workspace=workspace, role=role)["id"]
+        spawn_id = queue() if queue else spawn_defined(
+            self, agent_id, environment_id="linux:test-host:default", machine_id="linux:test-host",
+            bridge_id="bridge-current", runtime=runtime, workspace=workspace, role=role)["id"]
         if initial_message:
             self._execute("UPDATE spawn_requests SET initial_message = ? WHERE id = ?", (initial_message, spawn_id))
         claim = self.client.post(
@@ -1770,6 +1774,19 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Page 1 of the 0.9.8 switch, step 3: aify-env launched the lifetime and publishes its record, idle.
         env_records.report(self, agent_id)
         return running.json()["spawnRequest"]["sessionId"]
+
+    def _queue_legacy_replace(self, agent_id: str = "console-agent", initial_message: str = "") -> str:
+        """LEGACY CONSUMER FIXTURE: a replacement queued before D8, start_intent 'replace', copied from the agent's own last
+        request. It is the one REPLACE a spawn consumer still honours (service/api_core/start_intent.py); today's restart
+        goes to the host's lifecycle queue and the automatic cold start refuses a live worker."""
+        row = dict(self._fetchone("SELECT * FROM spawn_requests WHERE agent_id = ? ORDER BY rowid DESC LIMIT 1", (agent_id,)))
+        now = _now()
+        row.update(id=f"spawn-legacy-replace-{uuid.uuid4().hex[:8]}", status="queued", start_intent="replace",
+                   initial_message=initial_message, created_at=now, updated_at=now, claimed_by_bridge_id=None,
+                   claim_machine_id=None, claimed_at=None, started_at=None, finished_at=None, process_id=None,
+                   session_handle=None, session_id=None, error=None)
+        self._execute(f"INSERT INTO spawn_requests ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
+        return row["id"]
 
     def _stamp_live_channel_sidecar(self, agent_id: str = "console-agent", runtime: str = "claude-code"):
         """A fresh claude-channel.js channel-sidecar bridge heartbeat. A real
@@ -9617,14 +9634,14 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
             session_handle="aify-console-agent",
         )
-        # This terminal is the one the REPLACEMENT's bridge creates, so it is younger than the
-        # replacement's spawn request (claim -> create terminal -> PATCH running). Stamped
+        # This terminal is the one the replacement's console start creates, so it is younger than the
+        # replacement's spawn request (claim -> console start -> PATCH running). Stamped
         # explicitly ahead rather than at _now(): the migration is bounded by the spawn's own age
         # (see api_v2, "BOUNDED BY THIS SPAWN'S OWN AGE"), _now() is second-resolution, and
         # inserting at the same second as the spawn request would make this pass or fail on which
         # side of a second boundary the run happened to land.
-        # The bridge creates it after the claim, so a live console here never meets the send path's refusal to start a
-        # second worker beside one (test_a_send_starts_no_second_worker_beside_a_live_one.py).
+        # A console the service starts after the claim (a console-start recovery), so no live console meets the automatic
+        # start's refusal of a second worker (test_a_send_starts_no_second_worker_beside_a_live_one.py).
         def replacement_bridge_creates_its_console():
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
             self._execute(
@@ -9709,13 +9726,13 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         # The restart: a replacement spawn carrying the brief. Its bridge has NOT created a
         # terminal yet — the only live terminal on this bridge is the doomed predecessor.
-        # The restart has already marked the predecessor stopping; its PTY lives until the stop lands. (A live
-        # session with a live console refuses an automatic start: test_a_send_starts_no_second_worker_beside_a_live_one.py.)
-        self._execute("UPDATE agent_sessions SET status='stopping' WHERE id=?", (session_a,))
+        # LEGACY CONSUMER FIXTURE: the replacement is a REPLACE request queued before D8, which a spawn consumer still
+        # honours beside a live worker. The automatic cold start would refuse one (a live console), and today's restart
+        # goes to the host's lifecycle queue; what is proven here is the consumer's age bound.
         session_b = self._create_running_session(
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
             session_handle="aify-console-agent",
-            initial_message="Session restart requested from Dashboard Next.",
+            queue=lambda: self._queue_legacy_replace(initial_message="Session restart requested from Dashboard Next."),
         )
         self.assertNotEqual(session_a, session_b)
 
