@@ -129,6 +129,17 @@ test("a defined agent is offered only environments on its own machine", () => {
     "the control: an agent nothing defines is offered both");
 });
 
+test("a DEFINED agent's form edits its definition: the id is read-only and no environment is re-assigned", () => {
+  state.environments = [{ id: "win-env", machineId: "win32:host", status: "online", runtimes: ["codex"] }];
+  state.agents = [{ id: "coder", runtime: "claude-code", definition: { state: "defined", ownerMachineId: "win32:host",
+    harnessOfRuntime: { "claude-code": "claude", codex: "codex" }, fields: { name: "Coder", model: "opus" } } }];
+  const html = render(() => openAgentEditForm("coder"));
+  assert.match(html, /id="edit-agent-id" type="text" value="coder" readonly/);
+  assert.match(html, /id="edit-def-model" type="text" value="opus"/);
+  assert.ok(!html.includes('id="edit-agent-env"'), "a defined agent is not re-assigned by environment");
+  assert.match(html, /<option value="codex">codex<\/option>/);
+});
+
 // --- the history panel ----------------------------------------------------
 //
 // Joined this module in v0.5.4. It is the only inspector panel that FETCHES, which is what makes it worth
@@ -309,6 +320,12 @@ test('a record with no metadata anywhere does not throw', () => {
 function holdHistory(payload) {
   const held = { url: "", release: null };
   HISTORY_HANDLER = (req, res) => {
+    // Only the spawn records are held: the drawer also asks for its requests to the host, answered at once.
+    if (!req.url.includes("/spawn-requests")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ requests: [] }));
+      return;
+    }
     held.url = req.url;
     held.release = () => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(payload)); };
   };

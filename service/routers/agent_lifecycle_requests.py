@@ -56,7 +56,8 @@ async def claim_lifecycle(environment_id: str, claimed_by: LifecycleClaim, reque
         await db.execute('BEGIN IMMEDIATE')
         environment = await _environment(db, environment_id)
         await _proven_host(db, environment, body.get('machineId',''), request)
-        found = await core.claim_lifecycle_requests(db, environment, body.get('bridgeId',''), body.get('machineId',''), now())
+        found = await core.claim_lifecycle_requests(db, environment, body.get('bridgeId',''), body.get('machineId',''), now(),
+                                                    body.get('actions'))
         await db.commit()
         return {'ok': True, 'requests': found}
     finally:

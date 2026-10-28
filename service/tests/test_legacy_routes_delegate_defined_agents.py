@@ -61,11 +61,15 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
             ("start", None, lambda: self.client.post("/api/v1/agents/coder/control", json={"action": "start", "from_agent": "dashboard"})),
             ("stop", "L1", lambda: self.client.post("/api/v1/agents/coder/control", json={"action": "stop", "from_agent": "dashboard"})),
             ("kill", "L1", lambda: self.client.post("/api/v1/agents/coder/stop-worker", json={})),
+            # Operator, 2026-10-28: every dashboard Stop leaves the agent startable; only the agent control holds it.
+            ("kill", "L1", lambda: self.client.post("/api/v1/sessions/sess-1/control", json={"action": "stop", "from_agent": "dashboard"})),
+            # Resume clears the hold its host keeps, and starts nothing.
+            ("release", None, lambda: self.client.post("/api/v1/agents/coder/control", json={"action": "resume", "from_agent": "dashboard"})),
             ("restart", "L1", lambda: self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "dashboard"})),
             ("delete", "L1", lambda: self.client.delete("/api/v1/agents/coder")),
         ]
-        for action, lifetime, call in routes:
-            with self.subTest(action=action):
+        for number, (action, lifetime, call) in enumerate(routes):
+            with self.subTest(route=number, action=action):
                 self.sql("DELETE FROM agent_lifecycle_requests")
                 publish(self, A["machine"], {"coder": (lifetime, "idle" if lifetime else "available")})
                 self.queued(call(), action, lifetime)

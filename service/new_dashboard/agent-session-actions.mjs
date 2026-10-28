@@ -13,6 +13,7 @@
 
 import { openAgentDrawer } from './agent-drawer.mjs';
 import { api, apiResponse } from './api-client.mjs';
+import { definitionPatch, readDefinitionForm } from './definition-edit.mjs';
 import { requestedInAifyEnv } from './definition-request-note.mjs';
 import { briefIsStale, loadHandoffBrief } from './handoff-brief.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
@@ -123,7 +124,7 @@ export async function submitAgentEdit(agentId) {
   const newId = byId('edit-agent-id')?.value.trim() || agentId;
   const desc = byId('edit-agent-desc')?.value ?? '';
   const handle = byId('edit-agent-handle')?.value.trim() ?? '';
-  const willRename = !!(newId && newId !== agentId);
+  const willRename = !!(newId && newId !== agentId) && agent.definition?.state !== 'defined';
   // Confirm the rename UP FRONT — confirming after the other edits already fired left those
   // writes applied with no toast/refresh when the operator cancelled the rename prompt.
   if (willRename && !await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
@@ -136,6 +137,18 @@ export async function submitAgentEdit(agentId) {
   // failure toast must say so rather than list it as saved (review of 0.9.5, D8 residual).
   let requested = '';
   try {
+    // A DEFINED AGENT'S FIELDS ARE ITS DEFINITION'S, asked FIRST as ONE request: a refusal (another change still
+    // waiting) leaves nothing saved, and its id is not renamed (definition-edit.mjs).
+    const defined = agent.definition?.state === 'defined';
+    if (defined) {
+      step = 'definition';
+      const patch = definitionPatch(agent, readDefinitionForm(byId));
+      if (Object.keys(patch).length) {
+        requested = requestedInAifyEnv(await api(`/agent-definitions/${encodeURIComponent(agentId)}/requests`,
+          { method: 'POST', body: JSON.stringify({ patch, requestedBy: 'dashboard' }) }), agentId);
+      }
+    }
+    step = 'description';
     if (desc !== (agent.description || '')) {
       await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
       applied.push('description');
@@ -147,27 +160,29 @@ export async function submitAgentEdit(agentId) {
       handleNote = sessionHandleNote(changed);
       if (!handleNote) applied.push('session handle');
     }
-    step = 'environment';
-    const envId = byId('edit-agent-env')?.value.trim() || '';
-    const runtime = byId('edit-agent-runtime')?.value.trim() || '';
-    const workspace = byId('edit-agent-workspace')?.value.trim() || '';
-    // The form preselects the CURRENT environment, runtime and workspace, so posting whenever one is
-    // selected re-assigned the agent on every Save (2026-10-14 audit, D3). Only a change is a request.
-    const currentEnv = String(agent.runtimeState?.environmentId || agent.runtimeConfig?.environmentId || '');
-    const assignmentChanged = envId !== currentEnv
-      || runtime !== String(agent.runtime || 'generic')
-      || workspace !== String(agent.cwd || '');
-    if (envId && assignmentChanged) {
-      const body = { environmentId: envId };
-      if (runtime) body.runtime = runtime;
-      if (workspace) body.workspace = workspace;
-      requested = requestedInAifyEnv(
-        await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) }), agentId);
-      if (!requested) applied.push('environment');
-    }
-    step = 'rename';
-    if (willRename) {
-      await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
+    if (!defined) {
+      step = 'environment';
+      const envId = byId('edit-agent-env')?.value.trim() || '';
+      const runtime = byId('edit-agent-runtime')?.value.trim() || '';
+      const workspace = byId('edit-agent-workspace')?.value.trim() || '';
+      // The form preselects the CURRENT environment, runtime and workspace, so posting whenever one is
+      // selected re-assigned the agent on every Save (2026-10-14 audit, D3). Only a change is a request.
+      const currentEnv = String(agent.runtimeState?.environmentId || agent.runtimeConfig?.environmentId || '');
+      const assignmentChanged = envId !== currentEnv
+        || runtime !== String(agent.runtime || 'generic')
+        || workspace !== String(agent.cwd || '');
+      if (envId && assignmentChanged) {
+        const body = { environmentId: envId };
+        if (runtime) body.runtime = runtime;
+        if (workspace) body.workspace = workspace;
+        requested = requestedInAifyEnv(
+          await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) }), agentId);
+        if (!requested) applied.push('environment');
+      }
+      step = 'rename';
+      if (willRename) {
+        await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
+      }
     }
     step = 'refresh after saving';
     toast([requested || 'Agent updated', handleNote].filter(Boolean).join('. '), handleNote ? 'warn' : 'ok');

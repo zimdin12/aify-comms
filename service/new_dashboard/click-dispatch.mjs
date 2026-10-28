@@ -18,7 +18,7 @@
 //
 // Five injected names remain — the rest of what this dispatches to is now a sibling's export.
 
-import { resumeAgent, runAgentControl, setHerdrSpace, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
+import { holdAgent, resumeAgent, runAgentControl, setHerdrSpace, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { openAgentDrawer } from './agent-drawer.mjs';
 import { openStartDialog } from './start-dialog.mjs';
 import { deleteSessionById, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';
@@ -198,6 +198,8 @@ export function dispatchClick(event) {
   if (agentDetails) { openAgentDrawer(agentDetails.dataset.agentDetails); return; }
   const agentStopWorker = event.target.closest('[data-agent-stop-worker]');
   if (agentStopWorker) { stopAgentWorker(agentStopWorker.dataset.agentStopWorker); return; }
+  const agentHold = event.target.closest('[data-agent-hold]');
+  if (agentHold) { holdAgent(agentHold, refreshSoon); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
   if (agentRemove) { removeAgent(agentRemove.dataset.agentRemove); return; }
   const agentDeleteSession = event.target.closest('[data-agent-delete-session]');

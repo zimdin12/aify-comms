@@ -10,7 +10,12 @@ from typing import Any, Optional
 from service.api_core.model_effort import record_effort, record_model
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
-from service.api_core.vocabulary import SESSION_MODES
+from service.api_core.vocabulary import RUNTIME_HARNESS, SESSION_MODES
+
+#: The definition fields the dashboard's Edit changes, as they stand, so its form shows them and sends only what the
+#: operator changed. Every one is a field a definition request may set (definition_requests.EDITABLE_FIELDS); `env`
+#: is not served here, since a value in it can be a credential.
+EDIT_FIELDS = ("name", "role", "harness", "workspace", "model", "effort", "instructions")
 
 
 async def definition_rows(db, agent_ids: list[str]) -> dict[str, Any]:
@@ -31,7 +36,8 @@ def definition_of(agent_row, definition_row: Optional[Any]) -> dict[str, Any]:
     state = str((agent_row["definition_state"] if "definition_state" in agent_row.keys() else "") or "")
     if definition_row is None:
         return {"state": state, "ownerMachineId": None, "storeId": None, "incarnation": None, "revision": None,
-                "hostState": None, "hostProblems": [], "available": None, "unavailableReason": "", "mode": None}
+                "hostState": None, "hostProblems": [], "available": None, "unavailableReason": "", "mode": None,
+                "fields": {}}
     body = _json_loads_or(definition_row["body"], {})
     mode = body.get("mode") if isinstance(body, dict) else None
     return {
@@ -45,6 +51,9 @@ def definition_of(agent_row, definition_row: Optional[Any]) -> dict[str, Any]:
         "hostProblems": _json_loads_or(definition_row["host_problems"], []),
         "available": bool(definition_row["available"]),
         "unavailableReason": definition_row["unavailable_reason"] or "",
+        "fields": {field: body[field] for field in EDIT_FIELDS if isinstance(body, dict) and field in body},
+        # The harness a definition names for each runtime the dashboard offers, from the one map that defines it.
+        "harnessOfRuntime": dict(RUNTIME_HARNESS),
     }
 
 

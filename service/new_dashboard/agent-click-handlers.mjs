@@ -11,7 +11,7 @@
 import { api } from './api-client.mjs';
 import { requestedInAifyEnv } from './definition-request-note.mjs';
 import { resolveStatus, undefinedStartRefusal } from './status.js';
-import { toast } from './ui.js';
+import { toast, uiConfirm } from './ui.js';
 import { esc } from './util.js';
 import { state } from './state.mjs';
 import { agentModes } from './agent-mode.mjs';
@@ -110,14 +110,32 @@ export function resumeAgent(button, refreshSoon) {
   const id = button.dataset.agentResume;
   button.disabled = true;
   api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'resume', from_agent: 'dashboard' }) })
-    .then(() => {
-      toast(`${id}: comms' stop cleared. Relaunch it, or start it, to run it again`, 'ok');
+    .then((answer) => {
+      // A defined agent's resume is a `release` its host applies; the note says so instead of claiming it done.
+      toast(requestedInAifyEnv(answer, id) || `${id}: comms' stop cleared. Relaunch it, or start it, to run it again`, 'ok');
       refreshSoon();
     })
     .catch((err) => {
       toast(`Resume failed: ${err?.message || err}`, 'error');
       button.disabled = false;
     });
+}
+
+/** HOLD a defined agent: its worker stops, and its host refuses to start it for a message until Release hold or
+ * Start (operator, 2026-10-28). Asked by name and confirmed; Stop is the one that leaves it startable. */
+export async function holdAgent(button, refreshSoon, confirm = uiConfirm) {
+  const id = button.dataset.agentHold;
+  if (!await confirm(`Hold ${id}?\n\nIts worker stops, and a message will not start it again until you Release hold `
+    + 'or Start it. To stop it and let a message start it again, use Stop instead.', { tone: 'danger' })) return;
+  button.disabled = true;
+  try {
+    const answer = await api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'stop', from_agent: 'dashboard' }) });
+    toast(requestedInAifyEnv(answer, id) || `Held ${id}`, 'ok');
+    refreshSoon();
+  } catch (err) {
+    toast(`Hold failed: ${err?.message || err}`, 'error');
+    button.disabled = false;
+  }
 }
 
 export function switchModeFromChip(modeSwitchButton, event, switchAgentSessionMode) {

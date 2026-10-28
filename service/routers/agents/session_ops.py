@@ -61,9 +61,10 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         agent = await cursor.fetchone()
         if not agent:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        # A DEFINED agent's start and stop go to its host through the D9 lifecycle queue (D9c).
-        if action in {"start", "stop"}:
-            delegated = await delegate(db, agent_id, action, actor, request)
+        # A DEFINED agent's start, stop (the operator's HOLD) and resume go to its host through the D9 lifecycle queue
+        # (D9c). Resume is the host's `release`: a hold there is aify-env's, and comms' own stop row never held it.
+        if action in {"start", "stop", "resume"}:
+            delegated = await delegate(db, agent_id, "release" if action == "resume" else action, actor, request)
             if delegated:
                 return delegated
 

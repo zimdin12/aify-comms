@@ -59,15 +59,18 @@ export function openAgentDrawer(agentId) {
   const canStopWorker = !['offline', 'stopped', 'available'].includes(agentStatus);
   // START WHERE THE SERVICE WOULD START IT (v0.7.7), by the rule the Start dialog uses.
   const canStart = startOffer(agent, state.sessions).start;
+  const defined = agent.definition?.state === 'defined';
   // TWO GROUPS, DESTRUCTIVE LAST (v0.7 C23): the four red buttons sat among the benign ones in one
   // wrapping row, a misclick apart. "Open in Sessions" is offered only with a session to open: with
   // none it switched pages onto whatever session was selected before, often another agent's.
   const actions = [
     canStart ? `<button class="primary" data-agent-action="start" data-agent-id="${esc(id)}">Start</button>` : '',
-    // RESUME CLEARS COMMS' STOP (operator report, 2026-10-22). A stopped row makes the agent's claim answer `stopped`
-    // and its delivery loop exit; the service's resume control existed and nothing called it. It starts nothing, and
-    // it does not clear a stop the agent's aify-env holds for a defined agent.
-    agentStatus === 'stopped' ? `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear comms' stop on this agent, so a relaunch or a message is not refused. Starts nothing.">Resume</button>` : '',
+    // RESUME CLEARS A STOP THAT HOLDS THE AGENT (operator report, 2026-10-22), and starts nothing. A defined agent's
+    // hold is its aify-env's, so for one the service queues `release` to that host (2026-10-28); for an undefined
+    // agent it clears comms' own stop row, which made its claim answer `stopped` and its delivery loop exit.
+    agentStatus === 'stopped' ? (defined
+      ? `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear the hold, so a message starts it again. Starts nothing now.">Release hold</button>`
+      : `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear comms' stop on this agent, so a relaunch or a message is not refused. Starts nothing.">Resume</button>`) : '',
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}"${startRefusedAttrs(agent)}>Restart</button>` : '',
     sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}"${startRefusedAttrs(agent, 'Restart with a FRESH context (discards native session)')}>Reset</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
@@ -82,8 +85,13 @@ export function openAgentDrawer(agentId) {
     canStopWorker
       ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Stop this agent: its worker, terminals and live sessions, interrupting the message it is working on. Identity, history and resume handle are kept, so it can be started again.">Stop</button>`
       : '',
-    sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
-    `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
+    // HOLD IS ASKED FOR BY NAME (operator, 2026-10-28: "i wanted that you would kill them, not put them into state
+    // that they cannot be started"). Stop leaves the agent startable; Hold also keeps a message from starting it.
+    defined && agentStatus !== 'stopped'
+      ? `<button class="ghost danger" data-agent-hold="${esc(id)}" title="Stop this agent and keep it stopped: a message does not start it until you Release hold or Start it.">Hold</button>`
+      : '',
+    sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}" title="Delete this ended session's record and its terminal history. The agent stays.">Delete session</button>` : '',
+    `<button class="ghost danger" data-agent-remove="${esc(id)}" title="Remove the agent itself: its host moves its definition to the trash, and its sessions go with it.">Remove agent</button>`,
   ].filter(Boolean).join('');
   // Always render this block. When there is no command, say WHY — an absent section is
   // indistinguishable from a broken feature (operator report: "llama-manager does not have cli

@@ -326,3 +326,18 @@ test("a failed resume gives the button back", async () => {
     assert.equal(btn.disabled, false);
   });
 });
+
+test("holdAgent asks first, then POSTs the agent control's stop (the HOLD) for the agent on the button", async () => {
+  const { holdAgent } = await import("./agent-click-handlers.mjs");
+  return withFetch({}, async (calls) => {
+    const btn = { disabled: false, dataset: { agentHold: "team/coder" } };
+    let refreshed = 0;
+    await holdAgent(btn, () => { refreshed += 1; }, async () => false);
+    assert.equal(calls.length, 0, "a declined confirm still held the agent");
+    await holdAgent(btn, () => { refreshed += 1; }, async (text) => /Release hold/.test(text));
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/agents\/team%2Fcoder\/control$/);
+    assert.deepEqual(JSON.parse(calls[0].body), { action: "stop", from_agent: "dashboard" });
+    assert.equal(refreshed, 1);
+  });
+});

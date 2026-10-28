@@ -74,9 +74,12 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         now = _now()
         agent_id = session["agent_id"]
         # A DEFINED agent's stop and restart go to its host through the D9 lifecycle queue (D9c);
-        # `recreate` is a restart into a fresh conversation.
+        # `recreate` is a restart into a fresh conversation. A session's Stop is the host's `kill`, as the drawer's
+        # is: it ends the worker and leaves the agent startable. Holding an agent stopped is the agent control's
+        # `stop` (operator, 2026-10-28: "i wanted that you would kill them, not put them into state that they
+        # cannot be started").
         if action in {"stop", "restart", "recreate"}:
-            delegated = await delegate(db, agent_id, "stop" if action == "stop" else "restart", actor, request,
+            delegated = await delegate(db, agent_id, "kill" if action == "stop" else "restart", actor, request,
                                        fresh_context=action == "recreate")
             if delegated:
                 return delegated

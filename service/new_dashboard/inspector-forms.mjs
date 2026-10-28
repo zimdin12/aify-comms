@@ -19,6 +19,8 @@
 
 import { messageId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
+import { loadAgentRequests } from './agent-requests.mjs';
+import { definitionFieldset } from './definition-edit.mjs';
 import { fillHandoffBrief } from './handoff-brief.mjs';
 import { findLoadedMessage } from './message-store.mjs';
 import { state, inspectorOpening } from './state.mjs';
@@ -47,19 +49,25 @@ export function openAgentEditForm(agentId) {
     })).join('');
   const runtimeOptions = [...new Set(['generic', 'claude-code', 'codex', 'hermes', 'pi', 'opencode', currentRuntime])]
     .map((rt) => `<option value="${esc(rt)}"${rt === currentRuntime ? ' selected' : ''}>${esc(rt)}</option>`).join('');
-  byId('inspector-content').innerHTML = `
-    <div class="agent-drawer continue-form">
-      <div class="agent-drawer-head"><strong>Edit ${esc(agentId)}</strong></div>
-      <label class="settings-label">Agent ID (rename)<input id="edit-agent-id" type="text" value="${esc(agentId)}"></label>
-      <label class="settings-label">Description<input id="edit-agent-desc" type="text" value="${esc(agent.description || '')}" placeholder="Short role/description"></label>
-      <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
-      <fieldset class="agent-edit-env">
+  // A DEFINED agent's id is not renamed and its fields are its definition's (definition-edit.mjs).
+  const defined = agent.definition?.state === 'defined';
+  const idField = defined
+    ? `<label class="settings-label">Agent ID<input id="edit-agent-id" type="text" value="${esc(agentId)}" readonly title="An agent its host defines keeps its id; its display name is below."></label>`
+    : `<label class="settings-label">Agent ID (rename)<input id="edit-agent-id" type="text" value="${esc(agentId)}"></label>`;
+  const assignment = defined ? definitionFieldset(agent, state.environments) : `<fieldset class="agent-edit-env">
         <legend>Re-assign environment</legend>
         <label class="settings-label">Environment<select id="edit-agent-env">${envOptions}</select></label>
         <label class="settings-label">Runtime<select id="edit-agent-runtime">${runtimeOptions}</select></label>
         <label class="settings-label">Workspace (optional)<input id="edit-agent-workspace" type="text" value="${esc(agent.cwd || '')}" placeholder="Leave blank for the environment default root"></label>
         <p class="subtle">Only takes effect when an environment is chosen above. The environment must be online and advertise the selected runtime.</p>
-      </fieldset>
+      </fieldset>`;
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer continue-form">
+      <div class="agent-drawer-head"><strong>Edit ${esc(agentId)}</strong></div>
+      ${idField}
+      <label class="settings-label">Description<input id="edit-agent-desc" type="text" value="${esc(agent.description || '')}" placeholder="Short role/description"></label>
+      <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
+      ${assignment}
       <div class="agent-drawer-actions"><button class="primary" data-agent-edit-submit="${esc(agentId)}">Save changes</button></div>
     </div>`;
   state.inspector = inspectorOpening('agent-edit', { runId: '' });
@@ -214,6 +222,9 @@ export async function openCompactionHistory(agentId) {
   const stillShowing = () => state.inspector?.kind === 'history' && state.inspector.agentId === agentId;
   let rows = [];
   let truncated = false;
+  // Its requests to its host and their outcomes, beside the spawn lineage. The loader never throws: it names a list
+  // it could not read.
+  const requests = loadAgentRequests(agentId);
   try {
     const res = await api(`/spawn-requests?agentId=${encodeURIComponent(agentId)}&limit=${HISTORY_LIMIT}`);
     const reqs = res.spawnRequests || res.requests || res || [];
@@ -228,9 +239,12 @@ export async function openCompactionHistory(agentId) {
     if (!stillShowing()) return;
     state.inspector.loading = false;
     state.inspector.error = String(err?.message || err);
-    byId('inspector-content').innerHTML = historyFrame(agentId, `<p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p>`);
+    const requestsHtml = await requests;
+    if (!stillShowing()) return;
+    byId('inspector-content').innerHTML = historyFrame(agentId, `<p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p>${requestsHtml}`);
     return;
   }
+  const requestsHtml = await requests;
   if (!stillShowing()) return;
   state.inspector.loading = false;
   state.inspector.loaded = true;
@@ -249,5 +263,5 @@ export async function openCompactionHistory(agentId) {
       </dl></div>`;
   }).join('') : '<div class="empty-state"><span class="empty-icon">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';
   const more = truncated ? `<p class="subtle">Showing the newest ${HISTORY_LIMIT} records; older ones exist.</p>` : '';
-  byId('inspector-content').innerHTML = historyFrame(agentId, `<p class="subtle">Compact/continue lineage from spawn records.</p>${body}${more}`);
+  byId('inspector-content').innerHTML = historyFrame(agentId, `${requestsHtml}<div class="agent-drawer-subhead">Compact/continue lineage</div>${body}${more}`);
 }

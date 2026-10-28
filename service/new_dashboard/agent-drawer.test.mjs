@@ -669,3 +669,27 @@ test("the drawer offers Resume exactly for a stopped agent, resident or managed 
     });
   }
 });
+
+test("a DEFINED agent's drawer offers Hold while it runs and Release hold once held; Stop never holds (2026-10-28)", () => {
+  // Operator: "i wanted that you would kill them, not put them into state that they cannot be started". Stop is the
+  // kill; holding is asked for by name, and a held defined agent is released, not "resumed" in comms only.
+  const defined = { state: "defined", ownerMachineId: "win32:box" };
+  for (const [status, hold, release] of [["online", true, false], ["available", true, false], ["stopped", false, true]]) {
+    seed({ agents: [{ id: "coder", status, sessionMode: "managed", definition: defined }], inspector: {} });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("coder");
+      const html = els["inspector-content"].innerHTML;
+      assert.equal(html.includes('data-agent-hold="coder"'), hold, `${status}: Hold`);
+      assert.equal(/data-agent-resume="coder"[^>]*>Release hold</.test(html), release, `${status}: Release hold`);
+    });
+  }
+  for (const status of ["online", "stopped"]) {
+    seed({ agents: [{ id: "coder", status, sessionMode: "managed" }], inspector: {} });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("coder");
+      const html = els["inspector-content"].innerHTML;
+      assert.ok(!html.includes("data-agent-hold"), `CONTROL: an undefined ${status} agent has no host to hold it`);
+      if (status === "stopped") assert.match(html, /data-agent-resume="coder"[^>]*>Resume</, "CONTROL: an undefined agent keeps comms' Resume");
+    });
+  }
+});

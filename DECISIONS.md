@@ -1476,3 +1476,15 @@ needs the key** (`lifecycle_models.IRREVERSIBLE_ACTIONS`, and `API_KEY_ACTIONS` 
 action). Kill was locked too at first and is not: the host's kill is its stop without the durable stop mark,
 so a killed agent starts again (review of 0.9, M2). Naming the operator still needs its proof whatever the action, and a word outside the
 vocabulary needs the key, so an unknown action fails closed.
+
+## 2026-10-28 — Every dashboard Stop is the kill; holding an agent is asked for by name (0.9.15)
+
+Steven had asked for all sixteen started agents to be stopped and meant ended, not made unstartable. The sessions page
+Stop and the agent control's `stop` both queued aify-env's `stop`, which is a hold: a message no longer starts the agent
+(`dispatch_start` refuses it) until a start. The drawer's Stop was already the `kill`, so the same word did two things.
+Now the session Stop is the `kill` too. Holding is the drawer's **Hold** button (the agent control's `stop`), and
+**Release hold** clears it without starting anything: the control's `resume` queues aify-env's `release` (e70321d) for
+a defined agent, where the hold actually lives. An undefined agent's Resume still clears comms' own stop row. A defined
+agent's Edit is one definition request carrying only the changed fields, asked before anything else is saved; its id is
+not offered for rename, since the id keys the definition file, the host's stop record and the session folder. The
+drawer's History lists each lifecycle and definition request with the host's outcome, so a refusal reads as one.

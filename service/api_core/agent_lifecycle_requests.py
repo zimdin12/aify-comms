@@ -11,7 +11,7 @@ from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core import definition_requests as definitions
 from service.api_core.lifecycle_launch import settle_unstarted
 from service.api_core.agent_remove import remove_agent
-from service.lifecycle_models import ACTIONS, OPEN_SQL, TERMINAL
+from service.lifecycle_models import ACTION_ADDED_IN, ACTIONS, OPEN_SQL, TERMINAL, UNDECLARED_HOST_ACTIONS
 
 
 
@@ -50,7 +50,7 @@ async def admit_lifecycle(db, agent_id, body, proof, now, *, brief=''):
         # Before the body's other fields: an agent nobody defines is the answer whatever was asked.
         raise HTTPException(404, 'agent has no owning definition')
     if body.get('action') not in ACTIONS:
-        raise HTTPException(422, 'action: start, stop, restart, kill, spawn or delete')
+        raise HTTPException(422, 'action: one of ' + ', '.join(ACTIONS))
     if 'expectedLifetime' not in body or (body['expectedLifetime'] is not None and
             (not isinstance(body['expectedLifetime'], str) or not body['expectedLifetime'])):
         raise HTTPException(422, 'expectedLifetime: explicitly name a lifetime string or null')
@@ -83,10 +83,24 @@ async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifet
         (request_id,held['agent_id'],held['machine_id'],held['store_id'],held['incarnation'],held['revision'],expected_lifetime,action,actor,fresh_context,intent,brief,now))
 
 
-async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now):
+def host_actions(declared):
+    """PURE. The actions a claiming host runs: the list it declared, or, when it declared none, the actions every
+    claiming aify-env has run."""
+    if isinstance(declared, list) and all(isinstance(action, str) for action in declared):
+        return frozenset(declared)
+    return frozenset(UNDECLARED_HOST_ACTIONS)
+
+
+def unrunnable_outcome(action):
+    return (f"its host's aify-env does not run `{action}`; "
+            f'{ACTION_ADDED_IN.get(action, "a newer aify-env")} does, after the operator next restarts aify-env')
+
+
+async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now, declared_actions=None):
     why = fence_refusal(environment, bridge_id, machine_id)
     if why:
         raise HTTPException(409, f'lifecycle claim refused: {why}')
+    runs = host_actions(declared_actions)
     store = await (await db.execute('SELECT store_id FROM definition_stores WHERE machine_id=?', (machine_id,))).fetchone()
     rows = await (await db.execute("SELECT * FROM agent_lifecycle_requests WHERE machine_id=? AND status IN " + OPEN_SQL + " ORDER BY created_at,id", (machine_id,))).fetchall()
     found = []
@@ -95,6 +109,9 @@ async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now):
         why = definitions._undeliverable(row, held, store['store_id'] if store else '')
         if not why and (held['incarnation'], held['revision']) != (row['expected_incarnation'],row['expected_revision']):
             why = 'definition incarnation or revision moved'
+        # NEVER HANDED A REQUEST IT CANNOT RUN: refused here with the reason, so it costs only itself.
+        if not why and row['action'] not in runs:
+            why = unrunnable_outcome(row['action'])
         if why:
             if row['status']=='pending':
                 await db.execute("UPDATE agent_lifecycle_requests SET status='refused',outcome=?,finished_at=? WHERE id=?", (why,now,row['id']))

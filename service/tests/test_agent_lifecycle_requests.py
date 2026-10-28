@@ -242,6 +242,28 @@ class LifecycleRequests(FastApiTestCase):
         self.assertEqual(self.claim().json()['requests'], [])
         self.assertEqual(self.client.get('/api/v1/agent-lifecycle-requests/life-1').json()['request']['status'], 'refused')
 
+    def test_a_host_is_never_handed_an_action_it_does_not_declare(self):
+        """2026-10-28: an aify-env before e70321d threw on `release` and abandoned its whole claim pass, so one release
+        would have blocked every later request on its machine. A claim that declares no actions is handed only the
+        ones every aify-env runs; the release is refused with the aify-env it needs, and the stop behind it still goes."""
+        self.push('s1', 2, [valid('coder', incarnation=2, revision=5), valid('other', incarnation=1, revision=1)])
+        self.ask(requestId='rel-1', action='release', expectedLifetime=None).raise_for_status()
+        self.sql("UPDATE agent_lifecycle_requests SET created_at = '2000-01-01T00:00:00Z' WHERE id = 'rel-1'")
+        self.client.post('/api/v1/agents/other/lifecycle-requests', json={
+            'requestId': 'life-2', 'action': 'stop', 'requestedBy': 'peer', 'expectedLifetime': 'worker-2'}).raise_for_status()
+        handed = self.claim().json()['requests']
+        self.assertEqual([r['id'] for r in handed], ['life-2'], "another agent's stop behind the release must still go")
+        refused = self.client.get('/api/v1/agent-lifecycle-requests/rel-1').json()['request']
+        self.assertEqual(refused['status'], 'refused')
+        self.assertIn('aify-env e70321d', refused['outcome'])
+
+    def test_a_host_that_declares_release_is_handed_it(self):
+        self.ask(requestId='rel-1', action='release', expectedLifetime=None).raise_for_status()
+        claimed = self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/claim", json={
+            'bridgeId': A['bridge'], 'machineId': A['machine'],
+            'actions': ['start', 'spawn', 'restart', 'stop', 'kill', 'delete', 'release']})
+        self.assertEqual([r['action'] for r in claimed.json()['requests']], ['release'], claimed.text)
+
     def refused(self, response, code, text):
         self.assertEqual(response.status_code, code, response.text)
         self.assertIn(text, response.json()['detail'])
@@ -254,7 +276,7 @@ class LifecycleRequests(FastApiTestCase):
         self.refused(self.ask(requestedBy=''), 422, 'requestedBy: explicitly name a nonempty caller actor string')
         self.refused(self.ask(requestId='-x'), 422,
                      'requestId: 1 to 128 ASCII letters, digits, dot, underscore or hyphen')
-        self.refused(self.ask(action='pause'), 422, 'action: start, stop, restart, kill, spawn or delete')
+        self.refused(self.ask(action='pause'), 422, 'action: one of start, stop, restart, kill, spawn, delete, release')
         self.refused(self.ask(expectedLifetime=42), 422, 'expectedLifetime: explicitly name a lifetime string or null')
         self.refused(self.ask(freshContext='yes'), 422, 'freshContext: a boolean')
         self.refused(self.ask(expectedRevision='5'), 422, 'expectedRevision: a definition revision counter')

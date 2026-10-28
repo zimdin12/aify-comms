@@ -769,3 +769,45 @@ test("CONTROL: an environment change the service applied IS listed as saved", as
     assert.doesNotMatch(said, /requested in aify-env/);
   } finally { h.restore(); }
 });
+
+test("A DEFINED agent's Edit is ONE definition request of what changed, asked first, with no rename", async () => {
+  // Operator, 2026-10-28: Edit completes, with no half-saved edit. The host refusing (another change waiting)
+  // must leave the description unsaved, and a changed id field never renames an agent its host defines: no rename is
+  // even offered, so a declined rename prompt (confirm: false) cannot stop the save.
+  const h = withActions({ confirm: false, fields: {
+    "edit-agent-id": "coder2", "edit-agent-desc": "new words", "edit-agent-handle": "",
+    "edit-def-model": "opus", "edit-def-name": "Coder", "edit-def-runtime": "claude-code",
+  } });
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  const answer = (status, body) => ({ ok: status < 400, status, statusText: String(status), json: async () => body, text: async () => JSON.stringify(body) });
+  const asked = [];
+  try {
+    state.agents = [{ id: "coder", description: "", sessionHandle: "", runtime: "claude-code",
+      definition: { state: "defined", ownerMachineId: "win32:box", harnessOfRuntime: { "claude-code": "claude" },
+        fields: { name: "Coder", harness: "claude", model: "" } } }];
+    globalThis.fetch = async (url, init) => {
+      asked.push([String(url), init?.body || ""]);
+      if (String(url).includes("/agent-definitions/coder/requests")) return answer(409, { detail: "coder already has a change waiting" });
+      return answer(200, { ok: true });
+    };
+    await submitAgentEdit("coder");
+    let said = created.map((el) => el.textContent).filter(Boolean).join(" | ");
+    assert.match(said, /Edit stopped at the definition: .*already has a change waiting/, said);
+    assert.deepEqual(asked.map(([url]) => url.replace(/^.*\/api\/v1/, "")), ["/agent-definitions/coder/requests"],
+      "nothing else may be saved once the definition request is refused");
+    assert.deepEqual(JSON.parse(asked[0][1]).patch, { model: "opus" });
+
+    asked.length = 0; created.length = 0;
+    globalThis.fetch = async (url, init) => {
+      asked.push([String(url), init?.body || ""]);
+      if (String(url).includes("/agent-definitions/")) return answer(200, { ok: true, request: { machineId: "win32:box", patch: { model: "opus" } } });
+      return answer(200, { ok: true });
+    };
+    await submitAgentEdit("coder");
+    said = created.map((el) => el.textContent).filter(Boolean).join(" | ");
+    assert.match(said, /Change of coder requested in aify-env on win32:box/, said);
+    assert.ok(!asked.some(([url]) => /\/rename|\/environment/.test(url)), `a defined agent was renamed or re-assigned: ${asked}`);
+  } finally { h.restore(); }
+});
