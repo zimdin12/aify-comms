@@ -55,6 +55,10 @@ kept as evidence. Last reviewed 2026-10-13.
     stays queued, nothing shows the body again until the run fails or the agent reads its inbox.
   - **A claim marks the source read before its emission can fail.** A claimed run's message leaves the unread
     inbox at the claim (`dispatch_claim.py`), so if the channel then fails to emit it, neither path shows it.
+  - **The hook's lock is exclusive in ordinary overlap only.** Recovery, where a dead or over-age lock is taken
+    over, can repeat a cue and can let a stale holder replace the seen/cue record. The holder's ownership checks
+    before printing and writing are best-effort, and several hooks can take over one lock. Extent and frequency
+    are unmeasured (`notify-check.js`).
 - **A turn-end can be posted for a turn that continues** (since 5ad9594f, source-traced; occurrence and frequency
   unmeasured). The Stop gate (`claude-stop-gate.js`) now trusts the payload's `last_assistant_message`, because Claude
   can run Stop before it writes the turn's final line and the gate used to hold residents at `working` indefinitely.

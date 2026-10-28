@@ -19,10 +19,12 @@ const CLAUDE_ON_PLUGIN = { AIFY_RUNTIME: "claude-code", AIFY_CHANNEL_ROUTE: "plu
 
 // `population` is newest first. A message with `run` set ({ at, id }) is queued for the channel on that run.
 // `legacy` answers as the 2df43e00 service did: any queuedChannel value marks each message, nothing is left out.
-function standIn(population, { legacy = false } = {}) {
+function standIn(population, { legacy = false, delayMs = 0, onRequest = () => {} } = {}) {
   const urls = [];
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     urls.push(req.url);
+    onRequest(req.url);
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
     res.setHeader("content-type", "application/json");
     if (!req.url.startsWith("/api/v1/messages/inbox/")) return res.end("{}");
     const query = new URL(req.url, "http://stand-in").searchParams;
@@ -180,6 +182,121 @@ test("a run already named is not named again when newer ones leave", async () =>
       population.splice(0, 200); // the 200 newer ones are read: the old twenty are the newest window again
       assert.equal(population.length, 20, "control: only the old twenty remain");
       assert.equal(await poll(url, scratch), "", "a run was named twice");
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("a hook that overlaps a slower one names nothing, and the slower one's mark is not rolled back", async () => {
+  // Review of 93de3c1d, reproduced with real hook processes: A walked a long inbox; B, ten seconds on, named run-new
+  // and kept its mark; A finished later and wrote back the older mark it had read; C named run-new a second time.
+  const ordinary = Array.from({ length: 100 }, (_, n) => message(1000 + n));
+  const population = [message(1, runAt(1, "run-old")), ...ordinary];
+  let started = () => {};
+  const aStarted = new Promise((resolve) => { started = resolve; });
+  const slow = await standIn(population, { delayMs: 250, onRequest: () => started() });
+  const fast = await standIn(population);
+  try {
+    await withScratch(async (scratch) => {
+      fs.writeFileSync(path.join(scratch, "aify-notify-seen-lead.json"), JSON.stringify(
+        { session: "s-1", ids: ordinary.map((m) => m.id), namedSince: [stamp(1), "run-old"], queued: 1 }));
+      const events = [];
+      const a = poll(slow.url, scratch).then((context) => { events.push("A"); return context; });
+      await aStarted;
+      population.unshift(message(2, runAt(2, "run-new")));
+      const b = await poll(fast.url, scratch);
+      events.push("B");
+      const aContext = await a;
+      assert.deepEqual(events, ["B", "A"], "control: B ran and ended while A was still walking");
+      const c = await poll(fast.url, scratch);
+      const namings = [aContext, b, c].map((context) => namedIds(context).filter((id) => id === "m-2").length);
+      assert.equal(namings.reduce((x, y) => x + y, 0), 1, `run-new was named ${JSON.stringify(namings)} times (A, B, C)`);
+    });
+  } finally {
+    slow.server.close();
+    fast.server.close();
+  }
+});
+
+test("a hook whose lock was taken over while it walked prints nothing and leaves the record alone", async () => {
+  // The recovery case: an old lock is taken over though its holder was only slow. The holder rereads its token before
+  // printing and before writing. This proves it stops when it sees a foreign token by then, not that every resumed
+  // holder is stopped: a pause after that check has no bound (notify-check.js, the recovery note).
+  for (const takenOver of [false, true]) {
+    const population = [message(1), ...Array.from({ length: 60 }, (_, n) => message(1000 + n))];
+    let started = () => {};
+    const firstRequest = new Promise((resolve) => { started = resolve; });
+    const slow = await standIn(population, { delayMs: 200, onRequest: () => started() });
+    try {
+      await withScratch(async (scratch) => {
+        const recordFile = path.join(scratch, "aify-notify-seen-lead.json");
+        const before = JSON.stringify({ session: "s-1", ids: population.slice(1).map((m) => m.id), namedSince: null, queued: 0 });
+        fs.writeFileSync(recordFile, before);
+        const walk = poll(slow.url, scratch);
+        await firstRequest;
+        if (takenOver) fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "999999:another-holder");
+        const context = await walk;
+        if (takenOver) {
+          assert.equal(context, "", "a holder that lost its lock printed");
+          assert.equal(fs.readFileSync(recordFile, "utf8"), before, "a holder that lost its lock wrote the record");
+        } else {
+          assert.match(context, /body of 1/, "control: the same walk, still holding its lock, prints");
+        }
+      });
+    } finally {
+      slow.server.close();
+    }
+  }
+});
+
+test("a hook whose lock was taken over writes no record even when it has nothing to print", async () => {
+  // The write-only path: the queued count fell, so the record changes though nothing is printed.
+  for (const takenOver of [false, true]) {
+    const population = Array.from({ length: 60 }, (_, n) => message(1000 + n));
+    let started = () => {};
+    const firstRequest = new Promise((resolve) => { started = resolve; });
+    const slow = await standIn(population, { delayMs: 200, onRequest: () => started() });
+    try {
+      await withScratch(async (scratch) => {
+        const recordFile = path.join(scratch, "aify-notify-seen-lead.json");
+        const before = JSON.stringify({ session: "s-1", ids: population.map((m) => m.id), namedSince: null, queued: 5 });
+        fs.writeFileSync(recordFile, before);
+        const walk = poll(slow.url, scratch);
+        await firstRequest;
+        if (takenOver) fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "999999:another-holder");
+        assert.equal(await walk, "", "control: there is nothing to print");
+        const after = fs.readFileSync(recordFile, "utf8");
+        if (takenOver) assert.equal(after, before, "a holder that lost its lock wrote the record");
+        else assert.equal(JSON.parse(after).queued, 0, "control: the holder records the fall");
+      });
+    } finally {
+      slow.server.close();
+    }
+  }
+});
+
+test("a lock left by a hook that has exited is taken over", async () => {
+  const { server, url, urls } = await standIn([message(1)]);
+  try {
+    await withScratch(async (scratch) => {
+      // A pid no process holds: the largest a 32-bit count allows, never handed out in a test run.
+      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "2147483646");
+      assert.match(await poll(url, scratch), /body of 1/, "a dead holder's lock silenced the agent");
+      assert.ok(!fs.existsSync(path.join(scratch, "aify-notify-lead.lock")), "the lock outlived its holder");
+
+      // CONTROL: a lock this test process holds is a live holder, and the hook stands aside.
+      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), String(process.pid));
+      fs.rmSync(path.join(scratch, "aify-notify-seen-lead.json"), { force: true });
+      urls.length = 0;
+      assert.equal(await poll(url, scratch), "", "the hook ran beside a live holder");
+      assert.deepEqual(urls, [], "a hook standing aside still read the inbox");
+
+      // A live pid on a lock older than LOCK_STALE_MS: a reused pid, or a holder that hung, is taken over. If that
+      // holder resumes, only its best-effort ownership check stands in its way (the test above).
+      const old = new Date(Date.now() - 10 * 60_000);
+      fs.utimesSync(path.join(scratch, "aify-notify-lead.lock"), old, old);
+      assert.match(await poll(url, scratch), /body of 1/, "an ancient lock silenced the agent");
     });
   } finally {
     server.close();

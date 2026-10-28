@@ -9,7 +9,7 @@
 
 import fs from "fs";
 import path from "path";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { envAgentId } from "./bound-agent-id.mjs";
@@ -69,6 +69,52 @@ try {
   if (Date.now() - parseInt(fs.readFileSync(RATE_FILE, "utf-8"), 10) < 10_000) process.exit(0);
 } catch { /* first check */ }
 fs.writeFileSync(RATE_FILE, String(Date.now()));
+
+// ONE HOOK AT A TIME PER AGENT, IN ORDINARY OVERLAP. The rate file spaces checks ten seconds apart but is no mutex: a
+// walk slower than that overlapped the next hook, and the slow one rewrote the record with the older mark it had read,
+// so a cue was named again (review of 93de3c1d, reproduced with real hook processes). The record is read, decided on,
+// printed and written while this lock is held; a hook that cannot take it prints nothing, and the next check catches up.
+//
+// RECOVERY IS WEAKER, and says so. A lock whose holder's pid is gone, or older than LOCK_STALE_MS (a pid Windows has
+// reused would otherwise read as alive forever), is taken over, so a killed hook cannot silence the agent. A holder
+// that was only slow may resume after that: it rereads its token before printing and before writing (`stillOwned`)
+// and stops if it has lost the lock, but that check is best-effort, since a pause after it has no bound. Several hooks
+// can also take over one dead lock at once. So recovery can repeat a cue and can let a stale holder replace the
+// record; how often is unmeasured.
+const LOCK_FILE = path.join(tmpDir, `aify-notify-${agentId}.lock`);
+const LOCK_STALE_MS = 120_000;
+const LOCK_TOKEN = `${process.pid}:${randomBytes(8).toString("hex")}`;
+function lockHolderLives(file) {
+  try {
+    if (Date.now() - fs.statSync(file).mtimeMs > LOCK_STALE_MS) return false;
+    const pid = Number(String(fs.readFileSync(file, "utf-8")).split(":")[0]);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+function takeLock() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      fs.writeFileSync(LOCK_FILE, LOCK_TOKEN, { flag: "wx" });
+      return true;
+    } catch (error) {
+      if (error?.code !== "EEXIST" || lockHolderLives(LOCK_FILE)) return false;
+      // ponytail: no takeover protocol; several hooks finding one dead lock can all proceed (the recovery note above).
+      try { fs.unlinkSync(LOCK_FILE); } catch {}
+    }
+  }
+  return false;
+}
+function stillOwned() {
+  try { return fs.readFileSync(LOCK_FILE, "utf-8") === LOCK_TOKEN; } catch { return false; }
+}
+if (!takeLock()) process.exit(0);
+process.on("exit", () => {
+  try { if (stillOwned()) fs.unlinkSync(LOCK_FILE); } catch {}
+});
 
 const SEEN_FILE = path.join(tmpDir, `aify-notify-seen-${agentId}.json`);
 // The session the notices are for: Claude Code names it in the hook payload; elsewhere the harness
@@ -131,9 +177,11 @@ if (fresh.length || cue.due) {
   const output = hookPayload?.hook_event_name === "PostToolUse"
     ? JSON.stringify(hookOutput(notice, { count: fresh.length + cue.named.length }))
     : notice;
+  if (!stillOwned()) process.exit(0);
   process.stdout.write(output + "\n");
 }
 // Kept even when nothing was printed: a queued count that fell must be the one a later rise is measured from.
 if (fresh.length || cue.mark.queued !== cueMark.queued || cue.mark.namedSince !== cueMark.namedSince) {
+  if (!stillOwned()) process.exit(0);
   try { fs.writeFileSync(SEEN_FILE, JSON.stringify(seenRecord(SESSION, rememberSeen(seenIds, fresh), cue.mark))); } catch {}
 }
