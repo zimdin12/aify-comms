@@ -55,6 +55,13 @@ kept as evidence. Last reviewed 2026-10-13.
     stays queued, nothing shows the body again until the run fails or the agent reads its inbox.
   - **A claim marks the source read before its emission can fail.** A claimed run's message leaves the unread
     inbox at the claim (`dispatch_claim.py`), so if the channel then fails to emit it, neither path shows it.
+- **A turn-end can be posted for a turn that continues** (since 5ad9594f, source-traced; occurrence and frequency
+  unmeasured). The Stop gate (`claude-stop-gate.js`) now trusts the payload's `last_assistant_message`, because Claude
+  can run Stop before it writes the turn's final line and the gate used to hold residents at `working` indefinitely.
+  But another Stop hook can block the stop (this host also runs unlazy's), and our hook runs asynchronously, so its
+  turn-end may land for a turn that goes on. The agent then reads idle, and the claim (`dispatch_claim.py`, the busy
+  hold) can release queue-if-busy work mid-turn until the next turn-start reopens it. That is an availability trade,
+  not a time-bounded one: no maximum delay is established, and a continuation need not call a tool promptly.
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 
