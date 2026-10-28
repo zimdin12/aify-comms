@@ -9,13 +9,14 @@ import asyncio
 from service.clock import now as _now
 from service.db import get_db
 from service.tests._base import FastApiTestCase
-from service.tests.defined_agents import define
-from service.tests.env_records import report
+from service.tests.defined_agents import cold_start, define
+from service.tests.env_records import report, startable
 
 ENV_ID = "linux:test-host:default"
 ROLE = "rolecast"
 IDLE = "idle-holder"
 RUNNING = "running-holder"
+RUNTIMES = ("codex", "hermes", "claude-code")
 
 
 class ARoleSendStartsNoAgent(FastApiTestCase):
@@ -100,3 +101,63 @@ class ARoleSendStartsNoAgent(FastApiTestCase):
         # CONTROL: the same idle agent addressed by name is cold-started, so the refusal above is the role's doing.
         self._send(to=IDLE)
         self.assertNotEqual(self._spawns(IDLE), [], "a direct send no longer starts an idle agent")
+
+    # THE SECOND BIRTH PATH (found in review of e9ed4c25, 2026-10-28). A managed-warm session whose worker has gone gets a
+    # new console from _ensure_managed_pty_for_dispatch, not a spawn request, so refusing only the cold start let a role
+    # send insert a terminal and a pending `start` control. The warm session is produced through the real claim and
+    # running routes, with terminal capability announced only afterwards, as a host does it.
+    def _warm_session_without_a_worker(self, runtime):
+        def heartbeat(terminal):
+            response = self.client.post("/api/v1/environments/heartbeat", json={
+                "id": ENV_ID, "label": "test", "machineId": "linux:test-host", "os": "linux", "kind": "linux",
+                "bridgeId": "bridge-current", "cwdRoots": ["/workspace"], "metadata": {},
+                "terminal": terminal, "pty": terminal, "terminalRuntimes": list(RUNTIMES) if terminal else [],
+                "runtimes": [{"runtime": r, "modes": ["managed-warm"], "capabilities": {"nativeResume": True}}
+                             for r in RUNTIMES],
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+
+        heartbeat(False)
+        define(self, IDLE, environment_id=ENV_ID, machine_id="linux:test-host", bridge_id="bridge-current",
+               runtime=runtime, workspace="/workspace", role=ROLE)
+        self._execute("UPDATE agents SET runtime = ?, session_mode = 'managed', launch_mode = 'auto' WHERE id = ?",
+                      (runtime, IDLE))
+        report(self, IDLE, records={IDLE: startable(IDLE)})
+        reasons = cold_start(self, IDLE, runtime=runtime, requested_by="sender")
+        self.assertEqual(len(self._spawns(IDLE)), 1, reasons)
+        spawn = self._spawns(IDLE)[0]["id"]
+        claim = self.client.post("/api/v1/spawn-requests/claim", json={
+            "environmentId": ENV_ID, "bridgeId": "bridge-current", "machineId": "linux:test-host"})
+        self.assertEqual(claim.status_code, 200, claim.text)
+        running = self.client.patch(f"/api/v1/spawn-requests/{spawn}", json={
+            "status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "native-context"})
+        self.assertEqual(running.status_code, 200, running.text)
+        heartbeat(True)
+        report(self, IDLE, records={IDLE: startable(IDLE)})
+        self.assertEqual(self._starts(), [], "control: no start control before the send")
+
+    def _starts(self):
+        return self._fetchall("SELECT id FROM terminal_controls WHERE action = 'start'")
+
+    def test_a_role_send_starts_no_console_for_a_warm_session_without_a_worker(self):
+        for runtime in RUNTIMES:
+            with self.subTest(runtime=runtime):
+                if runtime != RUNTIMES[0]:
+                    self.tearDown()
+                    self.setUp()
+                self._warm_session_without_a_worker(runtime)
+                body = self._send(toRole=ROLE)
+                self.assertIn(RUNNING, [run["targetAgentId"] for run in body["dispatchRuns"]], "control: still woken")
+                self.assertEqual(self._starts(), [], "a role send started a console for an idle holder")
+                self.assertEqual(self._fetchall("SELECT id FROM terminal_sessions WHERE agent_id = ?", (IDLE,)), [])
+
+    def test_a_direct_send_still_recovers_the_missing_console(self):
+        # CONTROL: the same state addressed by name gets its console back, so the refusal above is the role's doing.
+        for runtime in RUNTIMES:
+            with self.subTest(runtime=runtime):
+                if runtime != RUNTIMES[0]:
+                    self.tearDown()
+                    self.setUp()
+                self._warm_session_without_a_worker(runtime)
+                self._send(to=IDLE)
+                self.assertNotEqual(self._starts(), [], "a direct send no longer recovers the console")

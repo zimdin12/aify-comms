@@ -125,6 +125,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                         runtime=runtime,
                         settings=settings,
                         requested_by=req.from_agent,
+                        refusal=role_send_refusal(req),
                     )
                     # The PTY re-attach above can still resolve a leftover
                     # resident row; re-gate on the live wrapper-child so a
@@ -181,6 +182,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                         runtime=runtime,
                         settings=settings,
                         requested_by=req.from_agent,
+                        refusal=role_send_refusal(req),
                     )
                 if console_terminal:
                     deliver_to[recipient_id] = console_terminal
@@ -208,6 +210,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                     runtime=runtime,
                     settings=settings,
                     requested_by=req.from_agent,
+                    refusal=role_send_refusal(req),
                 )
             if console_terminal:
                 deliver_to[recipient_id] = console_terminal
@@ -268,6 +271,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                 runtime=runtime,
                 settings=settings,
                 requested_by=req.from_agent,
+                refusal=role_send_refusal(req),
             )
         if console_terminal:
             deliver_to[recipient_id] = console_terminal
@@ -312,6 +316,7 @@ async def _back_managed_claude_with_a_console(
                             runtime=runtime,
                             settings=settings,
                             requested_by=req.from_agent,
+                            refusal=role_send_refusal(req),
                         )
                     except Exception:
                         started = None

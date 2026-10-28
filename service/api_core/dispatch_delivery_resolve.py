@@ -16,6 +16,7 @@ from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_di
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
 from service.api_core.dispatch_hint import _dispatch_fix_hint, _unregistered_recipient_hint
+from service.api_core.dispatch_start import role_send_refusal
 from service.api_core.execution_mode import (
     _agent_execution_mode,
     _auto_return_resident_to_managed_if_possible,
@@ -104,6 +105,7 @@ async def _resolve_dispatch_recipient_delivery(console_recipients, db, launchabl
                             runtime=runtime,
                             settings=settings,
                             requested_by=req.from_agent,
+                            refusal=role_send_refusal(req),
                         )
                     if not console_terminal:
                         reason = f"Managed {runtime} wrapper PTY is unavailable; recover or restart the environment-managed session."
@@ -121,6 +123,7 @@ async def _resolve_dispatch_recipient_delivery(console_recipients, db, launchabl
                                 runtime=runtime,
                                 settings=settings,
                                 requested_by=req.from_agent,
+                                refusal=role_send_refusal(req),
                             )
                         if console_terminal:
                             console_recipients[recipient_id] = console_terminal
@@ -149,6 +152,7 @@ async def _resolve_dispatch_recipient_delivery(console_recipients, db, launchabl
                             runtime=runtime,
                             settings=settings,
                             requested_by=req.from_agent,
+                            refusal=role_send_refusal(req),
                         )
                     if console_terminal:
                         console_recipients[recipient_id] = console_terminal
@@ -166,6 +170,7 @@ async def _resolve_dispatch_recipient_delivery(console_recipients, db, launchabl
                         runtime=runtime,
                         settings=settings,
                         requested_by=req.from_agent,
+                        refusal=role_send_refusal(req),
                     )
                 if console_terminal:
                     console_recipients[recipient_id] = console_terminal

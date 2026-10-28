@@ -40,7 +40,7 @@ from service.clock import now as _now
 
 async def _ensure_managed_pty_for_dispatch(
     db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str,
-    for_session_id: str = "", start_intent: str = START,
+    for_session_id: str = "", start_intent: str = START, refusal: str = "",
 ):
     """`for_session_id` scopes adoption to ONE session, and a restart is why it exists.
 
@@ -73,6 +73,10 @@ async def _ensure_managed_pty_for_dispatch(
     # passed by luck and the second hung with no worker and no log line.
     if active and (not wanted_session or str(active["session_id"] or "") == wanted_session):
         return active
+    # Past this line a worker is born. A non-empty `refusal` (a send to a role: dispatch_start.role_send_refusal) may
+    # reuse the console above but never start one.
+    if refusal:
+        return None
     normalized_runtime = _normalize_runtime(runtime or "")
     if normalized_runtime not in LAUNCHABLE_RUNTIMES:
         return None
