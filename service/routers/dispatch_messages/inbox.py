@@ -28,7 +28,12 @@ from fastapi import HTTPException, Query, Request
 
 from service.api_core.inbox_read_receipts import _settle_inbox_read
 from service.api_core.message_view import _registered_senders, _serialize_message
-from service.api_core.queued_for_channel import queued_for_channel_ids
+from service.api_core.queued_for_channel import (
+    UNREAD_IDS,
+    queued_for_channel_ids,
+    queued_for_channel_select,
+    queued_window,
+)
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -50,9 +55,14 @@ async def get_inbox(
     mode: str = Query("full", pattern="^(full|headers)$"),
     messageId: Optional[str] = None,
     peek: Optional[str] = None,
-    queuedChannel: Optional[str] = None,
+    # The notify hook's queued-channel projection (queued_for_channel.py), VERSIONED because the hook installed with
+    # 2df43e00 sends 1 and reads per-message booleans: 1 marks each message on an unfiltered page; 2 leaves those
+    # messages out of the unread population this pages, and names the newest of them in `queuedForChannel`.
+    queuedChannel: Optional[str] = Query(None, pattern="^[12]$"),
 ):
     validate_name(agent_id, "agent ID")
+    if queuedChannel == "2" and (filter != "unread" or messageId):
+        raise HTTPException(400, "queuedChannel=2 pages the unread inbox only.")
     # A non-peek unread read marks its page read, which shifts the unread population under the next
     # page: offset 2 after reading 6,5 returned 2,1 and skipped 4,3 for good (v0.7.1 review, W08).
     # `bool(peek)` is the same test `_settle_inbox_read` applies.
@@ -107,6 +117,10 @@ async def get_inbox(
         if type:
             source += " AND m.type = ?"
             params.append(type)
+        if queuedChannel == "2":
+            queued_sql, queued_params = queued_for_channel_select(agent_id, UNREAD_IDS, [agent_id, agent_id])
+            source += f" AND m.id NOT IN (SELECT message_id FROM ({queued_sql}))"
+            params.extend(queued_params)
 
         # PAGED, newest first. `offset` lets a reader walk past the newest page: the notify hook peeks
         # the unread population and skips what it already showed, and with one fixed window every
@@ -137,11 +151,13 @@ async def get_inbox(
                     msg["parentContext"] = {"from": parent["from_agent"], "subject": parent["subject"], "preview": (parent["body"] or "")[:100]}
             messages.append(msg)
 
-        # OPT-IN, for the notify hook in a live channel session (queued_for_channel.py says what it is not).
-        if queuedChannel:
+        queued_summary = None
+        if queuedChannel == "1":
             queued = await queued_for_channel_ids(db, agent_id, [m["id"] for m in messages])
             for msg in messages:
                 msg["queuedForChannel"] = msg["id"] in queued
+        elif queuedChannel == "2":
+            queued_summary = await queued_window(db, agent_id)
 
         # Mark as read + update status (unless peek)
         await _settle_inbox_read(db, messages, agent_id, peek)
@@ -174,6 +190,7 @@ async def get_inbox(
             and not fromRole
             and not type
             and bool(peek)
+            and queuedChannel != "2"
         )
         if unread_is_already_total:
             unread_total = total
@@ -185,12 +202,15 @@ async def get_inbox(
                 (agent_id, agent_id),
             )
             unread_total = (await unread_cursor.fetchone())[0]
-        return {
+        answer = {
             "total": total,
             "showing": len(messages),
             "unreadTotal": unread_total,
             "messages": messages,
         }
+        if queued_summary is not None:
+            answer["queuedForChannel"] = queued_summary
+        return answer
     finally:
         await db.close()
 

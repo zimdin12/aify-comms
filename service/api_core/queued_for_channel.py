@@ -2,61 +2,86 @@
 
 The notify hook (mcp/stdio/notify-check.js) prints unread bodies into a Claude session after a tool call. In a
 session whose channel producer is live, a message waiting on a QUEUED channel run reaches the model a second time
-when that run is claimed, so the hook asks for this projection and leaves those bodies out (design 2, narrowed).
+when that run is claimed, so the hook asks the inbox to leave those bodies out (design 2, narrowed).
 
 This is NOT a delivery confirmation. A queued run says the channel is the path, never that it will be taken: a
 channel may never claim, and a claim marks the source read before its emission can fail. Both gaps stay open
-(KNOWN_ISSUES.md) and are why the hook still prints a metadata cue for what it left out.
+(KNOWN_ISSUES.md) and are why the hook still names what was left out.
 
-CONSERVATIVE BY CONSTRUCTION. A message is queued-for-channel only when its newest associated run for this
-recipient is unambiguous and is a channel or resident run in `queued`. No run, a newest run in any other state or mode, or
-several runs tied at the newest `requested_at` that are not all queued channel runs, keep today's body.
+CONSERVATIVE BY CONSTRUCTION, and ONE RULE IN ONE PLACE: this SQL. A message is queued-for-channel only when, among
+its runs for this reader, the newest `requested_at` holds exactly ONE distinct run, and that run is `queued` in a
+mode the session's producer claims. No run, a newest run in any other state or mode, or two distinct attempts at
+the newest instant keep today's body. A run reached through both associations (its own `message_id` and a
+`dispatch_run_items` row) is one attempt: the UNION dedupes it by run id.
+
+It is SQL so the inbox can EXCLUDE these messages in the query that pages it: a filter applied page by page in the
+hook could not page honestly past a backlog of them (review of 2df43e00).
 """
 
 from __future__ import annotations
 
-from typing import Iterable, Mapping
-
-# Both modes carry about half of Claude's runs each (live, 2026-10-28).
 from service.api_core.claim_gating import CHANNEL_CLAIMED_MODES
 
+#: How many of the newest queued attempts the inbox names; the rest are counted.
+QUEUED_WINDOW = 20
 
-def is_queued_for_channel(runs: Iterable[Mapping]) -> bool:
-    """Is the newest of these runs, unambiguously, a queued channel run? `runs` are one message's runs for one
-    recipient, each with `requested_at`, `execution_mode` and `status`."""
-    runs = list(runs)
-    if not runs:
-        return False
-    newest = max(str(run["requested_at"] or "") for run in runs)
-    tied = [run for run in runs if str(run["requested_at"] or "") == newest]
-    return all(
-        str(run["execution_mode"] or "").strip().lower() in CHANNEL_CLAIMED_MODES
-        and str(run["status"] or "").strip().lower() == "queued"
-        for run in tied
+
+def queued_for_channel_select(agent_id: str, candidates_sql: str, candidate_params: list) -> tuple[str, list]:
+    """A SELECT of (message_id, run_id, requested_at) for each candidate message queued for this reader's channel.
+    `candidates_sql` is a subquery or placeholder list naming the message ids to judge."""
+    modes = sorted(CHANNEL_CLAIMED_MODES)
+    mode_marks = ",".join("?" for _ in modes)
+    sql = f"""
+        SELECT message_id, MAX(run_id) AS run_id, MAX(requested_at) AS requested_at
+        FROM (
+            SELECT a.*, MAX(a.requested_at) OVER (PARTITION BY a.message_id) AS newest_at
+            FROM (
+                SELECT r.message_id AS message_id, r.id AS run_id, r.requested_at, r.execution_mode, r.status
+                FROM dispatch_runs r
+                WHERE r.target_agent = ? AND r.message_id IN ({candidates_sql})
+                UNION
+                SELECT i.message_id, r.id, r.requested_at, r.execution_mode, r.status
+                FROM dispatch_run_items i JOIN dispatch_runs r ON r.id = i.run_id
+                WHERE r.target_agent = ? AND i.message_id IN ({candidates_sql})
+            ) a
+        )
+        WHERE requested_at = newest_at
+        GROUP BY message_id
+        HAVING COUNT(DISTINCT run_id) = 1
+           AND MAX(status) = 'queued'
+           AND LOWER(MAX(execution_mode)) IN ({mode_marks})
+    """
+    return sql, [agent_id, *candidate_params, agent_id, *candidate_params, *modes]
+
+
+#: This reader's unread message ids, as a subquery taking (agent_id, agent_id).
+UNREAD_IDS = ("SELECT u.id FROM messages u LEFT JOIN read_receipts ur ON u.id = ur.message_id AND ur.agent_id = ? "
+              "WHERE u.to_agent = ? AND ur.message_id IS NULL")
+
+
+async def queued_window(db, agent_id: str) -> dict:
+    """How many unread messages wait on a queued run for this reader's channel, and the newest `QUEUED_WINDOW` of
+    them, each as messageId, sender, and the run that holds it (runId, requestedAt): recovery names messages, the
+    hook's watermark orders runs. `total` counts MESSAGES, several of which can share one run."""
+    sql, params = queued_for_channel_select(agent_id, UNREAD_IDS, [agent_id, agent_id])
+    count = await db.execute(f"SELECT COUNT(*) FROM ({sql})", params)
+    total = (await count.fetchone())[0]
+    cursor = await db.execute(
+        f"SELECT q.message_id, q.run_id, q.requested_at, m.from_agent FROM ({sql}) q JOIN messages m ON m.id = q.message_id "
+        "ORDER BY q.requested_at DESC, q.run_id DESC LIMIT ?",
+        [*params, QUEUED_WINDOW],
     )
+    newest = [
+        {"messageId": row["message_id"], "from": row["from_agent"], "requestedAt": row["requested_at"], "runId": row["run_id"]}
+        for row in await cursor.fetchall()
+    ]
+    return {"total": total, "newest": newest}
 
 
 async def queued_for_channel_ids(db, agent_id: str, message_ids: list[str]) -> set[str]:
-    """The ids among `message_ids` whose newest run for `agent_id` is a queued channel run. The association is
-    the one reply linking uses: the run's own message, or a message batched into it (dispatch_run_items)."""
+    """The ids among `message_ids` queued for this reader's channel."""
     if not message_ids:
         return set()
-    placeholders = ",".join("?" for _ in message_ids)
-    cursor = await db.execute(
-        f"""
-        SELECT r.message_id AS message_id, r.requested_at, r.execution_mode, r.status
-        FROM dispatch_runs r
-        WHERE r.target_agent = ? AND r.message_id IN ({placeholders})
-        UNION ALL
-        SELECT i.message_id AS message_id, r.requested_at, r.execution_mode, r.status
-        FROM dispatch_run_items i
-        JOIN dispatch_runs r ON r.id = i.run_id
-        WHERE r.target_agent = ? AND i.message_id IN ({placeholders})
-        """,
-        [agent_id, *message_ids, agent_id, *message_ids],
-    )
-    # A run reached through both associations appears twice, identically, which changes no answer.
-    by_message: dict[str, list] = {}
-    for row in await cursor.fetchall():
-        by_message.setdefault(str(row["message_id"]), []).append(row)
-    return {message_id for message_id, runs in by_message.items() if is_queued_for_channel(runs)}
+    sql, params = queued_for_channel_select(agent_id, ",".join("?" for _ in message_ids), list(message_ids))
+    cursor = await db.execute(f"SELECT message_id FROM ({sql})", params)
+    return {str(row["message_id"]) for row in await cursor.fetchall()}

@@ -14,8 +14,8 @@ import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { envAgentId } from "./bound-agent-id.mjs";
 import {
-  channelSessionOptsIn, collectUnseen, cuedForSession, hookOutput, inboxUrl, noticeText, queuedCueText, rememberSeen,
-  seenForSession, seenRecord,
+  channelSessionOptsIn, collectUnseen, cueMarkForSession, hookOutput, inboxUrl, nextCue, noticeText, queuedCueText,
+  rememberSeen, seenForSession, seenRecord,
 } from "./notify-notice.mjs";
 
 // Settings env first: the endpoint and the key may only be named in ~/.claude/settings.local.json.
@@ -99,7 +99,7 @@ async function fetchPage(offset) {
 
 const stored = readStored();
 const seenIds = seenForSession(stored, SESSION);
-const cuedIds = cuedForSession(stored, SESSION);
+const cueMark = cueMarkForSession(stored, SESSION);
 let collected;
 try {
   collected = await collectUnseen(fetchPage, seenIds);
@@ -119,18 +119,21 @@ fetch(`${SERVER_URL}/api/v1/agents/${encodeURIComponent(agentId)}/heartbeat`, {
   signal: AbortSignal.timeout(2000),
 }).catch(() => {});
 
-const { fresh, total, queued } = collected;
-// A queued message is named once per session; the body seen-set never learns it, so a run that later fails shows it.
-const newlyQueued = queued.filter((m) => !cuedIds.includes(m.id));
-if (fresh.length || newlyQueued.length) {
+const { fresh, total, queued, unreadTotal } = collected;
+// A queued message is never shown as a body: if its run fails, the message returns to the paged population and its
+// body is shown then. What the session is told about the queued ones is `nextCue`'s.
+const cue = nextCue(queued, cueMark);
+if (fresh.length || cue.due) {
   const parts = [];
   if (fresh.length) parts.push(noticeText({ messages: fresh, total: total || fresh.length, agentId }));
-  if (newlyQueued.length) parts.push(queuedCueText({ queued: newlyQueued, total, agentId }));
+  if (cue.due) parts.push(queuedCueText({ named: cue.named, queuedTotal: queued.total, unreadTotal, agentId }));
   const notice = parts.join("\n\n");
   const output = hookPayload?.hook_event_name === "PostToolUse"
-    ? JSON.stringify(hookOutput(notice, { count: fresh.length + newlyQueued.length }))
+    ? JSON.stringify(hookOutput(notice, { count: fresh.length + cue.named.length }))
     : notice;
   process.stdout.write(output + "\n");
-  const record = seenRecord(SESSION, rememberSeen(seenIds, fresh), rememberSeen(cuedIds, newlyQueued));
-  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(record)); } catch {}
+}
+// Kept even when nothing was printed: a queued count that fell must be the one a later rise is measured from.
+if (fresh.length || cue.mark.queued !== cueMark.queued || cue.mark.namedSince !== cueMark.namedSince) {
+  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(seenRecord(SESSION, rememberSeen(seenIds, fresh), cue.mark))); } catch {}
 }

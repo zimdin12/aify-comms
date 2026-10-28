@@ -44,9 +44,13 @@ kept as evidence. Last reviewed 2026-10-13.
 
 - **A Claude agent with the channel received one message twice** (narrowed in 0.9.14): the PostToolUse unread notice
   (`notify-check.js`) and the channel's dispatch event both carried it when it arrived mid-turn (message
-  1793142198531-dcb60c55, to comms-tech-lead). Now a Claude session on a channel route leaves out the body of a message
-  whose newest run for it is unambiguously a queued channel or resident run (`service/api_core/queued_for_channel.py`),
-  and names it once, without its body, with the way to read it. Two gaps remain open:
+  1793142198531-dcb60c55, to comms-tech-lead). Now a Claude session on a channel route asks the inbox to leave out
+  every message whose newest attempt for it is exactly one queued channel or resident run
+  (`service/api_core/queued_for_channel.py`), and is told how many are queued, naming the newest twenty by sender and
+  id, without bodies. Naming is LOSSY BY DESIGN and counted instead: the hook names each queued run once per session,
+  ordered by (requestedAt, runId). A message batched into a run already named, a run requeued after a failure (it keeps
+  its key), and a run arriving later at the same instant with a lower id are never named, only counted, and the
+  count is reported whenever it rises. `comms_inbox(agentId)` lists them all. Two gaps remain open:
   - **A channel may never claim.** The notice names the message once and the body waits on the run. If the run
     stays queued, nothing shows the body again until the run fails or the agent reads its inbox.
   - **A claim marks the source read before its emission can fail.** A claimed run's message leaves the unread
