@@ -293,12 +293,22 @@ test("a lock left by a hook that has exited is taken over", async () => {
       assert.deepEqual(urls, [], "a hook standing aside still read the inbox");
 
       // A fresh lock with no token yet (created, not written) or an unreadable one is an unknown holder: stand aside.
-      for (const content of ["", "not-a-pid"]) {
+      // A pid the probe rejects (past the 32-bit range: ERR_INVALID_ARG_TYPE, not ESRCH) is unknown too.
+      for (const content of ["", "not-a-pid", "2147483648:token"]) {
         fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), content);
         urls.length = 0;
         assert.equal(await poll(url, scratch), "", `a fresh lock holding ${JSON.stringify(content)} was taken over`);
         assert.deepEqual(urls, [], `a hook beside a fresh lock holding ${JSON.stringify(content)} read the inbox`);
       }
+      // A lock it cannot read (here a directory: EISDIR) is unknown, not gone.
+      fs.rmSync(path.join(scratch, "aify-notify-lead.lock"), { force: true });
+      fs.mkdirSync(path.join(scratch, "aify-notify-lead.lock"));
+      urls.length = 0;
+      assert.equal(await poll(url, scratch), "", "an unreadable lock was taken over");
+      assert.deepEqual(urls, [], "a hook beside an unreadable lock read the inbox");
+      fs.rmSync(path.join(scratch, "aify-notify-lead.lock"), { recursive: true, force: true });
+      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "not-a-pid");
+
       // ...until it is older than any walk, when it is taken over like any other.
       const aged = new Date(Date.now() - 10 * 60_000);
       fs.utimesSync(path.join(scratch, "aify-notify-lead.lock"), aged, aged);

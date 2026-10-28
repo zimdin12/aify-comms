@@ -84,17 +84,24 @@ fs.writeFileSync(RATE_FILE, String(Date.now()));
 const LOCK_FILE = path.join(tmpDir, `aify-notify-${agentId}.lock`);
 const LOCK_STALE_MS = 120_000;
 const LOCK_TOKEN = `${process.pid}:${randomBytes(8).toString("hex")}`;
+// Only POSITIVE evidence frees a lock: the file is gone, it is older than LOCK_STALE_MS, or the system says its pid
+// does not exist (ESRCH). Everything else is an unknown holder, and the hook stands aside: an empty or malformed
+// token (a holder between creating the lock and writing it), a file it cannot stat or read, a pid the probe rejects.
 function lockHolderLives(file) {
+  let text;
   try {
     if (Date.now() - fs.statSync(file).mtimeMs > LOCK_STALE_MS) return false;
-    const pid = Number(String(fs.readFileSync(file, "utf-8")).split(":")[0]);
-    // Empty or malformed is a holder that created the lock and has not written its token yet, or one we cannot
-    // read: unknown, never dead. Only the age above or a pid that is gone takes it over.
-    if (!Number.isInteger(pid) || pid <= 0) return true;
+    text = fs.readFileSync(file, "utf-8");
+  } catch (error) {
+    return error?.code !== "ENOENT";
+  }
+  const pid = Number(String(text).split(":")[0]);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error?.code === "EPERM";
+    return error?.code !== "ESRCH";
   }
 }
 function takeLock() {
