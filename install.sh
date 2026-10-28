@@ -491,8 +491,8 @@ render_wrapper_template() {
   # The registry's three MCP fragments, from the pinned package's own verbs, once per run. A registry they
   # refuse stops the install (set -e, with the verb's 78): rendered empty it would read as nothing opted in.
   [ -n "${_AIFY_FRAGMENTS:-}" ] || _AIFY_FRAGMENTS="$(bash "$SCRIPT_DIR/scripts/registry-fragment.sh" "$AIFY_SERVICE_REGISTRY" "$CLIENT")"
-  IFS='|' read -r _aify_strict _aify_session _aify_codex <<<"$_AIFY_FRAGMENTS"
-  pairs+=("STRICT_EXTRA_MCP_B64=$_aify_strict" "SESSION_MCP_B64=$_aify_session" "SESSION_MCP_CODEX_B64=$_aify_codex")
+  IFS='|' read -r _aify_strict _aify_session _aify_codex _aify_http <<<"$_AIFY_FRAGMENTS"
+  pairs+=("STRICT_EXTRA_MCP_B64=$_aify_strict" "SESSION_MCP_B64=$_aify_session" "SESSION_MCP_CODEX_B64=$_aify_codex" "SESSION_HTTP_B64=$_aify_http")
   # WRAPPER_DIR: where launchers find aify-wrapper's own bin/ and lib/. The pinned copy beside the bridge, the path they always used.
   pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "WRAPPER_DIR=$AIFY_BRIDGE_DIR/node_modules/aify-wrapper" "NATIVE_BASE=$AIFY_NATIVE_BASE" "SCRIPT_DIR=$SCRIPT_DIR")
   # Caller-supplied KEY=VALUE extras (hermes: a Windows-converted plugin path, a node-openable bridge dir, a prebuilt TUI
@@ -1781,7 +1781,7 @@ register_stdio_server() {
 
   if [ "$cli" = "claude" ]; then
     # 0.9.11: no machine-wide entry. claude-aify adds the service's /mcp/http per launch, naming its agent
-    # (mcp/stdio/comms-http-entry.mjs); an entry left from an older install is removed at every scope.
+    # (aify-wrapper's aify-session-mcp.mjs); an entry left from an older install is removed at every scope.
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true

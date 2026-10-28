@@ -58,7 +58,7 @@ test("commits that DO touch runtime content are stale", () => {
   });
   assert.equal(v.ok, false);
   assert.equal(v.code, "stale");
-  assert.match(v.detail, /2 commit\(s\) since then changed code the service EXECUTES/);
+  assert.match(v.detail, /2 commit\(s\) since then changed code the service EXECUTES or SERVES/);
   assert.match(v.detail, /RUNNING service is older/);
   assert.match(v.fix, /stamp\.sh.*docker compose up -d --build/s);
 });

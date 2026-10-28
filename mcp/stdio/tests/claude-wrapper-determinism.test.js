@@ -114,5 +114,8 @@ test("claude-aify wrapper: the session-capture hooks are installed on every laun
 
 test("claude-aify wrapper: temp config files are cleaned up on exit", () => {
   const text = sharedText();
-  assert.match(text, /trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_COMMS_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS"/, "must trap EXIT, the per-launch comms entry included");
+  assert.match(text, /trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS"/, "must trap EXIT for the per-launch temp files");
+  // The comms entry left %TEMP% in aify-wrapper f177604: it is the agent's one ~/.aify/sessions/<id>/mcp.json, owner-only,
+  // kept across exit so a refused second launch cannot delete the live session's file. No trap may name it.
+  assert.doesNotMatch(text, /AIFY_COMMS_MCP_CONFIG/, "the old per-launch comms temp file is gone");
 });

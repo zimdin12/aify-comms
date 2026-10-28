@@ -39,9 +39,9 @@ function render(registryText, client = "claude") {
   return { result, text: fs.existsSync(launcher) ? fs.readFileSync(launcher, "utf8") : null, left: fs.readdirSync(temp) };
 }
 
-/** The session fragment a rendered launcher carries: its one decode into the per-session config file. */
+/** The session fragment a rendered launcher carries: the one value it hands aify-session-mcp.mjs (aify-wrapper f177604). */
 const sessionFragment = (text) => {
-  const sites = [...text.matchAll(/printf '%s' "([^"]*)" \| base64 -d > "\$AIFY_MCP_CONFIG"/g)];
+  const sites = [...text.matchAll(/AIFY_SESSION_STDIO_B64="([^"]*)"/g)];
   assert.equal(sites.length, 1, "the extractor must find exactly the one decode site");
   return sites[0][1];
 };
@@ -64,7 +64,7 @@ test("CONTROL: a registry with nothing opted in bakes an empty fragment", () => 
 });
 
 test("THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field", () => {
-  // scripts/registry-fragment.sh prints "<strict>|<session>|<codex>"; install.sh reads the three by position.
+  // scripts/registry-fragment.sh prints "<strict>|<session>|<codex>|<http>"; install.sh reads the four by position.
   // The fields are read here from the script itself; the codex launcher's copy is the next test's.
   const fields = (registryText, client = "codex") => {
     const dir = tmpDir("aify-fragments-");
@@ -76,13 +76,19 @@ test("THE CODEX FRAGMENT is the third field, as the pinned package computes it, 
   };
   const opted = fields(JSON.stringify({ version: 1, services: { ...COMMS, "aify-dashboard": DASHBOARD } }));
   assert.equal(opted.run.status, 0, opted.run.stderr);
-  assert.equal(opted.fields.length, 3, opted.run.stdout);
+  assert.equal(opted.fields.length, 4, opted.run.stdout);
+  assert.equal(opted.fields[3], "", "the HTTP list is claude's alone, so a codex install's fourth field is empty");
   const words = Buffer.from(opted.fields[2], "base64").toString("utf8").split(String.fromCharCode(0));
   assert.ok(words.some((w) => w.includes("aify-dashboard")), `the opted-in service is not in codex's words: ${words}`);
   assert.equal(opted.fields[0], "", "nothing set strictMcp, so the strict field is empty and still in its place");
   assert.ok(opted.fields[1], "the claude session fragment is still the second field");
   const none = fields(JSON.stringify({ version: 1, services: COMMS }));
-  assert.equal(none.run.stdout, "||", "CONTROL: nothing opted in, three empty fields");
+  assert.equal(none.run.stdout, "|||", "CONTROL: nothing opted in, four empty fields");
+  const claude = fields(JSON.stringify({ version: 1, services: COMMS }), "claude");
+  assert.equal(claude.run.status, 0, claude.run.stderr);
+  const http = JSON.parse(Buffer.from(claude.fields[3], "base64").toString("utf8"));
+  assert.deepEqual(http.map((s) => [s.name, s.own]), [["aify-comms", true]],
+    "a claude install bakes aify-comms as its own HTTP service (aify-wrapper f177604's SESSION_HTTP_B64)");
   const keyed = fields(JSON.stringify({ version: 1, services: { "aify-comms": { ...COMMS["aify-comms"], keyEnv: ["SYNTHETIC_KEY"] },
     "aify-dashboard": { ...DASHBOARD, endpointEnv: ["SYNTHETIC_KEY"] } } }));
   assert.equal(keyed.run.status, 78, "a registry handing a neighbour's key to an opted-in service stops the install");
@@ -96,7 +102,7 @@ test("THE CODEX FRAGMENT is the third field, as the pinned package computes it, 
   const forClaude = fields(JSON.stringify({ version: 1, services: { "aify-comms": { ...COMMS["aify-comms"], keyEnv: ["AIFY_AGENT_ID"] },
     "aify-dashboard": DASHBOARD } }), "claude");
   assert.equal(forClaude.run.status, 0, forClaude.run.stderr);
-  assert.equal(forClaude.fields.length, 3);
+  assert.equal(forClaude.fields.length, 4);
   assert.equal(forClaude.fields[2], "", "no codex words for a claude install");
   assert.ok(forClaude.fields[1], "the claude fragment is still computed");
 });

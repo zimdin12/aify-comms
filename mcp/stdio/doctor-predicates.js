@@ -384,7 +384,7 @@ function buildVerdict({
       ok: false,
       code: "stale",
       detail: `serving build ${short}, repo HEAD is ${headShort} — ${n} commit(s) since then changed `
-        + `code the service EXECUTES. The RUNNING service is older than the checkout.`,
+        + `code the service EXECUTES or SERVES. The RUNNING service is older than the checkout.`,
       fix: "Rebuild: `bash scripts/stamp.sh && docker compose up -d --build`.",
     };
   }

@@ -3,16 +3,19 @@
 #
 #   bash scripts/registry-fragment.sh [registry-path] [client]
 #
-# Prints "<strict>|<session>|<codex>": `strict-fragment-b64` (the servers a strict-mode claude session adds,
+# Prints "<strict>|<session>|<codex>|<http>": `strict-fragment-b64` (the servers a strict-mode claude session adds,
 # from services that set strictMcp), `session-fragment-b64` (the `--mcp-config` document every default-mode
 # claude session gets, from services with "sessionInject": {"mcp": true}) and `session-codex-b64` (codex's
-# `-c` words for the same services). Each is base64 and may be empty; base64 holds no `|`, so the bars
+# `-c` words for the same services) and `session-http-b64` (the services a claude launch reaches over HTTP, aify-comms
+# its own, since 0.9.11 always over HTTP; the launcher writes their entry per session). Each is base64 and may be
+# empty; base64 holds no `|`, so the bars
 # separate them and an empty field stays a field. An absent registry is an empty one.
 #
 # THE CODEX WORDS ONLY FOR A CODEX INSTALL (client `codex`), as aify-wrapper's own installer asks for them
 # (06324e8): codex refuses things the other runtimes take, such as a server named `a.b`, which is no bare
 # TOML key, and a registry codex cannot use is no reason to refuse a claude launcher (review of 06324e8's
-# parent). Any other client gets an empty third field. The refusals every runtime shares are the parse's,
+# parent). Any other client gets an empty third field. The HTTP list only for a claude install: only
+# claude-aify bakes it (aify-wrapper f177604); any other client gets an empty fourth field. The refusals every runtime shares are the parse's,
 # and still apply to every client.
 #
 # FAILS CLOSED, unlike registry-fingerprint.sh. A fingerprint it cannot compute is reported as
@@ -43,4 +46,8 @@ codex=""
 if [ "$client" = "codex" ]; then
   codex="$(node "$(for_node "$cli")" session-codex-b64 "$(for_node "$registry")")" || exit $?
 fi
-printf '%s|%s|%s' "$strict" "$session" "$codex"
+http=""
+if [ "$client" = "claude" ]; then
+  http="$(node "$(for_node "$cli")" session-http-b64 "$(for_node "$registry")" aify-comms)" || exit $?
+fi
+printf '%s|%s|%s|%s' "$strict" "$session" "$codex" "$http"
