@@ -1,0 +1,34 @@
+
+== clean any previous rehearsal
+
+== build v0.5.7
+
+== run v0.5.7 on :18800
+{"name":"aify-comms","version":"0.0.0-dev","sha":"unknown","sha_short":"unknown","branch":"unknown","built_at":"","update":{"behind_by":null,"ahead_by":null,"status":null,"source":"github-compare","stale":true}}
+
+== seed through the v0.5.7 API
+register old-lead 200
+register old-coder 200
+register old-hermes 200
+send 1 200
+send 2 200
+send 3 200
+channel 200
+CONTROL on v0.5.7: seeded agents seen: old-lead,old-coder,old-hermes (of 3 total)
+{"channels":[{"name":"rehearse","description":"seed","createdBy":"old-lead","createdAt":"2026-10-28T01:25:27Z","members":["old-lead"],"memberCount":1,"messageCount":0,"unreadCount":0,"lastMessageAt":n
+db files ['/data/aify.db']
+{'agents': 3, 'messages': 3}
+
+== stop v0.5.7, start today's image on the same volume
+{"name":"aify-comms","version":"0.9.11","sha":"cdc53ba118d128c24e752ca3940ea950635b945f","sha_short":"cdc53ba1","branch":"main","built_at":"2026-10-28T01:11:01Z","dirty":false,"update":{"behind_by":1,"ahead_by":0,"status":"behind","source":"github-compare","stale":false}}
+
+== read back on today's service
+seeded agents seen: old-lead,old-coder,old-hermes (of 3 total)
+old-coder messages: 3 seed 3,seed 2,seed 1
+{"channels":[{"name":"rehearse","description":"seed","createdBy":"old-lead","createdAt":"2026-10-28T01:25:27Z","members":["old-lead"],"memberCount":1,"messageCount":0,"unreadCount":0,"lastMessageAt":null}]}
+
+== errors in today's service log
+(end of errors)
+
+== teardown
+done

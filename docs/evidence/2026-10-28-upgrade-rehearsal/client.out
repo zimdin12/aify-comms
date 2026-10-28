@@ -1,0 +1,94 @@
+
+== clean
+
+== service: today's live image on a fresh volume
+service http://192.168.0.2:8800 build e9ed4c25cb1b16d39deabd051f5d132bd67c2f4f
+
+== client container (Debian, node 22, the claude CLI for its mcp config only; never logged in, never run as an agent)
+2.1.312 (Claude Code)
+v22.23.4
+
+== 1. the OLD install: v0.5.7 from GitHub, claude client, as a pre-split host had it
+old install exit 0
+--- ~/.claude.json mcpServers:
+[ 'aify-comms', 'aify-comms-channel' ]
+--- settings hooks (events):
+Stop,SessionStart,UserPromptSubmit,PostToolUse
+--- launchers on PATH:
+aify-comms -> /home/node/.local/bin/aify-comms
+claude-aify -> /home/node/.local/bin/claude-aify
+aify-env -> none
+herdr-aify -> none
+aify-doctor -> /home/node/.local/bin/aify-doctor
+--- claude-aify transport:
+no claude-aify
+--- registry:
+none
+
+== 2. the UPGRADE: the service's own commit, the plain guided chain; the first pass stops for approval
+e9ed4c25 A send to a role wakes only agents already running; it never cold-starts one
+first pass exit 78
+Installing aify-env (github:zimdin12/aify-env) to run the guided-install chain...
+[aify-env] chain: entered for aify-comms
+  Done (acquired; the chain connects and renders).
+aify-wrapper-connect: artifact(s) not approved: comms-bridge (approve exactly this with --approve 84cfdcc067831a23624b8925e8a711ea30de850429fe8293e290a8be9fda1faa)
+[aify-env] problem: connect aify-comms: exit 78
+[aify-env] chain: not complete
+approval digest: 84cfdcc067831a23624b8925e8a711ea30de850429fe8293e290a8be9fda1faa
+
+== second pass with the printed approval
+second pass exit 78
+[aify-env] chain: entered for aify-comms
+  Done (acquired; the chain connects and renders).
+channel install: the managed channel policy is absent. Run this policy-only command, then rerun the installer as the same non-root user:
+sudo -- '/usr/local/bin/node' '/home/node/.aify-comms/mcp/stdio/node_modules/aify-wrapper/lib/channel-install.mjs' 'prepare-policy' '--path' '/etc/claude-code/managed-settings.json'
+[aify-env] problem: assets aify-comms for claude failed
+[aify-env] chain: not complete
+
+== the one sudo step the installer printed (channel policy), run as root, then the third pass
+printed: sudo -- '/usr/local/bin/node' '/home/node/.aify-comms/mcp/stdio/node_modules/aify-wrapper/lib/channel-install.mjs' 'prepare-policy' '--path' '/etc/claude-code/managed-settings.json'
+managed policy created and admission read back at /etc/claude-code/managed-settings.json; rerun the installer as the non-root user
+policy exit 0
+third pass exit 0
+[aify-env] chain: entered for aify-comms
+  Done (acquired; the chain connects and renders).
+[aify-env] chain: complete
+
+== after the upgrade
+--- ~/.claude.json mcpServers:
+[ 'aify-comms-channel' ]
+--- settings hooks (events):
+Stop,SessionStart,UserPromptSubmit,PostToolUse,StopFailure,PermissionRequest
+--- launchers on PATH:
+aify-comms -> /home/node/.local/bin/aify-comms
+claude-aify -> /home/node/.local/bin/claude-aify
+aify-env -> /usr/local/bin/aify-env
+herdr-aify -> /usr/local/bin/herdr-aify
+aify-doctor -> /home/node/.local/bin/aify-doctor
+--- claude-aify transport:
+if [ "http" = "http" ]
+--- registry:
+aify-comms endpoint http://192.168.0.2:8800 mcpTransport http
+
+== doctor (read-only)
+  ✓ service            healthy — build e9ed4c25 (no checkout to compare against)
+  ✗ agent-state-publishers 0 of 0 publisher(s) fresh
+  ✓ session-handles    no agent carries a session handle
+  ✓ api-exposure       The fleet listing requires an API key.
+  ✓ external-keys      No keys are issued to other machines (EXTERNAL_KEYS is unset).
+  ✓ bridge-installed   installed — e9ed4c2 (no checkout to compare against)
+  – skills-installed   no repo checkout to compare against
+  ✗ spawn-delegation   aify-env at http://127.0.0.1:8802 is not answering, and every managed spawn fails until it is: aify-env is the only spawner, and the service refuses rather than starting a second one.
+  ✓ spawn-queue        no spawn requests on this service.
+  ✓ tier-version       no live environment tier to compare against; `env-bridge` is the row that reports that.
+  ✓ definitions-fresh  no host pushes agent definitions to this service
+  ✓ client-api-key     http://192.168.0.2:8800 requires a key and the one this host resolves (from aify-env's credential store) is accepted.
+  ✓ bridge-running     1 bridge process(es), all started after the last install
+  ✓ agent-identity     0 agent session(s), all carry an agent id (1 unregistered session(s) are legitimately id-less)
+  ✗ env-bridge         No environment bridge is registered — dashboard-managed spawns cannot run.
+  – bridge-current     no checkout to compare running bridges against
+  – usage-openai       OpenAI/ChatGPT quota is not set up on this host (no codex or hermes login). It is optional; Claude agents do not use it.
+  3 check(s) need attention. 3 skipped, so NOT verified here.
+
+== teardown
+done

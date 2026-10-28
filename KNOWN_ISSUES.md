@@ -42,15 +42,20 @@ kept as evidence. Last reviewed 2026-10-13.
 
 ## Found while proving the 0.9.11 switch (2026-10-28)
 
-- **`bridge-current` asks to relaunch every agent after a doctor-only commit.** It counts commits since a bridge's
-  build under `mcp/stdio`, excluding only `mcp/stdio/tests`, so a change to the doctor's own files reads as code the
-  bridges run. Seen after 97b43c34: 16 live bridges "running older code" that loads none of the changed files. Not
-  a relaunch signal. A name-pattern exclude would be wrong (`notify-check.js` is a runtime hook named like a
-  `*-check.mjs` doctor module); the fix is a derived set of files reachable from `doctor.js` and from no bridge entry.
 - **A Claude agent with the channel can receive one message twice.** The PostToolUse unread notice
   (`notify-check.js`) and the channel's dispatch event both carry it when the message arrives mid-turn: message
   1793142198531-dcb60c55 reached comms-tech-lead as a notice during a tool call and again as a channel event after the
-  turn. About 0.8 KB plus the body, paid twice. Not yet measured how often.
+  turn. About 0.8 KB plus the body, paid twice. Not yet measured how often. The inbox already marks such a message
+  (`dispatchRequested`), so the notice could skip it, but then a dispatch that never reaches the session would leave the
+  notice as no fallback. Fixing it needs the notice to know whether the run is still pending, not just requested.
+- **A plain `claude` session gets the channel's dispatch instructions.** The installer registers the user-scope
+  `aify-comms-channel` server in `~/.claude.json`, so every Claude session on the host starts it. With no
+  `AIFY_CHANNEL_ROUTE` (claude-aify always exports one), `isThisRoutesProducer` answers true, by design, to keep the
+  user-scope server the producer for a session claude-aify did not start. So a plain session, which has no agent and
+  no channel flag, carries about 1.1 KB of "Events from aify resident dispatch arrive..." instructions on every turn,
+  and writes a `claude-code` runtime marker. It gets no tools: those need `AIFY_COMMS_MCP=http`. A possible fix is to
+  produce on no route only with an agent identity, but a hand-started session with the channel flag that registers
+  late would then lose its producer.
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 

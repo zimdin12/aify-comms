@@ -31,6 +31,28 @@ owning repositories and verify each selected component. The legacy-upgrade fixtu
 `scripts/tests/test_legacy_upgrade.py` exercises old installer-produced configuration with isolated
 substitutes for external CLIs and package/network operations; it is not proof of every old host.
 
+## Upgrading a host from before 0.6
+
+A host installed before the three-repo split (v0.5.x) upgrades through the same chain, but these points
+were all hit in the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/README.md):
+
+- **Back up the database first.** A 0.9 service opened v0.5.7 data in place, with no errors, and kept
+  its agents, messages and channels. The data in that test was small and seeded, not a real fleet's.
+- **Install the service and every client from one commit,** preferably a release tag. The connect step
+  refuses bridge files that differ from what the service serves.
+- **Address the service by IP or `localhost`.** Its `/.well-known/aify-service` refuses other hostnames
+  (403) unless they are listed in `TRUSTED_HOSTS`. That includes `host.docker.internal`.
+- **Without a terminal, the install stops once for approval.** Pass the printed digest back with
+  `AIFY_INSTALL_APPROVE=<digest>`.
+- **On Linux, Claude's channel policy needs one `sudo` command.** The installer prints it.
+- **Stop every old agent and the old environment bridge before the upgrade.** v0.5's bare `aify-comms`
+  ran `server.js --environment-bridge`; find it with `pgrep -af -- --environment-bridge`. aify-env is
+  now the only spawner, so start it only after that process is gone.
+
+The installer removes the old machine-wide `aify-comms` MCP entry, replaces the hooks, and renders
+launchers that reach the service over HTTP. The rehearsal did not cover hermes on Linux, `herdr-aify`,
+or a running v0.5 environment bridge.
+
 ## Discover and choose
 
 1. Inspect this host's OS, architecture and shell. Distinguish native Windows from WSL; they have
