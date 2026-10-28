@@ -9,10 +9,11 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// Static imports, dynamic import() calls and require() calls of a relative path, in either quote. A missed import could
-// only make a shared file look doctor-only, the false-green direction, so this reads every form a module here uses.
+// Static imports (side-effect ones included), dynamic import() calls and require() calls of a relative path, in either
+// quote. A missed import could only make a shared file look doctor-only, the false-green direction, so this reads every
+// form a module here uses.
 // (Two other walkers find the doctor's files by regex, so a quoted example path in this comment would send them to it.)
-const LOCAL_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
+const LOCAL_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*|\brequire\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
 
 function closure(entry, dir) {
   const seen = new Set();

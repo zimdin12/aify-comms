@@ -23,6 +23,9 @@ test("only what the doctor alone reaches is doctor-only, whatever form another f
     write("lazy.mjs", "export const l = 1;\n");
     write("server.js", "import { s } from './shared.mjs';\nconst lazy = () => import('./lazy.mjs');\n");
     write("hook.js", "// an entry point nothing imports\n");
+    write("side.mjs", "export const x = 1;\n");
+    write("runner.mjs", "import \"./side.mjs\";\n");
+    fs.appendFileSync(path.join(dir, "doctor.js"), "import { x } from \"./side.mjs\";\n");
     assert.deepEqual(doctorOnlyFiles(dir), ["a-check.mjs", "doctor.js"]);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
