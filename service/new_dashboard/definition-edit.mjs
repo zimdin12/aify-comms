@@ -17,11 +17,19 @@ const TEXT_FIELDS = [
   ['effort', 'Effort', 'Blank: the harness default'],
 ];
 
-/** PURE. The runtimes this agent's host can launch that a definition can name, and its current one. */
+/** PURE. The runtime the DEFINITION names, which is what its next start runs. The worker's own `runtime` is what it
+ * started with, and differs from the definition after an edit (review of 3bfd62a8): defaulting to it reversed one. */
+export function definitionRuntime(agent) {
+  const harnessOf = agent.definition?.harnessOfRuntime || {};
+  const harness = agent.definition?.fields?.harness;
+  return Object.keys(harnessOf).find((runtime) => harnessOf[runtime] === harness) || String(agent.runtime || '');
+}
+
+/** PURE. The runtimes this agent's host can launch that a definition can name, and the one its definition names. */
 export function definitionRuntimeOptions(agent, environments) {
   const harnessOf = agent.definition?.harnessOfRuntime || {};
   const owner = agent.definition?.ownerMachineId;
-  const current = String(agent.runtime || '');
+  const current = definitionRuntime(agent);
   const advertised = environments.filter((env) => env.machineId === owner)
     .flatMap((env) => environmentRuntimes(env).filter((r) => r.available !== false).map((r) => r.runtime));
   return [...new Set([current, ...advertised])].filter((runtime) => runtime && harnessOf[runtime]);
@@ -30,7 +38,7 @@ export function definitionRuntimeOptions(agent, environments) {
 /** PURE. The form's definition fieldset. */
 export function definitionFieldset(agent, environments) {
   const fields = agent.definition?.fields || {};
-  const runtime = String(agent.runtime || '');
+  const runtime = definitionRuntime(agent);
   const options = definitionRuntimeOptions(agent, environments)
     .map((rt) => `<option value="${esc(rt)}"${rt === runtime ? ' selected' : ''}>${esc(rt)}</option>`).join('');
   const inputs = TEXT_FIELDS.map(([field, label, hint]) =>
@@ -54,12 +62,13 @@ export function definitionPatch(agent, form) {
   return Object.fromEntries(Object.entries(wanted).filter(([field, value]) => value !== (fields[field] ?? '')));
 }
 
-/** The form's values as `definitionPatch` reads them; a field the form does not hold is left out. */
+/** The form's values as `definitionPatch` reads them, exactly as typed; a field the form does not hold is left out.
+ * NOT TRIMMED: a stored value with spaces is legal, and trimming it read as a change (review of 3bfd62a8). */
 export function readDefinitionForm(byId) {
   const form = {};
   for (const field of [...TEXT_FIELDS.map(([f]) => f), 'runtime', 'instructions']) {
     const element = byId(`edit-def-${field}`);
-    if (element) form[field] = field === 'instructions' ? element.value : element.value.trim();
+    if (element) form[field] = element.value;
   }
   return form;
 }

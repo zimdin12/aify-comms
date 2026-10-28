@@ -105,7 +105,9 @@ export function startColdAgent(agentAction, refreshSoon) {
     });
 }
 
-/** Clear an agent's stop through the service's resume control; the button stays disabled until the refresh. */
+/** Clear an agent's stop through the service's resume control. The button is disabled only while the request is in
+ * flight: a defined agent's release is QUEUED, its host may refuse it later, and a refreshed drawer whose markup did
+ * not change keeps this same button (drawer-paint.mjs), so one left disabled stayed dead (review of 3bfd62a8). */
 export function resumeAgent(button, refreshSoon) {
   const id = button.dataset.agentResume;
   button.disabled = true;
@@ -117,8 +119,8 @@ export function resumeAgent(button, refreshSoon) {
     })
     .catch((err) => {
       toast(`Resume failed: ${err?.message || err}`, 'error');
-      button.disabled = false;
-    });
+    })
+    .finally(() => { button.disabled = false; });
 }
 
 /** HOLD a defined agent: its worker stops, and its host refuses to start it for a message until Release hold or
@@ -134,6 +136,8 @@ export async function holdAgent(button, refreshSoon, confirm = uiConfirm) {
     refreshSoon();
   } catch (err) {
     toast(`Hold failed: ${err?.message || err}`, 'error');
+  } finally {
+    // In flight only, as Resume's: a queued hold its host later refuses leaves this same button in an unchanged drawer.
     button.disabled = false;
   }
 }

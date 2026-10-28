@@ -31,9 +31,10 @@ export function requestRows(lifecycle = [], definition = []) {
   return rows.sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, REQUEST_ROWS);
 }
 
-/** PURE. The drawer section; `problems` names a list that could not be read. */
-export function requestsSection(rows, problems = []) {
-  const failed = problems.map((p) => `<p class="subtle">Could not read ${esc(p)}.</p>`).join('');
+/** PURE. The drawer section; `problems` names a list that could not be read, `total` how many requests exist. */
+export function requestsSection(rows, problems = [], total = rows.length) {
+  const failed = problems.map((p) => `<p class="subtle">Could not read ${esc(p)}.</p>`).join('')
+    + (total > rows.length ? `<p class="subtle">The newest ${rows.length} of ${total}.</p>` : '');
   if (!rows.length) return `<div class="agent-drawer-subhead">Requests to its host</div>${failed}<p class="subtle">None asked.</p>`;
   const body = rows.map((r) => `<div class="history-row">
       <div class="history-head"><strong>${esc(r.what)}</strong> <span class="request-status request-${esc(r.status)}">${esc(r.status)}</span></div>
@@ -53,5 +54,6 @@ export async function loadAgentRequests(agentId, ask = api) {
   const read = (answer) => (answer.status === 'fulfilled' && Array.isArray(answer.value?.requests) ? answer.value.requests : []);
   const problems = [[lifecycle, 'its lifecycle requests'], [definition, 'its definition requests']]
     .filter(([answer]) => answer.status !== 'fulfilled').map(([answer, what]) => `${what}: ${answer.reason?.message || answer.reason}`);
-  return requestsSection(requestRows(read(lifecycle), read(definition)), problems);
+  return requestsSection(requestRows(read(lifecycle), read(definition)), problems,
+    read(lifecycle).length + read(definition).length);
 }

@@ -257,6 +257,23 @@ class LifecycleRequests(FastApiTestCase):
         self.assertEqual(refused['status'], 'refused')
         self.assertIn('aify-env e70321d', refused['outcome'])
 
+    def test_a_malformed_declaration_is_refused_and_claims_nothing(self):
+        """Review of 3bfd62a8: a declaration of the wrong shape fell back to the undeclared set and was handed a stop it
+        never declared. Only an absent or null declaration gets that set."""
+        self.ask().raise_for_status()
+        for declared in (['release', 7], 'release', {'release': True}):
+            with self.subTest(declared=repr(declared)):
+                answer = self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/claim", json={
+                    'bridgeId': A['bridge'], 'machineId': A['machine'], 'actions': declared})
+                self.assertEqual(answer.status_code, 422, answer.text)
+                self.assertIn('actions: a list of the lifecycle action names this host runs', answer.json()['detail'])
+                self.assertEqual(self.sql("SELECT status FROM agent_lifecycle_requests WHERE id='life-1'"), [{'status': 'pending'}])
+        for declared, handed in ((None, ['life-1']), ([], [])):  # null is the undeclared set; [] runs nothing
+            with self.subTest(declared=repr(declared)):
+                answer = self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/claim", json={
+                    'bridgeId': A['bridge'], 'machineId': A['machine'], 'actions': declared})
+                self.assertEqual([r['id'] for r in answer.json()['requests']], handed, answer.text)
+
     def test_a_host_that_declares_release_is_handed_it(self):
         self.ask(requestId='rel-1', action='release', expectedLifetime=None).raise_for_status()
         claimed = self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/claim", json={

@@ -84,11 +84,14 @@ async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifet
 
 
 def host_actions(declared):
-    """PURE. The actions a claiming host runs: the list it declared, or, when it declared none, the actions every
-    claiming aify-env has run."""
+    """The actions a claiming host runs: the list it declared, or, when it declared none (absent or null), the actions
+    every claiming aify-env has run. A declaration of any other shape is refused (422) before anything is handed out:
+    falling back would grant it actions it never declared (review of 3bfd62a8)."""
+    if declared is None:
+        return frozenset(UNDECLARED_HOST_ACTIONS)
     if isinstance(declared, list) and all(isinstance(action, str) for action in declared):
         return frozenset(declared)
-    return frozenset(UNDECLARED_HOST_ACTIONS)
+    raise HTTPException(422, 'actions: a list of the lifecycle action names this host runs, or absent')
 
 
 def unrunnable_outcome(action):

@@ -314,6 +314,7 @@ test("resumeAgent POSTs the resume control for the agent named on the button", a
     assert.match(calls[0].url, /\/agents\/team%2Fcoder(%20|\+)1\/control$/);
     assert.deepEqual(JSON.parse(calls[0].body), { action: "resume", from_agent: "dashboard" });
     assert.equal(refreshed, 1);
+    assert.equal(btn.disabled, false, "a queued release left the button dead; its host may still refuse it");
   });
 });
 
@@ -339,5 +340,6 @@ test("holdAgent asks first, then POSTs the agent control's stop (the HOLD) for t
     assert.match(calls[0].url, /\/agents\/team%2Fcoder\/control$/);
     assert.deepEqual(JSON.parse(calls[0].body), { action: "stop", from_agent: "dashboard" });
     assert.equal(refreshed, 1);
+    assert.equal(btn.disabled, false, "a queued hold left the button dead; its host may still refuse it");
   });
 });

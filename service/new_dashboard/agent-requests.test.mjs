@@ -24,6 +24,8 @@ test("AN OUTCOME IS SHOWN, so a refusal reads as one and not as queued", () => {
 test("ONLY THE NEWEST ROWS, and a definition removal is named", () => {
   const many = Array.from({ length: REQUEST_ROWS + 5 }, (_, i) => life("start", `2026-10-28T00:${String(i).padStart(2, "0")}:00Z`));
   assert.equal(requestRows(many).length, REQUEST_ROWS);
+  assert.match(requestsSection(requestRows(many), [], many.length), new RegExp(`The newest ${REQUEST_ROWS} of ${many.length}\.`));
+  assert.doesNotMatch(requestsSection(requestRows([life("kill", "t")])), /The newest/);
   assert.equal(requestRows([], [def({ remove: true }, "t")])[0].what, "remove definition");
 });
 
