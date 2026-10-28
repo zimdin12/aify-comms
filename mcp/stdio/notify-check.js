@@ -88,7 +88,9 @@ function lockHolderLives(file) {
   try {
     if (Date.now() - fs.statSync(file).mtimeMs > LOCK_STALE_MS) return false;
     const pid = Number(String(fs.readFileSync(file, "utf-8")).split(":")[0]);
-    if (!Number.isInteger(pid) || pid <= 0) return false;
+    // Empty or malformed is a holder that created the lock and has not written its token yet, or one we cannot
+    // read: unknown, never dead. Only the age above or a pid that is gone takes it over.
+    if (!Number.isInteger(pid) || pid <= 0) return true;
     process.kill(pid, 0);
     return true;
   } catch (error) {
