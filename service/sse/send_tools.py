@@ -86,11 +86,11 @@ async def comms_send(
     subject: str = Field(description="Short subject"),
     body: str = Field(description="Message content"),
     to: str | None = Field(default=None, description="Target agent ID"),
-    toRole: str | None = Field(default=None, description="Send to all agents with this role"),
+    toRole: str | None = Field(default=None, description="Every agent with this role; wakes only running ones"),
     priority: Priority | None = Field(default=None, description="Message priority (default: normal)"),
     inReplyTo: str | None = Field(default=None, description="Message ID this replies to"),
     steer: bool | None = Field(default=None, description="Default true: a busy target that can steer gets it between tool calls; one that cannot gets it next turn."),
-    queueIfBusy: bool | None = Field(default=None, description="true: deliver next turn, behind its current work, even if it could steer. Overrides steer."),
+    queueIfBusy: bool | None = Field(default=None, description="true: deliver next turn, behind its current work, even if it could steer."),
     requireReply: bool | None = Field(default=None, description="Leave unset; see the description."),
 ):
     if not to and not toRole:

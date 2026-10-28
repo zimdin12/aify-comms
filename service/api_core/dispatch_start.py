@@ -115,8 +115,9 @@ async def _coldstart_spawn_request_for_dispatch(
     requested_by: str,
     warnings: Optional[list[str]] = None,
     start_intent: str = START,
+    refusal: str = "",
 ) -> bool:
-    """Cold-start a managed worker on the send path.
+    """Cold-start a managed worker on the send path. A non-empty `refusal` starts nothing and says why.
 
     When a managed agent has no live agent_sessions row, _ensure_managed_pty_for_dispatch
     cannot build a PTY (it has nothing to launch into) and returns None — the dispatch
@@ -136,6 +137,8 @@ async def _coldstart_spawn_request_for_dispatch(
     owned by a DIFFERENT live agent, an advisory (non-blocking) warning string is
     appended for the caller to surface.
     """
+    if refusal:
+        return _coldstart_refusal(warnings, refusal)
     # A DEFINED AGENT STARTS FROM ITS DEFINITION (P0 C7), and a withdrawn one not at all (C6): its
     # harness, workspace and spec come from the revision recorded on the request, not from history.
     try:
@@ -391,3 +394,15 @@ async def twin_refusal(db, agent_row) -> str:
 # _ensure_managed_pty_for_dispatch moved to service/api_core/managed_pty_for_dispatch.py in
 # v0.5.4 — five modules import it and none of them is this one, so a file about starting
 # dispatches was the wrong place to look for it.
+
+
+ROLE_SEND_STARTS_NOTHING = (
+    "a send to a role wakes only agents already running, and this one is not; the message is in its inbox"
+)
+
+
+def role_send_refusal(req) -> str:
+    """A send to a role reaches every agent holding it, and one stray role send cold-started sixteen idle agents on
+    2026-10-28. So a role send starts nobody: an idle holder keeps the message in its inbox, and a holder the send can
+    reach without a new start is still woken."""
+    return ROLE_SEND_STARTS_NOTHING if getattr(req, "toRole", None) else ""

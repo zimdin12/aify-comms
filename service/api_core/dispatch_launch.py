@@ -22,6 +22,7 @@ from service.api_core import operational_view, switched_view
 from service.api_core.dispatch_hint import _dispatch_fix_hint
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
+    role_send_refusal,
 )
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX, _coldstart_refusal_message
@@ -148,6 +149,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                         runtime=runtime,
                         settings=settings,
                         requested_by=req.from_agent,
+                        refusal=role_send_refusal(req),
                         warnings=_cs_reasons,
                     )
                     if not coldstarted and not await _has_claimable_spawn_request(db, recipient_id):
@@ -253,6 +255,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                         runtime=runtime,
                         settings=settings,
                         requested_by=req.from_agent,
+                        refusal=role_send_refusal(req),
                     )
                 except Exception:
                     pass
@@ -331,6 +334,7 @@ async def _back_managed_claude_with_a_console(
                                 runtime=runtime,
                                 settings=settings,
                                 requested_by=req.from_agent,
+                                refusal=role_send_refusal(req),
                                 warnings=_cs_reasons_b,
                             )
                         except Exception as _cs_err:

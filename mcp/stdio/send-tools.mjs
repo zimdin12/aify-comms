@@ -48,7 +48,7 @@ export function registerSendTools(server, z) {
     {
       from: z.string().describe("Your agent ID"),
       to: z.string().optional().describe("Target agent ID"),
-      toRole: z.string().optional().describe("Send to all agents with this role"),
+      toRole: z.string().optional().describe("Every agent with this role; wakes only running ones"),
       type: z
         .enum(["request", "response", "info", "error", "review", "approval"])
         .describe("Message type"),
@@ -57,7 +57,7 @@ export function registerSendTools(server, z) {
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
       inReplyTo: z.string().optional().describe("Message ID this replies to"),
       steer: z.boolean().optional().describe("Default true: a busy target that can steer gets it between tool calls; one that cannot gets it next turn."),
-      queueIfBusy: z.boolean().optional().describe("true: deliver next turn, behind its current work, even if it could steer. Overrides steer."),
+      queueIfBusy: z.boolean().optional().describe("true: deliver next turn, behind its current work, even if it could steer."),
       requireReply: z.boolean().optional().describe("Leave unset; see the description."),
     },
     async ({ from, to, toRole, type, subject, body, priority, inReplyTo, steer, queueIfBusy, requireReply }) => {
