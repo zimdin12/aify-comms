@@ -32,7 +32,7 @@ in or run as an agent.
    - `claude-aify` reaches comms over `http`;
    - aify-env and herdr-aify are on PATH;
    - the registry holds `aify-comms` with its endpoint and `mcpTransport http`.
-4. `aify-comms doctor` on the upgraded client gave 14 pass, 3 fail and 3 skipped (service e9ed4c25). The client key
+4. `aify-comms doctor` on the upgraded client gave 11 pass, 3 fail and 3 skipped (service e9ed4c25). The client key
    was accepted, and the doctor found no key-less fleet listing. All 3 failures say aify-env is not running
    (`agent-state-publishers`, `spawn-delegation`, `env-bridge`). Starting it is the operator's step, and the
    rehearsal does not take it.
