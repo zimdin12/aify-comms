@@ -86,6 +86,7 @@ import {
   installedHostTier,
   spawnHostVerdict,
 } from "./doctor-predicates.js";
+import { doctorOnlyFiles } from "./doctor-only-files.mjs";
 
 const args = process.argv.slice(2);
 const asJson = args.includes("--json");
@@ -221,7 +222,8 @@ function checkRunningBridges() {
   for (const pid of readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
     let cmdline = "";
     try { cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8"); } catch { continue; }
-    if (!runsInstalledBridgeCode(cmdline, BRIDGE_DIR)) continue;
+    // This doctor runs from the installed copy too (`aify-comms doctor`), so it would count itself.
+    if (pid === String(process.pid) || !runsInstalledBridgeCode(cmdline, BRIDGE_DIR)) continue;
     running += 1;
     let startedMs;
     try { startedMs = statSync(`/proc/${pid}`).mtimeMs; } catch { continue; }
@@ -258,7 +260,7 @@ async function checkAgentIdentity() {
   for (const pid of readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
     let cmdline = "";
     try { cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8"); } catch { continue; }
-    if (!runsInstalledBridgeCode(cmdline, BRIDGE_DIR)) continue;
+    if (pid === String(process.pid) || !runsInstalledBridgeCode(cmdline, BRIDGE_DIR)) continue;
     // `--environment-bridge` NO LONGER EXISTS. v0.6.1 removed the flag and v0.6.2 deleted the
     // tier, so this branch can no longer fire on any current install. It is kept for a host
     // still running a pre-v0.6.1 bridge, where such a process IS legitimately id-less and
@@ -377,12 +379,15 @@ async function checkBridgeCurrent() {
   // this bridge's build actually TOUCH code the bridge runs? Test-only commits are excluded for the
   // same reason as there -- this row's remedy is a relaunch, which reaps managed workers. An
   // empty/failed count is left OUT of the map so the verdict falls through to stale.
+  // A running bridge never loads the doctor, so a doctor-only commit is no reason to relaunch it (doctor-only-files.mjs).
+  // bridge-installed still counts those files: `aify-comms doctor` runs the installed copy.
+  const doctorOnly = repo ? doctorOnlyFiles(join(repo.dir, "mcp", "stdio")).map((f) => `:(exclude)mcp/stdio/${f}`) : [];
   const bridgeCommitsSince = {};
   for (const bridge of bridges) {
     const build = String(bridge?.build || "").trim();
     if (!build || bridgeCommitsSince[build] !== undefined || !repo) continue;
     const n = sh("git", ["rev-list", "--count", `${build}..HEAD`, "--", "mcp/stdio",
-      ...BRIDGE_RUNTIME_EXCLUDE_PATHS.map((path) => `:(exclude)${path}`)], repo.dir);
+      ...BRIDGE_RUNTIME_EXCLUDE_PATHS.map((path) => `:(exclude)${path}`), ...doctorOnly], repo.dir);
     if (n !== "" && Number.isFinite(Number(n))) bridgeCommitsSince[build] = Number(n);
   }
   const current = bridgeCurrentVerdict({
