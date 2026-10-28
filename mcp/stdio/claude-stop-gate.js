@@ -54,7 +54,12 @@ async function main() {
   try {
     const payload = JSON.parse(readStdin() || "{}");
     const transcriptPath = payload && payload.transcript_path;
-    if (transcriptPath) {
+    // CLAUDE FIRES Stop BEFORE IT FLUSHES THE TURN'S FINAL LINE, sometimes. Measured 2026-10-28 on 2.1.312: the gate
+    // read 1,828,228,456 bytes and the final assistant line began at 1,828,231,823, so the tail ended in a
+    // tool_result, read as in-flight, and the turn stayed `working` for good (a resident's queued messages with it).
+    // The same payload names that final message, so when it does, the turn has ended whatever the tail says.
+    const named = typeof payload?.last_assistant_message === "string" && payload.last_assistant_message.trim();
+    if (transcriptPath && !named) {
       const summary = summarizeTranscriptTail(readTail(transcriptPath));
       // SUPPRESS only on a CONFIRMED in-flight turn. "ended"/"unknown"/any throw → post.
       suppress = classify(summary) === "in-flight";

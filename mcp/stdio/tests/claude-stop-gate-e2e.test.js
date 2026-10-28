@@ -30,7 +30,7 @@ const ENDED = jl({ type: "assistant", message: { role: "assistant", stop_reason:
 const INFLIGHT = jl({ type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "Bash" }] } });
 
 // Spawn the gate with a stub turn-event receiver; resolve whether a turn-end arrived.
-function runGate({ transcript, badPath = false, noPath = false, onPost = () => {} }) {
+function runGate({ transcript, badPath = false, noPath = false, payload = {}, onPost = () => {} }) {
   return new Promise((resolve) => {
     let posted = false;
     const server = createServer((req, res) => {
@@ -65,7 +65,7 @@ function runGate({ transcript, badPath = false, noPath = false, onPost = () => {
           AIFY_ENV_INSTANCE: "test", AIFY_LIFETIME: LIFETIME, AIFY_API_KEY: "gate-key" },
         stdio: ["pipe", "ignore", "ignore"],
       });
-      child.stdin.end(JSON.stringify(noPath ? {} : { transcript_path: transcriptPath }));
+      child.stdin.end(JSON.stringify(noPath ? payload : { ...payload, transcript_path: transcriptPath }));
       child.on("exit", () => {
         // The gate awaits its POST before exit, so by exit the stub has been hit (or not).
         setTimeout(() => { server.close(); rmSync(home, { recursive: true, force: true }); resolve(posted); }, 50);
@@ -80,6 +80,15 @@ test("e2e: ended transcript → gate POSTs its turn-end", async () => {
 
 test("e2e: in-flight transcript → gate SUPPRESSES (no POST)", async () => {
   assert.equal(await runGate({ transcript: INFLIGHT }), false);
+});
+
+test("e2e: a Stop that names its final message ends the turn though the tail is not yet flushed", async () => {
+  // 2026-10-28, measured: Claude ran the Stop hook before writing the turn's final line, so the tail ended in the
+  // tool_result and the gate held comms-tech-lead and env-senior-dev at `working` after their turns ended.
+  const unflushed = INFLIGHT + jl({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } });
+  assert.equal(await runGate({ transcript: unflushed }), false, "control: this tail alone reads in-flight");
+  assert.equal(await runGate({ transcript: unflushed, payload: { last_assistant_message: "   " } }), false, "a blank message names nothing");
+  assert.equal(await runGate({ transcript: unflushed, payload: { last_assistant_message: "Done." } }), true);
 });
 
 test("e2e: FAIL-SAFE — missing transcript file → gate POSTs (never sticks)", async () => {
