@@ -46,12 +46,24 @@ were all hit in the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/RE
   `AIFY_INSTALL_APPROVE=<digest>`.
 - **On Linux, Claude's channel policy needs one `sudo` command.** The installer prints it.
 - **Stop every old agent and the old environment bridge before the upgrade.** v0.5's bare `aify-comms`
-  ran `server.js --environment-bridge`; find it with `pgrep -af -- --environment-bridge`. aify-env is
-  now the only spawner, so start it only after that process is gone.
+  ran `server.js --environment-bridge`; find it with `pgrep -af -- "[-]-environment-bridge"` (the
+  bracket keeps the search from matching its own shell). aify-env supersedes a stale bridge when it
+  starts, and the bridge exits by itself, but stopping it first is the clean order. While one still
+  runs, the comms doctor's `env-bridge` row reads green before aify-env exists, so read
+  `spawn-delegation` instead.
+- **Run `claude` once by hand on the host before any managed Claude agent,** to pick a theme and log
+  in. Until then every managed spawn waits on Claude Code's first-run screen, and no doctor says so.
+- **On Linux and WSL, herdr panes come from `herdr-aify env`, run from a real terminal.**
+  `aify-env herdr` is Windows-only and exits 69 elsewhere. Run without a terminal, `herdr-aify env`
+  leaves a herdr server and an aify-env running; `herdr-aify env --stop` cleans up. herdr's installer
+  takes its latest release, and the herdr server fetches herdr.dev/agent-detection at runtime, which a
+  work network may block.
 
 The installer removes the old machine-wide `aify-comms` MCP entry, replaces the hooks, and renders
-launchers that reach the service over HTTP. The rehearsal did not cover hermes on Linux, `herdr-aify`,
-or a running v0.5 environment bridge.
+launchers that reach the service over HTTP. aify-env and herdr after that upgrade were rehearsed
+separately on Linux ([aify-env evidence 786f957](https://github.com/zimdin12/aify-env/tree/786f957/docs/evidence/2026-10-28-work-pc-rehearsal)):
+with aify-env started, the comms doctor reads 14 passed and 3 skipped. Not covered: WSL itself, a
+logged-in agent doing work, and hermes on Linux.
 
 ## Discover and choose
 
