@@ -20,7 +20,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { channelSource, isThisRoutesProducer, PLUGIN_CHANNEL_SOURCE, PLUGIN_ROUTE, USER_SCOPE_CHANNEL_SOURCE } from "../channel-producer.mjs";
+import { channelSource, DEV_ROUTE, isThisRoutesProducer, PLUGIN_CHANNEL_SOURCE, PLUGIN_ROUTE, USER_SCOPE_CHANNEL_SOURCE } from "../channel-producer.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const BRIDGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -103,17 +103,19 @@ async function until(condition, timeoutMs = 30_000) {
   while (!condition() && Date.now() < deadline) await settle(50);
 }
 
-test("the producer decision: the plugin's server only on the plugin route, the user-scope server on every other", () => {
-  for (const route of [undefined, "", "dev", "plugin", "PLUGIN"]) {
+test("the producer decision: the plugin's server only on the plugin route, the user-scope server only on the development route", () => {
+  for (const route of [undefined, "", "dev", "plugin", "PLUGIN", "DEV", "none", "x"]) {
     assert.equal(isThisRoutesProducer({ fromPlugin: true, route }), route === PLUGIN_ROUTE, `plugin, ${route}`);
-    assert.equal(isThisRoutesProducer({ fromPlugin: false, route }), route !== "plugin", `user scope, ${route}`);
+    assert.equal(isThisRoutesProducer({ fromPlugin: false, route }), route === DEV_ROUTE, `user scope, ${route}`);
   }
   assert.equal(channelSource(true), PLUGIN_CHANNEL_SOURCE);
   assert.equal(channelSource(false), USER_SCOPE_CHANNEL_SOURCE);
 });
 
 for (const [name, entry, route, produces] of [
-  ["user-scope server, no route (a session claude-aify did not start)", USER_SCOPE, undefined, true],
+  // A plain `claude`: no route, though the world binds an agent, which is the identity a plain session can inherit.
+  ["user-scope server, no route (a plain claude session)", USER_SCOPE, undefined, false],
+  ["user-scope server, an unknown route", USER_SCOPE, "x", false],
   ["user-scope server, development route", USER_SCOPE, "dev", true],
   ["user-scope server, plugin route", USER_SCOPE, "plugin", false],
   ["plugin's server, plugin route", PLUGIN, "plugin", true],
@@ -160,6 +162,32 @@ for (const [name, entry, route, produces] of [
     }
   });
 }
+
+test("an opted-in session that starts unbound produces once it registers", async () => {
+  // The route activates the channel; the identity arrives later, as `comms_register` writes the binding. Activation
+  // keyed on identity would leave this session deaf.
+  const svc = await service();
+  const w = world();
+  const binding = path.join(w.temp, `aify-agent-${process.pid}`);
+  const bound = fs.readFileSync(binding, "utf8");
+  fs.rmSync(binding);
+  const server = start(USER_SCOPE, w, svc.url, DEV_ROUTE);
+  try {
+    await until(() => server.initialize());
+    assert.ok(server.initialize().capabilities?.experimental?.["claude/channel"], "the opted-in session is a channel from the start");
+    await settle(QUIET_MS);
+    assert.equal(svc.requests.filter((r) => r.url === "/api/v1/dispatch/claim").length, 0, "CONTROL: nothing is claimed while unbound");
+    fs.writeFileSync(binding, bound);
+    await until(() => svc.requests.some((r) => r.method === "PATCH"));
+    assert.equal(server.channelEvents().length, 1, JSON.stringify(server.messages));
+    assert.ok(svc.requests.some((r) => r.method === "PATCH" && r.url === "/api/v1/dispatch/runs/run-1"), "the run was not delivered after registering");
+  } finally {
+    server.child.kill();
+    await server.exited;
+    await svc.close();
+    fs.rmSync(w.dir, { recursive: true, force: true });
+  }
+});
 
 for (const route of ["plugin", "dev"]) {
   test(`both configured, ${route} route: one claimant, and the message reaches the session through it`, async () => {

@@ -93,7 +93,9 @@ Once aify-wrapper's channel plugin is installed and a Claude Code policy allows 
 the same channel from `claude-channel-plugin.mjs`, and events then arrive as
 `<channel source="plugin:aify-channel:aify-comms-channel" ...>`. Both servers start in every session.
 `AIFY_CHANNEL_ROUTE`, which `claude-aify` exports, decides which one claims messages
-(`mcp/stdio/channel-producer.mjs`).
+(`mcp/stdio/channel-producer.mjs`): `dev` for the development channel, `plugin` for the plugin. With no
+route both stay inert, so a plain `claude` on the same host carries no aify instructions. A Claude you
+start by hand with the development channel must export `AIFY_CHANNEL_ROUTE=dev` itself.
 
 By default the launcher loads your whole `~/.claude.json` MCP list plus, for this launch only, the
 service's comms tools at `<endpoint>/mcp/http`, naming its agent in a header. A Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462),

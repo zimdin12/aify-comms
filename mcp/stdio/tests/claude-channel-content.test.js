@@ -114,6 +114,7 @@ test("a stopped resident can recover delivery without restarting Claude",
   const child = spawn(process.execPath, [fileURLToPath(new URL("../claude-channel.js", import.meta.url))], {
     env: {
       ...sealedChildEnv(),
+      AIFY_CHANNEL_ROUTE: "dev",   // the route claude-aify exports; with none the channel is inert
       TMP: stoppedTmp,
       TEMP: stoppedTmp,
       AIFY_SERVER_URL: `http://127.0.0.2:${api.address().port}`,

@@ -48,14 +48,6 @@ kept as evidence. Last reviewed 2026-10-13.
   turn. About 0.8 KB plus the body, paid twice. Not yet measured how often. The inbox already marks such a message
   (`dispatchRequested`), so the notice could skip it, but then a dispatch that never reaches the session would leave the
   notice as no fallback. Fixing it needs the notice to know whether the run is still pending, not just requested.
-- **A plain `claude` session gets the channel's dispatch instructions.** The installer registers the user-scope
-  `aify-comms-channel` server in `~/.claude.json`, so every Claude session on the host starts it. With no
-  `AIFY_CHANNEL_ROUTE` (claude-aify always exports one), `isThisRoutesProducer` answers true, by design, to keep the
-  user-scope server the producer for a session claude-aify did not start. So a plain session, which has no agent and
-  no channel flag, carries about 1.1 KB of "Events from aify resident dispatch arrive..." instructions on every turn,
-  and writes a `claude-code` runtime marker. It gets no tools: those need `AIFY_COMMS_MCP=http`. A possible fix is to
-  produce on no route only with an agent identity, but a hand-started session with the channel flag that registers
-  late would then lose its producer.
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 

@@ -62,6 +62,8 @@ async function launch(commsMcp) {
       TEMP: w.temp, TMP: w.temp, XDG_STATE_HOME: w.state, HOME: w.home, USERPROFILE: w.home,
       AIFY_SERVER_URL: svc.url, CLAUDE_MCP_SERVER_URL: svc.url, AIFY_CLAIM_WAIT_MS: "0", AIFY_COMMS_CHANNEL_POLL_MS: "100",
       AIFY_AGENT_ID: AGENT, AIFY_RUNTIME: "claude-code", AIFY_SESSION_MODE: "resident", AIFY_COMMS_MCP: commsMcp,
+      // claude-aify exports the route it chose; a channel started with none is inert (channel-producer.mjs).
+      AIFY_CHANNEL_ROUTE: "dev",
     }),
     cwd: w.dir,
     stdio: ["pipe", "ignore", "pipe"],
