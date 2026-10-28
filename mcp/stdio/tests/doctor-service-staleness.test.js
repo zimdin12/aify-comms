@@ -38,7 +38,7 @@ test("commits that touch NO runtime content are not stale", () => {
   });
   assert.equal(v.ok, true, "a docs-only commit must not fail --strict");
   assert.equal(v.code, "ok");
-  assert.match(v.detail, /none touching code the service executes/);
+  assert.match(v.detail, /none touching code the service executes or serves/);
   assert.match(v.detail, /3 commit\(s\) ahead/, "still reports the gap honestly");
   assert.equal(v.fix, "", "nothing for the operator to do");
 });
@@ -134,34 +134,24 @@ test("every non-runtime entry carries a non-trivial reason", () => {
   }
 });
 
-test("host-side bridge code is NOT a service rebuild trigger", () => {
-  // The concrete false red that forced this rework: a bridge-only commit demanded a container
-  // rebuild for code the container never executes.
-  //
-  // THIS TEST USED TO PIN THE WRONG THING. It asserted the literal list — `!includes("mcp")` and
-  // `includes("mcp/sse_server.py")` — which is WHERE the rule was written rather than WHAT it does.
-  // Naming the exact file made `mcp/` opt-in, so a second runtime module beside the SSE transport
-  // would have been cargo by default and doctor would have called the container clean while the
-  // code it runs had changed. The list satisfied this test and still had the hole, because the two
-  // are not the same claim. Excluding `mcp/stdio` from a directory-wide `mcp` keeps the property
-  // this test was built for AND closes that.
+test("host-side bridge code IS a service rebuild trigger, because the image serves its manifest", () => {
+  // REVERSED 2026-10-28. This used to assert the bridge was excluded, on the ground that the container
+  // never executes it. True of execution, false of what the image serves: stamp.sh bakes the bridge's
+  // committed file set into the image as the `comms-bridge` manifest, and install.sh's connect step
+  // refuses a client whose copy does not hash to it. After 84402543 the row read "none touching code
+  // the service executes" while that refusal fired (exit 78). `mcp/` stays runtime by default, so a
+  // new module beside sse_server.py is covered the day it is created, and now so is the bridge.
   assert.ok(SERVICE_RUNTIME_PATHS.includes("mcp"),
     "mcp/ must be runtime by DEFAULT, so a new module beside sse_server.py is covered on the day "
     + "it is created — the only day the question can still be answered");
-  assert.ok(!SERVICE_RUNTIME_PATHS.includes("mcp/stdio"), "the bridge is not runtime");
-  assert.ok(SERVICE_RUNTIME_EXCLUDE_PATHS.includes("mcp/stdio"),
-    "and it must be excluded explicitly, or every bridge commit demands a container rebuild");
+  assert.ok(!SERVICE_RUNTIME_EXCLUDE_PATHS.some((p) => "mcp/stdio/".startsWith(`${p.replace(/\/$/, "")}/`)),
+    "nothing may exclude mcp/stdio: its manifest is in the image");
 });
 
-test("a real bridge-only commit is not selected by the real pathspec", () => {
-  // The property itself, run against git rather than against the arrays. The list assertions above
-  // describe a pathspec; only git can say what that pathspec SELECTS, and the exclude syntax
-  // (`:(exclude)`) is the part most likely to be written correctly-looking and wrong.
-  //
-  // THE SUBJECT IS FOUND, NOT HARDCODED: a pinned sha would rot, and this must keep meaning
-  // something as history grows. It walks back until it finds a commit whose every changed file is
-  // under mcp/stdio/ — a genuine bridge-only commit — and asserts the doctor's own pathspec skips
-  // it. If none exists in range the test says so rather than passing on an empty search.
+test("a real bridge-only commit is selected by the real pathspec", () => {
+  // The property itself, run against git rather than against the arrays: only git can say what a
+  // pathspec SELECTS. The subject is found, not hardcoded: the newest commit whose every changed file
+  // is under mcp/stdio/. If none exists in range the test says so rather than passing on an empty search.
   const git = (...args) => execFileSync("git", args, { cwd: REPO, encoding: "utf8" }).trim();
   const spec = [
     ...SERVICE_RUNTIME_PATHS,
@@ -178,19 +168,22 @@ test("a real bridge-only commit is not selected by the real pathspec", () => {
   }
   assert.ok(bridgeOnly, "no bridge-only commit found in the last 40 touching mcp/stdio — this "
     + "test proved nothing and must not be read as a pass");
+  assert.equal(git("log", "--format=%H", `${bridgeOnly}^..${bridgeOnly}`, "--", ...spec), bridgeOnly,
+    `${bridgeOnly} changes the served bridge manifest and must demand a rebuild`);
 
-  const selected = git("log", "--format=%H", `${bridgeOnly}^..${bridgeOnly}`, "--", ...spec);
-  assert.equal(selected, "", `${bridgeOnly} touches only mcp/stdio and must not demand a rebuild`);
-
-  // …and the same pathspec must still SELECT the SSE transport, or the exclude swallowed the
-  // include and every commit would look docs-only — the opposite false report, equally silent.
-  const sseCommit = git("log", "--format=%H", "-1", "--", "mcp/sse_server.py");
-  assert.ok(sseCommit, "expected mcp/sse_server.py to have history");
-  assert.equal(
-    git("log", "--format=%H", `${sseCommit}^..${sseCommit}`, "--", ...spec),
-    sseCommit,
-    "a commit touching the SSE transport MUST demand a rebuild",
-  );
+  // CONTROL: the excludes still exclude. A commit touching only service/tests must not be selected,
+  // or the pathspec selects everything and every row reads stale.
+  let testsOnly = null;
+  for (const sha of git("log", "--format=%H", "-80", "--", "service/tests").split("\n").filter(Boolean)) {
+    const touched = git("show", "--name-only", "--format=", sha).split("\n").filter(Boolean);
+    if (touched.length && touched.every((f) => f.startsWith("service/tests/"))) {
+      testsOnly = sha;
+      break;
+    }
+  }
+  assert.ok(testsOnly, "no service/tests-only commit found in the last 80 — the control proved nothing");
+  assert.equal(git("log", "--format=%H", `${testsOnly}^..${testsOnly}`, "--", ...spec), "",
+    `${testsOnly} touches only service/tests and must not demand a rebuild`);
 });
 
 test("real Git pathspec separates service runtime from shipped installer and test cargo", () => {
@@ -207,7 +200,7 @@ test("real Git pathspec separates service runtime from shipped installer and tes
   const cargo = [
     ...gitFiles("scripts"), "install.sh", "docs/INSTALL_ONBOARDING.md",
     "service/tests/test_service_runtime_boundary.py",
-    "service/new_dashboard/api-client.test.mjs", "mcp/stdio/register-identity.js",
+    "service/new_dashboard/api-client.test.mjs",
   ];
   assert.ok(cargo.some((p) => p === "scripts/install-state.sh"));
   assert.ok(cargo.some((p) => p === "scripts/tests/test_install_state.py"));
@@ -215,7 +208,7 @@ test("real Git pathspec separates service runtime from shipped installer and tes
     assert.ok(tracked.has(file), `${file} must exist or this exclusion proves nothing`);
     assert.ok(!selected.has(file), `${file} is not executed by the running service`);
   }
-  for (const file of ["service/main.py", "mcp/sse_server.py", "Dockerfile"]) {
+  for (const file of ["service/main.py", "mcp/sse_server.py", "Dockerfile", "mcp/stdio/register-identity.js"]) {
     assert.ok(tracked.has(file), `${file} must exist as a positive control`);
     assert.ok(selected.has(file), `${file} MUST remain a service rebuild trigger`);
   }

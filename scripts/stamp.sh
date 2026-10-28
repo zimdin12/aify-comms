@@ -55,14 +55,14 @@ elif command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >
   branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 fi
 
-# DIRTY: uncommitted changes to code the image runs (the same paths `aify-comms doctor`'s `service`
-# check counts). A build from such a tree matches no commit, so reporting only HEAD's sha let the
+# DIRTY: uncommitted changes to code the image runs or serves (the same paths `aify-comms doctor`'s
+# `service` check counts; mcp/stdio is served as the bridge manifest). A build from such a tree matches no commit, so reporting only HEAD's sha let the
 # doctor say "serving HEAD" while the running code differed (v0.7 scan B19). Asked of the checkout
 # whenever there is one, a supplied GIT_SHA included; a tree with no git reports false.
 dirty="false"
 if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   changed="$(git -C "$REPO_ROOT" status --porcelain -- service mcp config Dockerfile \
-    ':(exclude)service/tests' ':(exclude)service/**/*.test.mjs' ':(exclude)mcp/stdio' 2>/dev/null)"
+    ':(exclude)service/tests' ':(exclude)service/**/*.test.mjs' 2>/dev/null)"
   if [ -n "$changed" ]; then
     dirty="true"
   fi

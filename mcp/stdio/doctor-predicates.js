@@ -231,9 +231,11 @@ export const SERVICE_RUNTIME_PATHS = [
 export const SERVICE_RUNTIME_EXCLUDE_PATHS = [
   "service/tests",
   "service/**/*.test.mjs",
-  // Host-side bridge code the container never executes. Frequently edited, so leaving it in would
-  // demand a rebuild on most bridge commits — noise that trains the operator to ignore the check.
-  "mcp/stdio",
+  // NOT mcp/stdio (2026-10-28). The container never executes the bridge, but stamp.sh bakes its whole
+  // committed file set into the image as the `comms-bridge` manifest, and the installer's connect step
+  // refuses a client whose copy does not hash to it. After 84402543 this row read "none touching code
+  // the service executes" while that refusal fired. So what the service SERVES counts too, and a bridge
+  // commit needs a stamp and a rebuild before a client can install it.
 ];
 
 // Copied into the image but NOT executed by the service. Kept as an explicit, reasoned allowlist
@@ -265,8 +267,8 @@ export const BRIDGE_RUNTIME_EXCLUDE_PATHS = [
 
 export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
   "mcp": "partially runtime: mcp/ is listed in SERVICE_RUNTIME_PATHS, so anything added beside "
-    + "sse_server.py is runtime by default; mcp/stdio is excluded there as host-side bridge code "
-    + "the container never executes (covered by the bridge-installed check)",
+    + "sse_server.py is runtime by default; mcp/stdio is never executed by the container but is "
+    + "served as the comms-bridge manifest, so it counts there too",
   "integrations": "installer/host integration flows; no runtime consumer in service.main or "
     + "mcp/sse_server.py",
   ".agents": "Codex skill mirror cargo; referenced only by health/info text and tests",
@@ -415,7 +417,7 @@ function buildVerdict({
     ok: true,
     code: "ok",
     detail: `healthy — build ${short}; repo HEAD is ${headShort} (${Number(totalCommits) || 0} commit(s) ahead, `
-      + `none touching code the service executes)`,
+      + `none touching code the service executes or serves)`,
     fix: "",
   };
 }
