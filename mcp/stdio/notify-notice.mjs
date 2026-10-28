@@ -13,18 +13,33 @@
 // it has them (`collectUnseen`). Any FIXED window only moves the loss: reading the newest three hid a
 // fourth, and reading the newest twenty hid a twenty-first, which stayed unread and was never
 // surfaced while the newer ones stayed unread too (v0.7 review, twice).
+//
+// A LIVE CHANNEL SESSION GETS A QUEUED MESSAGE TWICE: here, and again when its channel run is claimed. So a Claude
+// session started on a channel route asks the service which unread messages wait on a queued channel run
+// (service/api_core/queued_for_channel.py) and leaves their bodies out. Those are kept apart from the body seen-set
+// and never count against `NOTICE_LIMIT`: if the run later fails, the body is shown as before. What was left out is
+// still named once, without bodies, so a channel that never claims cannot hide a message (`queuedCueText`).
 
 import { SAFETY_HEADER } from "./tool-response-format.mjs";
 import { quoteUntrustedSubject } from "./quote-subject.mjs";
+import { DEV_ROUTE, PLUGIN_ROUTE } from "./channel-producer.mjs";
 
 const MAX_BODY = 800;
 const SEEN_LIMIT = 200;
 const INBOX_WINDOW = 20;
 export const NOTICE_LIMIT = 3;
+// The seen bound plus as many queued messages again: 403 looked at, 21 pages of 20 at most.
+const MAX_LOOKED = 2 * SEEN_LIMIT + NOTICE_LIMIT;
 
-export function inboxUrl(serverUrl, agentId, offset = 0) {
+/** Is this hook running in a Claude session whose channel producer is live? The same route the producer reads,
+ * and the runtime claude-aify exports, because codex-aify fires this hook too and could inherit a route. */
+export function channelSessionOptsIn(env) {
+  return env.AIFY_RUNTIME === "claude-code" && [DEV_ROUTE, PLUGIN_ROUTE].includes(env.AIFY_CHANNEL_ROUTE);
+}
+
+export function inboxUrl(serverUrl, agentId, offset = 0, { queuedChannel = false } = {}) {
   return `${serverUrl}/api/v1/messages/inbox/${encodeURIComponent(agentId)}?filter=unread&limit=${INBOX_WINDOW}` +
-    `&offset=${offset}&peek=1`;
+    `&offset=${offset}&peek=1${queuedChannel ? "&queuedChannel=1" : ""}`;
 }
 
 /**
@@ -35,11 +50,13 @@ export function inboxUrl(serverUrl, agentId, offset = 0) {
  * It ends: every page either adds an id it has not looked at or stops the walk, which also stops it
  * against a service too old to know `offset` (it returns the first page again). And it is short: the
  * seen list holds at most `SEEN_LIMIT` ids, so `limit` unseen lie within the first
- * `SEEN_LIMIT + limit` unread, which is at most that many over `INBOX_WINDOW` pages.
+ * `SEEN_LIMIT + limit` unread, which is at most that many over `INBOX_WINDOW` pages. Queued-for-channel
+ * messages are skipped without entering the seen list, so they lengthen the walk; `MAX_LOOKED` caps it.
  */
 export async function collectUnseen(fetchPage, seenIds, limit = NOTICE_LIMIT) {
   const looked = new Set();
   const fresh = [];
+  const queued = [];
   let total = 0;
   for (let offset = 0; fresh.length < limit; offset += INBOX_WINDOW) {
     let page;
@@ -54,10 +71,10 @@ export async function collectUnseen(fetchPage, seenIds, limit = NOTICE_LIMIT) {
     const newlyLooked = (page.messages || []).filter((m) => m?.id && !looked.has(m.id));
     if (!newlyLooked.length) break;
     for (const m of newlyLooked) looked.add(m.id);
-    fresh.push(...unseen(newlyLooked, seenIds));
-    if (offset + INBOX_WINDOW >= total) break;
+    for (const m of unseen(newlyLooked, seenIds)) (m.queuedForChannel === true ? queued : fresh).push(m);
+    if (offset + INBOX_WINDOW >= total || looked.size >= MAX_LOOKED) break;
   }
-  return { fresh: fresh.slice(0, limit), total };
+  return { fresh: fresh.slice(0, limit), total, queued };
 }
 
 /** The ids already shown to THIS session; a record from another session, or none, is an empty set. */
@@ -66,8 +83,22 @@ export function seenForSession(stored, session) {
   return stored.session === session && Array.isArray(stored.ids) ? stored.ids : [];
 }
 
-export function seenRecord(session, ids) {
-  return { session, ids };
+/** The queued ids this session was already named in a cue: a set of its own, so a cue never marks a body shown. */
+export function cuedForSession(stored, session) {
+  return stored?.session === session && Array.isArray(stored.cued) ? stored.cued : [];
+}
+
+export function seenRecord(session, ids, cued = []) {
+  return { session, ids, cued };
+}
+
+/** What the session is told about bodies left out because a queued channel run will bring them: who sent each and
+ * its id, never its text, the unread total for what it is, and how to read one that does not arrive. */
+export function queuedCueText({ queued, total, agentId }) {
+  const lines = queued.map((m) => `- from ${m.from}, MessageId: ${m.id}`);
+  return `aify-comms: ${queued.length} unread message(s) are queued for this session's channel and arrive as ` +
+    `channel events, so their bodies are not repeated here (${total} unread in this agent's whole inbox):\n` +
+    `${lines.join("\n")}\nIf one has not arrived, read it with comms_inbox(agentId="${agentId}", messageId="<id>").`;
 }
 
 export function unseen(messages, seenIds) {

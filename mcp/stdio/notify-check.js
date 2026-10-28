@@ -13,7 +13,10 @@ import { createHash } from "crypto";
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { envAgentId } from "./bound-agent-id.mjs";
-import { collectUnseen, hookOutput, inboxUrl, noticeText, rememberSeen, seenForSession, seenRecord } from "./notify-notice.mjs";
+import {
+  channelSessionOptsIn, collectUnseen, cuedForSession, hookOutput, inboxUrl, noticeText, queuedCueText, rememberSeen,
+  seenForSession, seenRecord,
+} from "./notify-notice.mjs";
 
 // Settings env first: the endpoint and the key may only be named in ~/.claude/settings.local.json.
 loadSettingsEnv();
@@ -71,27 +74,32 @@ const SEEN_FILE = path.join(tmpDir, `aify-notify-seen-${agentId}.json`);
 // The session the notices are for: Claude Code names it in the hook payload; elsewhere the harness
 // process stands in for it, which a relaunch replaces too.
 const SESSION = String(hookPayload?.session_id || process.ppid || "");
-function readSeen() {
+function readStored() {
   try {
-    return seenForSession(JSON.parse(fs.readFileSync(SEEN_FILE, "utf-8")), SESSION);
+    return JSON.parse(fs.readFileSync(SEEN_FILE, "utf-8"));
   } catch {
-    return [];
+    return null;
   }
 }
 
 const headers = { Accept: "application/json" };
 if (API_KEY) headers["X-API-Key"] = API_KEY;
+const queuedChannel = channelSessionOptsIn(process.env);
 
 async function fetchPage(offset) {
   // NEVER FOLLOWED: `fetch` re-sends headers on a redirect, so a 302 would hand the key to whatever
   // it points at. A 3xx fails `res.ok` like any other non-2xx.
-  const resp = await fetch(inboxUrl(SERVER_URL, agentId, offset), { headers, redirect: "manual", signal: AbortSignal.timeout(3000) });
+  const resp = await fetch(inboxUrl(SERVER_URL, agentId, offset, { queuedChannel }), {
+    headers, redirect: "manual", signal: AbortSignal.timeout(3000),
+  });
   if (!resp.ok) return null;
   try { fs.unlinkSync(DOWN_FILE); } catch {}
   return resp.json();
 }
 
-const seenIds = readSeen();
+const stored = readStored();
+const seenIds = seenForSession(stored, SESSION);
+const cuedIds = cuedForSession(stored, SESSION);
 let collected;
 try {
   collected = await collectUnseen(fetchPage, seenIds);
@@ -111,12 +119,18 @@ fetch(`${SERVER_URL}/api/v1/agents/${encodeURIComponent(agentId)}/heartbeat`, {
   signal: AbortSignal.timeout(2000),
 }).catch(() => {});
 
-const { fresh, total } = collected;
-if (fresh.length) {
-  const notice = noticeText({ messages: fresh, total: total || fresh.length, agentId });
+const { fresh, total, queued } = collected;
+// A queued message is named once per session; the body seen-set never learns it, so a run that later fails shows it.
+const newlyQueued = queued.filter((m) => !cuedIds.includes(m.id));
+if (fresh.length || newlyQueued.length) {
+  const parts = [];
+  if (fresh.length) parts.push(noticeText({ messages: fresh, total: total || fresh.length, agentId }));
+  if (newlyQueued.length) parts.push(queuedCueText({ queued: newlyQueued, total, agentId }));
+  const notice = parts.join("\n\n");
   const output = hookPayload?.hook_event_name === "PostToolUse"
-    ? JSON.stringify(hookOutput(notice, { count: fresh.length }))
+    ? JSON.stringify(hookOutput(notice, { count: fresh.length + newlyQueued.length }))
     : notice;
   process.stdout.write(output + "\n");
-  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(seenRecord(SESSION, rememberSeen(seenIds, fresh)))); } catch {}
+  const record = seenRecord(SESSION, rememberSeen(seenIds, fresh), rememberSeen(cuedIds, newlyQueued));
+  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(record)); } catch {}
 }

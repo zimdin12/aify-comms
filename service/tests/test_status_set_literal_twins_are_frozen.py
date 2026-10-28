@@ -84,6 +84,13 @@ FROZEN: dict[str, dict] = {
             "service/schema.py",
         ],
     },
+    # Named 2026-10-28, when the notify hook's queued-channel projection came to need the claim's set; until then
+    # it was spelled out at every site.
+    "CHANNEL_CLAIMED_MODES": {
+        "owner": "service/api_core/claim_gating.py",
+        "values": ["channel", "resident"],
+        "hardcoded_in": ["service/api_core/active_run_lookup.py"],
+    },
     "_DISPATCH_TERMINAL_STATUSES": {
         "owner": "service/api_core/dispatch_state.py",
         "values": ["cancelled", "completed", "failed"],

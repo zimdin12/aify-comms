@@ -123,7 +123,8 @@ many start at once, leaving the channel server unregistered and messages undeliv
   clear `working` when a hook does not fire.
 - Optional legacy unread-message hook (`notify-check.js`): add a new one with
   `bash install.sh --standalone --client claude http://<service-host>:8800 --with-hook`.
-  It reports unread messages without marking them read. An existing readable, recognized hook is
+  It reports unread messages without marking them read. In a `claude-aify` session it names, without the body, a
+  message whose queued run the channel will deliver. An existing readable, recognized hook is
   refreshed automatically on later installs, including the plain chain. It is separate from the
   channel plugin and the turn hooks above.
 

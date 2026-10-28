@@ -42,12 +42,15 @@ kept as evidence. Last reviewed 2026-10-13.
 
 ## Found while proving the 0.9.11 switch (2026-10-28)
 
-- **A Claude agent with the channel can receive one message twice.** The PostToolUse unread notice
-  (`notify-check.js`) and the channel's dispatch event both carry it when the message arrives mid-turn: message
-  1793142198531-dcb60c55 reached comms-tech-lead as a notice during a tool call and again as a channel event after the
-  turn. About 0.8 KB plus the body, paid twice. Not yet measured how often. The inbox already marks such a message
-  (`dispatchRequested`), so the notice could skip it, but then a dispatch that never reaches the session would leave the
-  notice as no fallback. Fixing it needs the notice to know whether the run is still pending, not just requested.
+- **A Claude agent with the channel received one message twice** (narrowed in 0.9.14): the PostToolUse unread notice
+  (`notify-check.js`) and the channel's dispatch event both carried it when it arrived mid-turn (message
+  1793142198531-dcb60c55, to comms-tech-lead). Now a Claude session on a channel route leaves out the body of a message
+  whose newest run for it is unambiguously a queued channel or resident run (`service/api_core/queued_for_channel.py`),
+  and names it once, without its body, with the way to read it. Two gaps remain open:
+  - **A channel may never claim.** The notice names the message once and the body waits on the run. If the run
+    stays queued, nothing shows the body again until the run fails or the agent reads its inbox.
+  - **A claim marks the source read before its emission can fail.** A claimed run's message leaves the unread
+    inbox at the claim (`dispatch_claim.py`), so if the channel then fails to emit it, neither path shows it.
 
 ## Deferred by the 0.9.1 review (2026-10-13)
 

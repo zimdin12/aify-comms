@@ -28,6 +28,7 @@ from fastapi import HTTPException, Query, Request
 
 from service.api_core.inbox_read_receipts import _settle_inbox_read
 from service.api_core.message_view import _registered_senders, _serialize_message
+from service.api_core.queued_for_channel import queued_for_channel_ids
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -49,6 +50,7 @@ async def get_inbox(
     mode: str = Query("full", pattern="^(full|headers)$"),
     messageId: Optional[str] = None,
     peek: Optional[str] = None,
+    queuedChannel: Optional[str] = None,
 ):
     validate_name(agent_id, "agent ID")
     # A non-peek unread read marks its page read, which shifts the unread population under the next
@@ -134,6 +136,12 @@ async def get_inbox(
                 if parent:
                     msg["parentContext"] = {"from": parent["from_agent"], "subject": parent["subject"], "preview": (parent["body"] or "")[:100]}
             messages.append(msg)
+
+        # OPT-IN, for the notify hook in a live channel session (queued_for_channel.py says what it is not).
+        if queuedChannel:
+            queued = await queued_for_channel_ids(db, agent_id, [m["id"] for m in messages])
+            for msg in messages:
+                msg["queuedForChannel"] = msg["id"] in queued
 
         # Mark as read + update status (unless peek)
         await _settle_inbox_read(db, messages, agent_id, peek)

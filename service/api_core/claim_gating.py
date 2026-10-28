@@ -35,6 +35,10 @@ from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.models import DispatchClaimRequest
 
+#: The execution modes an in-session channel producer claims: `channel` for a managed agent, `resident` for one
+#: started by hand. The steer bypass below, and the notify hook's queued-channel projection, read this one set.
+CHANNEL_CLAIMED_MODES = frozenset({"channel", "resident"})
+
 
 def _dispatch_source_message_ids(row) -> list[str]:
     ids = []
@@ -169,7 +173,7 @@ async def _has_claimable_steerable_run(
         if bool(run["queue_if_busy"]) or not bool(run["steer_if_busy"]):
             continue
         run_execution_mode = str((run["execution_mode"] or "managed")).strip().lower()
-        if run_execution_mode not in {"channel", "resident"}:
+        if run_execution_mode not in CHANNEL_CLAIMED_MODES:
             continue
         if supported_modes and run_execution_mode not in supported_modes:
             continue
