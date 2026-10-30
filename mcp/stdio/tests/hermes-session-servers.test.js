@@ -48,19 +48,31 @@ function rig(services) {
   delete env.HERMES_DATA_DIR_SUFFIX;
   return {
     registry,
+    marker: path.join(home, ".aify", "hermes-config-pending.json"),
     run: (script = SCRIPT, ...flags) => spawnSync("bash", [script, ...flags, registry], { encoding: "utf8", env, timeout: 120_000 }),
     calls: () => fs.readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)),
     servers: () => JSON.parse(fs.readFileSync(state, "utf8")),
   };
 }
 
-test("THE WRITE gives hermes the opted-in server through its own config set, marked as aify-wrapper's", () => {
+// THE BRANCH IS THE ONE THE TOOL SAYS IT TOOK. Since aify-wrapper 72405ab the tool writes only into a host with no hermes
+// running and otherwise records the change as pending. It reads the real process table, which no test can seal, so on
+// a host running hermes the write cannot happen here (2026-10-30: this file failed on a host with 24 hermes running).
+// Either way the opted-in server must be what it acts on; the write itself is proven in aify-wrapper with its scan injected.
+test("THE OPTED-IN SERVER is written as aify-wrapper's on a quiet host, or recorded pending in this home while hermes runs", () => {
   const r = rig(OPTED_IN);
   const run = r.run();
   assert.equal(run.status, 0, run.stderr);
-  assert.equal(r.servers()["svc-mcp"]?.["x-aify-owner"], "aify-wrapper", JSON.stringify(r.servers()));
-  assert.ok(r.calls().some((args) => args[0] === "config" && args[1] === "set" && args[2] === "mcp_servers.svc-mcp"),
-    `no config set for the server: ${JSON.stringify(r.calls())}`);
+  const sets = r.calls().filter((args) => args[0] === "config" && args[1] === "set");
+  if (/the change is pending/.test(run.stdout)) {
+    assert.deepEqual(sets, [], `a deferred change still set hermes config: ${JSON.stringify(sets)}`);
+    const marker = JSON.parse(fs.readFileSync(r.marker, "utf8"));
+    assert.equal(path.resolve(marker.registry), path.resolve(r.registry), "the pending change names another registry");
+  } else {
+    assert.match(run.stdout, /hermes config: wrote svc-mcp/, run.stdout);
+    assert.equal(r.servers()["svc-mcp"]?.["x-aify-owner"], "aify-wrapper", JSON.stringify(r.servers()));
+    assert.ok(sets.some((args) => args[2] === "mcp_servers.svc-mcp"), `no config set for the server: ${JSON.stringify(sets)}`);
+  }
 });
 
 test("CONTROL: a registry with nothing opted in writes nothing", () => {
