@@ -16,8 +16,8 @@
 // WHAT IS LEFT HERE is only what running the wrapper cannot see: that the rendered text parses, that
 // emitting writes nothing else, the CONTENT of the hook settings file, and the EXIT trap. Identity,
 // endpoint resolution, the permission bypass, the anonymous-session warning and the channel server are
-// proven by running the wrapper in claude-wrapper-behaviour.test.js and claude-wrapper-contract.test.js,
-// and their text-only copies were removed on 2026-09-18.
+// proven by running the launcher in aify-wrapper's own tests, and their text-only copies were removed
+// on 2026-09-18.
 //
 // SAFETY: `--emit-claude-wrappers <dir>` renders into the given dir and exits BEFORE npm, before MCP
 // registration, before any hook install and before any env mutation. It cannot touch the operator's

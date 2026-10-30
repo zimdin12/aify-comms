@@ -12,7 +12,7 @@
 //      app-server launch AND the foreground/resume TUI launch apply
 //      ${CODEX_PERMISSION_FLAGS[@]} (the stub records only the foreground launch).
 //      The bypass being on by default and --safe removing it is proven by running
-//      the wrapper in codex-wrapper-behaviour.test.js.
+//      the launcher in aify-wrapper's own tests.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

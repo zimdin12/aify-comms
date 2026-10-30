@@ -14,18 +14,20 @@
 // the RENDERED wrapper, which is the artifact an operator actually runs, so a move cannot break them
 // and a broken render cannot hide from them.
 //
-// The BEHAVIOUR — the flag genuinely reaching or not reaching claude's command line under each
-// setting, and the managed model override — is proven by running the wrapper in
-// claude-wrapper-behaviour.test.js, so the text copies of those were removed on 2026-09-18. What is
-// left is the managed EFFORT, which nothing runs.
+// The launcher's own BEHAVIOUR (the flag reaching or not reaching claude's command line, the managed
+// model and effort) is proven by aify-wrapper's tests, which run its templates against a stub runtime.
+// What stays here is the seam this installer owns: the strict config it renders carries the channel
+// and points the comms tools at this service. The copies of aify-wrapper's tests that used to live in
+// claude-wrapper-behaviour and claude-wrapper-contract were deleted on 2026-10-30.
 import assert from "assert";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { renderWrapper } from "./wrapper-harness.mjs";
+import { renderWrapper, runWrapper } from "./wrapper-harness.mjs";
 
-const SRC = fs.readFileSync(path.join(renderWrapper("claude"), "claude-aify"), "utf8");
+const WRAPPER = path.join(renderWrapper("claude"), "claude-aify");
+const SRC = fs.readFileSync(WRAPPER, "utf8");
 
 test("the rendered wrapper is substantial enough for these assertions to mean anything", () => {
   // Guards against the whole file passing vacuously if the render ever produced a stub.
@@ -33,8 +35,19 @@ test("the rendered wrapper is substantial enough for these assertions to mean an
 });
 
 test("claude-aify consumes the managed effort env", () => {
-  // The managed MODEL is proven by running the wrapper in claude-wrapper-behaviour.test.js; the
-  // effort has no running test, so its text guard stays.
   assert.ok(/AIFY_MANAGED_EFFORT/.test(SRC), "expected claude-aify to read AIFY_MANAGED_EFFORT");
   assert.ok(/--effort/.test(SRC), "expected --effort to be passed when a managed effort is set");
+});
+
+test("strict mode loads the channel and no local tool bridge: the comms tools come from the service", () => {
+  // 0.9.11: this installer renders the http arm, so `HARNESS_MCP_COMMAND` (the stdio arm's bridge override,
+  // tested in aify-wrapper) has nothing to point. The strict config carries the channel alone, and the comms
+  // tools are this launch's own `--mcp-config=` entry for the service's /mcp/http.
+  const r = runWrapper(WRAPPER, { runtimeName: "claude", args: ["--aify-agent", "probe-agent"], env: { AIFY_CLAUDE_STRICT_MCP: "1" } });
+  assert.equal(r.launched, true, r.stderr);
+  assert.ok(r.argv.includes("--strict-mcp-config") && r.argv.includes("--mcp-config"), JSON.stringify(r.argv));
+  const config = r.files["--mcp-config"] || "";
+  assert.match(config, /claude-channel\.js/, "the channel server must be in the strict config");
+  assert.doesNotMatch(config, /server\.js"/, "no local tool bridge may be started");
+  assert.ok(r.argv.some((a) => a.startsWith("--mcp-config=")), "the service's comms tools must be added for this launch");
 });

@@ -14,8 +14,8 @@ breaks on a move and stays green on a defect.
 
 They now render the wrapper and assert on the ARTIFACT an operator installs, which survives the text
 moving and would fail if the rendering broke. The behaviour itself — a stale id actually being
-cleared, a valid one actually being kept — is proven by EXECUTING the wrapper in
-mcp/stdio/tests/claude-wrapper-behaviour.test.js; these remain as cheap structural guards on the
+cleared, a valid one actually being kept — is proven by EXECUTING the launcher in aify-wrapper's
+own tests; these remain as cheap structural guards on the
 rendered output.
 """
 

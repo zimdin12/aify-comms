@@ -34,8 +34,8 @@ assert.doesNotMatch(
   "codex-aify must not background the visible Codex TUI; bash detaches stdin for async jobs",
 );
 
-// The bypass being ON by default, and --safe removing it, is proven by running the wrapper in
-// codex-wrapper-behaviour.test.js. What only the text can show is the full list of opt-out spellings.
+// The bypass being ON by default, and --safe removing it, is proven by running the launcher in
+// aify-wrapper's own tests. What only the text can show is the full list of opt-out spellings.
 assert.match(
   installScript,
   /--safe\|--no-auto\|--no-dangerous-permissions/,
