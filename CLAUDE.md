@@ -153,10 +153,11 @@ The host checks are in `aify-env doctor` since 0.9.7: `env-processes`, `managed-
 
 ## Testing a change
 
-Run every suite for every change: no suite stays inside its own tree (bridge tests read `install.sh`
-and the service, python tests read `mcp/stdio`, dashboard tests read both), so a targeted run is green
-because it did not look. `node --check` only parses. The counts below are a snapshot; the run is the
-authority, and a very different number means a wrong invocation before it means anything else.
+No suite stays inside its own tree: bridge tests read `install.sh` and the service, python tests read
+`mcp/stdio`, dashboard tests read both. A targeted run therefore includes the tests that read what you
+changed, not only its own test file. `node --check` only parses. The counts below are a snapshot; the
+run is the authority, and a very different number means a wrong invocation before it means anything
+else.
 
 ```bash
 python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5197 passed, 24 skipped
