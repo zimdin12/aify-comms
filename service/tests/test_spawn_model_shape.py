@@ -60,17 +60,22 @@ class ModelShapeTests(unittest.TestCase):
         self.assertEqual(_make("  opus  ").model, "opus")
 
     def test_a_router_model_id_with_a_space_is_accepted_at_every_door(self):
-        """claude-code-router routes "<provider> <plan>/<model>"; the operator's agents run
-        "OpenAI Subscription/gpt-6.1-sol". A space once counted as a typo here and refused that id
-        with a 422 at every door. Every launcher passes the model as one quoted argument."""
+        """claude-code-router routes "<provider> <plan>/<model>", e.g. "OpenAI Subscription/gpt-6.1-sol".
+        A space once counted as a typo here, so every request model refused that id. Every launcher
+        carries the model as one value: an argv element, an env value or a TOML string."""
         from service.models import AgentEnvironmentAssignRequest, AgentRegister
 
         routed = "OpenAI Subscription/gpt-6.1-sol"
-        self.assertEqual(_make(routed).model, routed)
-        self.assertEqual(AgentEnvironmentAssignRequest(environmentId="e", model=routed).model, routed)
-        self.assertEqual(AgentRegister(agentId="a", role="coder", model=routed).model, routed)
-        self.assertEqual(SpawnRequestCreate(**BASE, runtimeConfig={"model": routed}).runtimeConfig,
-                         {"model": routed})
+        doors = {
+            "spawn": lambda: _make(routed).model,
+            "assign": lambda: AgentEnvironmentAssignRequest(environmentId="e", model=routed).model,
+            "register": lambda: AgentRegister(agentId="a", role="coder", model=routed).model,
+            "runtimeConfig": lambda: SpawnRequestCreate(
+                **BASE, runtimeConfig={"model": routed}).runtimeConfig["model"],
+        }
+        for door, admitted in doors.items():
+            with self.subTest(door):
+                self.assertEqual(admitted(), routed)
 
     # ── rejected: strings that cannot be a model name ────────────────────────────
     def test_an_INTERNAL_newline_or_tab_is_rejected(self):

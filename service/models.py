@@ -51,7 +51,7 @@ class _MachineIdNormalizingModel(BaseModel):
 # a model name at all — control characters, shell metacharacters, absurd length. Those are typos and
 # bad pastes, they are certain rather than probable, and catching them costs one comparison instead
 # of a day. A SPACE is allowed: a router's model id is "<provider> <plan>/<model>" (claude-code-router
-# routes "OpenAI Subscription/gpt-6.1-sol"), and every launcher passes the model as one quoted argument.
+# routes "OpenAI Subscription/gpt-6.1-sol"), and every launcher carries the model as one value (argv element, env value or TOML string).
 _MODEL_MAX_LEN = 120
 _MODEL_FORBIDDEN = set('\t\r\n"\'`;|&$<>(){}[]*?!\\')
 
