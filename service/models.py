@@ -48,11 +48,12 @@ class _MachineIdNormalizingModel(BaseModel):
 # provider rejected a model.
 #
 # What is left for this boundary is the class an allowlist is not needed for: strings that cannot be
-# a model name at all — whitespace inside, control characters, shell metacharacters, absurd length.
-# Those are typos and bad pastes, they are certain rather than probable, and catching them costs one
-# comparison instead of a day.
+# a model name at all — control characters, shell metacharacters, absurd length. Those are typos and
+# bad pastes, they are certain rather than probable, and catching them costs one comparison instead
+# of a day. A SPACE is allowed: a router's model id is "<provider> <plan>/<model>" (claude-code-router
+# routes "OpenAI Subscription/gpt-6.1-sol"), and every launcher passes the model as one quoted argument.
 _MODEL_MAX_LEN = 120
-_MODEL_FORBIDDEN = set(' \t\r\n"\'`;|&$<>(){}[]*?!\\')
+_MODEL_FORBIDDEN = set('\t\r\n"\'`;|&$<>(){}[]*?!\\')
 
 
 def validate_runtime_config_model(value):
@@ -109,7 +110,7 @@ def drop_unusable_model_selfreport(value):
 
     So this DROPS an unusable value instead of rejecting it or repairing it. Dropping means "we do
     not know this agent's model", and the launch falls back to the runtime default. Repairing would
-    be the wrong choice for the same reason `terminal_diagnostics` refuses to guess: "opus 5"
+    be the wrong choice for the same reason `terminal_diagnostics` refuses to guess: "opus;5"
     mangled into "opus5" is a confident answer nobody can trace, while absence is honest.
     """
     if value is None:
@@ -162,7 +163,7 @@ def _validate_model_shape(value):
         shown = ", ".join(repr(c) for c in bad)
         raise ValueError(
             f"model name contains characters a runtime CLI cannot receive as one argument ({shown}). "
-            "A model name is a single token like 'opus' or 'gpt-5.5'."
+            "A model name looks like 'opus', 'gpt-5.5' or 'OpenAI Subscription/gpt-6.1-sol'."
         )
     return text
 

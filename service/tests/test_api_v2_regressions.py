@@ -546,7 +546,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         fleet's model.
         """
         base = self.client.get("/api/v1/settings").json()
-        for hostile in ["opus 5", "opus;rm -rf /", "m" * 500, "$(id)"]:
+        for hostile in ["opus\n5", "opus;rm -rf /", "m" * 500, "$(id)"]:
             with self.subTest(hostile):
                 r = self.client.put("/api/v1/settings", json={"managed_claude_model": hostile})
                 self.assertEqual(r.status_code, 400, f"{hostile!r} must be refused, not stored")

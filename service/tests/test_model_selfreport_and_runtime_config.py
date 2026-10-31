@@ -40,7 +40,6 @@ UNUSABLE = [
     "opus | tee /tmp/x",
     "opus`whoami`",
     "opus$(id)",
-    "claude opus",          # a space INSIDE the name
     "opus\nsonnet",
     "opus\tsonnet",
     'opus"quoted',
@@ -51,7 +50,8 @@ UNUSABLE = [
     "m" * 121,              # absurd length
 ]
 
-USABLE = ["opus", "gpt-5.5", "claude-sonnet-5", "claude-haiku-4-5-20251001", "o3-mini"]
+USABLE = ["opus", "gpt-5.5", "claude-sonnet-5", "claude-haiku-4-5-20251001", "o3-mini",
+          "OpenAI Subscription/gpt-6.1-sol"]
 
 
 # ── the self-report drops rather than rejects ────────────────────────────────────────────────
@@ -71,7 +71,7 @@ def test_blank_and_none_mean_no_model_rather_than_an_error():
 
 
 def test_surrounding_whitespace_is_trimmed_not_treated_as_forbidden():
-    """The forbidden set contains space, so trimming must happen FIRST or every padded name dies."""
+    """The forbidden set contains newline, so trimming must happen FIRST or every pasted name dies."""
     assert drop_unusable_model_selfreport("  opus  ") == "opus"
     assert drop_unusable_model_selfreport("opus\n") == "opus"
 

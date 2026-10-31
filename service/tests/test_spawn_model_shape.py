@@ -59,13 +59,20 @@ class ModelShapeTests(unittest.TestCase):
     def test_surrounding_whitespace_is_trimmed_not_rejected(self):
         self.assertEqual(_make("  opus  ").model, "opus")
 
-    # ── rejected: strings that cannot be a model name ────────────────────────────
-    def test_a_space_INSIDE_the_name_is_rejected(self):
-        """The typo that motivated this: "opus 5" reaches the CLI as two arguments."""
-        with self.assertRaises(pydantic.ValidationError) as caught:
-            _make("opus 5")
-        self.assertIn("single token", str(caught.exception))
+    def test_a_router_model_id_with_a_space_is_accepted_at_every_door(self):
+        """claude-code-router routes "<provider> <plan>/<model>"; the operator's agents run
+        "OpenAI Subscription/gpt-6.1-sol". A space once counted as a typo here and refused that id
+        with a 422 at every door. Every launcher passes the model as one quoted argument."""
+        from service.models import AgentEnvironmentAssignRequest, AgentRegister
 
+        routed = "OpenAI Subscription/gpt-6.1-sol"
+        self.assertEqual(_make(routed).model, routed)
+        self.assertEqual(AgentEnvironmentAssignRequest(environmentId="e", model=routed).model, routed)
+        self.assertEqual(AgentRegister(agentId="a", role="coder", model=routed).model, routed)
+        self.assertEqual(SpawnRequestCreate(**BASE, runtimeConfig={"model": routed}).runtimeConfig,
+                         {"model": routed})
+
+    # ── rejected: strings that cannot be a model name ────────────────────────────
     def test_an_INTERNAL_newline_or_tab_is_rejected(self):
         for hostile in ["opus\nsonnet", "opus\ttab", "opus\rsonnet"]:
             with self.subTest(repr(hostile)):
@@ -95,7 +102,7 @@ class ModelShapeTests(unittest.TestCase):
     def test_the_error_says_what_a_model_name_looks_like(self):
         """A rejection an operator cannot act on just moves the confusion earlier."""
         with self.assertRaises(pydantic.ValidationError) as caught:
-            _make("claude opus 5")
+            _make("claude;opus 5")
         message = str(caught.exception)
         self.assertIn("opus", message)
         self.assertIn("gpt-5.5", message)
@@ -123,7 +130,7 @@ class EveryIngressTests(unittest.TestCase):
         the environment-assign door refuses every shape the spawn door does."""
         from service.models import SpawnRequestCreate, AgentEnvironmentAssignRequest, validate_model_shape
 
-        for hostile in ["opus 5", "opus;rm", "opus\nsonnet", "$(id)", "a`b", "x" * 300, "m" * 500]:
+        for hostile in ["opus\t5", "opus;rm", "opus\nsonnet", "$(id)", "a`b", "x" * 300, "m" * 500]:
             with self.subTest(hostile):
                 with self.assertRaises(ValueError):
                     validate_model_shape(hostile)
@@ -146,7 +153,7 @@ class SelfReportIngressTests(unittest.TestCase):
     def test_registration_survives_an_unusable_model(self):
         from service.models import AgentRegister
 
-        for hostile in ["opus 5", "opus;rm", "m" * 500]:
+        for hostile in ["opus\t5", "opus;rm", "m" * 500]:
             with self.subTest(hostile):
                 agent = AgentRegister(agentId="a", role="coder", model=hostile)
                 self.assertIsNone(agent.model, "an unusable self-reported model becomes unknown")
@@ -184,7 +191,7 @@ class FifthDoorTests(unittest.TestCase):
     be added to this class in the same commit.
     """
 
-    HOSTILE = ["opus; rm -rf /", "opus 5", "$(id)", "`id`", "opus\nsonnet", "m" * 500]
+    HOSTILE = ["opus; rm -rf /", "opus\t5", "$(id)", "`id`", "opus\nsonnet", "m" * 500]
 
     def test_the_spawn_path_rejects_a_hostile_runtime_config_model(self):
         for hostile in self.HOSTILE:
