@@ -126,6 +126,17 @@ class ASameIdHandoffRestartsFresh(FastApiTestCase):
         self.assertEqual(answer.json()["definitionRequest"]["agentId"], "coder-2")
         self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
 
+    def test_continue_as_under_the_source_agents_own_id_is_refused_not_restarted(self):
+        """Continue as is a NEW identity (splitIdentity). Typed with the source's own id it was read as a same-id
+        handoff and restarted that agent into a fresh conversation (action audit #6, 2026-11-02). It is refused before
+        anything is queued; the same-id Compact (splitIdentity false) still restarts, as the test above shows."""
+        continue_as = {**DASHBOARD, "splitIdentity": True, "sameAgentId": True}
+        answer = self.handoff(continue_as, subject="Continue as from coder")
+        self.assertEqual(answer.status_code, 422, answer.text)
+        self.assertIn("new agent id", answer.json()["detail"])
+        self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [], "a refusal queued a restart")
+        self.nothing_spawned_or_defined()
+
     def test_only_the_named_source_makes_it_the_same_id(self):
         self.assertFalse(same_id_handoff("coder", {"compactMode": "handoff", "sameAgentId": True}),
                          "the caller's sameAgentId claim is not read")

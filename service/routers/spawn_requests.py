@@ -42,7 +42,7 @@ from service import longpoll
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.claim_emptiness import spawn_request_is_empty
 from service.api_core.definition_creation import admit_creation, created_agent
-from service.api_core.handoff_restart import restart_with_brief, same_id_handoff
+from service.api_core.handoff_restart import continue_as_into_own_id, restart_with_brief, same_id_handoff
 from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import (
     operator_key_from, prove_operator, recorded_operator_actor, refuse_a_reserved_agent_id,
@@ -260,6 +260,10 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     try:
         # A HANDOFF INTO ITS OWN ID restarts the defined agent into a fresh conversation, the brief its first
         # message (0.9.1, handoff_restart.py). One no host defines falls through to the refusals below.
+        # Continue as names a new identity, so its own id is refused here rather than restarted.
+        if continue_as_into_own_id(req.agentId, req.metadata):
+            raise HTTPException(422, f'Continue as needs a new agent id, not "{req.agentId}"; to restart '
+                                     f'"{req.agentId}" into a fresh conversation with the brief, use Compact')
         if same_id_handoff(req.agentId, req.metadata):
             brief = ({"subject": req.subject or f"Handoff {req.agentId}", "body": req.initialMessage,
                       "priority": req.priority or "normal"} if str(req.initialMessage or "").strip() else None)

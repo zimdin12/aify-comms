@@ -25,6 +25,13 @@ def same_id_handoff(agent_id: str, metadata: dict | None) -> bool:
     return meta.get("compactMode") == "handoff" and source == agent_id
 
 
+def continue_as_into_own_id(agent_id: str, metadata: dict | None) -> bool:
+    """True for the dashboard's Continue as (`splitIdentity`) naming the source agent's own id. Continue as makes a
+    NEW identity; read as a same-id handoff it restarted the source instead (action audit #6, 2026-11-02)."""
+    meta = metadata or {}
+    return meta.get("splitIdentity") is True and meta.get("continuedFromAgentId") == agent_id
+
+
 def _same_path(a: str, b: str, *, windows: bool) -> bool:
     """PURE: one directory as its host reads it. A trailing slash never counts; slashes and case count only off Windows,
     where `/WORK` and `/work` are two folders (review of 0.9.1, R5)."""
