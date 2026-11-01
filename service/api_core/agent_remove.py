@@ -81,6 +81,14 @@ async def remove_agent(db, agent_id: str, *, actor: str, reason: str,
         if why:
             await db.rollback()
             return 0, why
+    # THE ROW IS LOOKED FOR WHERE IT IS DELETED (review of 8b488416). A removal that found the agent earlier can reach
+    # here after a competing one removed it; writing anyway cancelled work and rewrote the winner's tombstone. In the
+    # transaction that deletes, an absent row means nothing is left to remove, so nothing is written.
+    if not db.in_transaction:
+        await db.execute("BEGIN IMMEDIATE")
+    if not await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,))).fetchone():
+        await db.rollback()
+        return 0, ""
     deleted = await _remove_agent_record(db, agent_id, removed_by=actor, reason=reason)
     await db.commit()
     return deleted, ""

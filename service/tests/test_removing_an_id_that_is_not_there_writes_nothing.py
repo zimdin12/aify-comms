@@ -32,7 +32,13 @@ class RemovingAnIdThatIsNotThereWritesNothing(FastApiTestCase):
                  "VALUES (?, 'operator', ?, 'queued', '2026-11-01T00:00:00Z')", (f"run-{agent_id}", agent_id))
 
     def tombstones(self):
-        return [row["agent_id"] for row in self.sql("SELECT agent_id FROM agent_tombstones ORDER BY agent_id")]
+        """Whole rows, not ids: a rewrite of the same id (INSERT OR REPLACE) changes its time and metadata."""
+        return self.sql("SELECT * FROM agent_tombstones ORDER BY agent_id")
+
+    def mark_tombstone(self, agent_id):
+        """Give an existing tombstone values no removal writes, so any rewrite of it shows."""
+        self.sql("UPDATE agent_tombstones SET removed_at = '2000-01-01T00:00:00Z', removed_by = 'sentinel', "
+                 "bridge_id = 'bridge-sentinel', reason = 'sentinel' WHERE agent_id = ?", (agent_id,))
 
     def assert_nothing_written(self, agent_id):
         before_runs = self.sql("SELECT id, status FROM dispatch_runs ORDER BY id")
@@ -57,8 +63,35 @@ class RemovingAnIdThatIsNotThereWritesNothing(FastApiTestCase):
     def test_a_repeat_removal_writes_nothing_more(self):
         self.register("twice")
         self.assertTrue(self.client.delete("/api/v1/agents/twice").json()["ok"])
-        self.assertEqual(self.tombstones(), ["twice"])
+        self.assertEqual([row["agent_id"] for row in self.tombstones()], ["twice"])
+        self.mark_tombstone("twice")
         self.assert_nothing_written("twice")
+
+    def test_a_removal_that_loses_to_a_competing_one_before_its_lock_writes_nothing(self):
+        """Review of 8b488416: the route saw the agent, then a competing removal deleted it and wrote its tombstone
+        before this one took the removal's write lock. The loser must leave the winner's tombstone and the work as they
+        are; the presence check that decides it runs in the transaction that would delete."""
+        import service.routers.agents.identity as identity
+
+        self.register("contested")
+        self.queued_run_for("contested")
+        real = identity.remove_agent
+
+        async def competitor_wins_first(db, agent_id, **kwargs):
+            self.sql("DELETE FROM agents WHERE id = ?", (agent_id,))
+            self.sql("INSERT INTO agent_tombstones (agent_id, removed_at, removed_by, bridge_id, reason) "
+                     "VALUES (?, '2000-01-01T00:00:00Z', 'winner', 'bridge-winner', 'winner')", (agent_id,))
+            self.sql("UPDATE dispatch_runs SET status = 'cancelled' WHERE target_agent = ?", (agent_id,))
+            return await real(db, agent_id, **kwargs)
+
+        identity.remove_agent = competitor_wins_first
+        self.addCleanup(setattr, identity, "remove_agent", real)
+        answer = self.client.delete("/api/v1/agents/contested")
+        self.assertEqual(answer.status_code, 200, answer.text)
+        self.assertFalse(answer.json()["ok"], "the loser removed nothing and must say so")
+        self.assertEqual(self.tombstones(), [{"agent_id": "contested", "removed_at": "2000-01-01T00:00:00Z",
+                                              "removed_by": "winner", "bridge_id": "bridge-winner", "reason": "winner"}],
+                         "the losing removal rewrote the winner's tombstone")
 
     def test_CONTROL_a_real_removal_still_tombstones_and_cancels_its_work(self):
         self.register("leaving")
@@ -66,5 +99,5 @@ class RemovingAnIdThatIsNotThereWritesNothing(FastApiTestCase):
         answer = self.client.delete("/api/v1/agents/leaving")
         self.assertEqual(answer.status_code, 200, answer.text)
         self.assertTrue(answer.json()["ok"])
-        self.assertEqual(self.tombstones(), ["leaving"])
+        self.assertEqual([row["agent_id"] for row in self.tombstones()], ["leaving"])
         self.assertNotEqual(self.sql("SELECT status FROM dispatch_runs WHERE id = 'run-leaving'"), [{"status": "queued"}])

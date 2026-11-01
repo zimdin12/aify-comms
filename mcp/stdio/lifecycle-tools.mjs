@@ -72,7 +72,7 @@ export function registerLifecycleTools(server, z) {
             ? `Removed agent "${agentId}". If it had a managed worker, its host stops that within `
               + "about half a minute -- confirm with comms_agents or the environment's own process "
               + "list if you need it gone before acting on that."
-            : `Agent "${agentId}" was already absent; future auto re-registration is blocked until explicit register.`,
+            : `Nothing removed: "${agentId}" is not registered. If it was removed before, that removal still blocks its automatic re-registration.`,
         }],
       };
     }

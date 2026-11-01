@@ -42,7 +42,7 @@
         "body": null
       }
     ],
-    "text": "Agent \"agent-b\" was already absent; future auto re-registration is blocked until explicit register.",
+    "text": "Nothing removed: \"agent-b\" is not registered. If it was removed before, that removal still blocks its automatic re-registration.",
     "isError": false
   },
   {

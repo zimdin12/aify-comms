@@ -40,7 +40,7 @@ async def comms_remove_agent(agentId: str = Field(description="Agent ID to remov
     if r.get("ok"):
         return (f'Removed agent "{agentId}". If it had a managed worker, its host stops that within about half a minute '
                 "-- confirm with comms_agents or the environment's own process list if you need it gone before acting on that.")
-    return f'Agent "{agentId}" was already absent; future auto re-registration is blocked until explicit register.'
+    return f'Nothing removed: "{agentId}" is not registered. If it was removed before, that removal still blocks its automatic re-registration.'
 
 
 async def comms_delete_session(sessionId: str = Field(description="Runtime session ID to delete")):
