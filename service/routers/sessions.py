@@ -63,6 +63,7 @@ from service.db import get_db
 # fail import -- FastAPI demotes the body to a query param and the route 422s at request time.
 from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 from service.api_core.terminal_status import _TERMINAL_END_STATUSES
+from service.api_core.owed_stop import owed_stop
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
@@ -257,6 +258,8 @@ async def list_sessions(
 async def delete_session(session_id: str, request: Request):
     db = await get_db()
     try:
+        # ONE FENCE from the checks to the deletes, so a stop queued or failed meanwhile is seen (action audit #3).
+        await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))
         session = await cursor.fetchone()
         if not session:
@@ -268,6 +271,10 @@ async def delete_session(session_id: str, request: Request):
                 409,
                 f'Session "{session_id}" is {status or "active"}; stop or finish it before deleting the session record.',
             )
+        owed = await owed_stop(db, session_id)
+        if owed:
+            raise HTTPException(409, f'Session "{session_id}" cannot be deleted yet: {owed}; deleting it would erase '
+                                     'that stop. Delete it once the stop is carried out.')
 
         terminal_rows = await (await db.execute("SELECT * FROM terminal_sessions WHERE session_id = ?", (session_id,))).fetchall()
         stale_active_terminal_ids = [

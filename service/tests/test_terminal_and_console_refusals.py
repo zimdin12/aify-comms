@@ -229,6 +229,32 @@ class TerminalAndConsoleRefusalTests(FastApiTestCase):
                 response = self.client.delete(f"/api/v1/sessions/{session_id}")
                 self.assertEqual(response.status_code, 200, response.text)
 
+    def test_a_stop_still_owed_keeps_its_session_from_being_deleted(self):
+        """Action audit #3, 2026-11-02. Stop marks the session `stopped` at once and queues the terminal's stop for its
+        host; Delete then erased that control before any host claimed it, so the worker was never stopped and nothing
+        recorded that it was owed. A stop pending OR claimed refuses the delete and is kept; once handled, it goes."""
+        self._seed_terminal("pi")
+        stop = self.client.post(f"/api/v1/sessions/{SESSION_ID}/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stop.status_code, 200, stop.text)
+        controls = lambda: self._read("SELECT action, status FROM terminal_controls WHERE terminal_id = ?", (TERMINAL_ID,))
+        self.assertEqual(controls(), {"action": "stop", "status": "pending"}, "the Stop queued no terminal stop")
+        for owed in ("pending", "claimed"):
+            with self.subTest(owed=owed):
+                self._write("UPDATE terminal_controls SET status = ? WHERE terminal_id = ?", (owed, TERMINAL_ID))
+                response = self.client.delete(f"/api/v1/sessions/{SESSION_ID}")
+                self.assertEqual(response.status_code, 409, response.text)
+                self.assertIn("stop", response.json()["detail"])
+                self.assertEqual(controls(), {"action": "stop", "status": owed}, "the refusal lost the owed stop")
+        with self.subTest("failed, and its terminal still live"):
+            # A stop that failed is no evidence the worker ended; while its terminal still reads live, keep the record.
+            self._write("UPDATE terminal_controls SET status = 'failed' WHERE terminal_id = ?", (TERMINAL_ID,))
+            response = self.client.delete(f"/api/v1/sessions/{SESSION_ID}")
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(controls(), {"action": "stop", "status": "failed"})
+        with self.subTest("handled"):
+            self._write("UPDATE terminal_controls SET status = 'completed' WHERE terminal_id = ?", (TERMINAL_ID,))
+            self.assertEqual(self.client.delete(f"/api/v1/sessions/{SESSION_ID}").status_code, 200)
+
     def test_a_session_with_NO_status_reads_as_active_rather_than_deletable(self):
         """Fail safe on missing evidence: an empty status is not proof the worker is gone, and the
         message says "active" rather than quoting an empty string at the operator."""
