@@ -707,10 +707,14 @@ test("THE HANDLERS USE THOSE MESSAGES: a refused handle and an unchanged mode ar
   } finally { h.restore(); }
 });
 
-test("A RENAME THAT ORPHANED A LIVE SESSION IS WHAT THE EDIT TOAST SAYS, in warn; one that did not adds nothing", async () => {
-  // Action audit #11, through the handler: submitAgentEdit dropped the rename answer, so the service's note that a
-  // live session still runs under the old id never reached the operator. The note helper alone cannot show that.
-  for (const [hadLiveBridge, expectNote] of [[true, true], [false, false]]) {
+// Action audit #11, through the handler: submitAgentEdit dropped the rename answer, so the service's note that a
+// live session still runs under the old id never reached the operator. The note helper alone cannot show that.
+// One test per arm (review of a1cea2fb): in a shared loop, a red first arm never ran the control.
+for (const [hadLiveBridge, expectNote, name] of [
+  [true, true, "A RENAME THAT ORPHANED A LIVE SESSION IS WHAT THE EDIT TOAST SAYS, in warn"],
+  [false, false, "CONTROL: a rename with no live session adds no note to the edit toast, which stays ok"],
+]) test(name, async () => {
+  {
     const h = withActions({ confirm: true, fields: { "edit-agent-id": "coder2", "edit-agent-desc": "", "edit-agent-handle": "h1" } });
     const toasts = [];
     const make = globalThis.document.createElement;
