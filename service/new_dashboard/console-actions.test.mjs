@@ -133,6 +133,28 @@ test("resync RESETS before repainting — the 'refresh does not actually fix it'
   } finally { h.restore(); }
 });
 
+test("resync says whether it repainted, so Refresh does not report a fetch that failed (action audit #11)", async () => {
+  // The failure path drains held frames and swallows the error on purpose; its caller toasted "Console refreshed"
+  // either way. The answer is now whether a snapshot was painted.
+  const h = withConsole();
+  try {
+    state.activeXterm = makeEntry();
+    assert.equal(await resyncActiveConsole(), true, "a painted snapshot is a refresh");
+  } finally { h.restore(); }
+  const failing = withConsole();
+  const fetchOk = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    if ((options.method || "GET").toUpperCase() === "GET") throw new Error("snapshot fetch failed");
+    return fetchOk(url, options);
+  };
+  try {
+    const entry = makeEntry();
+    state.activeXterm = entry;
+    assert.equal(await resyncActiveConsole(), false, "a failed fetch is not a refresh");
+    assert.equal(entry.__resets || 0, 0, "control: nothing was reset");
+  } finally { failing.restore(); }
+});
+
 test("resync fetches at the FITTED width, not the current one", async () => {
   // The current width may already be the widened one. Fetching at it stops the server re-inferring
   // the source width, and the console comes back at the wrong size — which is what widened it.

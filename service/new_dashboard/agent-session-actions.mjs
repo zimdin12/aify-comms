@@ -104,7 +104,15 @@ export function modeSwitchMessage(agentId, body, mode) {
   const parts = [`Switched ${agentId} to ${mode}`];
   if (body?.warning) parts.push(String(body.warning));
   if (body?.resumeCommand) parts.push(`Take over with: ${body.resumeCommand}`);
-  return { text: parts.join('. '), tone: body?.warning ? 'warn' : 'ok' };
+  // THE SWITCH LANDED BUT ITS SIDE EFFECT FAILED (action audit #11): the service reports that in sideEffects.error.
+  const sideEffectError = String(body?.sideEffects?.error || '').trim();
+  if (sideEffectError) parts.push(`But: ${sideEffectError}`);
+  return { text: parts.join('. '), tone: body?.warning || sideEffectError ? 'warn' : 'ok' };
+}
+
+/** What a rename answer owes the operator: its note when a live session kept the old id (action audit #11), else "". */
+export function renameNote(answer) {
+  return answer?.hadLiveBridge ? String(answer.note || '').trim() : '';
 }
 
 /** What happened to a requested session handle the service did not simply take; "" when it was taken. */
@@ -136,6 +144,7 @@ export async function submitAgentEdit(agentId) {
   // QUEUED IS NOT SAVED: a defined agent's change is a request its host applies when it syncs, and the
   // failure toast must say so rather than list it as saved (review of 0.9.5, D8 residual).
   let requested = '';
+  let renamed = '';
   try {
     // A DEFINED AGENT'S FIELDS ARE ITS DEFINITION'S, asked FIRST as ONE request: a refusal (another change still
     // waiting) leaves nothing saved, and its id is not renamed (definition-edit.mjs).
@@ -181,11 +190,11 @@ export async function submitAgentEdit(agentId) {
       }
       step = 'rename';
       if (willRename) {
-        await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
+        renamed = renameNote(await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) }));
       }
     }
     step = 'refresh after saving';
-    toast([requested || 'Agent updated', handleNote].filter(Boolean).join('. '), handleNote ? 'warn' : 'ok');
+    toast([requested || 'Agent updated', handleNote, renamed].filter(Boolean).join('. '), handleNote || renamed ? 'warn' : 'ok');
     closeInspector();
     await refresh();
   } catch (err) {
@@ -305,7 +314,9 @@ export async function stopAgentWorker(agentId) {
       method: 'POST',
       body: JSON.stringify({ requestedBy: 'dashboard' }),
     });
-    toast(requestedInAifyEnv(answer, agentId) || `Stopped ${agentId}'s worker`, 'ok');
+    // REQUESTED, NOT DONE (action audit #8): the answer is the stop's acceptance; its terminal's own report says when
+    // the worker ended, and the status below follows that.
+    toast(requestedInAifyEnv(answer, agentId) || `Stop requested for ${agentId}'s worker; its status shows once it has stopped`, 'ok');
     // AWAIT the refresh before re-rendering (review 2026-07-26). Rendering straight after the POST
     // painted the drawer from the PRE-stop `state.agents`, so it still showed the old status and a
     // live "Stop worker" button for a worker that was already gone. Pull fresh state first, then

@@ -14,7 +14,9 @@ import { toast } from './ui.js';
 export function runConsoleAction(consoleAction, resyncActiveConsole, stopConsoleTerminal, startConsoleForSession) {
   const action = consoleAction.dataset.consoleAction;
   if (action === 'copy') copyActiveConsole();
-  else if (action === 'refresh') resyncActiveConsole({ forceRepaint: true }).then(() => toast('Console refreshed', 'ok')).catch(() => {});
+  else if (action === 'refresh') resyncActiveConsole({ forceRepaint: true })
+    .then((painted) => (painted ? toast('Console refreshed', 'ok') : toast('Console not refreshed: its screen could not be fetched; try again', 'warn')))
+    .catch(() => {});
   else if (action === 'stop') stopConsoleTerminal(consoleAction.dataset.terminalId);
   else if (action === 'start') startConsoleForSession(consoleAction.dataset.sessionId, false);
   else if (action === 'start-fresh') startConsoleForSession(consoleAction.dataset.sessionId, true);

@@ -659,7 +659,7 @@ test("DELETING A SESSION RECORD NAMES WHICH ONE", async () => {
 
 // --- what the service answered is what the operator is told (2026-10-14 audit, D8, D9) ------------
 
-import { modeSwitchMessage, sessionHandleNote } from "./agent-session-actions.mjs";
+import { modeSwitchMessage, renameNote, sessionHandleNote } from "./agent-session-actions.mjs";
 
 test("a session handle the service did not adopt is said, not reported as updated (D8)", () => {
   assert.match(sessionHandleNote({ state: "session-collision", pendingSessionId: "h2", collisionWith: "other", sessionHandle: "h1" }),
@@ -674,6 +674,19 @@ test("a mode switch that changed nothing says so, and a warning and takeover com
   assert.equal(switched.text, "Switched a1 to resident. worker stopped. Take over with: codex resume t1");
   assert.equal(switched.tone, "warn");
   assert.deepEqual(modeSwitchMessage("a1", { changed: true }, "resident"), { text: "Switched a1 to resident", tone: "ok" }, "CONTROL: a plain switch");
+});
+
+test("a switch whose side effect failed says so (action audit #11): the switch landed, the worker release did not", () => {
+  const said = modeSwitchMessage("a1", { changed: true, sideEffects: { error: "stop not queued: no live terminal" } }, "resident");
+  assert.equal(said.text, "Switched a1 to resident. But: stop not queued: no live terminal");
+  assert.equal(said.tone, "warn");
+});
+
+test("a rename that orphaned a live session says so (action audit #11); one that did not adds nothing", () => {
+  assert.match(renameNote({ hadLiveBridge: true, note: "A live resident session is still running as 'a1' and is now orphaned" }),
+    /still running as 'a1'/);
+  assert.equal(renameNote({ hadLiveBridge: false, note: "History preserved. Notify teammates." }), "");
+  assert.equal(renameNote(null), "");
 });
 
 test("THE HANDLERS USE THOSE MESSAGES: a refused handle and an unchanged mode are what the toast says", async () => {

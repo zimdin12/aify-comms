@@ -44,18 +44,20 @@ export function initConsoleActions(deps) {
 
 // Re-fetch the authoritative buffer and repaint (used by the Refresh button and on a
 // detected seq gap, mirroring the old dashboard's resync path).
+/** Resync the mounted console; answers whether a snapshot was painted (a failed fetch is drained, not painted). */
 export async function resyncActiveConsole({ forceRepaint = false } = {}) {
   const entry = state.activeXterm;
-  if (!entry || !entry.term) return;
+  if (!entry || !entry.term) return false;
   // A PTY resize produces a burst of repaint frames. Those frames can themselves
   // expose a transient seq gap, which used to start another resync and another
   // -1/+1 resize pair. Coalesce recovery so one gap cannot fan out into the
   // observed 153↔154-cols resize/flicker loop.
-  if (entry.resyncing) return;
+  if (entry.resyncing) return false;
   entry.resyncing = true;
   //: Whether the drain left held frames it could not place. Declared out here because the decision
   //: it drives has to happen AFTER the `finally` clears `resyncing`, or the retry refuses itself.
   let unresolved = false;
+  let paintedSnapshot = false;
   try {
     // Fetch at the pane's FITTED width (not the possibly-widened current width) so the server
     // can re-infer the source width and hand back the correct renderedCols.
@@ -92,6 +94,7 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     const snapshot = data?.terminal?.snapshot;
     const painted = String(snapshot || data?.terminal?.output || '');
     entry.term.write(painted);
+    paintedSnapshot = true;
     // THE SCREEN WAS JUST REPLACED, so what the console recently showed is this and not what
     // stood before the reset. Appending would leave a prompt from a screen that no longer
     // exists able to raise the pill.
@@ -135,7 +138,7 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
   // arriving frame to notice is exactly the case review named -- a snapshot at 5 with 9 and 10 held,
   // then silence -- where a quiet agent means no next frame and the held output is stranded on a
   // console that believes it is live.
-  if (!unresolved) { entry.resyncPasses = 0; return; }
+  if (!unresolved) { entry.resyncPasses = 0; return paintedSnapshot; }
   entry.resyncPasses = (Number(entry.resyncPasses) || 0) + 1;
   if (entry.resyncPasses >= MAX_RESYNC_PASSES) {
     // BOUNDED, and the exhaustion is the same fallback an overflow takes: drop what cannot be
@@ -143,9 +146,9 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     // the gap it is. That is the behaviour from before frames were held at all, never worse.
     entry.pendingFrames = [];
     entry.resyncPasses = 0;
-    return;
+    return paintedSnapshot;
   }
-  await resyncActiveConsole();
+  return (await resyncActiveConsole()) || paintedSnapshot;
 }
 
 
@@ -155,7 +158,8 @@ export async function stopConsoleTerminal(terminalId) {
   try {
     await api(`/terminals/${encodeURIComponent(terminalId)}/stop`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', body: '' }) });
     disposeActiveXterm();
-    toast('Console stopped', 'ok');
+    // Requested, not done (action audit #8): the host reports the terminal's end.
+    toast('Console stop requested; the console shows when it has stopped', 'ok');
     refreshSoon();
   } catch (err) { toast(`Stop failed: ${err?.message || err}`, 'error'); }
 }
