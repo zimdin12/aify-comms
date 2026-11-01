@@ -8,35 +8,18 @@ their messages.
 The rule from that roadmap still holds: anything that cannot name the artifact it retires does not get
 scheduled. Structural work is judged on whether it makes the next fix cheaper.
 
-## Now: finish v0.7.7 (aify-env v0.7.2)
+## Now: one tagged release of all three repos, for a fresh install (2026-11-02)
 
-The TUI and dashboard release, plus the fixes found once it ran on this host:
+Every repo's main is pushed, but its work since the last tag was not all tagged: aify-env v0.9.10 is
+tagged; aify-wrapper v0.9.4 (127 commits past v0.9.3) and aify-comms v0.9.16, which pins it, are next.
+Done when all three are tagged, comms pins a tagged aify-wrapper commit, and the doctors are green on
+the tagged builds. The open gaps to the target shape are listed in TARGET_ARCHITECTURE.md, "What is left".
 
-- starting an agent right after stopping it no longer answers 409;
-- a long refusal in the terminal UI is wrapped and keeps its cause;
-- the "out" dot no longer wears the working colour;
-- an attached pane is drawn over whatever it showed before (the scrambled claude pane);
-- a managed agent can be kept out of herdr (drawer button, Tab in aify-env's start list).
+The 0.7.x herdr pane drift on Windows is fixed in aify-env 3fcd5c9 (KNOWN_ISSUES.md: not yet seen in a
+live pane).
 
-The herdr pane drift on Windows (rows one column left) is NOT fixed in this release: the translation
-attempts were withdrawn (KNOWN_ISSUES.md). It is fixed in a later 0.7.x.
+## Shipped in 0.8: aify-env owns the agents
 
-**Versioning, the operator's rule (2026-09-30):** fixes to what shipped stay on 0.7.x; the next piece
-of work below is 0.8.
-
-Done when: comms-senior-dev approves the pinned range, the tags are moved to the reviewed commits,
-the service is rebuilt, aify-env is restarted, and the two live checks pass: a hidden agent starts
-with no herdr space, and a re-attached claude pane matches aify-env's screen in herdr's own grid (except the known drift).
-
-## Next 0.7.x: the herdr pane drift
-
-`aify-env attach` sets `DISABLE_NEWLINE_AUTO_RETURN` in-process (koffi, an optional dependency like
-node-pty) and writes the stream raw, so a bare LF keeps its column. The measurement, and why neither a
-translation nor a PowerShell helper can ship, are in KNOWN_ISSUES.md.
-
-## 0.8: aify-env owns the agents
-
-Built on the `next/env-owned-agents` branches, in review before the operator's merge:
 `docs/superpowers/plans/2026-09-30-aify-env-owns-the-agents.md` and its P0 contracts. The operator's
 shape, 2026-09-30:
 
@@ -61,7 +44,11 @@ What was built:
 
 ## After 0.8: aify-comms becomes a pure comms service
 
-The operator, 2026-10-02. Each repo's doctor checks only its own responsibilities. In order:
+The operator, 2026-10-02. Each repo's doctor checks only its own responsibilities. Items 1 and 2 have
+shipped: turns are aify-env's since the 0.9.8 switch, and comms ignores the legacy turn posts since 0.9.9 S2
+(`service/routers/agents/turn_boundaries.py`). The hermes gateway host moved in 0.9.10. Of item 3, the host
+checks left the comms doctor in 0.9.7; the usage and quota readers are still in comms
+(`mcp/stdio/usage-collector.js`). In order:
 
 1. **Turn state comes from aify-env.** The launchers' hooks report turn state to aify-env, which sends
    each agent's state change to every service that opts in with its own registry field. aify-dashboard

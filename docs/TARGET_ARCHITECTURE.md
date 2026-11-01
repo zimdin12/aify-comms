@@ -112,10 +112,11 @@ Four gaps between the system and the target.
    aify-comms in 0.9.10: aify-env chooses the port, records the gateway, ends an older lifetime's and
    reports orphans, and the launcher starts it from the agent's own environment (where the start runs is
    the operator's open question; docs/superpowers/plans/2026-10-26-0.9.10-hermes-host-to-aify-env.md). The
-   hermes resume marker stays. Still in aify-comms: deriving turn status from hook POSTs, and host checks
-   in its doctor (processes, orphans, context window, claude login).
-   They move to aify-env, which will report turn state to services that opt in. Putting a message into a
-   runtime session stays aify-comms' delivery. docs/ROADMAP.md, "Next", has the order.
+   hermes resume marker stays. Turn status is aify-env's since the 0.9.8 switch: comms accepts a legacy
+   launcher's turn posts and ignores them (`service/routers/agents/turn_boundaries.py`), and the host
+   checks (processes, orphans, context window, claude login) left its doctor in 0.9.7. Still in
+   aify-comms: the usage and quota readers (`mcp/stdio/usage-collector.js`). Putting a message into a
+   runtime session stays aify-comms' delivery. docs/ROADMAP.md has the order.
 
 When the first two are closed, PATH holds `aify-env`, the launchers and aify-wrapper's commands, and nothing
 from aify-comms.
