@@ -115,7 +115,9 @@ Four gaps between the system and the target.
    hermes resume marker stays. Turn status is aify-env's since the 0.9.8 switch: comms accepts a legacy
    launcher's turn posts and ignores them (`service/routers/agents/turn_boundaries.py`), and the host
    checks (processes, orphans, context window, claude login) left its doctor in 0.9.7. Still in
-   aify-comms: the usage and quota readers (`mcp/stdio/usage-collector.js`). Putting a message into a
+   aify-comms: the usage and quota readers (`mcp/stdio/usage-collector.js`), and the hook script that
+   reports each turn to aify-env (`mcp/stdio/agent-state-event.mjs`, installed from the bridge copy into
+   `~/.claude/settings.json`), which belongs with the launchers. Putting a message into a
    runtime session stays aify-comms' delivery. docs/ROADMAP.md has the order.
 
 When the first two are closed, PATH holds `aify-env`, the launchers and aify-wrapper's commands, and nothing

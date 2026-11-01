@@ -47,8 +47,9 @@ What was built:
 The operator, 2026-10-02. Each repo's doctor checks only its own responsibilities. Items 1 and 2 have
 shipped: turns are aify-env's since the 0.9.8 switch, and comms ignores the legacy turn posts since 0.9.9 S2
 (`service/routers/agents/turn_boundaries.py`). The hermes gateway host moved in 0.9.10. Of item 3, the host
-checks left the comms doctor in 0.9.7; the usage and quota readers are still in comms
-(`mcp/stdio/usage-collector.js`). In order:
+checks left the comms doctor in 0.9.7. Still in comms: the usage and quota readers
+(`mcp/stdio/usage-collector.js`), and the hook script that reports turns to aify-env
+(`mcp/stdio/agent-state-event.mjs`, installed from the bridge copy). In order:
 
 1. **Turn state comes from aify-env.** The launchers' hooks report turn state to aify-env, which sends
    each agent's state change to every service that opts in with its own registry field. aify-dashboard
