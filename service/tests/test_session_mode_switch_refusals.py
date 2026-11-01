@@ -183,12 +183,17 @@ class SessionModeSwitchRefusalTests(FastApiTestCase):
 
     def test_switching_TO_managed_is_never_blocked_by_resident_support(self):
         """The gate is one-directional. Every runtime can be managed — that is the whole point of
-        pi and opencode being managed-only."""
+        pi and opencode being managed-only. Since 2026-11-02 an agent no host defines is refused the
+        switch for THAT reason, so the only refusal toward managed is the definition's, never this gate's."""
+        from service.api_core.definition_start import undefined_managed_refusal
+
         for runtime in MANAGED_ONLY_RUNTIMES + RESIDENT_CAPABLE_RUNTIMES:
             with self.subTest(runtime=runtime):
                 agent_id = f"lc-tomanaged-{runtime}"
                 self._register(agent_id, runtime, session_mode="resident")
-                self.assertEqual(self._switch(agent_id, "managed").status_code, 200)
+                response = self._switch(agent_id, "managed")
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertEqual(response.json()["detail"], undefined_managed_refusal(agent_id))
 
     # ── live work in flight ──────────────────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request
 from service.api_core.session_mode_switch import switch_session_mode
 from service.api_core.operator_authz import prove_operator, recorded_operator_actor
 from service.api_core.definition_guard import defined_on
+from service.api_core.definition_start import undefined_managed_refusal
 from service.api_core.definition_requests import queued_for_its_host
 from service.api_core.routing import domain_router
 
@@ -94,6 +95,12 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         # mode is untouched and governs its next start (C7).
         if await defined_on(db, agent_id):
             return await queued_for_its_host(db, agent_id, {"mode": new_mode}, operator, _now())
+        # AN UNDEFINED AGENT IS NOT SWITCHED TO MANAGED (2026-11-02). It used to be: comms recorded
+        # managed while no host could start it, so it read `unknown` and was in no start list
+        # (terraria-manager). Refused before anything is written, and 422 rather than 409, because no
+        # `force` makes a definition exist. Managed -> resident needs none and is unchanged.
+        if new_mode == "managed" and _normalize_session_mode(row["session_mode"] or "resident") != "managed":
+            raise HTTPException(422, undefined_managed_refusal(agent_id))
 
         now = _now()
         result = await switch_session_mode(db, agent_id, row, new_mode, requested_by=requested_by,

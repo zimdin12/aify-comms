@@ -87,10 +87,13 @@ class TheEnvBindingInferenceCanActuallyRun(FastApiTestCase):
         )
 
     def _switch_to_managed(self) -> dict:
-        response = self.client.patch(f"/api/v1/agents/{AGENT}/session-mode",
-                                     json={"mode": "managed", "requestedBy": "dashboard"})
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()
+        # ON THE FUNCTION, not the route: since 2026-11-02 the route refuses an undefined agent's managed
+        # switch, and a definition's desired mode (follow_definition_to_managed) is what runs it now.
+        from service.tests._definition_switch import switch_as_definition
+
+        result = switch_as_definition(AGENT, "managed")
+        self.assertTrue(result["changed"], result)
+        return result
 
     def _runtime_state(self) -> dict:
         body = self.client.get(f"/api/v1/agents/{AGENT}").json()

@@ -1035,11 +1035,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         bridge = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id = ?", ("resident-bridge",))
         self.assertEqual(bridge["superseded_by"], "resident-lost")
 
-        switched = self.client.patch(
-            "/api/v1/agents/dual-mode-coder/session-mode",
-            json={"mode": "managed", "requestedBy": "dashboard"},
-        )
-        self.assertEqual(switched.status_code, 200, switched.text)
+        # As its definition switches it: since 2026-11-02 the route refuses an undefined agent's switch to
+        # managed (service/tests/_definition_switch.py).
+        from service.tests._definition_switch import switch_as_definition
+        self.assertTrue(switch_as_definition("dual-mode-coder", "managed")["changed"])
         restored = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("dual-mode-coder",))
         self.assertEqual(restored["session_mode"], "managed")
         self.assertEqual(restored["launch_mode"], "managed")

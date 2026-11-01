@@ -370,7 +370,9 @@ class SessionModeFsmTests(FastApiTestCase):
 
     # ── (d) resident -> managed flips back ────────────────────────────────────
 
-    def test_resident_to_managed_flips_back(self):
+    def test_an_undefined_agent_switched_to_resident_does_not_switch_back_to_managed(self):
+        """Managed -> resident needs no definition; the way back does (2026-11-02), because aify-env
+        starts a managed agent from its definition. Refused, force or not, and it stays resident."""
         self._heartbeat_environment("claude-code")
         self._register(agent_id="claude-flip", runtime="claude-code", session_mode="managed")
         self.client.patch(
@@ -382,9 +384,8 @@ class SessionModeFsmTests(FastApiTestCase):
             "/api/v1/agents/claude-flip/session-mode",
             json={"mode": "managed", "force": True},
         )
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertEqual(res.json().get("mode"), "managed")
-        self.assertEqual(self._read_agent("claude-flip")["session_mode"], "managed")
+        self.assertEqual(res.status_code, 422, res.text)
+        self.assertEqual(self._read_agent("claude-flip")["session_mode"], "resident")
 
     # ── api_server model: hermes managed -> resident needs no gatewayUrl ──────
 

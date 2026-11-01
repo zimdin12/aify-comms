@@ -34,6 +34,13 @@ def undefined_refusal(agent_id: str) -> str:
             f'(`aify-env agents import --write` adopts an existing agent), then start it')
 
 
+def undefined_managed_refusal(agent_id: str) -> str:
+    """Why an agent no host defines is not switched to managed: aify-env starts managed agents from
+    their definition, so the switch alone left it `unknown` and absent from every start list."""
+    return (f'no host defines "{agent_id}", so it cannot run managed; define it on its host '
+            f'(`aify-env agents import --write` adopts an existing agent), then switch it')
+
+
 @dataclass(frozen=True)
 class StartBinding:
     machine_id: str

@@ -32,7 +32,6 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
-from service.api_core.definition_start import undefined_refusal
 from service.tests._base import FastApiTestCase
 
 
@@ -100,42 +99,40 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
 
     # ─── C1 ────────────────────────────────────────────────────────────────
 
-    def test_switch_resident_to_managed_without_backing_succeeds_with_warning(self):
-        # RELAXED 2026-06-11: no live managed session/backing used to 409; since lazy
-        # auto-start the agent is simply `available` and cold-starts on the next send —
-        # blocking the flip stranded resident agents on offline machines.
+    def test_an_undefined_resident_is_refused_a_managed_switch_and_nothing_is_written(self):
+        """terraria-manager, 2026-11-01: the switch landed for an agent no host defines, so it read
+        `unknown` and was in no start list. Refused before any write, with or without force, naming the
+        import that defines it; 422, because no force makes a definition exist."""
         self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-noback", runtime="codex", session_mode="resident")
-        # The old PC's sessions are long dead — mark every session row ended (the user case).
-        import sqlite3
-        con = sqlite3.connect(str(self._db_path))
-        con.execute("UPDATE agent_sessions SET status='ended' WHERE agent_id='codex-noback'")
-        con.commit(); con.close()
-        res = self.client.patch(
-            "/api/v1/agents/codex-noback/session-mode",
-            json={"mode": "managed"},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        body = res.json()
-        self.assertTrue(body.get("ok"))
-        self.assertEqual(body.get("mode"), "managed")
-        self.assertIn("cold-start", str(body.get("warning") or ""))
-        self.assertEqual(self._read_agent_mode("codex-noback"), "managed")
+        for agent_id, force in (("codex-undefined", False), ("codex-undefined-force", True)):
+            with self.subTest(force=force):
+                self._register_agent(agent_id=agent_id, runtime="codex", session_mode="resident")
+                before = dict(self._read_agent_row(agent_id))
+                res = self.client.patch(f"/api/v1/agents/{agent_id}/session-mode",
+                                        json={"mode": "managed", "force": force})
+                self.assertEqual(res.status_code, 422, res.text)
+                self.assertIn("aify-env agents import --write", res.json().get("detail", ""))
+                self.assertEqual(dict(self._read_agent_row(agent_id)), before, "the refusal wrote to the agent row")
+                conn = sqlite3.connect(str(self._db_path))
+                try:
+                    audit = conn.execute("SELECT COUNT(*) FROM dispatch_runs WHERE target_agent = ? AND id LIKE 'mode_switch_%'",
+                                         (agent_id,)).fetchone()[0]
+                finally:
+                    conn.close()
+                self.assertEqual(audit, 0, "a refused switch must not be audited as a switch")
 
-    def test_switch_resident_to_managed_success(self):
+    def test_the_managed_switch_itself_still_sets_the_managed_columns(self):
+        """The route no longer reaches it for an undefined agent, but a definition's desired mode does
+        (follow_definition_to_managed), so what the switch writes stays pinned here, on the function."""
+        from service.tests._definition_switch import switch_as_definition
+
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-r1", runtime="codex", session_mode="resident")
         self._seed_managed_terminal("codex-r1", runtime="codex")
-        res = self.client.patch(
-            "/api/v1/agents/codex-r1/session-mode",
-            json={"mode": "managed"},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        body = res.json()
-        self.assertTrue(body.get("ok"))
-        self.assertEqual(body.get("mode"), "managed")
-        self.assertEqual(body.get("previousMode"), "resident")
-        self.assertTrue(body.get("changed"))
+
+        result = switch_as_definition("codex-r1", "managed")
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["previousMode"], "resident")
         self.assertEqual(self._read_agent_mode("codex-r1"), "managed")
         agent = self._read_agent_row("codex-r1")
         self.assertEqual(agent["launch_mode"], "managed")
@@ -356,44 +353,6 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         finally:
             conn.close()
         self.assertEqual(queued, 0, "an agent with nothing running must not have a stop invented for it")
-
-    def test_switch_resident_to_managed_without_backing_reports_missing_backing(self):
-        """resident -> managed without force: under the lazy-autostart governance
-        (DECISIONS.md 2026-05-31, Phase 2) an `available` managed agent with no
-        live worker is NOT hard-blocked — switching to managed succeeds (200) and
-        changes metadata, while the best-effort eager-PTY side effect reports the
-        absent backing in `sideEffects.error` (Plan 6 C2: "side-effect failures
-        don't roll back the mode change — they surface in response.sideEffects").
-
-        force=true gives the same observable contract (asserted in the loop);
-        the only thing force gates here is the in-flight-run check, not a
-        "requires existing managed backing" guard. The next dispatch lazily
-        cold-starts a spawn_request rather than the operator pre-provisioning a
-        managed PTY.
-        """
-        self._heartbeat_environment("codex")
-        for agent_id, force in (("codex-noenv", False), ("codex-force-noenv", True)):
-            with self.subTest(force=force):
-                self._register_agent(agent_id=agent_id, runtime="codex", session_mode="resident")
-                res = self.client.patch(
-                    f"/api/v1/agents/{agent_id}/session-mode",
-                    json={"mode": "managed", "force": force},
-                )
-                self.assertEqual(res.status_code, 200, res.text)
-                body = res.json()
-                self.assertEqual(body.get("mode"), "managed")
-                self.assertEqual(body.get("previousMode"), "resident")
-                self.assertTrue(body.get("changed"))
-                self.assertEqual((body.get("agent") or {}).get("sessionMode"), "managed")
-                # After the 0.9.8 switch the word is aify-env's, and no host here has published this agent: unknown.
-                self.assertEqual((body.get("agent") or {}).get("status"), "unknown")
-                self.assertEqual(self._read_agent_mode(agent_id), "managed")
-                # 2026-06-03: resident->managed for a wrapper-backed runtime cold-starts a worker at
-                # switch time. Since D8 an agent no host defines is not started, so the switch still
-                # lands and the side effect names why no worker came, with what to do.
-                effects = body.get("sideEffects") or {}
-                self.assertFalse(effects.get("managedSpawnRequested"), body)
-                self.assertIn(undefined_refusal(agent_id), effects.get("error", ""), body)
 
     # ─── 2026-06-12 — the sc-manager "sent but never received" strand ─────────
 
