@@ -229,31 +229,59 @@ class TerminalAndConsoleRefusalTests(FastApiTestCase):
                 response = self.client.delete(f"/api/v1/sessions/{session_id}")
                 self.assertEqual(response.status_code, 200, response.text)
 
-    def test_a_stop_still_owed_keeps_its_session_from_being_deleted(self):
-        """Action audit #3, 2026-11-02. Stop marks the session `stopped` at once and queues the terminal's stop for its
-        host; Delete then erased that control before any host claimed it, so the worker was never stopped and nothing
-        recorded that it was owed. A stop pending OR claimed refuses the delete and is kept; once handled, it goes."""
-        self._seed_terminal("pi")
-        stop = self.client.post(f"/api/v1/sessions/{SESSION_ID}/control", json={"action": "stop", "from_agent": "dashboard"})
+    # ── action audit #3, 2026-11-02: Delete must not erase a stop still owed ──────────────────────────────────
+    # Stop marks the session `stopped` at once and queues its terminal's stop for the host; Delete then erased that
+    # control before any host claimed it, so the worker was never stopped and nothing recorded it was owed. Each case
+    # below has its OWN session and terminal, stopped through the real route (review of c7ce6098: one shared fixture
+    # let the first deletion turn every later case into a missing row).
+
+    def _stopped_with_owed_stop(self, case: str, control_status: str) -> tuple[str, str]:
+        """A fresh running session and terminal for `case`, stopped through the real route, its stop set to `control_status`."""
+        session_id, terminal_id = f"sess-owed-{case}", f"term-owed-{case}"
+        self._seed_session(session_id=session_id)
+        self._write(
+            "INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, workspace,"
+            " command, output, status, requested_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (terminal_id, session_id, AGENT_ID, ENVIRONMENT_ID, "bridge-one", "pi", "/workspace/proj", "pi", "",
+             "running", "bridge", "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+        )
+        stop = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "stop", "from_agent": "dashboard"})
         self.assertEqual(stop.status_code, 200, stop.text)
-        controls = lambda: self._read("SELECT action, status FROM terminal_controls WHERE terminal_id = ?", (TERMINAL_ID,))
-        self.assertEqual(controls(), {"action": "stop", "status": "pending"}, "the Stop queued no terminal stop")
-        for owed in ("pending", "claimed"):
-            with self.subTest(owed=owed):
-                self._write("UPDATE terminal_controls SET status = ? WHERE terminal_id = ?", (owed, TERMINAL_ID))
-                response = self.client.delete(f"/api/v1/sessions/{SESSION_ID}")
-                self.assertEqual(response.status_code, 409, response.text)
-                self.assertIn("stop", response.json()["detail"])
-                self.assertEqual(controls(), {"action": "stop", "status": owed}, "the refusal lost the owed stop")
-        with self.subTest("failed, and its terminal still live"):
-            # A stop that failed is no evidence the worker ended; while its terminal still reads live, keep the record.
-            self._write("UPDATE terminal_controls SET status = 'failed' WHERE terminal_id = ?", (TERMINAL_ID,))
-            response = self.client.delete(f"/api/v1/sessions/{SESSION_ID}")
-            self.assertEqual(response.status_code, 409, response.text)
-            self.assertEqual(controls(), {"action": "stop", "status": "failed"})
-        with self.subTest("handled"):
-            self._write("UPDATE terminal_controls SET status = 'completed' WHERE terminal_id = ?", (TERMINAL_ID,))
-            self.assertEqual(self.client.delete(f"/api/v1/sessions/{SESSION_ID}").status_code, 200)
+        self.assertEqual(self._owed(terminal_id), {"action": "stop", "status": "pending"}, "the Stop queued no terminal stop")
+        self._write("UPDATE terminal_controls SET status = ? WHERE terminal_id = ?", (control_status, terminal_id))
+        # The precondition each case is judged on: the session is stopped (deletable by status alone), its terminal
+        # still reads running, and its stop is in the state the case names.
+        self.assertEqual(self._read("SELECT status FROM agent_sessions WHERE id = ?", (session_id,)), {"status": "stopped"})
+        self.assertEqual(self._read("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,)), {"status": "running"})
+        self.assertEqual(self._owed(terminal_id), {"action": "stop", "status": control_status})
+        return session_id, terminal_id
+
+    def _owed(self, terminal_id: str) -> dict:
+        return self._read("SELECT action, status FROM terminal_controls WHERE terminal_id = ?", (terminal_id,))
+
+    def _assert_delete_refused_and_nothing_erased(self, session_id: str, terminal_id: str, control_status: str) -> None:
+        response = self.client.delete(f"/api/v1/sessions/{session_id}")
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("stop", response.json()["detail"])
+        self.assertEqual(self._read("SELECT id FROM agent_sessions WHERE id = ?", (session_id,)), {"id": session_id})
+        self.assertEqual(self._read("SELECT id FROM terminal_sessions WHERE id = ?", (terminal_id,)), {"id": terminal_id})
+        self.assertEqual(self._owed(terminal_id), {"action": "stop", "status": control_status}, "the refusal lost the stop")
+
+    def test_a_pending_stop_keeps_its_session_from_being_deleted(self):
+        self._assert_delete_refused_and_nothing_erased(*self._stopped_with_owed_stop("pending", "pending"), "pending")
+
+    def test_a_claimed_stop_keeps_its_session_from_being_deleted(self):
+        self._assert_delete_refused_and_nothing_erased(*self._stopped_with_owed_stop("claimed", "claimed"), "claimed")
+
+    def test_a_failed_stop_on_a_terminal_still_live_keeps_its_session(self):
+        """A stop that failed is no evidence the worker ended; while its terminal still reads live, keep the record."""
+        self._assert_delete_refused_and_nothing_erased(*self._stopped_with_owed_stop("failed", "failed"), "failed")
+
+    def test_CONTROL_a_handled_stop_lets_its_session_be_deleted(self):
+        session_id, terminal_id = self._stopped_with_owed_stop("completed", "completed")
+        response = self.client.delete(f"/api/v1/sessions/{session_id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self._read("SELECT id FROM agent_sessions WHERE id = ?", (session_id,)), {})
 
     def test_a_session_with_NO_status_reads_as_active_rather_than_deletable(self):
         """Fail safe on missing evidence: an empty status is not proof the worker is gone, and the
