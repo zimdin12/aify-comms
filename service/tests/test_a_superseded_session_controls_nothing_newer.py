@@ -90,6 +90,62 @@ class ASupersededSessionControlsNothingNewer(FastApiTestCase):
             self.assertEqual(self.control("sess-older", "restart").status_code, 409)
             self.assertEqual(self.lifecycle_requests(), [])
 
+    # ── an agent no host defines: its Stop is the legacy one, which reaches the AGENT, not only the row ──────────
+
+    def undefined_agent_with_a_newer_session(self):
+        """`loose` (no definition): an ended old row, a newer running row, and an active run on the agent."""
+        self.client.post("/api/v1/agents", json={"agentId": "loose", "role": "coder", "runtime": "claude-code",
+                                                 "sessionMode": "resident"}).raise_for_status()
+        for session_id, status, started in (("loose-old", "ended", "2026-10-01T00:00:00Z"),
+                                            ("loose-new", "running", "2026-11-01T00:00:00Z")):
+            self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, started_at, "
+                     "last_seen) VALUES (?, 'loose', ?, 'claude-code', 'resident', ?, ?, ?)",
+                     (session_id, A["env"], status, started, started))
+        self.sql("INSERT INTO dispatch_runs (id, from_agent, target_agent, status, requested_at) "
+                 "VALUES ('run-loose', 'operator', 'loose', 'running', '2026-11-01T00:00:00Z')")
+
+    def loose_state(self):
+        return {"agent": self.sql("SELECT status, launch_mode, session_mode FROM agents WHERE id = 'loose'"),
+                "sessions": self.sql("SELECT id, status FROM agent_sessions WHERE agent_id = 'loose' ORDER BY id"),
+                "run_controls": self.sql("SELECT action FROM dispatch_controls WHERE run_id = 'run-loose'")}
+
+    def test_an_undefined_agents_old_row_cannot_stop_the_agent_or_interrupt_its_newer_run(self):
+        """Review of aec4570f: the legacy Stop interrupts the agent's CURRENT run, settles the agent and its spawns, and
+        sets it stopped, so from an old row it acted on newer work. The same currentness rule refuses it, and nothing of
+        the agent, its newer session or its run changes."""
+        self.undefined_agent_with_a_newer_session()
+        before = self.loose_state()
+        answer = self.control("loose-old", "stop")
+        self.assertEqual(answer.status_code, 409, answer.text)
+        self.assertIn("loose-new", answer.json()["detail"])
+        self.assertEqual(self.loose_state(), before)
+
+    def test_CONTROL_an_undefined_agents_current_row_still_stops(self):
+        self.undefined_agent_with_a_newer_session()
+        answer = self.control("loose-new", "stop")
+        self.assertEqual(answer.status_code, 200, answer.text)
+        self.assertEqual(self.loose_state()["run_controls"], [{"action": "interrupt"}], "the current run was not interrupted")
+
+    def test_an_undefined_agents_row_moved_to_another_agent_after_the_read_is_refused(self):
+        """The legacy path's own gap: the route read the row as `loose`'s, then it was renamed onto another agent before
+        the writes. Judged again under the legacy Stop's lock, it is refused; `loose` is untouched."""
+        self.undefined_agent_with_a_newer_session()
+        before = self.loose_state()
+        real = session_control._session_row
+
+        async def read_then_move(db, session_id):
+            row = await real(db, session_id)
+            self.sql("UPDATE agent_sessions SET agent_id = 'someone-else' WHERE id = ?", (session_id,))
+            return row
+
+        session_control._session_row = read_then_move
+        self.addCleanup(setattr, session_control, "_session_row", real)
+        answer = self.control("loose-new", "stop")
+        self.assertEqual(answer.status_code, 409, answer.text)
+        self.assertIn("no longer belongs", answer.json()["detail"])
+        after = self.loose_state()
+        self.assertEqual((after["agent"], after["run_controls"]), (before["agent"], before["run_controls"]))
+
     def test_a_row_superseded_while_its_control_is_admitted_is_refused(self):
         """The route reads the session before the lifecycle admission takes its write lock. A newer live session that
         lands in between is judged under that lock, so the old row's control is refused rather than retargeted."""

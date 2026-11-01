@@ -90,6 +90,12 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         if action in {"restart", "recreate"}:
             # D8: a defined agent was handed to its host above, and one no host defines is not started.
             raise HTTPException(409, undefined_refusal(agent_id))
+        if action == "stop":
+            # AN UNDEFINED AGENT'S STOP REACHES THE AGENT, not only this row: it interrupts the agent's current run and
+            # settles the agent and its spawns below. So the same currentness rule applies (review of aec4570f), under
+            # a fence held through every write here; `delegate` answered None before taking one.
+            await db.execute("BEGIN IMMEDIATE")
+            await refuse_unless_current(session_id, agent_id)(db)
         if action == "cli_takeover":
             # Under the fence taken above, with every write below, so a definition push (the same lock) lands wholly
             # before the check or wholly after the writes. A defined agent's lifecycle is its host's: a stop here
