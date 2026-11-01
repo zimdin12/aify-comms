@@ -11,7 +11,10 @@ import test from "node:test";
 
 import {
   herdrSpaceButton,
+  relaunchAttrs,
+  relaunchRefusal,
   runAgentControl,
+  startAttrs,
   setHerdrSpace,
   startColdAgent,
   startOffer,
@@ -251,6 +254,30 @@ test("startOffer: Start for a managed agent the service would start, and a reaso
   assert.match(startOffer({ sessionMode: "managed", status: "misconfigured" }).why, /configuration/);
   assert.match(startOffer({ sessionMode: "managed", status: "starting" }).why, /starting/);
   assert.equal(startOffer({ sessionMode: "managed", status: "working" }).start, false);
+});
+
+test("relaunchRefusal: Restart, Reset and a cold Start agent are refused for what the service refuses, from the same inputs", () => {
+  // Action audit #10, 2026-11-02: these buttons checked only that a host defines the agent, so a resident or a
+  // misconfigured agent was offered a Restart the service refuses. The live backing is NOT an input: restarting a
+  // running agent is what Restart is for.
+  const defined = { definitionState: "defined", sessionMode: "managed", status: "online" };
+  assert.equal(relaunchRefusal(defined), "");
+  assert.equal(relaunchRefusal({ ...defined, status: "working" }), "", "a running agent can still be restarted");
+  assert.match(relaunchRefusal({ ...defined, definitionState: "" }), /no host defines/);
+  assert.match(relaunchRefusal({ ...defined, sessionMode: "resident" }), /resident/);
+  assert.match(relaunchRefusal({ ...defined, status: "misconfigured" }), /configuration/);
+  assert.equal(relaunchRefusal({ sessionMode: "managed", status: "online" }), "",
+    "a record from a service without definitionState is left to the service to judge");
+});
+
+test("the action attributes: a refusal disables with its reason, and an offer keeps its hint", () => {
+  assert.equal(relaunchAttrs({ definitionState: "defined", sessionMode: "managed", status: "online" }, [], "hint"), ' title="hint"');
+  assert.match(relaunchAttrs({ definitionState: "defined", sessionMode: "resident", status: "online" }), /^ disabled title="resident/);
+  // Start: startOffer's answer, whichever surface draws the button.
+  assert.equal(startAttrs({ definitionState: "defined", sessionMode: "managed", status: "available" }), "");
+  assert.match(startAttrs({ definitionState: "defined", sessionMode: "managed", status: "misconfigured" }), /^ disabled title="misconfigured/);
+  assert.match(startAttrs({ definitionState: "defined", sessionMode: "managed", status: "working" }), /^ disabled title="/,
+    "a state startOffer gives no reason for is still disabled, with a reason");
 });
 
 test("herdrSpaceButton offers the opposite of the agent's setting, and a record without it shows a space", () => {

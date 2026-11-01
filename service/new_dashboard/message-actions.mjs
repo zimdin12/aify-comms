@@ -21,7 +21,7 @@ import { byId, toast, uiConfirm } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
 import { agentModes } from './agent-mode.mjs';
-import { startRefusedAttrs, undefinedStartRefusal } from './status.js';
+import { relaunchRefusal, startAttrs } from './agent-click-handlers.mjs';
 
 let chatController = { render() {}, renderRail() {}, renderConversation() {} };
 let refreshSoon = () => {};
@@ -117,7 +117,8 @@ export function mountChatConsole(agentId, hostEl) {
   // session's card offers Start too. A changed sig only reaches renderSessionConsole, whose own key keeps a
   // live terminal mounted, so a definition change never rebuilds one.
   const agent = (state.agents || []).find((a) => a.id === agentId);
-  const refusal = undefinedStartRefusal(agent);
+  // Both rules (action audit #10): the card without a session draws Start, the one with a session Restart.
+  const refusal = `${startAttrs(agent, state.sessions)}|${relaunchRefusal(agent, state.sessions)}`;
   const modes = agentModes(agent, state.sessions);
   const modeSig = [modes.displayMode, modes.configuredMode, modes.pendingMode].join('|');
   const sig = session
@@ -153,7 +154,7 @@ export function mountChatConsole(agentId, hostEl) {
       // Cold-start itself was never broken — there was simply no button. Give it one.
       : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
         + `<p>${esc(agentId)} has no worker running. Start one now — it resumes the agent's saved session if it has one, so its conversation is kept. (Sending a message also starts it.)</p>`
-        + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}"${startRefusedAttrs(agent)}>Start agent</button></div></div>`;
+        + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}"${startAttrs(agent, state.sessions)}>Start agent</button></div></div>`;
     return;
   }
   renderSessionConsole(session, hostEl, { source: 'chat' });

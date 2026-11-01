@@ -42,6 +42,36 @@ export function startOffer(agent, sessions = []) {
 }
 
 /**
+ * Why a Restart, Reset or a dead session's "Start agent" (each a restart) would be refused, or '' (action audit #10,
+ * 2026-11-02). Its inputs are startOffer's, held apart: definition custody, configured mode and status. Live backing
+ * is NOT one, since restarting a running agent is what Restart is for. These buttons used to check only that a host
+ * defines the agent, so a resident or misconfigured agent was offered a restart the service refuses.
+ */
+export function relaunchRefusal(agent, sessions = []) {
+  const undefinedAgent = undefinedStartRefusal(agent);
+  if (undefinedAgent) return undefinedAgent;
+  if (agentModes(agent, sessions).configuredMode !== 'managed') {
+    return 'resident: its terminal is the CLI you launched; restart it there, or switch it to managed';
+  }
+  if (resolveStatus(agent?.status).kind === 'misconfigured') return 'misconfigured: fix its configuration first';
+  return '';
+}
+
+/** The attributes for a restart-type button: disabled with the reason when refused, else `title` as its hint. */
+export function relaunchAttrs(agent, sessions = [], title = '') {
+  const why = relaunchRefusal(agent, sessions);
+  if (why) return ` disabled title="${esc(why)}"`;
+  return title ? ` title="${esc(title)}"` : '';
+}
+
+/** The attributes for a Start button anywhere: startOffer's answer, so no surface offers a start another refuses. */
+export function startAttrs(agent, sessions = []) {
+  const offer = startOffer(agent, sessions);
+  if (offer.start) return '';
+  return ` disabled title="${esc(offer.why || 'not startable in its current state')}"`;
+}
+
+/**
  * The drawer's herdr-space switch for a managed agent (2026-09-30). `herdrSpace` false starts the agent
  * without a herdr space of its own; it still runs, shows here, and can be attached from aify-env.
  * A record from a service without the field shows a space, as the service defaults it.

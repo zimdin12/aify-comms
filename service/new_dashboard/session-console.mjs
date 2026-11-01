@@ -17,7 +17,7 @@ import { state } from './state.mjs';
 import { byId } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
-import { startRefusedAttrs, undefinedStartRefusal } from './status.js';
+import { relaunchAttrs, relaunchRefusal } from './agent-click-handlers.mjs';
 
 export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermForTerminal, refresh, resyncActiveConsole } = {}) {
   const host = targetEl || byId('session-console-summary');
@@ -90,8 +90,8 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   const lifecycleActions = `${_drawerAgentId ? `<button class="ghost" data-agent-details="${esc(_drawerAgentId)}" title="Open the full lifecycle drawer (edit, handle, env, history, remove…)">Details</button>` : ''}`
     + `${agentIdForCodex ? `<button class="ghost" data-open-chat="${esc(agentIdForCodex)}" title="Message this agent in Chat">Message in Chat</button>` : ''}`
     + `${renderModeSwitchChip(agent)}`
-    + `<button class="ghost" data-session-control="restart" data-session-id="${esc(id)}"${startRefusedAttrs(agent)}>Restart</button>`
-    + `<button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}"${startRefusedAttrs(agent, 'Restart with a FRESH context (discards native session)')}>Reset</button>`
+    + `<button class="ghost" data-session-control="restart" data-session-id="${esc(id)}"${relaunchAttrs(agent, state.sessions)}>Restart</button>`
+    + `<button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}"${relaunchAttrs(agent, state.sessions, 'Restart with a FRESH context (discards native session)')}>Reset</button>`
     + `${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}`;
   const headerActions = isChatSource ? connectActions : (lifecycleActions + connectActions);
   // Lean action/meta bar — the agent name, status chip, and workspace already render in the panel
@@ -211,7 +211,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
     ? `<div class="console-embed" data-kind="console-start">
          <div class="console-embed-label"><span>This session is ${esc(status || 'stopped')} — no live console. The agent stays <em>available</em>: a message wakes it, or start it now.<span class="console-dead-cause" data-dead-cause-agent="${esc(agentIdForCodex || '')}"></span></span></div>
          <div class="console-start-actions">
-           <button class="primary" data-session-control="restart" data-session-id="${esc(id)}"${startRefusedAttrs(agent, 'Spawn a fresh worker for this agent (resumes its saved session when one exists)')}>Start agent</button>
+           <button class="primary" data-session-control="restart" data-session-id="${esc(id)}"${relaunchAttrs(agent, state.sessions, 'Spawn a fresh worker for this agent (resumes its saved session when one exists)')}>Start agent</button>
          </div>
        </div>`
     : '';
@@ -265,7 +265,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // disabled stayed disabled after the agent was defined. Keyed only with no terminal mounted, so a
   // definition change never rebuilds a live one; the actions bar beside a live one is repainted below.
   const consoleKey = JSON.stringify([id, widgetChoice.kind, terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId, canStop, isChatSource, isVirtualTerminal,
-    hasTerminal ? '' : undefinedStartRefusal(agent), hasTerminal ? '' : residentConsoleNote]);
+    hasTerminal ? '' : relaunchRefusal(agent, state.sessions), hasTerminal ? '' : residentConsoleNote]);
   const xtermStillMounted = hasTerminal && state.activeXterm
     && state.activeXterm.terminalId === terminalId
     && host.contains(state.activeXterm.container);

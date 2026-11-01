@@ -21,11 +21,11 @@
 import { continueCliDetails, resumeMachineNote } from './cli-resume.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { state, inspectorOpening } from './state.mjs';
-import { renderStatusChip, startRefusedAttrs, statusWhyContext } from './status.js';
+import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
-import { herdrSpaceButton, startOffer } from './agent-click-handlers.mjs';
+import { herdrSpaceButton, relaunchAttrs, startOffer } from './agent-click-handlers.mjs';
 import { AGENT_MODEL_ID, loadAgentModel, modelRowBeforeAnswer } from './agent-model.mjs';
 import { AGENT_PROCESSES_ID, loadAgentProcesses, processesReadFailed } from './agent-processes.mjs';
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
@@ -71,8 +71,8 @@ export function openAgentDrawer(agentId) {
     agentStatus === 'stopped' ? (defined
       ? `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear the hold, so a message starts it again. Starts nothing now.">Release hold</button>`
       : `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear comms' stop on this agent, so a relaunch or a message is not refused. Starts nothing.">Resume</button>`) : '',
-    sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}"${startRefusedAttrs(agent)}>Restart</button>` : '',
-    sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}"${startRefusedAttrs(agent, 'Restart with a FRESH context (discards native session)')}>Reset</button>` : '',
+    sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}"${relaunchAttrs(agent, state.sessions)}>Restart</button>` : '',
+    sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}"${relaunchAttrs(agent, state.sessions, 'Restart with a FRESH context (discards native session)')}>Reset</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,

@@ -94,7 +94,8 @@ test("A START REFUSAL CLEARS ONCE THE AGENT IS DEFINED: Sessions and Chat re-ren
   // disabled for an undefined agent stayed disabled after its host defined it. A fresh host was right.
   const { mountChatConsole } = await import("./message-actions.mjs");
   await withDom(async () => {
-    state.agents = [{ id: "a1", definitionState: "" }];
+    // A record as the service sends it: managed and available, so the only refusal is the missing definition.
+    state.agents = [{ id: "a1", definitionState: "", sessionMode: "managed", status: "available" }];
     state.sessions = [];
     const sessions = host();
     const stopped = { id: "s1", agent_id: "a1", agentId: "a1", status: "stopped" };
@@ -104,11 +105,28 @@ test("A START REFUSAL CLEARS ONCE THE AGENT IS DEFINED: Sessions and Chat re-ren
     mountChatConsole("a1", chat);
     assert.match(chat.innerHTML, /disabled title="no host defines a1/, "control: chat refused while undefined");
 
-    state.agents = [{ id: "a1", definitionState: "defined" }];
+    state.agents = [{ id: "a1", definitionState: "defined", sessionMode: "managed", status: "available" }];
     renderSessionConsole(stopped, sessions, {}, deps());
     mountChatConsole("a1", chat);
     assert.doesNotMatch(sessions.innerHTML, /no host defines/, "the Sessions Restart stayed refused after the agent was defined");
     assert.doesNotMatch(chat.innerHTML, /no host defines/, "the Chat Start stayed refused after the agent was defined");
+  });
+});
+
+test("A RESTART REFUSED WHILE MISCONFIGURED CLEARS ONCE IT IS FIXED: the console key follows every refusal", async () => {
+  // Action audit #10, 2026-11-02: Restart is refused for what the service refuses, not only for an undefined agent.
+  // A mode change already changes the key (the resident console note), but a status change at the same mode does
+  // not, so the refusal itself must be in the key or the button stays disabled after the agent is fixed.
+  await withDom(async () => {
+    state.agents = [{ id: "a1", definitionState: "defined", sessionMode: "managed", status: "misconfigured" }];
+    state.sessions = [];
+    const sessions = host();
+    const stopped = { id: "s1", agent_id: "a1", agentId: "a1", status: "stopped" };
+    renderSessionConsole(stopped, sessions, {}, deps());
+    assert.match(sessions.innerHTML, /disabled title="misconfigured:/, "control: a misconfigured agent's restart is refused");
+    state.agents = [{ id: "a1", definitionState: "defined", sessionMode: "managed", status: "available" }];
+    renderSessionConsole(stopped, sessions, {}, deps());
+    assert.doesNotMatch(sessions.innerHTML, /disabled title="misconfigured:/, "the Restart stayed refused after it was fixed");
   });
 });
 
@@ -164,6 +182,23 @@ test("A STOPPED CHAT SESSION'S START CLEARS once the agent is defined, through m
     mountChatConsole("a1", chat);
     assert.doesNotMatch(chat.innerHTML, /no host defines/, "the stopped Chat Start stayed refused after the agent was defined");
     assert.equal(mounts, 0, "control: a stopped session mounts no terminal");
+  });
+});
+
+test("A STOPPED CHAT SESSION'S RESTART CLEARS once a misconfigured agent is fixed, through mountChatConsole", async () => {
+  // Action audit #10: the Chat signature carries both rules, so a status change at the same mode repaints too.
+  const { initMessageActions, mountChatConsole } = await import("./message-actions.mjs");
+  await withDom(async () => {
+    const d = deps();
+    initMessageActions({ chatController: {}, refreshSoon: () => {}, renderSessionConsole: (s, el, o) => renderSessionConsole(s, el, o, d) });
+    state.agents = [{ id: "a1", definitionState: "defined", runtime: "claude-code", sessionMode: "managed", status: "misconfigured" }];
+    state.sessions = [{ id: "s1", agent_id: "a1", agentId: "a1", status: "stopped" }];
+    const chat = host();
+    mountChatConsole("a1", chat);
+    assert.match(chat.innerHTML, /disabled title="misconfigured:/, "control: refused while misconfigured");
+    state.agents = [{ id: "a1", definitionState: "defined", runtime: "claude-code", sessionMode: "managed", status: "available" }];
+    mountChatConsole("a1", chat);
+    assert.doesNotMatch(chat.innerHTML, /disabled title="misconfigured:/, "the stopped Chat Restart stayed refused after the fix");
   });
 });
 

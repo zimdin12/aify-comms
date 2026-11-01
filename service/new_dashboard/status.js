@@ -200,12 +200,6 @@ export function undefinedStartRefusal(agent) {
   return `no host defines ${agent.id || 'this agent'}; define it on its host (aify-env agents import --write), then start it`;
 }
 
-/** The attributes for a start, restart or reset button: disabled with the reason when it would be refused. */
-export function startRefusedAttrs(agent, title = '') {
-  const why = undefinedStartRefusal(agent);
-  if (why) return ` disabled title="${esc(why)}"`;
-  return title ? ` title="${esc(title)}"` : '';
-}
 
 export function runStatusContext(run) {
   const blockerReason = String(blockerText(run?.blockedByActiveRun) || run?.blockedBy || run?.error || '').trim();
