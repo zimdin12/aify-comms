@@ -66,7 +66,8 @@ function requestIsAuthenticated(request, force = false) {
   assert.deepEqual(request.headers, { 'Content-Type': 'application/json', 'X-Aify-Operator': 'dashboard', 'X-Aify-Operator-Key': 'synthetic-operator', 'X-API-Key': 'synthetic-service' });
 }
 const success = () => ({ status: 200, body: { mode: 'managed', agent: { status: 'available', sessionMode: 'managed' } } });
-const conflict = () => ({ status: 409, body: { detail: 'Active run synthetic-run' } });
+// The service's active-run refusal, as session_mode_switch.py words it: the only 409 force can lift.
+const conflict = () => ({ status: 409, body: { detail: 'Agent has an active dispatch run (runId=synthetic-run); wait for it to finish or pass force=true' } });
 
 test('mode switch sends both stored credentials with the exact payload and applies success', async t => {
   const h = harness(t, [success()]);
@@ -95,7 +96,7 @@ for (const confirmed of [false, true]) test(`409 ${confirmed ? 'confirmation' : 
   const h = harness(t, [conflict(), success()], confirmed);
   const answer = await switchAgentSessionMode('coder /one', 'managed');
   assert.equal(h.dialogs.length, 1);
-  assert.match(h.dialogs[0].innerHTML, /Active run synthetic-run/);
+  assert.match(h.dialogs[0].innerHTML, /runId=synthetic-run/);
   assert.match(h.dialogs[0].innerHTML, /Force the switch to managed anyway/);
   // Forcing stops a running agent: a destructive confirm, so Enter does not answer yes (review of 0.7.6).
   assert.match(h.dialogs[0].innerHTML, /class="dialog dialog-danger"/);
@@ -105,13 +106,21 @@ for (const confirmed of [false, true]) test(`409 ${confirmed ? 'confirmation' : 
   else { assert.equal(answer, null); assert.equal(state.agents[0].sessionMode, 'resident'); }
   assert.equal(h.refreshes(), confirmed ? 1 : 0);
 });
+test('a 409 force cannot lift is not offered force (action audit, cosmetic)', async t => {
+  // A pending definition request, or any other conflict, is refused whether forced or not: asking would retry for nothing.
+  const h = harness(t, [{ status: 409, body: { detail: "agent has a definition request waiting on its host" } }], true);
+  assert.equal(await switchAgentSessionMode('coder /one', 'managed'), null);
+  assert.equal(h.dialogs.length, 0, 'a force prompt for a conflict force cannot solve');
+  assert.equal(h.sent.length, 1);
+  assert.ok(h.toasts().some((text) => /definition request waiting/.test(text)), `told: ${h.toasts()}`);
+});
 test('a forced 409 stops after one confirmed retry', async t => {
   const h = harness(t, [conflict(), conflict()]);
   assert.equal(await switchAgentSessionMode('coder /one', 'managed'), null);
   assert.equal(h.sent.length, 2);
   requestIsAuthenticated(h.sent[1], true);
   assert.equal(h.dialogs.length, 1);
-  assert.ok(h.toasts().includes('Mode switch failed: Active run synthetic-run'), `told: ${h.toasts()}`);
+  assert.ok(h.toasts().includes('Mode switch failed: Agent has an active dispatch run (runId=synthetic-run); wait for it to finish or pass force=true'), `told: ${h.toasts()}`);
   assert.equal(h.refreshes(), 0);
 });
 test('network failure is reported without retry or optimistic state', async t => {

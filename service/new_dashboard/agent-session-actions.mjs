@@ -58,8 +58,10 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
   try { body = await res.json(); } catch {}
   if (!res.ok) {
     // I10: an active run blocks the switch (409). Offer to force it, matching the old dashboard.
-    if (res.status === 409 && !force) {
-      const detail = body?.detail || body?.error || 'An active run is blocking the switch.';
+    // ONLY A CONFLICT FORCE CAN SOLVE is offered force (action audit, cosmetic): the active-run refusal says
+    // "pass force=true"; a pending definition request or any other 409 is not lifted by it.
+    const detail = body?.detail || body?.error || 'An active run is blocking the switch.';
+    if (res.status === 409 && !force && /force=true/.test(String(detail))) {
       // Forcing stops the run in flight, so it is destructive: Cancel is focused and Enter is not yes.
       if (await uiConfirm(`${detail}\n\nForce the switch to ${targetMode} anyway?`, { tone: 'danger' })) {
         return switchAgentSessionMode(agentId, targetMode, { force: true });
@@ -342,7 +344,7 @@ export async function deleteSessionById(sid) {
 export async function requestSessionControl(sessionId, action, confirmAction = true, refreshAfter = true) {
   const labels = {
     stop: 'stop this session',
-    restart: 'restart this session using its saved backing',
+    restart: 'restart this agent from its definition (it resumes its saved session when it has one)',
     recreate: 'RESET this session with a fresh context (the current native session is discarded)',
   };
   if (!sessionId || !action) return;

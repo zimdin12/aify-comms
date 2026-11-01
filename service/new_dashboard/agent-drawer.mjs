@@ -32,6 +32,7 @@ import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
 import { paintAgentDrawer } from './drawer-paint.mjs';
 import { agentModes } from './agent-mode.mjs';
+import { sessionRowIsLive } from './sessions-list.mjs';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -69,7 +70,7 @@ export function openAgentDrawer(agentId) {
     // hold is its aify-env's, so for one the service queues `release` to that host (2026-10-28); for an undefined
     // agent it clears comms' own stop row, which made its claim answer `stopped` and its delivery loop exit.
     agentStatus === 'stopped' ? (defined
-      ? `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear the hold, so a message starts it again. Starts nothing now.">Release hold</button>`
+      ? `<button class="ghost" data-agent-resume="${esc(id)}" title="${modes.configuredMode === 'managed' ? 'Clear the hold, so a message starts it again. Starts nothing now.' : 'Clear the hold, so its next launch is not refused. Starts nothing now; a message does not start a resident.'}">Release hold</button>`
       : `<button class="ghost" data-agent-resume="${esc(id)}" title="Clear comms' stop on this agent, so a relaunch or a message is not refused. Starts nothing.">Resume</button>`) : '',
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}"${relaunchAttrs(agent, state.sessions)}>Restart</button>` : '',
     sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}"${relaunchAttrs(agent, state.sessions, 'Restart with a FRESH context (discards native session)')}>Reset</button>` : '',
@@ -90,7 +91,9 @@ export function openAgentDrawer(agentId) {
     defined && agentStatus !== 'stopped'
       ? `<button class="ghost danger" data-agent-hold="${esc(id)}" title="Stop this agent and keep it stopped: a message does not start it until you Release hold or Start it.">Hold</button>`
       : '',
-    sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}" title="Delete this ended session's record and its terminal history. The agent stays.">Delete session</button>` : '',
+    sid ? (sessionRowIsLive(session)
+      ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}" disabled title="This session is live; stop it before deleting its record.">Delete session</button>`
+      : `<button class="ghost danger" data-agent-delete-session="${esc(sid)}" title="Delete this ended session's record and its terminal history. The agent stays.">Delete session</button>`) : '',
     `<button class="ghost danger" data-agent-remove="${esc(id)}" title="Remove the agent itself: its host moves its definition to the trash, and its sessions go with it.">Remove agent</button>`,
   ].filter(Boolean).join('');
   // Always render this block. When there is no command, say WHY — an absent section is

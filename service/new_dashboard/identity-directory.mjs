@@ -46,7 +46,7 @@ export function openIdentityDirectory() {
       <td>${lastSeen ? `${lastSeen} ago` : '—'}</td>
       <td class="identity-row-actions">
         <button class="ghost" data-agent-details="${esc(id)}" title="Open the agent detail drawer (lifecycle controls)">Details</button>
-        <button class="ghost danger" data-agent-remove="${esc(id)}" title="Unregister/forget this identity (tombstones it)">Remove</button>
+        <button class="ghost danger" data-agent-remove="${esc(id)}" title="Remove this agent: its worker is stopped and it is tombstoned; one an aify-env host defines is removed by that host, definition included.">Remove</button>
       </td>
     </tr>`;
   }).join('');

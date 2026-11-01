@@ -209,7 +209,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
        </div>`
     : canStartDeadSession
     ? `<div class="console-embed" data-kind="console-start">
-         <div class="console-embed-label"><span>This session is ${esc(status || 'stopped')} — no live console. The agent stays <em>available</em>: a message wakes it, or start it now.<span class="console-dead-cause" data-dead-cause-agent="${esc(agentIdForCodex || '')}"></span></span></div>
+         <div class="console-embed-label"><span>This session is ${esc(status || 'stopped')} — no live console. ${relaunchRefusal(agent, state.sessions) ? esc(`It cannot be started here: ${relaunchRefusal(agent, state.sessions)}.`) : 'The agent stays <em>available</em>: a message wakes it, or start it now.'}<span class="console-dead-cause" data-dead-cause-agent="${esc(agentIdForCodex || '')}"></span></span></div>
          <div class="console-start-actions">
            <button class="primary" data-session-control="restart" data-session-id="${esc(id)}"${relaunchAttrs(agent, state.sessions, 'Spawn a fresh worker for this agent (resumes its saved session when one exists)')}>Start agent</button>
          </div>

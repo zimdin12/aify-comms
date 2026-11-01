@@ -94,7 +94,7 @@ export function renderDiagnosticsBulkToolbar() {
     <button class="ghost" data-diagnostic-action="remind">Remind work</button>
     <button class="ghost danger" data-diagnostic-action="close">Close selected</button>
     <button class="ghost" data-diagnostic-action="inspect">Inspect first</button>
-    <button class="ghost" data-diagnostic-action="clear">Clear</button>`;
+    <button class="ghost" data-diagnostic-action="clear">Clear selection</button>`;
 }
 
 export function renderContracts() {

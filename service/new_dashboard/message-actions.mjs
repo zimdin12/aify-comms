@@ -21,7 +21,7 @@ import { byId, toast, uiConfirm } from './ui.js';
 import { esc } from './util.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
 import { agentModes } from './agent-mode.mjs';
-import { relaunchRefusal, startAttrs } from './agent-click-handlers.mjs';
+import { relaunchRefusal, startAttrs, startOffer } from './agent-click-handlers.mjs';
 
 let chatController = { render() {}, renderRail() {}, renderConversation() {} };
 let refreshSoon = () => {};
@@ -153,7 +153,9 @@ export function mountChatConsole(agentId, hostEl) {
       // bring a cold agent up was to send it a message ("why can't I start hermes models?").
       // Cold-start itself was never broken — there was simply no button. Give it one.
       : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
-        + `<p>${esc(agentId)} has no worker running. Start one now — it resumes the agent's saved session if it has one, so its conversation is kept. (Sending a message also starts it.)</p>`
+        + (startOffer(agent, state.sessions).start
+          ? `<p>${esc(agentId)} has no worker running. Start one now — it resumes the agent's saved session if it has one, so its conversation is kept. (Sending a message also starts it.)</p>`
+          : `<p>${esc(agentId)} cannot be started here: ${esc(startOffer(agent, state.sessions).why || 'not in its current state')}.</p>`)
         + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}"${startAttrs(agent, state.sessions)}>Start agent</button></div></div>`;
     return;
   }
