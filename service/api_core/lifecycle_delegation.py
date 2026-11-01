@@ -51,10 +51,11 @@ def _new_request(machine_id, agent_id, action, actor, fresh_context):
             'freshContext': fresh_context}
 
 
-async def delegate(db, agent_id, action, actor, request, *, fresh_context=False, brief=''):
+async def delegate(db, agent_id, action, actor, request, *, fresh_context=False, brief='', admit=None):
     """Queue `action` for a defined agent and answer the receipt, or None for an undefined agent. `brief` is the
-    started worker's first message (JSON subject, body, priority). Opens and commits its own transaction, so
-    call it before the route writes anything."""
+    started worker's first message (JSON subject, body, priority). `admit(db)`, when given, runs first inside the
+    transaction and may raise to refuse, so a caller's precondition is judged under the same lock as the queueing.
+    Opens and commits its own transaction, so call it before the route writes anything."""
     if action in LAUNCHING_ACTIONS:
         # Refused at once, as before D9c: withdrawn, resident, or a definition its host cannot use.
         try:
@@ -71,6 +72,8 @@ async def delegate(db, agent_id, action, actor, request, *, fresh_context=False,
     proof = require_lifecycle({'requestedBy': actor, 'action': action}, request)  # before anything about its state is said
     await db.execute('BEGIN IMMEDIATE')
     try:
+        if admit is not None:
+            await admit(db)
         # A REPEAT OF WHAT IS ALREADY WAITING is that request, not an error: a second Start clicked while the
         # first is still queued answered 409 "open lifecycle request". Another action waiting is still refused,
         # and so is a Recreate behind a waiting Restart: that restart keeps the conversation the caller asked to drop.

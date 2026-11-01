@@ -26,6 +26,7 @@ from service.api_core.definition_guard import defined_on
 from service.api_core.definition_start import undefined_refusal
 from service.api_core.lifecycle_delegation import delegate
 from service.api_core.records import _agent_session_to_dict
+from service.api_core.session_currentness import refuse_unless_current
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_sender
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
@@ -78,9 +79,12 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         # is: it ends the worker and leaves the agent startable. Holding an agent stopped is the agent control's
         # `stop` (operator, 2026-10-28: "i wanted that you would kill them, not put them into state that they
         # cannot be started").
+        # ONLY THE CURRENT ROW (action audit #2): the host acts on the lifetime it publishes now, so a superseded row's
+        # control would stop or restart the agent's newer worker. Judged under the admission's lock.
         if action in {"stop", "restart", "recreate"}:
             delegated = await delegate(db, agent_id, "kill" if action == "stop" else "restart", actor, request,
-                                       fresh_context=action == "recreate")
+                                       fresh_context=action == "recreate",
+                                       admit=refuse_unless_current(session_id, agent_id))
             if delegated:
                 return delegated
         if action in {"restart", "recreate"}:
