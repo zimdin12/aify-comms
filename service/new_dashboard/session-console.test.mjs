@@ -202,6 +202,38 @@ test("A STOPPED CHAT SESSION'S RESTART CLEARS once a misconfigured agent is fixe
   });
 });
 
+// Review of 1690e63b: a stopped agent is held, and a message does NOT start it, so its startable cards offer the
+// explicit Start and promise no message wake. One test per card, each with its own state.
+const MESSAGE_WAKE = /message (also )?(starts|wakes)|Sending a message|stays <em>available/;
+const heldAgent = () => [{ id: "a1", definitionState: "defined", runtime: "claude-code", sessionMode: "managed", status: "stopped" }];
+
+test("A HELD AGENT WITH NO SESSION is offered Start in Chat, with no promise that a message starts it", async () => {
+  const { initMessageActions, mountChatConsole } = await import("./message-actions.mjs");
+  await withDom(async () => {
+    initMessageActions({ chatController: {}, refreshSoon: () => {}, renderSessionConsole: (s, el, o) => renderSessionConsole(s, el, o, deps()) });
+    state.agents = heldAgent();
+    state.sessions = [];
+    const chat = host();
+    mountChatConsole("a1", chat);
+    assert.match(chat.innerHTML, /data-agent-action="start" data-agent-id="a1">Start agent</, "the explicit Start is missing or disabled");
+    assert.doesNotMatch(chat.innerHTML, MESSAGE_WAKE, "the card promises a message wakes a held agent");
+  });
+});
+
+test("A HELD AGENT'S STOPPED SESSION is offered Start in Chat, with no promise that a message wakes it", async () => {
+  const { initMessageActions, mountChatConsole } = await import("./message-actions.mjs");
+  await withDom(async () => {
+    initMessageActions({ chatController: {}, refreshSoon: () => {}, renderSessionConsole: (s, el, o) => renderSessionConsole(s, el, o, deps()) });
+    state.agents = heldAgent();
+    state.sessions = [{ id: "s1", agent_id: "a1", agentId: "a1", status: "stopped" }];
+    const chat = host();
+    mountChatConsole("a1", chat);
+    assert.match(chat.innerHTML, /data-session-control="restart" data-session-id="s1"(?![^>]*disabled)[^>]*>Start agent</,
+      "the explicit Start is missing or disabled");
+    assert.doesNotMatch(chat.innerHTML, MESSAGE_WAKE, "the card promises a message wakes a held agent");
+  });
+});
+
 test("a definition change does not rebuild a LIVE Chat terminal", async () => {
   // The control for the residual fix: the Chat signature now changes with the refusal, and the inner
   // renderer's key must keep a mounted terminal, its host markup and its object as they were.

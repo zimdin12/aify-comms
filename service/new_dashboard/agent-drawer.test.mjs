@@ -230,6 +230,22 @@ test("the drawer offers ONE stop, with a session or without one", () => {
   }
 });
 
+// Slice 9 (review of 1690e63b): the service refuses to delete a live session's record, so the drawer's Delete is
+// present but disabled for a live row and enabled for an ended one. One test per row state.
+const deleteButton = (html) => html.match(/<button[^>]*data-agent-delete-session="s1"[^>]*>/)?.[0];
+for (const [status, live] of [["running", true], ["stopped", false]]) {
+  test(`${live ? "a LIVE" : "an ENDED"} session row's Delete session is present and ${live ? "disabled" : "enabled"}`, () => {
+    seed({ agents: [{ id: "coder", status: live ? "online" : "stopped", sessionMode: "managed" }],
+           sessions: [{ id: "s1", agentId: "coder", agent_id: "coder", status }], inspector: {} });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("coder");
+      const button = deleteButton(els["inspector-content"].innerHTML);
+      assert.ok(button, `no Delete session control for a ${status} row`);
+      assert.equal(/\sdisabled[\s>]/.test(button), live, `a ${status} row's Delete is ${live ? "enabled" : "disabled"}: ${button}`);
+    });
+  });
+}
+
 test("the Continue-in-CLI block renders even when there is no command to give", () => {
   // An absent block reads as a broken feature; the block explains WHY there is no command instead.
   seed({ agents: [{ id: "coder", status: "online" }], sessions: [], inspector: {} });

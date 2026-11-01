@@ -66,7 +66,7 @@ function requestIsAuthenticated(request, force = false) {
   assert.deepEqual(request.headers, { 'Content-Type': 'application/json', 'X-Aify-Operator': 'dashboard', 'X-Aify-Operator-Key': 'synthetic-operator', 'X-API-Key': 'synthetic-service' });
 }
 const success = () => ({ status: 200, body: { mode: 'managed', agent: { status: 'available', sessionMode: 'managed' } } });
-// The service's active-run refusal, as session_mode_switch.py words it: the only 409 force can lift.
+// The service's active-run refusal, as session_mode_gates.py words it: the only 409 force can lift.
 const conflict = () => ({ status: 409, body: { detail: 'Agent has an active dispatch run (runId=synthetic-run); wait for it to finish or pass force=true' } });
 
 test('mode switch sends both stored credentials with the exact payload and applies success', async t => {

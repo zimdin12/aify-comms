@@ -154,7 +154,7 @@ export function mountChatConsole(agentId, hostEl) {
       // Cold-start itself was never broken — there was simply no button. Give it one.
       : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
         + (startOffer(agent, state.sessions).start
-          ? `<p>${esc(agentId)} has no worker running. Start one now — it resumes the agent's saved session if it has one, so its conversation is kept. (Sending a message also starts it.)</p>`
+          ? `<p>${esc(agentId)} has no worker running. Start it now — it resumes the agent's saved session if it has one, so its conversation is kept.</p>`
           : `<p>${esc(agentId)} cannot be started here: ${esc(startOffer(agent, state.sessions).why || 'not in its current state')}.</p>`)
         + `<div class="console-start-actions"><button class="primary" data-agent-action="start" data-agent-id="${esc(agentId)}"${startAttrs(agent, state.sessions)}>Start agent</button></div></div>`;
     return;
