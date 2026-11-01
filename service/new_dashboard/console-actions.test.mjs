@@ -23,6 +23,7 @@ import {
   startConsoleForSession,
   stopConsoleTerminal,
 } from "./console-actions.mjs";
+import { runConsoleAction } from "./console-click-handlers.mjs";
 
 function makeEl(extra = {}) {
   return {
@@ -133,26 +134,59 @@ test("resync RESETS before repainting — the 'refresh does not actually fix it'
   } finally { h.restore(); }
 });
 
-test("resync says whether it repainted, so Refresh does not report a fetch that failed (action audit #11)", async () => {
-  // The failure path drains held frames and swallows the error on purpose; its caller toasted "Console refreshed"
-  // either way. The answer is now whether a snapshot was painted.
-  const h = withConsole();
-  try {
-    state.activeXterm = makeEntry();
-    assert.equal(await resyncActiveConsole(), true, "a painted snapshot is a refresh");
-  } finally { h.restore(); }
-  const failing = withConsole();
+// ── action audit #11: Refresh says what happened. The failure path drains held frames and swallows the error on
+// purpose; the button toasted "Console refreshed" either way. Real resync, real click handler; only I/O is faked.
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const failingGets = () => {
   const fetchOk = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => {
     if ((options.method || "GET").toUpperCase() === "GET") throw new Error("snapshot fetch failed");
     return fetchOk(url, options);
   };
+};
+
+test("resync answers true once it painted a snapshot", async () => {
+  const h = withConsole();
+  try {
+    state.activeXterm = makeEntry();
+    assert.equal(await resyncActiveConsole(), true);
+  } finally { h.restore(); }
+});
+
+test("resync answers false when its snapshot fetch failed, and resets nothing", async () => {
+  const h = withConsole();
+  failingGets();
   try {
     const entry = makeEntry();
     state.activeXterm = entry;
-    assert.equal(await resyncActiveConsole(), false, "a failed fetch is not a refresh");
-    assert.equal(entry.__resets || 0, 0, "control: nothing was reset");
-  } finally { failing.restore(); }
+    assert.equal(await resyncActiveConsole(), false);
+    assert.equal(entry.__resets || 0, 0, "control: a failed fetch reset the screen");
+  } finally { h.restore(); }
+});
+
+test("the Refresh button says refreshed when the snapshot painted", async () => {
+  const h = withConsole();
+  try {
+    state.activeXterm = makeEntry();
+    runConsoleAction({ dataset: { consoleAction: "refresh" } }, resyncActiveConsole, () => {}, () => {});
+    await settle(); await settle();
+    assert.ok(h.toasts.some((t) => t.text === "Console refreshed"), `told: ${h.toasts.map((t) => t.text)}`);
+  } finally { h.restore(); }
+});
+
+test("the Refresh button does NOT say refreshed when the snapshot fetch failed, and warns", async () => {
+  const h = withConsole();
+  failingGets();
+  try {
+    state.activeXterm = makeEntry();
+    runConsoleAction({ dataset: { consoleAction: "refresh" } }, resyncActiveConsole, () => {}, () => {});
+    await settle(); await settle();
+    const said = h.toasts.map((t) => t.text);
+    assert.ok(!said.includes("Console refreshed"), `a failed fetch was reported as a refresh: ${said}`);
+    const warned = h.toasts.find((t) => /not refreshed/.test(t.text));
+    assert.ok(warned, `no warning: ${said}`);
+    assert.match(warned.tone, /toast-warn/);
+  } finally { h.restore(); }
 });
 
 test("resync fetches at the FITTED width, not the current one", async () => {

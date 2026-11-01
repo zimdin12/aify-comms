@@ -707,6 +707,40 @@ test("THE HANDLERS USE THOSE MESSAGES: a refused handle and an unchanged mode ar
   } finally { h.restore(); }
 });
 
+test("A RENAME THAT ORPHANED A LIVE SESSION IS WHAT THE EDIT TOAST SAYS, in warn; one that did not adds nothing", async () => {
+  // Action audit #11, through the handler: submitAgentEdit dropped the rename answer, so the service's note that a
+  // live session still runs under the old id never reached the operator. The note helper alone cannot show that.
+  for (const [hadLiveBridge, expectNote] of [[true, true], [false, false]]) {
+    const h = withActions({ confirm: true, fields: { "edit-agent-id": "coder2", "edit-agent-desc": "", "edit-agent-handle": "h1" } });
+    const toasts = [];
+    const make = globalThis.document.createElement;
+    globalThis.document.createElement = (...a) => {
+      const el = make(...a);
+      let text = "";
+      Object.defineProperty(el, "textContent", { get: () => text, set: (v) => { text = String(v); if (text) toasts.push({ text, el }); }, configurable: true });
+      return el;
+    };
+    const answer = (body) => ({ ok: true, status: 200, statusText: "OK", json: async () => body, text: async () => JSON.stringify(body) });
+    try {
+      state.agents = [{ id: "coder", sessionHandle: "h1", description: "" }];
+      globalThis.fetch = async (url) => String(url).includes("/rename")
+        ? answer({ ok: true, changed: true, hadLiveBridge, note: hadLiveBridge
+          ? "A live resident session is still running as 'coder' and is now orphaned" : "History preserved. Notify teammates." })
+        : answer({ ok: true, agents: [], sessions: [] });
+      await submitAgentEdit("coder");
+      const edit = toasts.find((t) => /Agent updated/.test(t.text));
+      assert.ok(edit, `no edit toast: ${toasts.map((t) => t.text)}`);
+      if (expectNote) {
+        assert.match(edit.text, /still running as 'coder'/, "the orphan note never reached the toast");
+        assert.match(edit.el.className, /toast-warn/);
+      } else {
+        assert.doesNotMatch(edit.text, /Notify teammates|orphaned/, "a rename with no live session added a note");
+        assert.match(edit.el.className, /toast-ok/);
+      }
+    } finally { h.restore(); }
+  }
+});
+
 test("A STEP THAT FAILS AFTER OTHERS LANDED SAYS WHAT LANDED, and the screen refreshes", async () => {
   // Review of 0.9.5, D8: the description committed, the handle collided (200), the rename was refused
   // (409), and the operator saw only "Edit failed" with no refresh. Nothing is rolled back; it is said.
