@@ -171,6 +171,12 @@ async def unregister_agent(agent_id: str, request: Request):
         delegated = await delegate(db, agent_id, "delete", DASHBOARD_ACTOR, request)
         if delegated:
             return delegated
+        # NOTHING REGISTERED UNDER THIS ID, so nothing is written (action audit #7, 2026-11-02). Removing it tombstoned
+        # the id anyway, so a typo or a case variant (`Coder` for `coder`, matched case-insensitively) refused that
+        # name's registration from then on, and its runs were cancelled, under an answer saying nothing was removed.
+        # A repeat of a real removal lands here too: its tombstone is already written. The answer is unchanged.
+        if not await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,))).fetchone():
+            return {"ok": False, "agentId": agent_id}
         # Asked again before any worker is stopped and inside the deleting transaction, so an agent
         # defined meanwhile is not removed here.
         async def defined_elsewhere(conn):
