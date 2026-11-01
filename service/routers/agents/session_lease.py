@@ -89,7 +89,8 @@ async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, 
                                                  lease_seconds=settings.get("resident_lease_seconds", 150))
         if owner:
             raise HTTPException(409, f"Session id '{pending}' is still held by live agent '{owner['agentId']}' "
-                                     f"({owner['sessionMode']}); stop or remove '{owner['agentId']}' first, then confirm")
+                                     f"({owner['sessionMode']}); remove '{owner['agentId']}', or stop it and confirm "
+                                     f"once its registration is no longer fresh")
 
         runtime = _normalize_runtime(row["runtime"] or "generic")
         session_mode = _normalize_session_mode(row["session_mode"] or "resident")
