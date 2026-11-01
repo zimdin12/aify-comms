@@ -19,7 +19,7 @@ distinction matters because treating loss as termination strands an agent that c
 worked. `_settle_lost_resident_when_no_transition` is the other half: when no transition applies,
 something still has to make the records agree.
 
-Bodies and route decorators are byte-identical to what stood in `session_ops.py`. The router is built
+The bodies moved from `session_ops.py` unchanged; confirm has since gained its live-owner check (2026-11-02). The router is built
 through `domain_router()`, which rejects a hand-passed `route_class`, so a new surface cannot opt out
 of the bounded SQLite write-lock retry.
 """
@@ -30,7 +30,7 @@ import json
 
 from fastapi import HTTPException, Request
 
-from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
@@ -69,6 +69,8 @@ async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, 
     validate_name(agent_id, "agent ID")
     db = await get_db()
     try:
+        # ONE TRANSACTION from the owner check to the re-pin, so an agent going live on the id meanwhile is seen.
+        await db.execute("BEGIN IMMEDIATE")
         now = _now()
         row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not row:
@@ -79,6 +81,15 @@ async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, 
         pending = str(row["pending_session_id"] or "").strip()
         if not pending:
             raise HTTPException(409, f"Agent '{agent_id}' has no pending session id to confirm")
+        # CONFIRM ADOPTS ONLY A FREE ID (action audit #1, 2026-11-02). Parking a collision and confirming it is the
+        # deliberate way to take an id over (registration_handle_collision.py); while a DIFFERENT live agent still holds
+        # it, confirming would bind one session to two live agents, the 651b895f incident the collision guard exists for.
+        settings = await _load_settings(db)
+        owner = await _session_handle_live_owner(db, pending, exclude_agent_id=agent_id,
+                                                 lease_seconds=settings.get("resident_lease_seconds", 150))
+        if owner:
+            raise HTTPException(409, f"Session id '{pending}' is still held by live agent '{owner['agentId']}' "
+                                     f"({owner['sessionMode']}); stop or remove '{owner['agentId']}' first, then confirm")
 
         runtime = _normalize_runtime(row["runtime"] or "generic")
         session_mode = _normalize_session_mode(row["session_mode"] or "resident")

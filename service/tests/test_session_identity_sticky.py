@@ -228,6 +228,55 @@ class SessionIdentityStickyTests(FastApiTestCase):
         # A is untouched.
         self.assertEqual(str(self._row("claude-A")["session_handle"] or ""), "sess-SHARED")
 
+    def _park_collision(self):
+        """B registers with live A's id, which is parked on B (the flow Confirm exists to resolve)."""
+        self._register("claude-A")
+        self._heartbeat_handle("claude-A", "sess-SHARED")
+        self._register("claude-B")
+        self.assertEqual(self._heartbeat_handle("claude-B", "sess-SHARED").json().get("state"), "session-collision")
+
+    def _age(self, agent_id):
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2020-01-01T00:00:00Z", agent_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_confirm_refuses_an_id_a_different_live_agent_still_holds(self):
+        """Parking a collision and confirming it is the deliberate way to adopt an id (registration_handle_collision.py).
+        This TIGHTENS that contract (action audit #1, 2026-11-02): Confirm re-checks the owner in its own transaction,
+        so it cannot bind one session to two live agents. Nothing changes on either agent."""
+        self._park_collision()
+        res = self.client.post("/api/v1/agents/claude-B/session/confirm", json={"requestedBy": "operator"})
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("claude-A", res.json()["detail"])
+        self.assertEqual(str(self._row("claude-B")["session_handle"] or ""), "", "B bound a live agent's id")
+        self.assertEqual(str(self._row("claude-B")["pending_session_id"] or ""), "sess-SHARED", "the refusal lost the pending id")
+        self.assertEqual(str(self._row("claude-A")["session_handle"] or ""), "sess-SHARED")
+
+    def test_confirm_adopts_the_id_once_its_former_owner_is_no_longer_live(self):
+        """The CONTROL: adoption stays valid once the other owner is stale, exactly as the collision guard defines live."""
+        self._park_collision()
+        self._age("claude-A")
+        res = self.client.post("/api/v1/agents/claude-B/session/confirm", json={"requestedBy": "operator"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(str(self._row("claude-B")["session_handle"] or ""), "sess-SHARED")
+
+    def test_an_owner_that_goes_live_after_the_park_is_still_refused(self):
+        """The window between the banner being drawn and Confirm being pressed: the id was free when parked as a plain
+        drift, and another agent took it live since. Confirm answers for now, not for when the banner was drawn."""
+        self._register()
+        self._set_auto_confirm(False)
+        self._heartbeat_handle("claude-1", "sess-AAA")
+        self._heartbeat_handle("claude-1", "sess-LATE")  # parks a plain drift: nobody holds sess-LATE yet
+        self.assertEqual(str(self._row("claude-1")["pending_session_id"] or ""), "sess-LATE")
+        self._register("claude-late")
+        self._heartbeat_handle("claude-late", "sess-LATE")  # someone else goes live on it
+        res = self.client.post("/api/v1/agents/claude-1/session/confirm", json={"requestedBy": "operator"})
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertEqual(str(self._row("claude-1")["session_handle"] or ""), "sess-AAA")
+
     def test_stale_owner_is_not_a_collision(self):
         # A dead/stale owner means the id is FREE to reassign — not a collision.
         self._register("claude-A")
