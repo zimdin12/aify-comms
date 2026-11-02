@@ -69,7 +69,9 @@ test("THE OPTED-IN SERVER is written as aify-wrapper's on a quiet host, or recor
     const marker = JSON.parse(fs.readFileSync(r.marker, "utf8"));
     assert.equal(path.resolve(marker.registry), path.resolve(r.registry), "the pending change names another registry");
   } else {
-    assert.match(run.stdout, /hermes config: wrote svc-mcp/, run.stdout);
+    // Since aify-wrapper v0.9.4 an install records the change and applies it at once on a quiet host, so it reports the
+    // applied record; the server and its config set below are the proof either way.
+    assert.match(run.stdout, /hermes config: (wrote svc-mcp|the change an install recorded at \S+ is applied)/, run.stdout);
     assert.equal(r.servers()["svc-mcp"]?.["x-aify-owner"], "aify-wrapper", JSON.stringify(r.servers()));
     assert.ok(sets.some((args) => args[2] === "mcp_servers.svc-mcp"), `no config set for the server: ${JSON.stringify(sets)}`);
   }
