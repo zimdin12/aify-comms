@@ -160,9 +160,9 @@ run is the authority, and a very different number means a wrong invocation befor
 else.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5197 passed, 24 skipped
-cd mcp/stdio && node tests/run-all.mjs                 # 353 suites
-cd service/new_dashboard && node --test *.test.mjs     # 1966 tests
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5213 passed, 24 skipped
+cd mcp/stdio && node tests/run-all.mjs                 # 354 suites
+cd service/new_dashboard && node --test *.test.mjs     # 1983 tests
 cd ~/projects/aify-wrapper && npm test                 # 1179 tests, 65 skipped
 cd ~/projects/aify-env && npm test                     # 3050 tests, 4 skipped
 ```
