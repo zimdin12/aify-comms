@@ -606,3 +606,30 @@ test("A CAPPED SPAWN-REQUEST TABLE SAYS SO, like every other capped list here", 
     state.spawnRequests = saved;
   }
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Where aify-env actually launches, beside the service's roots (2026-11-02). Steven's card listed D:/ while every agent
+// under D: read misconfigured: "Edit roots…" edits the service's list, which aify-env never launches from.
+const launchCard = (env) => withDom({ "environment-list": el() }, null, (els) => {
+  state.environments = [{ id: "w", label: "Windows box", status: "online", ...env }];
+  renderRuntime();
+  return els["environment-list"].innerHTML;
+});
+
+test("a service root aify-env will not launch in is marked on the card, with the command that adds it", () => {
+  const html = launchCard({ cwdRoots: ["C:/", "D:/"], rootsOutsideLaunch: ["D:/"], metadata: { launchRoots: ["C:\\"] } });
+  assert.match(html, /<code class="mb-warn root-outside-launch" title="[^"]*aify-env roots add D:\/[^"]*">D:\/ ⚠<\/code>/,
+    "the root aify-env will not launch in is not marked, or does not name the command");
+  assert.match(html, /<code>C:\/<\/code>/, "CONTROL: a root inside aify-env's launch roots stays plain");
+  assert.match(stripTags(html), /aify-env starts work under C:\\ · 1 listed root outside them/,
+    "the card does not say where aify-env actually starts work");
+});
+
+test("CONTROL: with every root inside, nothing is marked; with no report, the card claims nothing", () => {
+  const inside = launchCard({ cwdRoots: ["C:/", "D:/"], rootsOutsideLaunch: [], metadata: { launchRoots: ["C:\\", "D:/"] } });
+  assert.doesNotMatch(inside, /root-outside-launch|outside them/, "a root was marked although aify-env launches there");
+  assert.match(stripTags(inside), /aify-env starts work under C:\\ D:\//);
+  const unreported = launchCard({ cwdRoots: ["C:/"], metadata: {} });
+  assert.doesNotMatch(unreported, /aify-env starts work under|root-outside-launch/,
+    "an aify-env that reported no launch roots was described anyway");
+});

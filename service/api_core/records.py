@@ -22,6 +22,7 @@ from service.api_core.capabilities import _row_capabilities
 from service.api_core.liveness import _agent_wake_mode
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
+from service.api_core.workspace import outside_launch_roots
 from service.api_core import operational_view
 from service.reconcilers.status_cache import _live_state_get
 from service.usage_cache import usage_get, usage_source_of
@@ -43,6 +44,14 @@ from service.api_core.reply_contract import (
 from service.api_core.code_currency import code_currency
 from service.api_core.serialization import _dedupe_preserve, _row_require_reply
 
+
+
+def _roots_outside_launch(row, metadata: dict[str, Any]) -> list[str]:
+    """The service-side roots aify-env's reported `launchRoots` do not contain; none when it reported none."""
+    roots = [r for r in _json_loads_or(row["cwd_roots"], []) if isinstance(r, str) and r.strip()]
+    environment = {"id": row["id"], "os": row["os"], "kind": row["kind"], "machineId": row["machine_id"],
+                   "cwdRoots": roots, "metadata": metadata}
+    return [root for root in roots if outside_launch_roots(root, environment)]
 
 
 def _environment_record_to_dict(row, *, offline_seconds: int = 90, definitions: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -72,6 +81,9 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90, definitions: 
             if "launcher_registry_fingerprint" in row.keys() else ""
         ) or "",
         "cwdRoots": _json_loads_or(row["cwd_roots"], []),
+        # WHICH OF THOSE ROOTS THIS HOST'S aify-env WILL NOT START WORK IN, by the rule the misconfigured note uses
+        # (workspace.py). The dashboard draws this verdict instead of carrying a third copy of the containment rule.
+        "rootsOutsideLaunch": _roots_outside_launch(row, metadata),
         "runtimes": normalized_runtimes,
         "terminal": terminal,
         "pty": pty,

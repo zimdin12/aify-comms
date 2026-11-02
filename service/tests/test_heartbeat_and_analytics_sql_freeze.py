@@ -16,8 +16,10 @@ ONE INTENDED CHANGE SINCE, before the extraction: main dropped the analytics mes
 tile is now the sum of the series it is shown with, review of 0.9.5, L7), so that one entry is gone from
 both analytics lists. 0.9.9 S3b deleted the legacy status derivation the roster's status compute ran, and
 with it nine reads per request (the session prefetch, the turn, status, console and activity batches, and each
-agent's delivered-reply and sidecar reads); those entries are gone from both lists. Every other entry and both
-response bodies are as recorded.
+agent's delivered-reply and sidecar reads); those entries are gone from both lists. 0.9.17 added `rootsOutsideLaunch` to the environment record
+(launch roots): one key in each heartbeat body, no SQL. It is `[]` where a beat reports no launchRoots, and
+`['C:/Docker']` for the advertisement, whose launchRoots `D:/work` do not contain the service's root.
+Every other entry and both response bodies are as recorded.
 
 THE INSTRUMENT is below the handler, not beside it: every `aiosqlite.Connection` statement, commit,
 rollback and close is logged in call order, tagged with the connection it ran on (`c1` is the first
@@ -414,6 +416,7 @@ FIRST_BEAT_BODY = {'claimer': {'accepted': True, 'bridgeId': 'bridge-legacy', 'r
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
+                 'rootsOutsideLaunch': [],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',
@@ -466,6 +469,7 @@ REPEAT_BEAT_BODY = {'claimer': {'accepted': True, 'bridgeId': 'bridge-legacy', '
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
+                 'rootsOutsideLaunch': [],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',
@@ -523,6 +527,7 @@ RECOVERY_BODY = {'claimer': {'accepted': True, 'bridgeId': 'bridge-legacy', 'rea
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
+                 'rootsOutsideLaunch': [],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',
@@ -585,6 +590,7 @@ HOST_TIER_BODY = {'claimer': {'accepted': True, 'bridgeId': 'env-host-tier', 're
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
+                 'rootsOutsideLaunch': [],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',
@@ -630,6 +636,7 @@ LEGACY_REFUSED_BODY = {'claimer': {'accepted': False,
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
+                 'rootsOutsideLaunch': [],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',
@@ -685,6 +692,7 @@ ADVERTISEMENT_BODY = {'claimer': {'accepted': False,
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
+                 'rootsOutsideLaunch': ['C:/Docker'],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',

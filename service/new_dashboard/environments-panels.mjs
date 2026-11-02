@@ -54,6 +54,7 @@ import { renderStatusChip, resolveStatus, spawnClaim, statusWhyContext } from '.
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime, relTimeHtml } from './util.js';
+import { launchRootsNote, rootChip } from './env-launch-roots.mjs';
 
 /**
  * ` · last seen 83d ago`, for an environment that is not answering. Empty for everything else.
@@ -175,8 +176,9 @@ export function renderRuntime() {
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
       </div>
       <div class="env-root-list">
-        ${(() => { const roots = environmentRoots(env); const shown = roots.slice(0, 4).map((root) => `<code>${esc(root)}</code>`).join(''); const more = roots.length > 4 ? `<span class="subtle">+${roots.length - 4} more</span>` : ''; return (shown + more) || '<span class="subtle">No workspace roots advertised</span>'; })()}
+        ${(() => { const roots = environmentRoots(env); const shown = roots.slice(0, 4).map((root) => rootChip(env, root)).join(''); const more = roots.length > 4 ? `<span class="subtle">+${roots.length - 4} more</span>` : ''; return (shown + more) || '<span class="subtle">No workspace roots advertised</span>'; })()}
       </div>
+      ${launchRootsNote(env)}
       <div class="contract-actions">
         ${resolveStatus(env.status).kind === 'offline' ? '' : (() => {
           const claim = spawnClaim(env);
