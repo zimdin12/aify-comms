@@ -262,7 +262,7 @@ class TerminalAndConsoleRefusalTests(FastApiTestCase):
     def _assert_delete_refused_and_nothing_erased(self, session_id: str, terminal_id: str, control_status: str) -> None:
         response = self.client.delete(f"/api/v1/sessions/{session_id}")
         self.assertEqual(response.status_code, 409, response.text)
-        self.assertIn("stop", response.json()["detail"])
+        self.assertIn("; deleting it would erase that stop. Delete it once the stop is carried out.", response.json()["detail"])
         self.assertEqual(self._read("SELECT id FROM agent_sessions WHERE id = ?", (session_id,)), {"id": session_id})
         self.assertEqual(self._read("SELECT id FROM terminal_sessions WHERE id = ?", (terminal_id,)), {"id": terminal_id})
         self.assertEqual(self._owed(terminal_id), {"action": "stop", "status": control_status}, "the refusal lost the stop")

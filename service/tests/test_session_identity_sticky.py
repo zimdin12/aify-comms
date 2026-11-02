@@ -251,6 +251,7 @@ class SessionIdentityStickyTests(FastApiTestCase):
         res = self.client.post("/api/v1/agents/claude-B/session/confirm", json={"requestedBy": "operator"})
         self.assertEqual(res.status_code, 409, res.text)
         self.assertIn("claude-A", res.json()["detail"])
+        self.assertIn("', or stop it and confirm once its registration is no longer fresh", res.json()["detail"])
         self.assertEqual(str(self._row("claude-B")["session_handle"] or ""), "", "B bound a live agent's id")
         self.assertEqual(str(self._row("claude-B")["pending_session_id"] or ""), "sess-SHARED", "the refusal lost the pending id")
         self.assertEqual(str(self._row("claude-A")["session_handle"] or ""), "sess-SHARED")

@@ -134,6 +134,7 @@ class ASameIdHandoffRestartsFresh(FastApiTestCase):
         answer = self.handoff(continue_as, subject="Continue as from coder")
         self.assertEqual(answer.status_code, 422, answer.text)
         self.assertIn("new agent id", answer.json()["detail"])
+        self.assertIn('" into a fresh conversation with the brief, use Compact', answer.json()["detail"])
         self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [], "a refusal queued a restart")
         self.nothing_spawned_or_defined()
 

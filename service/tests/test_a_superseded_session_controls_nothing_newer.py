@@ -61,6 +61,7 @@ class ASupersededSessionControlsNothingNewer(FastApiTestCase):
                 answer = self.control("sess-old", action)
                 self.assertEqual(answer.status_code, 409, answer.text)
                 self.assertIn("sess-new", answer.json()["detail"])
+                self.assertIn('", so its controls would act on that newer session', answer.json()["detail"])
                 self.assertEqual(self.lifecycle_requests(), [], f"an old row's {action} was queued for the new worker")
 
     def test_CONTROL_the_live_row_still_controls_its_worker(self):
@@ -143,6 +144,7 @@ class ASupersededSessionControlsNothingNewer(FastApiTestCase):
         answer = self.control("loose-new", "stop")
         self.assertEqual(answer.status_code, 409, answer.text)
         self.assertIn("no longer belongs", answer.json()["detail"])
+        self.assertIn('''"; reload and act on the agent's current session''', answer.json()["detail"])
         after = self.loose_state()
         self.assertEqual((after["agent"], after["run_controls"]), (before["agent"], before["run_controls"]))
 
