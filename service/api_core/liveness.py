@@ -287,5 +287,6 @@ async def _outside_its_environment(db, agent_row) -> str:
                                                 "machineId": env["machine_id"], "metadata": metadata}):
         return ""
     roots = ", ".join(metadata.get("launchRoots") or [])
-    return (f"its workspace {workspace} is outside the folder aify-env was started in ({roots}); "
-            "start aify-env from a folder that contains it")
+    return (f"its workspace {workspace} is outside this aify-env's launch roots ({roots}); on that host, add its "
+            f"folder as a launch root: `aify-env roots add {workspace}` (aify-env 0.9.11 or newer), or a folder above "
+            "it to cover more agents")

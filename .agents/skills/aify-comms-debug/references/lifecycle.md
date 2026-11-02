@@ -46,7 +46,7 @@ The request's `outcome` or the status note names it:
 
 | Reads | Cause | Remedy |
 |---|---|---|
-| `misconfigured`, note "Cannot be started: … outside the folder aify-env was started in" | workspace outside aify-env's start folder | operator restarts aify-env from a folder containing it (`C:\` on Windows); `aify-env doctor` row `agents-outside-roots` |
+| `misconfigured`, note "Cannot be started: … outside this aify-env's launch roots" | workspace outside aify-env's launch roots | run `aify-env roots add <folder>` on that host (0.9.11+); `aify-env doctor` rows `launch-roots`, `agents-outside-roots` |
 | `automatic-agent-undefined` | no host defines the id | `aify-env agents import --write` on its host |
 | `automatic-definition-unavailable` | definition has problems or names no launch | `aify-env agents list`, fix it |
 | `agent-reserved` | an earlier action ended `execution-unknown` | KNOWN_ISSUES "execution-unknown keeps its agent reserved" |

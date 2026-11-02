@@ -49,7 +49,7 @@ wins:
 4. Otherwise aify-env's state, promoted to `working` while a run comms delivered is running.
 
 Only three words carry a note: an operator stop (their note), `misconfigured` (comms' reason: a
-workspace outside the folder aify-env was started in, or a runtime it cannot launch) and
+workspace outside aify-env's launch roots, or a runtime it cannot launch) and
 `unknown` (why). Delivery follows the same facts: a claim withholds on `unknown`, holds or
 steers while aify-env says busy, and proceeds on known idle (`claim_decision`).
 

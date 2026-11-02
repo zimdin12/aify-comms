@@ -101,9 +101,9 @@ const CEILINGS = {
   "aify-comms-debug/references/dispatch-delivery.md": 6_772,
   "aify-comms-debug/references/dispatch-launch.md": 5_025,  // 0.9.11: the stdio bridge is gone for Claude and hermes, -3
   "aify-comms-debug/references/hermes.md": 8_826,
-  "aify-comms-debug/references/lifecycle.md": 6_454,  // 0.9.15: Stop is the kill, Hold/Release, Delete session; paid by trims, -1
+  "aify-comms-debug/references/lifecycle.md": 6_448,  // 0.9.15: Stop is the kill, Hold/Release, Delete session; paid by trims, -1; 0.9.17 launch roots -6
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 6_998,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45; "resets by" -3; hermes to aify-env -10; 0.9.11 server.js pattern -5
+  "aify-comms-debug/references/status-model.md": 6_987,  // 0.9.9 S3b: the operational view replaces derive(), -2_841; S3c -45; "resets by" -3; hermes to aify-env -10; 0.9.11 server.js pattern -5; 0.9.17 launch roots -11
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

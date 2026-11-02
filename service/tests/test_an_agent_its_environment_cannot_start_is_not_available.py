@@ -96,7 +96,8 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         status, note = self._env_says("outside", "misconfigured")
         self.assertEqual(status, "misconfigured")
         self.assertIn("Cannot be started:", note)
-        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+        self.assertIn("outside this aify-env's launch roots (C:/Docker/aify-comms)", note)
+        self.assertIn("`aify-env roots add ", note, "the note no longer names the command that fixes it")
 
     def test_the_note_is_kept_when_the_environment_heartbeat_is_stale(self):
         """aify-env still knows the definition is outside its roots after its heartbeat to comms ages out; the note must
@@ -107,7 +108,7 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             db.commit()
         finally:
             db.close()
-        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", self.note("outside"))
+        self.assertIn("outside this aify-env's launch roots (C:/Docker/aify-comms)", self.note("outside"))
 
     def test_CONTROL_inside_the_roots_serves_aify_envs_word_with_no_such_note(self):
         status, note = self._env_says("inside", "available")
@@ -122,7 +123,7 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             db.commit()
         finally:
             db.close()
-        self.assertNotIn("outside the folder", self.note("outside"))
+        self.assertNotIn("outside this aify-env's launch roots", self.note("outside"))
 
     def beat(self, **body):
         self.client.post("/api/v1/environments/heartbeat", json={
@@ -138,11 +139,11 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         finally:
             db.close()
         self.beat(cwdRoots=["C:/Docker/aify-comms"], runtimes=[])
-        self.assertNotIn("outside the folder", self.note("outside"))
+        self.assertNotIn("outside this aify-env's launch roots", self.note("outside"))
 
     def test_a_bridge_beat_without_the_bound_keeps_it(self):
         self.beat(bridgeId="some-bridge", runtimes=[], metadata={})
-        self.assertIn("outside the folder", self.note("outside"), "a bridge heartbeat erased aify-env's bound")
+        self.assertIn("outside this aify-env's launch roots", self.note("outside"), "a bridge heartbeat erased aify-env's bound")
 
     def test_aify_envs_own_heartbeat_body_carries_the_bound_the_status_reads(self):
         """Both ends of the field: the body aify-env's daemon builds, posted as it is, gives comms the bound."""
@@ -161,9 +162,9 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             db.commit()
         finally:
             db.close()
-        self.assertNotIn("outside the folder", self.note("outside"), "the control: no bound, no judgement")
+        self.assertNotIn("outside this aify-env's launch roots", self.note("outside"), "the control: no bound, no judgement")
         self.client.post("/api/v1/environments/heartbeat", json={"id": "win32:host:default", **body}).raise_for_status()
-        self.assertIn("outside the folder", self.note("outside"))
+        self.assertIn("outside this aify-env's launch roots", self.note("outside"))
 
 
 class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
@@ -198,10 +199,10 @@ class AnAgentDefinedButNeverStartedIsJudgedToo(FastApiTestCase):
         return agent.get("statusNote") or ""
 
     def test_outside_the_folder_its_note_says_why(self):
-        self.assertIn("outside the folder aify-env was started in (C:/allowed)", self.status_of("C:/work"))
+        self.assertIn("outside this aify-env's launch roots (C:/allowed)", self.status_of("C:/work"))
 
     def test_inside_the_folder_its_note_names_no_folder(self):
-        self.assertNotIn("outside the folder", self.status_of("C:/allowed/work"))
+        self.assertNotIn("outside this aify-env's launch roots", self.status_of("C:/allowed/work"))
 
 
 class TheEnginePushKeepsTheReasonWhateverTheRegistrationSaid(FastApiTestCase):
@@ -254,13 +255,13 @@ class TheEnginePushKeepsTheReasonWhateverTheRegistrationSaid(FastApiTestCase):
         self.assertIn("Cannot be started:", polled["statusNote"], "CONTROL: the poll keeps the reason")
         status, note = self._engine_push("raw-misconfigured")
         self.assertEqual(status, "misconfigured")
-        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+        self.assertIn("outside this aify-env's launch roots (C:/Docker/aify-comms)", note)
 
     def test_TWIN_a_registration_saying_idle_keeps_the_pushed_reason(self):
         self._registered_outside("raw-idle", "idle")
         status, note = self._engine_push("raw-idle")
         self.assertEqual(status, "misconfigured")
-        self.assertIn("outside the folder aify-env was started in (C:/Docker/aify-comms)", note)
+        self.assertIn("outside this aify-env's launch roots (C:/Docker/aify-comms)", note)
 
     def test_CONTROL_an_operator_stop_still_pushes_stopped_with_the_operators_note(self):
         self.client.post("/api/v1/agents", json={
