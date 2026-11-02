@@ -131,3 +131,36 @@ test("pi INSTALL is still refused without the emit flag", () => {
   assert.equal(res.status, 1, "pi install must still exit 1");
   assert.match(`${res.stdout}${res.stderr}`, /disabled/i, "and must say why");
 });
+
+// THE ALIASES ARE READ, NOT TYPED (0.9.16). install.sh wrote omp-aify by name; the pinned package's wrappers/aliases now
+// names each alias once, for this installer and for the package's own re-render. The shipped file names only omp-aify,
+// so the render above cannot tell a reader from the old typed name: a COPY of the package with one more alias can.
+function packageCopy(aliases) {
+  const pkg = tmpDir("aify-pi-alias-package-");
+  const real = path.join(HERE, "..", "node_modules", "aify-wrapper");
+  fs.cpSync(path.join(real, "wrappers"), path.join(pkg, "wrappers"), { recursive: true });
+  fs.copyFileSync(path.join(real, "VERSION"), path.join(pkg, "VERSION"));
+  const file = path.join(pkg, "wrappers", "aliases");
+  if (aliases === null) fs.rmSync(file); else fs.writeFileSync(file, aliases);
+  return path.join(pkg, "wrappers").replaceAll("\\", "/");
+}
+function renderWith(templateDir) {
+  const dir = tmpDir("aify-pi-alias-out-");
+  const res = spawnSync("bash", [INSTALL_SH, "--client", "pi", "http://127.0.0.1:8899", "--emit-pi-wrappers", dir],
+    { encoding: "utf8", env: sealedChildEnv({ AIFY_HOME: REPO, AIFY_WRAPPER_TEMPLATE_DIR: templateDir }) });
+  return { res, launchers: fs.readdirSync(dir).filter((f) => f.endsWith("-aify")).sort() };
+}
+
+test("pi's other names come from the package's wrappers/aliases: one more alias there is one more launcher", () => {
+  // CRLF and a comment, as a Windows checkout of the file can carry; another launcher's alias is not pi's.
+  const { res, launchers } = renderWith(packageCopy("# names\r\npi-aify omp-aify zz-aify\r\nclaude-aify cl-aify\r\n"));
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(launchers, ["omp-aify", "pi-aify", "zz-aify"]);
+});
+
+test("a package without wrappers/aliases stops the pi render, rather than quietly dropping omp-aify", () => {
+  const { res, launchers } = renderWith(packageCopy(null));
+  assert.notEqual(res.status, 0, "a missing aliases file rendered anyway");
+  assert.match(res.stderr, /missing \S*aliases/);
+  assert.deepEqual(launchers, [], "something was written before the refusal");
+});

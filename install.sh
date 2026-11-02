@@ -542,14 +542,14 @@ install_codex_wrapper() {
 }
 
 install_pi_wrapper() {
-  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
-  local wrapper_path="$wrapper_dir/pi-aify"
-  local alias_path="$wrapper_dir/omp-aify"
+  local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}" aliases="$WRAPPER_TEMPLATE_DIR/aliases" name
+  [ -f "$aliases" ] || { echo "missing $aliases — run 'npm install' in mcp/stdio" >&2; exit 1; }
   mkdir -p "$wrapper_dir"
-  render_wrapper_template "pi-aify.sh.in" "$wrapper_path"
-  render_wrapper_template "pi-aify.sh.in" "$alias_path"
-  install_windows_cmd_shim "pi-aify" "$wrapper_dir"
-  install_windows_cmd_shim "omp-aify" "$wrapper_dir"
+  # Its other names (omp-aify) come from the pinned package's wrappers/aliases, which names each alias once.
+  for name in pi-aify $(tr -d '\r' < "$aliases" | awk '!/^#/ && $1 == "pi-aify" { $1 = ""; print }'); do
+    render_wrapper_template "pi-aify.sh.in" "$wrapper_dir/$name"
+    install_windows_cmd_shim "$name" "$wrapper_dir"
+  done
 }
 
 # Plan 5 (2026-05-25): pre-build hermes web_dist at install time.
