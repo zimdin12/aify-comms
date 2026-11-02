@@ -167,7 +167,7 @@ def parse_launch_root(text, *, windows: bool) -> dict[str, str]:
             return {"refused": f"{typed}: UNC and device paths are not supported yet"}
         drive = _WINDOWS_DRIVE.fullmatch(slashed)
         if not drive:
-            return {"refused": f"{typed}: not an absolute folder with a drive letter (D:\\Games)"}
+            return {"refused": f"{typed}: not an absolute folder with a drive letter (D:\\Games)"}  # example path
         root = f"{drive.group(1).upper()}:{drive.group(2) or '/'}"
     else:
         if not typed.startswith("/"):

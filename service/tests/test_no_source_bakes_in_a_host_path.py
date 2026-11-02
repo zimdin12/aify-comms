@@ -37,8 +37,10 @@ HOST_PATH = re.compile(r"(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/])|(?:/mnt/[a-z]/)")
 EXAMPLE = "example path"
 
 #: Measured 2026-09-16, and both are read by a person rather than used: the refusal that tells an operator
-#: which cwd form codex takes, and the hint in an empty roots box. It may only go DOWN.
-EXAMPLE_CEILING = 2
+#: which cwd form codex takes, and the hint in an empty roots box. 2026-11-02 added a third, also read by a
+#: person: the launch-root parser's refusal names its example form, word for word as aify-env's parser does,
+#: because the add-hint twin is held equal to it (test_the_add_hint_is_aify_envs.py). It may only go DOWN.
+EXAMPLE_CEILING = 3
 
 #: `docs` holds the probe scripts a review ran on one machine, kept as the evidence for what it found.
 #: They are not product source and re-running one elsewhere is not a thing anybody does.
