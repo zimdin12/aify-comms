@@ -123,6 +123,10 @@ def workspace_within_roots(workspace: str, roots, *, windows: bool) -> bool:
     target = normalise(workspace)
     if not target:
         return False
+    # A '.' or '..' segment is refused, never resolved, as aify-env 0.9.11 does: textually D:/Games/../Elsewhere reads
+    # as inside D:/Games while the process would start in D:/Elsewhere.
+    if any(segment in (".", "..") for segment in target.split("/")):
+        return False
     for root in roots or []:
         base = normalise(root)
         if base and (target == base or target.startswith("/" if base == "/" else base + "/")):

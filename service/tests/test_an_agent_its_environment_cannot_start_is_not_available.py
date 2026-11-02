@@ -36,6 +36,14 @@ SPECIMENS = [
     ("/home/bob/x", ["/home/bob"], False),
     ("/anything", ["/"], False),
     ("", ["/"], False),
+    # aify-env 0.9.11 refuses a '.' or '..' segment rather than resolving it; names that only start with dots are folders.
+    ("D:/Games/../Elsewhere", ["D:/Games"], True),
+    ("D:\\Games\\..\\Elsewhere", ["D:/Games"], True),
+    ("D:/Games/./x", ["D:/Games"], True),
+    ("D:/Games/..", ["D:/Games"], True),
+    ("/home/bob/../alice", ["/home/bob"], False),
+    ("D:/Games/..hidden", ["D:/Games"], True),
+    ("/home/bob/.config", ["/home/bob"], False),
 ]
 
 
