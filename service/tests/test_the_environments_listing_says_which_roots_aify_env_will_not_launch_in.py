@@ -64,6 +64,15 @@ class TheEnvironmentsListingSaysWhichRootsAifyEnvWillNotLaunchIn(FastApiTestCase
         self.assertEqual(add["D:/stale"], "", "a Linux host was told to add a Windows-shaped path")
         self.assertEqual(add["/srv/Repo"], "aify-env roots add /srv/Repo", "CONTROL: a POSIX root on a POSIX host")
 
+    def test_a_linux_host_is_offered_no_command_for_a_backslash_led_root(self):
+        """Review of 8ad0481a: the command keeps the typed spelling, and a POSIX parser reads a leading backslash as a
+        relative path, so absoluteness is judged on the typed text, not the slash-swapped one."""
+        self.heartbeat(LINUX, {"launchRoots": ["/srv/allowed"]})
+        self.set_service_roots(LINUX, ["\\srv\\other", "/srv/plain"])
+        add = {entry["root"]: entry["add"] for entry in self.listed(LINUX)["rootsOutsideLaunch"]}
+        self.assertEqual(add["\\srv\\other"], "", "a Linux host was told to add a backslash-led path")
+        self.assertEqual(add["/srv/plain"], "aify-env roots add /srv/plain", "CONTROL: a '/'-led root on the same host")
+
     def test_a_windows_host_is_offered_no_command_for_a_posix_root(self):
         self.heartbeat(WINDOWS, {"launchRoots": ["C:\\"]})
         self.set_service_roots(WINDOWS, ["/srv/repo", "D:/"])

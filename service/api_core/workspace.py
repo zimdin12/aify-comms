@@ -151,7 +151,7 @@ def roots_add_command(folder: str, host: dict[str, Any]) -> str:
     if _environment_uses_windows_paths(host):
         absolute = re.match(r"^[A-Za-z]:(/|$)", slashed)
     else:
-        absolute = slashed.startswith("/")
+        absolute = text.startswith("/")  # the typed spelling: a POSIX parser reads '\srv' as relative (review of 8ad0481a)
     if not absolute or slashed.startswith("//") or any(part in (".", "..") for part in slashed.split("/")):
         return ""
     argument = text if _PLAIN_ARG.fullmatch(text) else "'" + text.replace("'", "'\\''") + "'"
