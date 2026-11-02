@@ -34,7 +34,7 @@ from service.api_core.capabilities import (
     _row_capabilities,
 )
 from service.api_core.serialization import _json_loads_or
-from service.api_core.workspace import outside_launch_roots
+from service.api_core.workspace import launch_host, outside_launch_roots, roots_add_command
 from service.clock import iso_to_epoch as _iso_to_epoch
 # The six process probes and their two staleness constants left for `live_process_probes.py` in
 # v0.5.4. This module is their only reader and now their CALLER — the direction the split made
@@ -283,10 +283,12 @@ async def _outside_its_environment(db, agent_row) -> str:
     if not workspace:
         return ""
     metadata = _json_loads_or(env["metadata"], {})
-    if not outside_launch_roots(workspace, {"id": env["id"], "os": env["os"], "kind": env["kind"],
-                                                "machineId": env["machine_id"], "metadata": metadata}):
+    if not outside_launch_roots(workspace, launch_host(env, metadata)):
         return ""
     roots = ", ".join(metadata.get("launchRoots") or [])
-    return (f"its workspace {workspace} is outside this aify-env's launch roots ({roots}); on that host, add its "
-            f"folder as a launch root: `aify-env roots add {workspace}` (aify-env 0.9.11 or newer), or a folder above "
-            "it to cover more agents")
+    command = roots_add_command(workspace)
+    fix = (f"on that host, add its folder as a launch root: `{command}` (aify-env 0.9.11 or newer), or a folder above "
+           "it to cover more agents") if command else (
+           "aify-env cannot take that folder as a launch root (a UNC, device, relative or dot-segment path); move the "
+           "workspace to a local folder")
+    return f"its workspace {workspace} is outside this aify-env's launch roots ({roots}); {fix}"

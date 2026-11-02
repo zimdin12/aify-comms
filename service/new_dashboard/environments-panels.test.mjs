@@ -617,7 +617,8 @@ const launchCard = (env) => withDom({ "environment-list": el() }, null, (els) =>
 });
 
 test("a service root aify-env will not launch in is marked on the card, with the command that adds it", () => {
-  const html = launchCard({ cwdRoots: ["C:/", "D:/"], rootsOutsideLaunch: ["D:/"], metadata: { launchRoots: ["C:\\"] } });
+  const html = launchCard({ cwdRoots: ["C:/", "D:/"], rootsOutsideLaunch: [{ root: "D:/", add: "aify-env roots add D:/" }],
+                            metadata: { launchRoots: ["C:\\"] } });
   assert.match(html, /<code class="mb-warn root-outside-launch" title="[^"]*aify-env roots add D:\/[^"]*">D:\/ ⚠<\/code>/,
     "the root aify-env will not launch in is not marked, or does not name the command");
   assert.match(html, /<code>C:\/<\/code>/, "CONTROL: a root inside aify-env's launch roots stays plain");
@@ -632,4 +633,18 @@ test("CONTROL: with every root inside, nothing is marked; with no report, the ca
   const unreported = launchCard({ cwdRoots: ["C:/"], metadata: {} });
   assert.doesNotMatch(unreported, /aify-env starts work under|root-outside-launch/,
     "an aify-env that reported no launch roots was described anyway");
+});
+
+test("the card shows the service's quoted command for a spaced root, and none for a root aify-env refuses", () => {
+  // Review of 20b7a1de, R2. The quoting is the service's (workspace.roots_add_command); the card must carry it intact,
+  // HTML-escaped for the title, and must not invent a command where the service gave none.
+  const html = launchCard({
+    cwdRoots: ["D:/My Games", "//server/share"],
+    rootsOutsideLaunch: [{ root: "D:/My Games", add: "aify-env roots add 'D:/My Games'" }, { root: "//server/share", add: "" }],
+    metadata: { launchRoots: ["C:\\"] },
+  });
+  const title = (root) => html.match(new RegExp(`title="([^"]*)">${root.replace(/[/]/g, "\\/")} ⚠`))?.[1] || "";
+  assert.match(title("D:/My Games"), /aify-env roots add &#39;D:\/My Games&#39;/, "the quoted command did not reach the card intact");
+  assert.doesNotMatch(title("//server/share"), /roots add/, "a command was shown for a folder aify-env refuses");
+  assert.match(title("//server/share"), /cannot take this folder as a launch root/);
 });

@@ -62,7 +62,8 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
             "runtimes": [], "metadata": {"launchRoots": ["C:/Docker/aify-comms"]}}).raise_for_status()  # as aify-env sends it
         db = sqlite3.connect(self._db_path)
         try:
-            for agent_id, cwd in (("outside", "C:/Docker/aify-dashboard"), ("inside", "C:/Docker/aify-comms/x")):
+            for agent_id, cwd in (("outside", "C:/Docker/aify-dashboard"), ("inside", "C:/Docker/aify-comms/x"),
+                                  ("spaced", "C:/Docker/My Games"), ("unc", "//server/share/x")):
                 db.execute("INSERT INTO agents (id, role, name, runtime, session_mode, cwd, machine_id, runtime_state, "
                            "registered_at, last_seen) VALUES (?, 'coder', ?, 'claude-code', 'managed', ?, 'win32:host', "
                            "?, '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')",
@@ -98,6 +99,16 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         self.assertIn("Cannot be started:", note)
         self.assertIn("outside this aify-env's launch roots (C:/Docker/aify-comms)", note)
         self.assertIn("`aify-env roots add ", note, "the note no longer names the command that fixes it")
+
+    def test_a_spaced_workspace_is_given_one_quoted_argument(self):
+        """Review of 20b7a1de, R2: unquoted, C:/Docker/My Games is two arguments and aify-env's CLI refuses it."""
+        self.assertIn("`aify-env roots add 'C:/Docker/My Games'`", self.note("spaced"))
+
+    def test_a_workspace_aify_env_cannot_take_as_a_root_is_offered_no_command(self):
+        note = self.note("unc")
+        self.assertIn("outside this aify-env's launch roots", note, "CONTROL: still judged outside")
+        self.assertNotIn("aify-env roots add", note, "a repair aify-env's parser refuses was suggested")
+        self.assertIn("cannot take that folder as a launch root", note)
 
     def test_the_note_is_kept_when_the_environment_heartbeat_is_stale(self):
         """aify-env still knows the definition is outside its roots after its heartbeat to comms ages out; the note must

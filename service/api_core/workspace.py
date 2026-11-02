@@ -23,6 +23,7 @@ DB ACCESS: none. These are pure path functions over an environment dict.
 from __future__ import annotations
 
 import posixpath
+import re
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -127,6 +128,30 @@ def workspace_within_roots(workspace: str, roots, *, windows: bool) -> bool:
         if base and (target == base or target.startswith("/" if base == "/" else base + "/")):
             return True
     return False
+
+
+def launch_host(row, metadata: dict[str, Any]) -> dict[str, Any]:
+    """The host facts `outside_launch_roots` judges by, built ONE way for every caller: what the host reported, never the
+    service's own cwdRoots, whose drive-shaped entries would flip a Linux host to Windows matching (review of 20b7a1de).
+    `row` is an environments row (or a mapping with its column names)."""
+    return {"id": row["id"], "os": row["os"], "kind": row["kind"], "machineId": row["machine_id"], "metadata": metadata}
+
+
+#: An argument any shell passes through unquoted: drive letters, separators, dots, dashes, word characters.
+_PLAIN_ARG = re.compile(r"[A-Za-z0-9._/:\-]+")
+
+
+def roots_add_command(folder: str) -> str:
+    """The `aify-env roots add` command that makes `folder` a launch root, quoted for Bash (where aify-env's own repair
+    lines run) so a spaced path stays one argument; "" when aify-env's parser refuses the folder (UNC or device paths,
+    a '.' or '..' segment), so no repair is suggested that cannot work."""
+    text = str(folder or "")
+    slashed = text.replace("\\", "/")
+    absolute = slashed.startswith("/") or re.match(r"^[A-Za-z]:(/|$)", slashed)
+    if not absolute or slashed.startswith("//") or any(part in (".", "..") for part in slashed.split("/")):
+        return ""
+    argument = text if _PLAIN_ARG.fullmatch(text) else "'" + text.replace("'", "'\\''") + "'"
+    return f"aify-env roots add {argument}"
 
 
 def outside_launch_roots(workspace: str, environment: dict[str, Any]) -> bool:
