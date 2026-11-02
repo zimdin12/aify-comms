@@ -617,9 +617,10 @@ const launchCard = (env) => withDom({ "environment-list": el() }, null, (els) =>
 });
 
 test("a service root aify-env will not launch in is marked on the card, with the command that adds it", () => {
-  const html = launchCard({ cwdRoots: ["C:/", "D:/"], rootsOutsideLaunch: [{ root: "D:/", add: "aify-env roots add D:/" }],
+  const html = launchCard({ cwdRoots: ["C:/", "D:/"], rootsOutsideLaunch: [{ root: "D:/", add: 'aify-env roots add "D:/"',
+                            fix: 'on that host, add it as a launch root: `aify-env roots add "D:/"`' }],
                             metadata: { launchRoots: ["C:\\"] } });
-  assert.match(html, /<code class="mb-warn root-outside-launch" title="[^"]*aify-env roots add D:\/[^"]*">D:\/ ⚠<\/code>/,
+  assert.match(html, /<code class="mb-warn root-outside-launch" title="[^"]*aify-env roots add &quot;D:\/&quot;[^"]*">D:\/ ⚠<\/code>/,
     "the root aify-env will not launch in is not marked, or does not name the command");
   assert.match(html, /<code>C:\/<\/code>/, "CONTROL: a root inside aify-env's launch roots stays plain");
   assert.match(stripTags(html), /aify-env starts work under C:\\ · 1 listed root outside them/,
@@ -635,16 +636,21 @@ test("CONTROL: with every root inside, nothing is marked; with no report, the ca
     "an aify-env that reported no launch roots was described anyway");
 });
 
-test("the card shows the service's quoted command for a spaced root, and none for a root aify-env refuses", () => {
-  // Review of 20b7a1de, R2. The quoting is the service's (workspace.roots_add_command); the card must carry it intact,
-  // HTML-escaped for the title, and must not invent a command where the service gave none.
+test("the card shows the service's own fix sentence for each outside root, and invents none", () => {
+  // The hint is the service's (workspace.add_fix, aify-env's rule twinned); the card must carry its sentence intact,
+  // HTML-escaped for the title, and must not write a command of its own where the service gave none.
   const html = launchCard({
-    cwdRoots: ["D:/My Games", "//server/share"],
-    rootsOutsideLaunch: [{ root: "D:/My Games", add: "aify-env roots add 'D:/My Games'" }, { root: "//server/share", add: "" }],
+    cwdRoots: ["D:/My Games", "//server/share", "D:/old"],
+    rootsOutsideLaunch: [
+      { root: "D:/My Games", add: 'aify-env roots add "D:/My Games"', fix: 'on that host, add it as a launch root: `aify-env roots add "D:/My Games"`' },
+      { root: "//server/share", add: "", fix: "`aify-env roots add` refuses it (//server/share: UNC and device paths are not supported yet)" },
+      { root: "D:/old", add: "" },
+    ],
     metadata: { launchRoots: ["C:\\"] },
   });
   const title = (root) => html.match(new RegExp(`title="([^"]*)">${root.replace(/[/]/g, "\\/")} ⚠`))?.[1] || "";
-  assert.match(title("D:/My Games"), /aify-env roots add &#39;D:\/My Games&#39;/, "the quoted command did not reach the card intact");
-  assert.doesNotMatch(title("//server/share"), /roots add/, "a command was shown for a folder aify-env refuses");
-  assert.match(title("//server/share"), /cannot take this folder as a launch root/);
+  assert.match(title("D:/My Games"), /add it as a launch root: `aify-env roots add &quot;D:\/My Games&quot;`/,
+    "the service's sentence did not reach the card intact");
+  assert.match(title("//server/share"), /refuses it \(\/\/server\/share: UNC/, "the refusal reason did not reach the card");
+  assert.equal(title("D:/old"), "aify-env on this host does not start work here.", "a fix was invented where the service gave none");
 });

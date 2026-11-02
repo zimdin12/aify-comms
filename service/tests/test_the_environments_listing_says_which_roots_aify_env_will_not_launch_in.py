@@ -3,8 +3,8 @@
 "Edit roots…" edits the service's cwdRoots; aify-env launches only under its own launchRoots and the service can never
 widen them. Steven's card listed C:/ and D:/ while every agent under D: read misconfigured. The listing now carries
 `rootsOutsideLaunch: [{root, add}]`, judged on the same host facts as the misconfigured note (workspace.launch_host) and
-quoted by the same command builder (workspace.roots_add_command), so the dashboard draws a verdict instead of copying
-either rule.
+worded by the same fix builder (workspace.add_fix, aify-env's add hint twinned), so the dashboard draws a verdict instead
+of copying either rule.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class TheEnvironmentsListingSaysWhichRootsAifyEnvWillNotLaunchIn(FastApiTestCase
         self.set_service_roots(WINDOWS, ["C:/", "D:/", "c:/work"])
         env = self.listed(WINDOWS)
         self.assertEqual(env["cwdRoots"], ["C:/", "D:/", "c:/work"], "CONTROL: the service's roots as edited")
-        self.assertEqual(env["rootsOutsideLaunch"], [{"root": "D:/", "add": "aify-env roots add D:/"}],
+        self.assertEqual([(e["root"], e["add"]) for e in env["rootsOutsideLaunch"]], [("D:/", 'aify-env roots add "D:/"')],
                          "D:/ is outside C:\\ while C:/ and a case variant beneath it are inside")
 
     def test_a_spaced_root_gets_one_quoted_argument_and_a_unc_root_gets_no_command(self):
@@ -41,9 +41,11 @@ class TheEnvironmentsListingSaysWhichRootsAifyEnvWillNotLaunchIn(FastApiTestCase
         host's parser refuses outright, so no command is offered for it."""
         self.heartbeat(WINDOWS, {"launchRoots": ["C:\\"]})
         self.set_service_roots(WINDOWS, ["D:/My Games", "//server/share"])
-        self.assertEqual(self.listed(WINDOWS)["rootsOutsideLaunch"], [
-            {"root": "D:/My Games", "add": "aify-env roots add 'D:/My Games'"},
-            {"root": "//server/share", "add": ""}])
+        listed = self.listed(WINDOWS)["rootsOutsideLaunch"]
+        self.assertEqual([(e["root"], e["add"]) for e in listed], [
+            ("D:/My Games", 'aify-env roots add "D:/My Games"'), ("//server/share", "")])
+        self.assertIn("refuses it (//server/share: UNC and device paths are not supported yet)", listed[1]["fix"],
+                      "the listing does not carry the parser's own reason")
 
     def test_a_linux_host_is_judged_as_linux_whatever_its_service_roots_look_like(self):
         """Review of 20b7a1de, R1: the listing passed the service's own roots into the host facts, and a drive-shaped
@@ -62,7 +64,7 @@ class TheEnvironmentsListingSaysWhichRootsAifyEnvWillNotLaunchIn(FastApiTestCase
         self.set_service_roots(LINUX, ["D:/stale", "/srv/Repo"])
         add = {entry["root"]: entry["add"] for entry in self.listed(LINUX)["rootsOutsideLaunch"]}
         self.assertEqual(add["D:/stale"], "", "a Linux host was told to add a Windows-shaped path")
-        self.assertEqual(add["/srv/Repo"], "aify-env roots add /srv/Repo", "CONTROL: a POSIX root on a POSIX host")
+        self.assertEqual(add["/srv/Repo"], 'aify-env roots add "/srv/Repo"', "CONTROL: a POSIX root on a POSIX host")
 
     def test_a_linux_host_is_offered_no_command_for_a_backslash_led_root(self):
         """Review of 8ad0481a: the command keeps the typed spelling, and a POSIX parser reads a leading backslash as a
@@ -71,14 +73,14 @@ class TheEnvironmentsListingSaysWhichRootsAifyEnvWillNotLaunchIn(FastApiTestCase
         self.set_service_roots(LINUX, ["\\srv\\other", "/srv/plain"])
         add = {entry["root"]: entry["add"] for entry in self.listed(LINUX)["rootsOutsideLaunch"]}
         self.assertEqual(add["\\srv\\other"], "", "a Linux host was told to add a backslash-led path")
-        self.assertEqual(add["/srv/plain"], "aify-env roots add /srv/plain", "CONTROL: a '/'-led root on the same host")
+        self.assertEqual(add["/srv/plain"], 'aify-env roots add "/srv/plain"', "CONTROL: a '/'-led root on the same host")
 
     def test_a_windows_host_is_offered_no_command_for_a_posix_root(self):
         self.heartbeat(WINDOWS, {"launchRoots": ["C:\\"]})
         self.set_service_roots(WINDOWS, ["/srv/repo", "D:/"])
         add = {entry["root"]: entry["add"] for entry in self.listed(WINDOWS)["rootsOutsideLaunch"]}
         self.assertEqual(add["/srv/repo"], "", "a Windows host was told to add a POSIX path")
-        self.assertEqual(add["D:/"], "aify-env roots add D:/", "CONTROL: a drive root on a Windows host")
+        self.assertEqual(add["D:/"], 'aify-env roots add "D:/"', "CONTROL: a drive root on a Windows host")
 
     def test_once_aify_env_reports_the_drive_nothing_is_outside(self):
         self.heartbeat(WINDOWS, {"launchRoots": ["C:\\", "D:/"]})

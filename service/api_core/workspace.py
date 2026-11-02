@@ -141,25 +141,69 @@ def launch_host(row, metadata: dict[str, Any]) -> dict[str, Any]:
     return {"id": row["id"], "os": row["os"], "kind": row["kind"], "machineId": row["machine_id"], "metadata": metadata}
 
 
-#: An argument any shell passes through unquoted: drive letters, separators, dots, dashes, word characters.
-_PLAIN_ARG = re.compile(r"[A-Za-z0-9._/:\-]+")
+# THE ADD HINT IS aify-env's RULE, TWINNED (launch-roots.mjs parseLaunchRoot, definition-checks.mjs addHintFor,
+# aify-env 0.9.11), held equal specimen for specimen by test_the_add_hint_is_aify_envs_specimen_for_specimen. The card
+# and the misconfigured note both say what that host's own CLI would: the command, or why there is none.
+
+#: What JavaScript's String.prototype.trim removes (WhiteSpace and LineTerminator); Python's strip() also removes
+#: \x1c-\x1f, which trim keeps, so the parser twin cannot use it.
+_JS_TRIM = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+#: JavaScript's `.` stops at these, so the drive pattern's tail must too.
+_WINDOWS_DRIVE = re.compile("([a-zA-Z]):(/[^\n\r\u2028\u2029]*)?")
+#: What one supported shell (bash, PowerShell, cmd.exe through npm's %* shim) would still rewrite inside double quotes.
+_UNQUOTABLE = re.compile('["`$%!\x00-\x1f\x7f]')
 
 
-def roots_add_command(folder: str, host: dict[str, Any]) -> str:
-    """The `aify-env roots add` command that makes `folder` a launch root on `host` (a `launch_host` value), quoted for
-    Bash (where aify-env's own repair lines run) so a spaced path stays one argument; "" when that host's aify-env
-    parser refuses the folder, so no repair is suggested that cannot work: not absolute IN THE HOST'S OWN SYNTAX (a
-    drive root on Windows, `/` elsewhere; review of 3924b808), UNC or device paths, or a '.' or '..' segment."""
-    text = str(folder or "")
-    slashed = text.replace("\\", "/")
-    if _environment_uses_windows_paths(host):
-        absolute = re.match(r"^[A-Za-z]:(/|$)", slashed)
+def parse_launch_root(text, *, windows: bool) -> dict[str, str]:
+    """PURE. aify-env's parseLaunchRoot: `{"root": stored spelling}` or `{"refused": its reason}`. Refused, never
+    resolved: relative, UNC/device, or a '.'/'..' segment. A bare drive is its root; Windows roots get forward slashes
+    and an uppercase drive."""
+    typed = text.strip(_JS_TRIM) if isinstance(text, str) else ""
+    if not typed:
+        return {"refused": "no folder given"}
+    if windows:
+        slashed = typed.replace("\\", "/")
+        if slashed.startswith("//"):
+            return {"refused": f"{typed}: UNC and device paths are not supported yet"}
+        drive = _WINDOWS_DRIVE.fullmatch(slashed)
+        if not drive:
+            return {"refused": f"{typed}: not an absolute folder with a drive letter (D:\\Games)"}
+        root = f"{drive.group(1).upper()}:{drive.group(2) or '/'}"
     else:
-        absolute = text.startswith("/")  # the typed spelling: a POSIX parser reads '\srv' as relative (review of 8ad0481a)
-    if not absolute or slashed.startswith("//") or any(part in (".", "..") for part in slashed.split("/")):
-        return ""
-    argument = text if _PLAIN_ARG.fullmatch(text) else "'" + text.replace("'", "'\\''") + "'"
-    return f"aify-env roots add {argument}"
+        if not typed.startswith("/"):
+            return {"refused": f"{typed}: not an absolute folder"}
+        root = typed
+    root = re.sub("/{2,}", "/", root)
+    if any(segment in (".", "..") for segment in root.split("/")):
+        return {"refused": f"{typed}: names . or ..; give the folder itself"}
+    top = re.fullmatch("[A-Z]:/", root) if windows else root == "/"
+    return {"root": root if top else root.rstrip("/")}
+
+
+def add_hint(folder, *, windows: bool) -> dict[str, Any]:
+    """PURE. aify-env's addHintFor: `{"command"}`, `{"unquotable": True}` for a valid root no single double-quoted
+    spelling carries through every supported shell, or `{"refused"}`. Only the hint is restricted, never the root."""
+    text = str(folder if folder is not None else "")
+    read = parse_launch_root(text, windows=windows)
+    if "refused" in read:
+        return {"refused": read["refused"]}
+    if _UNQUOTABLE.search(text) or (not windows and "\\" in text):
+        return {"unquotable": True}
+    return {"command": f'aify-env roots add "{read["root"]}"'}
+
+
+def add_fix(folder: str, host: dict[str, Any]) -> tuple[str, str]:
+    """`(command, sentence)` for making `folder` a launch root on `host` (a `launch_host` value): the command ("" when
+    there is none) and the one sentence the note and the card both show."""
+    hint = add_hint(folder, windows=_environment_uses_windows_paths(host))
+    if "command" in hint:
+        return hint["command"], (f"on that host, add it as a launch root: `{hint['command']}` (aify-env 0.9.11 or "
+                                 "newer), or a folder above it to cover more")
+    if hint.get("unquotable"):
+        return "", ("on that host, add it, or a folder above it, as a launch root with `aify-env roots add` (aify-env "
+                    "0.9.11 or newer), quoted for your shell: its name holds a character this hint does not quote for "
+                    "every shell")
+    return "", f"`aify-env roots add` refuses it ({hint['refused']}); move it under a launch root"
 
 
 def outside_launch_roots(workspace: str, environment: dict[str, Any]) -> bool:

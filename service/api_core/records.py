@@ -22,7 +22,7 @@ from service.api_core.capabilities import _row_capabilities
 from service.api_core.liveness import _agent_wake_mode
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
-from service.api_core.workspace import launch_host, outside_launch_roots, roots_add_command
+from service.api_core.workspace import add_fix, launch_host, outside_launch_roots
 from service.api_core import operational_view
 from service.reconcilers.status_cache import _live_state_get
 from service.usage_cache import usage_get, usage_source_of
@@ -48,10 +48,16 @@ from service.api_core.serialization import _dedupe_preserve, _row_require_reply
 
 def _roots_outside_launch(row, metadata: dict[str, Any]) -> list[dict[str, str]]:
     """The service-side roots aify-env's reported `launchRoots` do not contain, each with the command that adds it ("" when
-    aify-env would refuse that folder); none when it reported none. Judged on the same host facts as the note."""
+    there is none) and the sentence saying what to do (workspace.add_fix, the note's own); none when it reported none.
+    Judged on the same host facts as the note."""
     roots = [r for r in _json_loads_or(row["cwd_roots"], []) if isinstance(r, str) and r.strip()]
     host = launch_host(row, metadata)
-    return [{"root": root, "add": roots_add_command(root, host)} for root in roots if outside_launch_roots(root, host)]
+    entries = []
+    for root in roots:
+        if outside_launch_roots(root, host):
+            add, fix = add_fix(root, host)
+            entries.append({"root": root, "add": add, "fix": fix})
+    return entries
 
 
 def _environment_record_to_dict(row, *, offline_seconds: int = 90, definitions: Optional[dict[str, Any]] = None) -> dict[str, Any]:

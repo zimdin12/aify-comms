@@ -71,7 +71,8 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         db = sqlite3.connect(self._db_path)
         try:
             for agent_id, cwd in (("outside", "C:/Docker/aify-dashboard"), ("inside", "C:/Docker/aify-comms/x"),
-                                  ("spaced", "C:/Docker/My Games"), ("unc", "//server/share/x")):
+                                  ("spaced", "C:/Docker/My Games"), ("unc", "//server/share/x"),
+                                  ("percent", "C:/Docker/100% done")):
                 db.execute("INSERT INTO agents (id, role, name, runtime, session_mode, cwd, machine_id, runtime_state, "
                            "registered_at, last_seen) VALUES (?, 'coder', ?, 'claude-code', 'managed', ?, 'win32:host', "
                            "?, '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')",
@@ -109,14 +110,27 @@ class AnAgentItsEnvironmentCannotStartIsNotAvailable(FastApiTestCase):
         self.assertIn("`aify-env roots add ", note, "the note no longer names the command that fixes it")
 
     def test_a_spaced_workspace_is_given_one_quoted_argument(self):
-        """Review of 20b7a1de, R2: unquoted, C:/Docker/My Games is two arguments and aify-env's CLI refuses it."""
-        self.assertIn("`aify-env roots add 'C:/Docker/My Games'`", self.note("spaced"))
+        """Review of 20b7a1de, R2: unquoted, C:/Docker/My Games is two arguments and aify-env's CLI refuses it. Double
+        quotes, as aify-env 0.9.11 words its own hint, carry it through bash, PowerShell and cmd.exe alike."""
+        self.assertIn('`aify-env roots add "C:/Docker/My Games"`', self.note("spaced"))
 
     def test_a_workspace_aify_env_cannot_take_as_a_root_is_offered_no_command(self):
         note = self.note("unc")
         self.assertIn("outside this aify-env's launch roots", note, "CONTROL: still judged outside")
-        self.assertNotIn("aify-env roots add", note, "a repair aify-env's parser refuses was suggested")
-        self.assertIn("cannot take that folder as a launch root", note)
+        self.assertNotIn('roots add "', note, "a repair aify-env's parser refuses was suggested")
+        self.assertIn("`aify-env roots add` refuses it (//server/share/x: UNC and device paths are not supported yet)",
+                      note, "the note does not give the parser's own reason")
+
+    def test_a_valid_folder_no_hint_can_quote_is_not_called_refused(self):
+        """A '%' is valid in a Windows folder name, but cmd.exe expands it inside double quotes, so no hint is offered.
+        The folder can still be a root: the note says to quote it for your shell, and never that it is refused or must
+        move."""
+        note = self.note("percent")
+        self.assertIn("outside this aify-env's launch roots", note, "CONTROL: still judged outside")
+        self.assertIn("quoted for your shell", note)
+        self.assertNotIn('roots add "', note, "a hint was offered that cmd.exe would rewrite")
+        self.assertNotIn("refuses", note)
+        self.assertNotIn("move", note)
 
     def test_the_note_is_kept_when_the_environment_heartbeat_is_stale(self):
         """aify-env still knows the definition is outside its roots after its heartbeat to comms ages out; the note must

@@ -2,24 +2,22 @@
 //
 // "Edit roots…" edits the SERVICE's list (cwdRoots). aify-env launches only under its own launch roots, which it
 // reports as `metadata.launchRoots` and which the service can never widen; on 2026-11-02 the card listed D:/ while
-// every agent under D: read misconfigured. The service decides which of its roots fall outside, and with which command
-// (`rootsOutsideLaunch: [{root, add}]`, by the same rule and quoting as the misconfigured note); this module only draws
-// that verdict, so neither the containment rule nor the shell quoting has a copy here.
+// every agent under D: read misconfigured. The service decides which of its roots fall outside, and what to do about
+// each (`rootsOutsideLaunch: [{root, add, fix}]`, `fix` being the misconfigured note's own sentence); this module only
+// draws that verdict, so neither the containment rule nor the add hint has a copy here.
 
 import { esc } from './util.js';
 
 const outside = (env) => new Map((Array.isArray(env?.rootsOutsideLaunch) ? env.rootsOutsideLaunch : [])
   .filter((entry) => entry && typeof entry.root === 'string')
-  .map((entry) => [entry.root, String(entry.add || '')]));
+  .map((entry) => [entry.root, String(entry.fix || '')]));
 
 /** One service root, marked when this host's aify-env will not start work in it. */
 export function rootChip(env, root) {
   const marked = outside(env);
   if (!marked.has(root)) return `<code>${esc(root)}</code>`;
-  const add = marked.get(root);
-  const why = add
-    ? `aify-env on this host does not start work here. On that host, run: ${add}`
-    : 'aify-env on this host does not start work here, and cannot take this folder as a launch root (a UNC, device, relative or dot-segment path).';
+  const fix = marked.get(root);
+  const why = `aify-env on this host does not start work here${fix ? `; ${fix}` : '.'}`;
   return `<code class="mb-warn root-outside-launch" title="${esc(why)}">${esc(root)} ⚠</code>`;
 }
 

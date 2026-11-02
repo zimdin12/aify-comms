@@ -18,7 +18,7 @@ both analytics lists. 0.9.9 S3b deleted the legacy status derivation the roster'
 with it nine reads per request (the session prefetch, the turn, status, console and activity batches, and each
 agent's delivered-reply and sidecar reads); those entries are gone from both lists. 0.9.17 added `rootsOutsideLaunch` to the environment record
 (launch roots): one key in each heartbeat body, no SQL. It is `[]` where a beat reports no launchRoots, and
-C:/Docker with its `aify-env roots add` command for the advertisement, whose launchRoots `D:/work` do not
+C:/Docker with its `aify-env roots add` command and fix sentence for the advertisement, whose launchRoots `D:/work` do not
 contain the service's root.
 Every other entry and both response bodies are as recorded.
 
@@ -693,7 +693,10 @@ ADVERTISEMENT_BODY = {'claimer': {'accepted': False,
                  'os': 'windows',
                  'pty': True,
                  'registeredAt': '<iso>',
-                 'rootsOutsideLaunch': [{'add': 'aify-env roots add C:/Docker', 'root': 'C:/Docker'}],
+                 'rootsOutsideLaunch': [{'add': 'aify-env roots add "C:/Docker"',
+                                         'fix': 'on that host, add it as a launch root: `aify-env roots add "C:/Docker"` '
+                                                '(aify-env 0.9.11 or newer), or a folder above it to cover more',
+                                         'root': 'C:/Docker'}],
                  'runtimes': [{'available': True,
                                'modes': ['managed-warm'],
                                'runtime': 'claude-code',
