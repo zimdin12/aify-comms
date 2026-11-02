@@ -141,13 +141,17 @@ def launch_host(row, metadata: dict[str, Any]) -> dict[str, Any]:
 _PLAIN_ARG = re.compile(r"[A-Za-z0-9._/:\-]+")
 
 
-def roots_add_command(folder: str) -> str:
-    """The `aify-env roots add` command that makes `folder` a launch root, quoted for Bash (where aify-env's own repair
-    lines run) so a spaced path stays one argument; "" when aify-env's parser refuses the folder (UNC or device paths,
-    a '.' or '..' segment), so no repair is suggested that cannot work."""
+def roots_add_command(folder: str, host: dict[str, Any]) -> str:
+    """The `aify-env roots add` command that makes `folder` a launch root on `host` (a `launch_host` value), quoted for
+    Bash (where aify-env's own repair lines run) so a spaced path stays one argument; "" when that host's aify-env
+    parser refuses the folder, so no repair is suggested that cannot work: not absolute IN THE HOST'S OWN SYNTAX (a
+    drive root on Windows, `/` elsewhere; review of 3924b808), UNC or device paths, or a '.' or '..' segment."""
     text = str(folder or "")
     slashed = text.replace("\\", "/")
-    absolute = slashed.startswith("/") or re.match(r"^[A-Za-z]:(/|$)", slashed)
+    if _environment_uses_windows_paths(host):
+        absolute = re.match(r"^[A-Za-z]:(/|$)", slashed)
+    else:
+        absolute = slashed.startswith("/")
     if not absolute or slashed.startswith("//") or any(part in (".", "..") for part in slashed.split("/")):
         return ""
     argument = text if _PLAIN_ARG.fullmatch(text) else "'" + text.replace("'", "'\\''") + "'"

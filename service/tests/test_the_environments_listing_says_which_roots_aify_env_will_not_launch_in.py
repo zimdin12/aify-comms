@@ -55,6 +55,22 @@ class TheEnvironmentsListingSaysWhichRootsAifyEnvWillNotLaunchIn(FastApiTestCase
         self.assertIn("/srv/Repo", outside, "a case variant on Linux is another folder")
         self.assertNotIn("/srv/repo/x", outside, "CONTROL: an ordinary folder inside the launch root")
 
+    def test_a_linux_host_is_offered_no_command_for_a_drive_shaped_root(self):
+        """Review of 3924b808: the command must be one THIS host's aify-env accepts. On Linux, D:/stale is a relative
+        path its parser refuses, so the card offers no command for it; /srv/Repo, absolute there, still gets one."""
+        self.heartbeat(LINUX, {"launchRoots": ["/srv/repo"]})
+        self.set_service_roots(LINUX, ["D:/stale", "/srv/Repo"])
+        add = {entry["root"]: entry["add"] for entry in self.listed(LINUX)["rootsOutsideLaunch"]}
+        self.assertEqual(add["D:/stale"], "", "a Linux host was told to add a Windows-shaped path")
+        self.assertEqual(add["/srv/Repo"], "aify-env roots add /srv/Repo", "CONTROL: a POSIX root on a POSIX host")
+
+    def test_a_windows_host_is_offered_no_command_for_a_posix_root(self):
+        self.heartbeat(WINDOWS, {"launchRoots": ["C:\\"]})
+        self.set_service_roots(WINDOWS, ["/srv/repo", "D:/"])
+        add = {entry["root"]: entry["add"] for entry in self.listed(WINDOWS)["rootsOutsideLaunch"]}
+        self.assertEqual(add["/srv/repo"], "", "a Windows host was told to add a POSIX path")
+        self.assertEqual(add["D:/"], "aify-env roots add D:/", "CONTROL: a drive root on a Windows host")
+
     def test_once_aify_env_reports_the_drive_nothing_is_outside(self):
         self.heartbeat(WINDOWS, {"launchRoots": ["C:\\", "D:/"]})
         self.set_service_roots(WINDOWS, ["C:/", "D:/Games"])

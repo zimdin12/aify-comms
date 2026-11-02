@@ -283,10 +283,11 @@ async def _outside_its_environment(db, agent_row) -> str:
     if not workspace:
         return ""
     metadata = _json_loads_or(env["metadata"], {})
-    if not outside_launch_roots(workspace, launch_host(env, metadata)):
+    host = launch_host(env, metadata)
+    if not outside_launch_roots(workspace, host):
         return ""
     roots = ", ".join(metadata.get("launchRoots") or [])
-    command = roots_add_command(workspace)
+    command = roots_add_command(workspace, host)
     fix = (f"on that host, add its folder as a launch root: `{command}` (aify-env 0.9.11 or newer), or a folder above "
            "it to cover more agents") if command else (
            "aify-env cannot take that folder as a launch root (a UNC, device, relative or dot-segment path); move the "

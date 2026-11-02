@@ -51,7 +51,7 @@ def _roots_outside_launch(row, metadata: dict[str, Any]) -> list[dict[str, str]]
     aify-env would refuse that folder); none when it reported none. Judged on the same host facts as the note."""
     roots = [r for r in _json_loads_or(row["cwd_roots"], []) if isinstance(r, str) and r.strip()]
     host = launch_host(row, metadata)
-    return [{"root": root, "add": roots_add_command(root)} for root in roots if outside_launch_roots(root, host)]
+    return [{"root": root, "add": roots_add_command(root, host)} for root in roots if outside_launch_roots(root, host)]
 
 
 def _environment_record_to_dict(row, *, offline_seconds: int = 90, definitions: Optional[dict[str, Any]] = None) -> dict[str, Any]:
