@@ -6,6 +6,7 @@ and agents-setup filed its findings as GitHub issues labelled `audit-2026-11`. T
 
 | File | What it is | Precedence |
 |---|---|---|
+| [REPORT.md](REPORT.md) | What was done, how, the results and what is still open | Summary; start here |
 | [ROLES.md](ROLES.md) | Owner-confirmed role of each component, principles and decisions (2026-11-03/04) | Wins over every other document |
 | [OWNER-GUIDANCE.md](OWNER-GUIDANCE.md) | The guidance the owner gave the auditors, numbered as cited in issues | Next |
 | [INTENT.md](INTENT.md) | How the stack is meant to work now; a decision ledger marking each recorded decision CURRENT, SUPERSEDED or PARTIAL; migrations in progress; contradictions between repos | Reference; dated 2026-11-03 |
