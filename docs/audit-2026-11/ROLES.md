@@ -44,3 +44,26 @@ OWNER DECISIONS (2026-11-04):
   identity evidence settles it); restored data can prove silence but never makes a publisher fresh.
 - Skip (planetary-golf): never pays for what the player has not seen.
 
+
+OWNER DECISIONS (2026-11-04, second set):
+- ROOT INSTALLS ARE SUPPORTED (D6). Installers warn once at most and never refuse for being root; HOME=/root just
+  works. claude-aify never overrides Claude Code's own refusal of bypass-permissions as root by itself: overriding
+  it is only ever an explicit owner opt-in, for real sandbox containers.
+- THE aify-comms CONTAINERS SUBSYSTEM IS DELETED (service/containers/*, routers/containers.py, the /route proxy, GPU
+  tracking). It is a service-template leftover that manages OTHER containers. Running aify-comms in Docker is unchanged.
+- CODEX IS UNPARKED and follows the existing Claude Code and Hermes patterns; only genuinely Codex-only parts differ.
+- aify-project-graph IS A PROVIDER FOR aify-dashboard ONLY: no agent MCP tools (graph_* or code_intel_*), no per-session
+  apg server, no apg agent skills. Agents ask the dashboard (`dashboard_code`). A project with no graph gets the steps
+  to enable one, never a silent bootstrap. The provider is ONE process per host, started by aify-env on the dashboard's
+  first request, with no idle timer. Nothing is removed until the dashboard counterpart exists and is used.
+- The single host-wide lease watcher belongs to aify-env.
+- The publisher conflict rule for agent status is stated once in aify-env's agent-state contract: only proven silence
+  makes a publisher yield; freshness alone never overrides a live publisher's conflicting report; restored data
+  never makes a publisher fresh.
+- ponytail: keep the whole set as upstream ships it (model-invocable; agents use it when the owner asks), referenced
+  from upstream and pinned. resolving-merge-conflicts: kept, pinned at its last upstream commit. The BLEI
+  marketplace is pinned and drift-checked like any other skill source.
+- The canonical coding rule is the newer one: "Declare each step's inputs and outputs using existing values and
+  types. Add context or result objects only when needed."
+- planetary-golf: Skip banks exactly the total the screen last showed (it never pays for unseen flight). Telemetry
+  uses a random per-session token, consented on the existing ad consent screen.
