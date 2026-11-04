@@ -90,6 +90,9 @@ wildcard:
 
 `docs/superpowers/plans/` and `docs/superpowers/specs/` hold dated working documents, one per piece
 of work, named by date. They are records by construction and are not indexed here.
+`docs/audit-2026-11/` holds the November 2026 audit's record: the owner-confirmed roles and decisions,
+the guidance the owner gave, and a dated decision ledger. The `audit-2026-11` issues cite it
+(index: issue #46).
 `.claude/skills/` and `.agents/skills/` hold the agent-facing skills, which are loaded into context
 rather than read on demand and are governed by a size ratchet.
 
