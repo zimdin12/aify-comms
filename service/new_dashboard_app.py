@@ -26,6 +26,7 @@ app = FastAPI(
     description="Replacement dashboard shell for aify-comms.",
     docs_url=None,
     redoc_url=None,
+    openapi_url=None,
 )
 
 # COMPRESSION, and this app is where most of the page's bytes actually are.

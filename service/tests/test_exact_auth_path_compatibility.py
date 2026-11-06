@@ -119,6 +119,21 @@ class ExactAuthCompatibility(unittest.TestCase):
 
 
 class DashboardAssetsCompatibility(unittest.TestCase):
+    def test_unused_dashboard_schema_is_disabled_keyed_and_keyless(self):
+        for key in (KEY, ''):
+            with self.subTest(keyed=bool(key)), mock.patch.object(
+                    dashboard, 'get_config', return_value=ServiceConfig(api_key=key, operator_key='')):
+                client = TestClient(dashboard.app, base_url='http://127.0.0.1:8801')
+                try:
+                    response = client.get('/openapi.json')
+                    self.assertEqual(response.status_code, 404, response.text)
+                    self.assertEqual(client.get('/health').status_code, 200)
+                    self.assertEqual(client.get('/assets/app.js').status_code, 200)
+                    page = client.get('/', params={'api_key': key} if key else {})
+                    self.assertEqual(page.status_code, 200)
+                finally:
+                    client.close()
+
     def test_signed_cookie_navigation_and_every_admitted_static_file_still_work(self):
         config = ServiceConfig(api_key=KEY, operator_key='issue43-fixture-operator')
         with mock.patch.object(dashboard, 'get_config', return_value=config):
