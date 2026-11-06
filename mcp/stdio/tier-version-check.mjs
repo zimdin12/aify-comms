@@ -37,8 +37,12 @@
  * 0.9.0 -- the lifecycle queue (D9) and the creation request (D8). aify-env 0.8.7 claims no lifecycle
  * request, so every start, stop and restart of a defined agent waits unclaimed, and it refuses a creation
  * as "not defined on this host", so no spawn of a new id ever starts (read from 0.8.7's source, 2026-10-11).
+ *
+ * 0.9.5 -- reportEveryMs: the publisher announces its report interval from this release.
+ * service/api_core/report_age.py's report_age leaves absent intervals not-reporting, never guessed;
+ * older tiers can pass lifecycle checks while every agent's published status remains unknown.
  */
-export const MINIMUM_AIFY_ENV_VERSION = "0.9.0";
+export const MINIMUM_AIFY_ENV_VERSION = "0.9.5";
 
 /** `1.2.3` -> [1,2,3]; anything unparseable -> null, which callers must treat as "cannot tell". */
 export function parseVersion(text) {

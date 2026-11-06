@@ -57,6 +57,18 @@ test("a tier at the minimum passes, and so does a NEWER one", () => {
   }
 });
 
+for (const [version, compatible] of [["0.9.4", false], ["0.9.5", true], ["0.9.11-dev", true]]) {
+  test(`reportEveryMs compatibility: aify-env ${version} is ${compatible ? "accepted" : "too old"}`, () => {
+    const verdict = tierVersionVerdict({ environments: [row("fixture-host", { version })], isLive: allLive });
+    assert.equal(verdict.ok, compatible);
+    assert.equal(verdict.code, compatible ? "ok" : "tier-too-old");
+    if (!compatible) {
+      assert.match(verdict.detail, /fixture-host.*0\.9\.4/);
+      assert.match(verdict.fix, /0\.9\.5 or newer/);
+    }
+  });
+}
+
 test("A TIER BEHIND THE MINIMUM IS NAMED, with its version and the remedy", () => {
   const verdict = tierVersionVerdict({
     environments: [row("windows:host:default", { version: "0.6.0" })],
@@ -118,6 +130,8 @@ test("the minimum is a real version and is DECLARED WITH ITS REASON", () => {
   assert.match(text, /bridgeKind/,
     "the declared minimum no longer says WHICH capability it is about. A version with no reason "
     + "attached is one nobody can decide to raise or lower.");
+  assert.match(text, /reportEveryMs/, "the 0.9.5 floor must name the report-interval contract");
+  assert.match(text, /report_age.*not-reporting/, "missing intervals must remain unproven, never guessed");
 });
 
 test("A KINDLESS ROW REPORTING A HIGH VERSION IS STILL UNVERIFIED", () => {
