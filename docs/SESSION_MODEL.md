@@ -209,7 +209,7 @@ Examples:
 
 - Codex session with a stored thread ID may become attachable if the same Codex installation and thread store can resume it safely.
 - Claude managed-warm uses a bridge-owned interactive `claude-aify` PTY backing. It may not show up in the `claude-aify` resume picker, but the same session can be opened by ID with `claude-aify --resume <session-id>` when the backing has recorded a resume ID.
-- To match managed Claude's unattended permission behavior in a resumed CLI, use `claude-aify --dangerously-skip-permissions --resume <session-id>`. `--permanently-skip-permissions` is not a Claude Code CLI option.
+- Resume with `claude-aify --resume <session-id>`: the launcher applies the unattended permission default itself. Use `--safe` / `--no-auto` to turn it off for that launch. `--permanently-skip-permissions` is not a [documented Claude Code CLI option](https://code.claude.com/docs/en/cli-reference).
 - Codex managed-warm stores threads in the managed Codex home used by the bridge. To open one in a CLI, use the dashboard-generated resume command so `CODEX_HOME` points at that managed store before `codex resume --include-non-interactive <thread-id>`.
 - Hermes managed-warm delivers through the wrapper-backed visible-TUI gateway; open a visible resident terminal with `hermes-aify --aify-agent <agent-id> --resume <session-id>` when a real Hermes session ID is known.
 - Pi managed-warm should stay managed for triggerable dashboard delivery. `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` is a presence/standalone takeover command; do not run it against the same session id while the bridge owns the managed RPC child.

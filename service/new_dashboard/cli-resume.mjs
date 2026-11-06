@@ -64,7 +64,7 @@ export function continueCliInfo(agent, session, { sessionRuntime = () => '', ses
   const agentFlag = id ? ` --aify-agent ${id}` : '';
   let command;
   if (runtime === 'claude-code') {
-    command = `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${handle}`;
+    command = `claude-aify${agentFlag} --resume ${handle}`;
   } else if (runtime === 'hermes') {
     command = `hermes-aify${agentFlag} --resume ${handle}`;
   } else {

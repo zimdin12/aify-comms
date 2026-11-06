@@ -12,10 +12,10 @@ import {
   resumeMachineNote,
 } from "./cli-resume.mjs";
 
-test('claude-code builds the claude-aify resume command', () => {
+test('claude-code leaves permission defaults to the launcher in its resume command', () => {
   const { command, reason } = continueCliInfo({ id: 'graph-tech-lead', runtime: 'claude-code', sessionHandle: 'd8ba8de3' });
   assert.equal(reason, '');
-  assert.equal(command, 'claude-aify --aify-agent graph-tech-lead --dangerously-skip-permissions --resume d8ba8de3');
+  assert.equal(command, 'claude-aify --aify-agent graph-tech-lead --resume d8ba8de3');
 });
 
 test('hermes builds the hermes-aify resume command', () => {
@@ -25,9 +25,9 @@ test('hermes builds the hermes-aify resume command', () => {
 
 test('codex carries the env explicitly so a copied command is self-contained', () => {
   const { command } = continueCliInfo({ id: 'ef-tech-lead', runtime: 'codex', sessionHandle: 'thr-9' });
-  assert.match(command, /^AIFY_RUNTIME=codex AIFY_AGENT_ID=ef-tech-lead /);
-  assert.match(command, /CODEX_THREAD_ID=thr-9/);
-  assert.match(command, /codex --no-alt-screen resume --include-non-interactive thr-9$/);
+  assert.equal(command,
+    'AIFY_RUNTIME=codex AIFY_AGENT_ID=ef-tech-lead AIFY_SESSION_HANDLE=thr-9 CODEX_THREAD_ID=thr-9'
+    + ' codex --no-alt-screen resume --include-non-interactive thr-9');
 });
 
 // THE OPERATOR REPORT (2026-07-28): "llama-manager does not have cli command that i can copy".
