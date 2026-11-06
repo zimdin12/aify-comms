@@ -1,14 +1,8 @@
 # deprecated-runtime: pi
-"""The pi flip loop looks every few seconds only while a pi agent is waiting, and is woken by a registration.
+"""Pi scans at startup and on committed agents writes, timing only a pending agent's recheck.
 
-MEASURED REASON, 2026-09-16: the idle service spent about 2% of a core, and this loop opened a database
-connection every five seconds on a host with no pi agent at all. It now backs off when nothing waits.
-
-What must NOT regress, and is driven here:
-* a pi agent waiting on an open run is still looked at on the short interval;
-* a registration that asks for a flip is looked at AT ONCE -- after its row is committed, so the look
-  finds it rather than finding nothing and backing off;
-* a registration that asks for nothing does not wake the loop.
+The registration-specific fast path stays pinned here; the generic post-commit signal is exercised
+through real routes and reporting checkouts in test_pi_flip_committed_wakes.py.
 """
 
 from __future__ import annotations
@@ -40,48 +34,73 @@ class _DummyWS:
 
 
 class TheInterval(unittest.TestCase):
-    def test_short_while_an_agent_waits_long_when_none_does(self):
+    def test_only_a_waiting_agent_has_a_recheck_timeout(self):
         self.assertEqual(flip.next_flip_check_delay(1), flip.FLIP_CHECK_WHILE_WAITING_S)
-        self.assertEqual(flip.next_flip_check_delay(0), flip.FLIP_CHECK_WHEN_NONE_S)
-        self.assertGreater(flip.FLIP_CHECK_WHEN_NONE_S, flip.FLIP_CHECK_WHILE_WAITING_S)
+        self.assertIsNone(flip.next_flip_check_delay(0))
 
 
 class TheLoop(unittest.TestCase):
-    """The loop itself, with its intervals shrunk so the behaviour is observable in well under a second."""
+    """Advance timed waits explicitly; a non-timed, unset wait stops the harness. No sleeps."""
 
-    def _looks(self, waiting: int, *, run_for: float, poke_at: float | None = None) -> int:
-        calls = []
+    def _looks(self, drain, *, wake_after_error=False):
+        timeouts = []
+        injected = False
 
-        async def fake_drain():
-            calls.append(asyncio.get_running_loop().time())
-            return waiting
+        async def controlled_wait(waiter, timeout):
+            nonlocal injected
+            timeouts.append(timeout)
+            if wake_after_error and not injected and drain.await_count:
+                injected = True
+                flip.request_pi_flip_check()
+            if flip._wake.is_set():
+                return await waiter  # Exercise the real event, including a wake during the scan.
+            waiter.close()
+            if timeout is None or len(timeouts) >= 4:
+                raise asyncio.CancelledError
+            raise asyncio.TimeoutError  # Advance a configured timer, never invent an idle wake.
 
         async def body():
-            task = asyncio.create_task(flip._periodic_pi_resident_flip_loop())
-            if poke_at is not None:
-                await asyncio.sleep(poke_at)
-                flip.request_pi_flip_check()
-                await asyncio.sleep(run_for - poke_at)
-            else:
-                await asyncio.sleep(run_for)
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            with self.assertRaises(asyncio.CancelledError):
+                await flip._periodic_pi_resident_flip_loop()
 
-        with mock.patch.object(flip, "_drain_and_flip_pi_resident_agents", fake_drain), \
-                mock.patch.object(flip, "FLIP_CHECK_WHILE_WAITING_S", 0.05), \
-                mock.patch.object(flip, "FLIP_CHECK_WHEN_NONE_S", 5.0):
+        with mock.patch.object(flip, "_drain_and_flip_pi_resident_agents", drain), \
+                mock.patch.object(flip.asyncio, "wait_for", controlled_wait), \
+                mock.patch.object(flip, "_wake", None):
             asyncio.run(body())
-        return len(calls)
+        return timeouts
 
-    def test_a_waiting_agent_is_looked_at_on_the_short_interval(self):
-        self.assertGreaterEqual(self._looks(1, run_for=0.5), 4)
+    def test_after_the_startup_scan_no_idle_timeout_can_cause_more_queries(self):
+        drain = mock.AsyncMock(return_value=0)
+        waits = self._looks(drain)
+        self.assertEqual(waits, [None])
+        self.assertEqual(drain.await_count, 1)
 
-    def test_CONTROL_with_none_waiting_the_loop_looks_once_and_backs_off(self):
-        # The first look comes soon after start (a pending flip survives a restart), then it waits long.
-        self.assertEqual(self._looks(0, run_for=0.5), 1)
+    def test_a_waiting_agent_gets_a_bounded_recheck_then_waits_without_a_timer(self):
+        drain = mock.AsyncMock(side_effect=[1, 0, 0, 0])
+        waits = self._looks(drain)
+        self.assertEqual(waits, [flip.FLIP_CHECK_WHILE_WAITING_S, None])
+        self.assertEqual(drain.await_count, 2)
 
-    def test_a_request_wakes_a_backed_off_loop_at_once(self):
-        self.assertEqual(self._looks(0, run_for=0.5, poke_at=0.25), 2)
+    def test_a_write_during_the_scan_rearms_the_next_scan(self):
+        calls = []
+
+        async def scan():
+            calls.append(True)
+            if len(calls) == 1:
+                flip.request_pi_flip_check()
+            return 0
+
+        waits = self._looks(mock.AsyncMock(side_effect=scan))
+        self.assertEqual(waits, [None, None])
+        self.assertEqual(len(calls), 2, "clearing after the scan lost the concurrent wake")
+
+    def test_an_error_is_logged_and_the_next_wake_recovers_without_an_error_timer(self):
+        drain = mock.AsyncMock(side_effect=[RuntimeError("fixture scan failed"), 0, 0, 0])
+        with self.assertLogs("service.pi_resident_flip", level="ERROR") as logs:
+            waits = self._looks(drain, wake_after_error=True)
+        self.assertIn("fixture scan failed", "\n".join(logs.output))
+        self.assertEqual(waits, [None, None])
+        self.assertEqual(drain.await_count, 2)
 
 
 class TheDrainReportsWhoIsStillWaiting(unittest.TestCase):
@@ -160,7 +179,7 @@ class ARegistrationWakesTheLoop(unittest.TestCase):
         self.assertEqual(calls, 1, "a registration that asks for a flip did not wake the loop")
         self.assertEqual(seen, [1], "the loop was woken before the registration's row was committed")
 
-    def test_CONTROL_other_registrations_do_not_wake_it(self):
+    def test_CONTROL_other_registrations_do_not_request_the_registration_fast_path(self):
         self.assertEqual(self._register("claude-resident", "claude-code", "resident")[0], 0)
         self.assertEqual(self._register("pi-managed", "pi", "managed")[0], 0)
 

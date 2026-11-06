@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.serialization import _json_loads_or
@@ -28,8 +29,8 @@ from service.db import get_db
 async def _drain_and_flip_pi_resident_agents() -> int:
     """Pi delivery flip (Plan 2, 2026-05-25).
 
-    Every ~5s the periodic loop calls this helper. For each pi agent
-    marked with runtime_state.pi_resident_pending_flip == True it checks
+    The loop calls this at startup and after committed agents writes, with
+    a five-second recheck only while an agent waits. For each pi agent it checks
     that no active or queued dispatch run is currently targeting the
     agent. When clear, the agent migrates from sessionMode=resident to
     sessionMode=managed: session_handle is preserved, capabilities are
@@ -113,16 +114,7 @@ async def _drain_and_flip_pi_resident_agents() -> int:
 #: While a pi agent is waiting to flip, it is looked at this often -- the latency this loop always had.
 FLIP_CHECK_WHILE_WAITING_S = 5.0
 
-#: With none waiting, how long before looking again unprompted.
-#:
-#: MEASURED REASON, 2026-09-16: the idle service spent about 2% of a core, and this loop opened a
-#: connection every five seconds on a host with no pi agent at all. A registration that asks for a flip
-#: wakes the loop at once (`request_pi_flip_check`), so the common case keeps its five-second latency.
-#: The other writers of `session_mode` -- recovery, the mode switch, an import -- are NOT hooked, on
-#: purpose: a list of writers is the thing that goes stale. They are caught by this interval instead, so
-#: the most a pi agent put into resident mode that way waits is this many seconds.
-FLIP_CHECK_WHEN_NONE_S = 30.0
-
+logger = logging.getLogger(__name__)
 _wake: asyncio.Event | None = None
 
 
@@ -136,31 +128,27 @@ def request_pi_flip_check() -> None:
         _wake.set()
 
 
-def next_flip_check_delay(still_waiting: int) -> float:
-    """How long to wait before the next look, given how many agents the last one left waiting."""
-    return FLIP_CHECK_WHILE_WAITING_S if still_waiting else FLIP_CHECK_WHEN_NONE_S
+def next_flip_check_delay(still_waiting: int) -> float | None:
+    """Recheck pending work after five seconds; otherwise wait only for a committed agents write."""
+    return FLIP_CHECK_WHILE_WAITING_S if still_waiting else None
 
 
 async def _periodic_pi_resident_flip_loop() -> None:
-    """Background loop: drain & flip pi resident agents, often while one waits and rarely otherwise.
-
-    Best-effort: any exception during a tick is swallowed and the next look comes at the short interval.
-    Wired into the FastAPI lifespan in service/main.py.
-    """
+    """Scan persisted candidates at startup, then wake on commits or a pending-work timeout."""
     global _wake
     _wake = asyncio.Event()
-    # THE FIRST LOOK IS SOON: a pending flip is stored in the database and survives a restart.
-    delay = FLIP_CHECK_WHILE_WAITING_S
-    while True:
-        try:
+    try:
+        while True:
+            # Clear BEFORE the scan: a write during it must rearm the next scan.
+            _wake.clear()
+            try:
+                delay = next_flip_check_delay(await _drain_and_flip_pi_resident_agents())
+            except Exception:
+                logger.exception("Pi resident flip scan failed; waiting for the next agents write")
+                delay = None
             try:
                 await asyncio.wait_for(_wake.wait(), timeout=delay)
             except asyncio.TimeoutError:
                 pass
-            # Cleared BEFORE the look, so a request arriving while it runs wakes the next one.
-            _wake.clear()
-            delay = next_flip_check_delay(await _drain_and_flip_pi_resident_agents())
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            delay = FLIP_CHECK_WHILE_WAITING_S
+    finally:
+        _wake = None

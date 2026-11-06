@@ -206,6 +206,11 @@ class ChangeFeed:
         # window, and it has to be woken whether or not any dashboard is attached.
         for scope in {CLAIM_SCOPES[w.table] for w in writes if w.table in CLAIM_SCOPES}:
             longpoll.notify(scope)
+        if any(write.table == "agents" and not write.liveness for write in writes):
+            # The Pi checker opens its own DB connection; importing it while db imports this feed
+            # would close an import-time cycle. Like claim wakes, this must precede the UI gate.
+            from service.pi_resident_flip import request_pi_flip_check
+            request_pi_flip_check()
         if self._manager is None:
             return
         for write in writes:
