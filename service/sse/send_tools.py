@@ -19,6 +19,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from service.api_core.serialization import _quote_untrusted_subject
+from service.api_core.message_targets import select_message_targets
 from service.sse.api_client import call
 from service.sse.caller import caller_id
 from service.sse.registration import register_tools
@@ -34,7 +35,7 @@ MessageType = Literal["request", "response", "info", "error", "review", "approva
 Priority = Literal["normal", "high", "urgent"]
 
 COMMS_SEND_DESCRIPTION = (
-    "Send a message to an agent by ID, or to every agent with a role. `dashboard` stores it for the operator without waking anyone: send there what they asked for, and problems that need a human. "
+    "Send to one agent (`to`) or a fleet role (`toRole`), never both. `dashboard` stores it for the operator without waking anyone: send there what they asked for, and problems that need a human. "
     "A new message to an offline, stopped or misconfigured target, or one with no live wake path, is saved unwoken; the answer says which. A reply is always stored. An `available` managed agent is cold-started by the send, and a `blocked` one gets it too. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. "
     'REPLY WITH A TOOL CALL: comms_send(type="response", inReplyTo=<the message id>). That call is the reply and closes the run; your final plain text is never delivered. Requests, reviews, errors and dashboard asks owe a reply. Leave a response, approval, info or acknowledgement with no new question or work unanswered. Answer input typed into your terminal there. '
     "Omit requireReply to keep the type default: request, review and error owe a reply, the rest do not. Set requireReply=true to track a reply on the rest. If you set requireReply=false on a request, review or error, the recipient is told no reply is tracked while the Work Loop still tracks one. requireReply never affects waking."
@@ -93,8 +94,10 @@ async def comms_send(
     queueIfBusy: bool | None = Field(default=None, description="true: deliver next turn, behind its current work, even if it could steer."),
     requireReply: bool | None = Field(default=None, description="Leave unset; see the description."),
 ):
-    if not to and not toRole:
-        return tool_error("Error: need 'to' or 'toRole'")
+    targets = select_message_targets(to, toRole)
+    if targets.error:
+        return tool_error(f"Error: {targets.error[0].lower()}{targets.error[1:]}")
+    to, toRole = targets.to, targets.to_role
     sender = caller_id(ctx)
     force_queue = queueIfBusy is True
     r = await call("POST", "/messages/send", _set(

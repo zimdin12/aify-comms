@@ -53,6 +53,7 @@ from service.api_core.agent_sessions import (
 )
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.validation import _reject_sender_truncated_body, validate_sender
+from service.api_core.message_targets import select_message_targets
 from service.api_core.agent_sessions import _touch_agent
 from service.api_core.operator_authz import operator_is_acting, refuse_an_unproven_operator_sender
 from service.api_core.dispatch_runs import _create_dispatch_runs
@@ -120,8 +121,10 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 async def create_dispatch(req: DispatchRequest, request: Request):
     validate_sender(req.from_agent)
     refuse_an_unproven_operator_sender(req.from_agent, request)
-    if not req.to and not req.toRole:
-        raise HTTPException(400, "Need 'to' or 'toRole'")
+    targets = select_message_targets(req.to, req.toRole)
+    if targets.error:
+        raise HTTPException(400, targets.error)
+    req.to, req.toRole = targets.to, targets.to_role
     _reject_sender_truncated_body(req.body)
     if req.mode == "message_only":
         raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send for normal live messaging, or this endpoint without message_only for tracked work.")

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "mixed target selectors refuse before outbound HTTP",
+    "tool": "comms_send",
+    "callerArgs": ["from"],
+    "args": {"from": "agent-a", "to": "agent-b", "toRole": "reviewer", "type": "info", "subject": "s", "body": "b"},
+    "routes": {},
+    "requests": [],
+    "text": "Error: use either 'to' or 'toRole', not both",
+    "isError": true
+  },
+  {
+    "name": "non-whitespace control characters do not hide a mixed selector",
+    "tool": "comms_send",
+    "callerArgs": ["from"],
+    "args": {"from": "agent-a", "to": "agent-b", "toRole": "\u001f", "type": "info", "subject": "s", "body": "b"},
+    "routes": {},
+    "requests": [],
+    "text": "Error: use either 'to' or 'toRole', not both",
+    "isError": true
+  },
+  {
+    "name": "whitespace-only targets remain missing before outbound HTTP",
+    "tool": "comms_send",
+    "callerArgs": ["from"],
+    "args": {"from": "agent-a", "to": " \t\r\n", "toRole": "﻿ ", "type": "info", "subject": "s", "body": "b"},
+    "routes": {},
+    "requests": [],
+    "text": "Error: need 'to' or 'toRole'",
+    "isError": true
+  },
+  {
+    "name": "a direct target discards only the blank role selector",
+    "tool": "comms_send",
+    "callerArgs": ["from"],
+    "args": {"from": "agent-a", "to": "agent-b", "toRole": " \t\r\n", "type": "info", "subject": "s", "body": "b"},
+    "routes": {"POST /messages/send": {"body": {"ok": true, "replayed": true, "messageId": "target-control", "recipients": []}}},
+    "requests": [{"method": "POST", "path": "/messages/send", "body": {"from_agent": "agent-a", "to": "agent-b", "type": "info", "subject": "s", "body": "b", "priority": "normal", "trigger": true, "steer": true, "queueIfBusy": false, "clientNonce": "<nonce>"}}],
+    "text": "Already sent: this matched an earlier send of the same message (target-control), which the service stored. Whether that send woke its recipients is not known from this answer, and nothing was woken again.",
+    "isError": false
+  },
+  {
+    "name": "a role target discards an empty direct selector",
+    "tool": "comms_send",
+    "callerArgs": ["from"],
+    "args": {"from": "agent-a", "to": "", "toRole": "reviewer", "type": "info", "subject": "s", "body": "b"},
+    "routes": {"POST /messages/send": {"body": {"ok": true, "replayed": true, "messageId": "target-control", "recipients": []}}},
+    "requests": [{"method": "POST", "path": "/messages/send", "body": {"from_agent": "agent-a", "toRole": "reviewer", "type": "info", "subject": "s", "body": "b", "priority": "normal", "trigger": true, "steer": true, "queueIfBusy": false, "clientNonce": "<nonce>"}}],
+    "text": "Already sent: this matched an earlier send of the same message (target-control), which the service stored. Whether that send woke its recipients is not known from this answer, and nothing was woken again.",
+    "isError": false
+  },
+  {
+    "name": "Unicode whitespace is absent on both transports",
+    "tool": "comms_send",
+    "callerArgs": ["from"],
+    "args": {"from": "agent-a", "to": "﻿ ", "toRole": "reviewer", "type": "info", "subject": "s", "body": "b"},
+    "routes": {"POST /messages/send": {"body": {"ok": true, "replayed": true, "messageId": "target-control", "recipients": []}}},
+    "requests": [{"method": "POST", "path": "/messages/send", "body": {"from_agent": "agent-a", "toRole": "reviewer", "type": "info", "subject": "s", "body": "b", "priority": "normal", "trigger": true, "steer": true, "queueIfBusy": false, "clientNonce": "<nonce>"}}],
+    "text": "Already sent: this matched an earlier send of the same message (target-control), which the service stored. Whether that send woke its recipients is not known from this answer, and nothing was woken again.",
+    "isError": false
+  }
+]

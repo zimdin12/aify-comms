@@ -48,6 +48,7 @@ from service.models import MessageSend
 from service.api_core.dispatch_launch import _launch_recipients_for_dispatch
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.validation import _reject_sender_truncated_body, validate_sender
+from service.api_core.message_targets import select_message_targets
 from service.api_core.agent_sessions import _touch_agent
 from service.api_core.external_keys import EXTERNAL_ROUTE, refuse_external_impersonation
 from service.api_core.operator_authz import operator_is_acting, refuse_an_unproven_operator_sender
@@ -78,8 +79,10 @@ router = domain_router()
 async def send_message(req: MessageSend, request: Request):
     validate_sender(req.from_agent)
     refuse_an_unproven_operator_sender(req.from_agent, request)
-    if not req.to and not req.toRole:
-        raise HTTPException(400, "Need 'to' or 'toRole'")
+    targets = select_message_targets(req.to, req.toRole)
+    if targets.error:
+        raise HTTPException(400, targets.error)
+    req.to, req.toRole = targets.to, targets.to_role
     _reject_sender_truncated_body(req.body)
     # WHICH OTHER MACHINE, when the request carried an external key: set by the key middleware, so it
     # is a fact about the request and not something the sender wrote (service/api_core/external_keys.py).
