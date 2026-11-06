@@ -183,10 +183,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     COOKIE_MAX_AGE = 30 * 24 * 3600
 
     async def dispatch(self, request: Request, call_next):
-        skip_paths = ["/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
-        # The registration spec and its declared manifests, matched EXACTLY rather than by prefix
-        # (guided install S1): a new host reads them before it holds a key.
-        if any(request.url.path.startswith(p) for p in skip_paths) or service_spec_router.is_public_path(request.url.path):
+        skip_paths = frozenset({"/health", "/ready", "/version", "/ws", "/favicon.svg", "/favicon.ico",
+                                "/api/v1/favicon.svg", "/api/v1/favicon.ico"})
+        # Exact bootstrap spec/manifests remain public before a new host holds a key.
+        if request.url.path in skip_paths or service_spec_router.is_public_path(request.url.path):
             return await call_next(request)
         # A CORS PREFLIGHT CARRIES NO CREDENTIALS -- the browser strips them by specification, so
         # there is no key for this middleware to find and it answered 401. That refusal is invisible

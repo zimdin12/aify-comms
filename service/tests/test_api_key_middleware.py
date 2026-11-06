@@ -5,11 +5,9 @@ service's entire authentication story: with a key configured, anything not on it
 that key, and everything the fleet can do — spawning workers, injecting console keystrokes, reading
 every message — is behind it.
 
-THE SKIP LIST IS PREFIX MATCHING, and that is the part worth testing rather than reading.
-`path.startswith("/health")` exempts `/healthz`, `/health/anything` and — if such a route ever
-existed — `/health-secrets`. The list is fine today, and "today" is exactly the sort of claim that
-needs a test: the last check here asserts it against the app's REAL routes, so a future endpoint
-whose path happens to begin with `/version` or `/ws` cannot slip in unauthenticated.
+PUBLIC PATHS MATCH EXACTLY. A future `/healthz-admin` must not inherit `/health`'s exemption.
+Docs and the schema require the configured key too, including browser navigation using the
+existing query-to-cookie carrier. The public-path policy is checked against real served routes.
 
 THE NON-ASCII KEY IS A REGRESSION TEST. `hmac.compare_digest` raises TypeError on a str containing
 non-ASCII code points, unhandled — so a garbage key returned HTTP 500 from every protected endpoint
@@ -35,12 +33,11 @@ from service.tests.served_routes import walk_routes
 
 API_KEY = "correct-horse-battery-staple"
 
-#: Every prefix the middleware lets through unauthenticated, copied from it deliberately: the test
-#: below compares this list against the middleware's own, so drift fails rather than passing quietly.
-EXPECTED_SKIPS = [
-    "/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json",
-    "/ws", "/favicon", "/api/v1/favicon",
-]
+#: The independently specified public-path contract, checked against the middleware and real routes.
+EXPECTED_SKIPS = {
+    "/health", "/ready", "/version", "/ws",
+    "/favicon.svg", "/favicon.ico", "/api/v1/favicon.svg", "/api/v1/favicon.ico",
+}
 
 
 def _app_with_key(api_key: str = API_KEY) -> FastAPI:
@@ -155,7 +152,7 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
 
     # ── the skip list ────────────────────────────────────────────────────────────────────────
 
-    def test_every_documented_skip_prefix_is_actually_skipped(self):
+    def test_every_documented_public_path_is_actually_skipped(self):
         app = FastAPI()
         app.add_middleware(APIKeyMiddleware, api_key=API_KEY)
 
@@ -168,65 +165,26 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
                     self.assertEqual(client.get(prefix).status_code, 200,
                                      f"{prefix} required a key it is meant to be exempt from")
 
-    def test_the_skip_list_matches_by_PREFIX_and_the_test_says_so(self):
-        """Observed behaviour, recorded because it is the risky half: `/healthz` and
-        `/health/deep` are exempt too. That is fine while no protected route starts with one of
-        these — which is what the next test checks against the real app."""
-        app = FastAPI()
-        app.add_middleware(APIKeyMiddleware, api_key=API_KEY)
-        app.add_api_route("/healthz-anything", lambda: {"ok": True}, methods=["GET"])
+    def test_prefix_lookalikes_require_the_key_while_health_remains_public(self):
+        app = _app_with_key()
+        lookalikes = {path + suffix for path in EXPECTED_SKIPS for suffix in ("-admin", "/deep")}
+        lookalikes |= {"/healthz-admin", "/docs-extra", "/redoc-extra", "/openapi.json-extra",
+                       "/favicon-secrets", "/api/v1/favicon-secrets"}
+        for path in lookalikes:
+            app.add_api_route(path, lambda: {"ok": True}, methods=["GET"])
         with TestClient(app) as client:
-            self.assertEqual(client.get("/healthz-anything").status_code, 200)
+            self.assertEqual(client.get("/health").status_code, 200)
+            for path in sorted(lookalikes):
+                with self.subTest(path=path):
+                    self.assertEqual(client.get(path).status_code, 401, path)
+                    self.assertEqual(client.get(path, headers={"X-API-Key": API_KEY}).status_code, 200, path)
 
-    def test_NO_REAL_ROUTE_is_unauthenticated_by_accident(self):
-        """THE ONE THAT MATTERS FOR THE FUTURE. Every route the real app serves is checked against
-        the skip prefixes, so an endpoint added later whose path happens to begin with `/version` or
-        `/ws` cannot become unauthenticated without this failing.
-
-        THE EXPECTED SET IS DERIVED, NOT LISTED. Writing the favicon and docs paths out here made
-        `test_every_route_is_exercised.py` report its whole FRAMEWORK_ROUTES list as "now exercised"
-        — that gate matches a route by any test mentioning its path, so a literal list here would
-        have emptied a list whose job is to record which routes NO handler in this repo owns. The
-        framework half is taken from that gate's own constant instead, and only the four public
-        endpoints this service really serves are named.
-        """
-        from service.tests.test_every_route_is_exercised import FRAMEWORK_ROUTES
-
-        app = create_app()
-        framework_paths = {entry.split(" ", 1)[1] for entry in FRAMEWORK_ROUTES}
-        # The docs trio is FastAPI's, and unauthenticated on purpose: it exposes the API SHAPE and
-        # no data. Named here rather than assumed, so switching them off later is a deliberate edit.
-        #
-        # THE FOUR FAVICONS ARE NAMED HERE ON THEIR OWN MERIT since 2026-08-17. They used to arrive
-        # through `framework_paths` above, which was borrowing a list about TEST COVERAGE to answer
-        # a question about AUTH — and the moment they gained tests and left that list, this gate
-        # reported them as newly unauthenticated. They are not new and they are not framework
-        # routes: they are handlers in this repo that must answer without a key, because a browser
-        # requesting a favicon sends none and a 401 is a permanently broken tab icon.
-        public_endpoints = {"/health", "/ready", "/version", "/ws",
-                            "/docs", "/redoc", "/openapi.json",
-                            "/favicon.svg", "/favicon.ico",
-                            "/api/v1/favicon.svg", "/api/v1/favicon.ico"}
-
-        unexpected = sorted(
-            route.path for route in walk_routes(app)
-            if any(str(getattr(route, "path", "")).startswith(p) for p in EXPECTED_SKIPS)
-            and route.path not in framework_paths
-            and route.path not in public_endpoints
-        )
-        self.assertEqual(
-            unexpected, [],
-            "these routes are exempt from API-key auth and are neither a framework route nor one of "
-            "the four intended public endpoints — either one is new and unauthenticated, or the "
-            "skip prefixes have changed: " + ", ".join(unexpected),
-        )
-
-    def test_the_four_public_endpoints_really_are_served(self):
-        """Anti-vacuity for the census above: if none of them existed, the check would pass by
-        having nothing to classify."""
-        app = create_app()
-        served = {getattr(route, "path", "") for route in walk_routes(app)}
-        for path in ("/health", "/ready", "/version", "/ws"):
+    def test_public_exemptions_name_real_served_routes(self):
+        """No invented exemptions; use the maintained walker, not the shallow lazy-router list."""
+        served = {route.path for route in walk_routes(create_app())}
+        self.assertIn("/api/v1/agents", served, "control: included routers were not expanded")
+        self.assertNotIn("/__issue43_absent__", served)
+        for path in EXPECTED_SKIPS:
             with self.subTest(path=path):
                 self.assertIn(path, served)
 
@@ -244,18 +202,15 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
         # That miscount was harmless; the same proxy would also have let a real new prefix hide behind
         # the removal of an unrelated string, which would not have been.
         tree = ast.parse(textwrap.dedent(inspect.getsource(APIKeyMiddleware.dispatch)))
-        declared = [
-            [element.value for element in node.value.elts]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign)
-            and any(getattr(target, "id", "") == "skip_paths" for target in node.targets)
-            and isinstance(node.value, ast.List)
-        ]
-        self.assertEqual(len(declared), 1, "skip_paths is not a single list literal any more")
-        self.assertEqual(
-            declared[0], EXPECTED_SKIPS,
-            "the middleware skips a prefix this test does not know about",
-        )
+        declared = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and any(getattr(target, "id", "") == "skip_paths" for target in node.targets):
+                value = node.value
+                if isinstance(value, ast.Call) and getattr(value.func, "id", "") == "frozenset":
+                    value = value.args[0]
+                declared.append(set(ast.literal_eval(value)))
+        self.assertEqual(len(declared), 1, "skip_paths must have one explicit policy declaration")
+        self.assertEqual(declared[0], EXPECTED_SKIPS, "the middleware exempts paths outside the public contract")
 
 
 class ABrowserCanHoldTheKeyTests(unittest.TestCase):

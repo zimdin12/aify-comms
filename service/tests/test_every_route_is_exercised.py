@@ -49,9 +49,8 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 #: routes.py` now drives all four, asserts they serve the same bytes and the SVG media type, and
 #: pins that they are reachable without an API key — and the ratchet below is what forced the
 #: cleanup, by failing the moment they became exercised.
-FRAMEWORK_ROUTES = {
-    "GET /docs/oauth2-redirect",
-}
+# The last entry, the OAuth redirect, is now driven by test_exact_auth_path_compatibility.py (#43).
+FRAMEWORK_ROUTES: set[str] = set()
 
 #: OURS, AND OWED — a different thing from the framework list above, kept separate so the two are
 #: not confused. Every route here would be a handler this repo owns with no test calling it.
