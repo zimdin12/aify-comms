@@ -222,8 +222,11 @@ A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
 `docker-compose.yml` if the LAN should not reach it, and set `CORS_ORIGINS` in `.env` to the
 dashboard origins you use (comma-separated, for example `http://localhost:8801`), then
 `docker compose up -d`. `.env` overrides `config/service.json`, and the default `.env` sets
-`CORS_ORIGINS=*`. With a key set, `/health`, `/ready`, `/version`, `/docs`, `/redoc` and
-`/openapi.json` still answer without one; `/ws` checks the key itself. Details:
+`CORS_ORIGINS=*`. With a key set, exact health/readiness/version and favicon paths remain public,
+as do the bootstrap spec and its declared manifests. API docs (`/docs`, `/redoc`, the OAuth redirect)
+and `/openapi.json` require the service key: send `X-API-Key`, or open `/docs?api_key=<key>` once
+and let the browser's cookie authenticate subsequent schema requests. `/ws` checks the key itself.
+The separate dashboard on `:8801` serves no OpenAPI endpoint. Details:
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Notifications
