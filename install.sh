@@ -61,9 +61,9 @@ Examples:
   bash install.sh --client hermes http://localhost:8800
   bash install.sh --standalone --client claude http://localhost:8800 --with-hook
 
-  --env-endpoint <url>          the aify-env 'aify-comms doctor' asks (default http://127.0.0.1:8802).
-                                aify-env hosts every managed spawn. --delegate-spawns [url] is
-                                accepted as its old name; --no-delegate-spawns does nothing.
+  --env-endpoint <url>          the aify-env 'aify-comms doctor' asks (default http://127.0.0.1:8802);
+                                a non-loopback Host needs http.trustedAuthorities in ~/.aify/config.json.
+                                Old name: --delegate-spawns [url]; --no-delegate-spawns does nothing.
   Existing notification hooks refresh automatically; new legacy hooks need --standalone --with-hook.
   --standalone runs only this installer; plain installs use the guided chain.
   --client pi is intentionally disabled: Pi (`omp --mode rpc`) is deprecated.
