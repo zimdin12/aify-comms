@@ -2,7 +2,7 @@
 
 What is being finished now, what comes next and in which order, and older goals kept to pick from.
 Rewritten 2026-09-30. The previous roadmap (written 2026-08-10, last current at v0.5.4) is kept as a
-record in [history/ROADMAP-2026-08.md](history/ROADMAP-2026-08.md); what shipped is in the tags and
+record in [history/ROADMAP-2026-08.md](ROADMAP-2026-08.md); what shipped is in the tags and
 their messages.
 
 The rule from that roadmap still holds: anything that cannot name the artifact it retires does not get

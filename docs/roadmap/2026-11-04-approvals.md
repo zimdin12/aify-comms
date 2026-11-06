@@ -64,3 +64,8 @@ automatic sync stays capability-blocked. This approval record is outside the two
 target hashes so recording a response does not change what it approved. Raw receipts,
 source hashes and retained R1 bytes stay in the private planning custody at
 `~/projects/comms-evidence-audit-20261104/`.
+
+The retained copy `docs/history/ROADMAP-before-STACK-2026-11-04-R1.md` differs from the
+original in one link target only: it moved into `history/`, so its link to the 2026-08 roadmap
+now points beside it. The exact original bytes are `docs/ROADMAP.md` at commit `1c9611b3`
+(SHA-256 `e41792a6f5b7207931273fcab60d8851e777bf42d39600bbc623fd9b7e2a8436`).
