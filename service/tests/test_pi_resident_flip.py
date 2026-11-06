@@ -303,10 +303,8 @@ class PiResidentDispatchRejectionTests(unittest.TestCase):
             )
 
     def test_messages_send_trigger_rejected_during_pending_pi_flip(self):
-        # /messages/send trigger=true is a second live-dispatch entrypoint.
-        # It must honor the same pending-flip gate as /dispatch; otherwise
-        # chat can enqueue work against a Pi resident mode that is already
-        # being migrated away.
+        # Sending still stores mail, but the pending-flip gate must refuse its wake.
+        # Storage acceptance is not dispatch acceptance.
         resp = self.client.post(
             "/api/v1/agents",
             json={
@@ -332,7 +330,8 @@ class PiResidentDispatchRejectionTests(unittest.TestCase):
         )
         self.assertEqual(send_resp.status_code, 200, send_resp.text)
         body = send_resp.json()
-        self.assertFalse(body.get("ok"), body)
+        self.assertTrue(body.get("ok"), body)
+        self.assertTrue(body.get("stored"), body)
         self.assertEqual(body.get("dispatchRuns"), [], body)
         not_started = body.get("notStarted") or []
         self.assertEqual(len(not_started), 1, body)
