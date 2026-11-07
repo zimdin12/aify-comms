@@ -1,19 +1,30 @@
-// Whether one Docker resource a witness run created is gone, judged from Docker's own answer to inspecting it.
-//
-// ABSENT IS DOCKER SAYING SO ABOUT THIS NAME. Anything else (a daemon that cannot be reached, a timeout, a message about
-// another name) is UNKNOWN, and a cleanup with an unknown resource is not complete (review E3).
+// Whether one Docker resource a witness run created is gone, judged from Docker's own answer.
+// Missing evidence, cancellation, daemon failures and another name's error are UNKNOWN.
 
-/** The command that inspects one owned resource by name. */
-export function inspectArgs({ kind, name }) {
-  return kind === "image" ? ["image", "inspect", name] : kind === "network" ? ["network", "inspect", name] : ["container", "inspect", name];
+const missingPatterns = Object.freeze({
+  container: (name) => `No such (?:container|object): ${name}`,
+  network: (name) => `network ${name} not found`,
+  image: (name) => `No such image: ${name}(?::latest)?`,
+  volume: (name) => `(?:get ${name}: no such volume|No such volume: ${name})`,
+});
+
+function resourcePattern({ kind, name }) {
+  if (!Object.hasOwn(missingPatterns, kind)) throw new TypeError(`unsupported Docker resource kind: ${kind}`);
+  if (typeof name !== 'string' || !name.trim()) throw new TypeError('Docker resource name is required');
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^Error(?: response from daemon)?: ${missingPatterns[kind](escaped)}\\s*$`, 'm');
 }
 
-/** "present", "absent" or "unknown" for one inspect answer `{status, out}`. */
-export function classifyReadBack({ kind, name }, { status, out }) {
-  if (status === 0) return "present";
-  const n = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const notFound = kind === "network" ? new RegExp(`^Error response from daemon: network ${n} not found\\s*$`, "m")
-    : kind === "image" ? new RegExp(`^Error(?: response from daemon)?: No such image: ${n}(?::latest)?\\s*$`, "m")
-      : new RegExp(`^Error(?: response from daemon)?: No such (?:container|object): ${n}\\s*$`, "m");
-  return notFound.test(String(out)) ? "absent" : "unknown";
+/** The command that inspects one owned resource by name. */
+export function inspectArgs(target) {
+  resourcePattern(target);
+  return [target.kind, 'inspect', target.name];
+}
+
+/** "present", "absent" or "unknown" for one direct Docker process answer `{status, out}`. */
+export function classifyReadBack(target, { status, out }) {
+  const notFound = resourcePattern(target);
+  if (status === 0) return 'present';
+  if (status !== 1) return 'unknown';
+  return notFound.test(String(out)) ? 'absent' : 'unknown';
 }
