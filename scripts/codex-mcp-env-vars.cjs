@@ -24,6 +24,8 @@ const desired = [
   "AIFY_API_KEY",
   "CODEX_THREAD_ID",
   "AIFY_CODEX_APP_SERVER_URL",
+  "AIFY_CODEX_REMOTE_AUTH_TOKEN_ENV",
+  "AIFY_CODEX_APP_SERVER_TOKEN",
 ];
 let text = "";
 try { text = fs.readFileSync(file, "utf8"); } catch (_) { process.exit(0); }
