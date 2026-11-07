@@ -11,6 +11,7 @@ A separate compose project, `aify-comms-staging`, on Docker, never on the live h
 - **comms**: its own containers, ports 8820/8821, network `aify-comms-staging-network`, and volume
   `aify-comms-staging-data`. Set `DATA_VOLUME_NAME` explicitly. Without it, a staging stack mounts the LIVE volume
   (docs/superpowers/plans/evidence/2026-10-02-staging).
+- **aify-dashboard**: its own staging container and volume, never the live one on 9700. Only E2 needs it.
 - **host tier**: a Linux container running aify-env and the launchers from the checkouts under test. Its home
   directory belongs to the container, so its `~/.aify`, leases and owned-process records cannot meet the live
   ones. An aify-env started on this host instead would supersede the live one and reap its managed agents
@@ -38,7 +39,7 @@ read-only, then seeded into the staging volume before first start.
 | Run | Issues it proves together |
 |---|---|
 | E1 | comms#43, #49, #27 (dashboard→comms over host-gateway); env#32; wrapper#9, #18, #21 |
-| E2 | env#13, #15, #17, #19, #21, #31; comms#31, #53 |
+| E2 | env#13, #15, #17, #19, #21, #31; comms#31, #53; aify-dashboard#18 (a staged agent's file write reaches the dashboard receiver with no flag set, and `AIFY_FILE_ACTIVITY=0` sends nothing) |
 | E3 | wrapper#14 plus the comms allowlist (`scripts/codex-mcp-env-vars.cjs`) |
 | E4 | the joint switch itself, including env#17's first takeover from dde9d6d, which only a fixture covers today |
 
