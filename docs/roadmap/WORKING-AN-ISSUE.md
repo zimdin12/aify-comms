@@ -6,6 +6,24 @@ The 2026-11 audit issues were written by a reviewer who read the code but not it
 An issue's proposed fix is a hypothesis. Code that looks wrong is often a guard for a case
 the reviewer never saw, and removing it is how a fix becomes a regression.
 
+## Scope first
+
+Each repository, component and file owns one responsibility
+([ROLES.md](../audit-2026-11/ROLES.md)), and each issue targets one of them. The reviewer's
+acceptance criteria and option text are proposals too: on 2026-11-07 two small wrapper fixes
+(a log name, a settings-file location) were planned against those criteria as a shared
+ownership mechanism, grew to 31 changed files without the requested change being made, and
+were reverted.
+
+0. Before planning, write three lines: the responsibility the issue targets and its owner
+   (repository, component, file); that responsibility's goal; the smallest change that meets
+   it. Keep only the acceptance criteria that goal needs. Move the rest to a separate issue,
+   or drop them, and say which in the plan.
+   - One issue, one change. Do not bundle issues to design a shared mechanism.
+   - A plan larger than the issue's effort label, or one that changes another component's
+     responsibility, goes back for scope before approval.
+   - The plan names a size budget. If the build needs more, stop and ask; do not extend.
+
 ## Before writing code
 
 1. Read the issue body and every comment, including the owner's verdict comment ("Agree
