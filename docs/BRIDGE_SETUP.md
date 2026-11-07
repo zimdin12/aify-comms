@@ -53,7 +53,10 @@ A host uses the URL given to `install.sh --client`, which is baked into the laun
 
 - Same machine as the service: `http://localhost:8800`. The bridge rewrites `localhost` to
   `127.0.0.1`, because Docker Desktop forwards IPv6 `::1` unreliably.
-- From inside a container to a service on the host: usually `http://host.docker.internal:8800`.
+- From inside a container to a service on the host: `http://host.docker.internal:8800` is trusted
+  by the service's Host guard. Docker Engine clients need a `host.docker.internal:host-gateway`
+  mapping; Host admission does not create DNS or remove the API-key requirement. Other network
+  aliases still need an explicit `TRUSTED_HOSTS` entry.
 - Another machine: the LAN or VPN address, for example `http://10.0.0.20:8800`.
 
 If a host does not appear on the Environments page, check it can reach the service:

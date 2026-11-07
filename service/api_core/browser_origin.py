@@ -44,9 +44,9 @@ from urllib.parse import urlsplit
 #: and the request is not same-origin at all. DNS rebinding is the threat the 2026-06-28 audit named
 #: and the one this guard kept claiming to close.
 #:
-#: So the same-host shortcut only applies on a host we independently trust. Loopback is trusted
-#: because a rebound name is never one of these; anything else the operator adds is a decision.
-DEFAULT_TRUSTED_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+#: The shortcut trusts loopback and Docker's reserved host-gateway name, each exactly. Other names
+#: remain the operator's choice; admitting the gateway Host does not provide DNS or bypass the key.
+DEFAULT_TRUSTED_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "host.docker.internal"})
 
 #: Paths a browser may NAVIGATE to from a same-site page without an accepted Origin.
 #:
@@ -259,8 +259,8 @@ def browser_request_is_allowed(
     the oldest clients, which are the ones least likely to be defended elsewhere.
 
     THE HOST REQUIREMENT IS THEREFORE UNCONDITIONAL, and no longer inferred from headers the client
-    chooses to send. Every request must arrive on a Host this service trusts: loopback, a literal IP
-    (`host_is_an_ip_literal` says why that is safe), or a name the operator listed. An
+    chooses to send. Every request must arrive on a Host this service trusts: a default trusted name,
+    a literal IP (`host_is_an_ip_literal` says why that is safe), or a name the operator listed. An
     operator-NAMED origin is still honoured whatever the Host, because that is an explicit decision
     about a specific third party rather than a shortcut inferred from self-agreement.
     """

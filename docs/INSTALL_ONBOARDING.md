@@ -40,8 +40,9 @@ were all hit in the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/RE
   its agents, messages and channels. The data in that test was small and seeded, not a real fleet's.
 - **Install the service and every client from one commit,** preferably a release tag. The connect step
   refuses bridge files that differ from what the service serves.
-- **Address the service by IP or `localhost`.** Its `/.well-known/aify-service` refuses other hostnames
-  (403) unless they are listed in `TRUSTED_HOSTS`. That includes `host.docker.internal`.
+- **Address the service by IP, `localhost`, or `host.docker.internal`.** The exact Docker host-gateway
+  name is trusted by default; other hostnames need `TRUSTED_HOSTS` or receive 403. Trusting the Host
+  does not supply DNS: Docker Engine clients need a `host-gateway` mapping for that name.
 - **Without a terminal, the install stops once for approval.** Pass the printed digest back with
   `AIFY_INSTALL_APPROVE=<digest>`.
 - **On Linux, Claude's channel policy needs one `sudo` command.** The installer prints it.
