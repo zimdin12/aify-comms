@@ -84,6 +84,16 @@ test('a later successful inspection cannot settle an earlier timed-out Docker co
   assert.equal(docker.settlement().settled, false);
 });
 
+// The live volume and Compose's default are the same name; undefined covers an omitted value.
+for (const [label, dataVolume] of [['live/default', 'aify-comms-data'], ['empty', ''], ['undefined', undefined]]) {
+  test(`dockerEnvironment refuses ${label} DATA_VOLUME_NAME`, () => {
+    assert.throws(() => dockerEnvironment({}, dataVolume), /DATA_VOLUME_NAME/);
+  });
+  test(`StagingDocker refuses ${label} DATA_VOLUME_NAME`, () => {
+    assert.throws(() => new StagingDocker({ environment: {}, dataVolume, timeoutMs: 100 }), /DATA_VOLUME_NAME/);
+  });
+}
+
 test('direct Docker execution retains status, uses a timeout and copies argv', () => {
   const calls = [];
   const docker = new StagingDocker({ environment: { PATH: 'fixture-bin' }, dataVolume: volume, timeoutMs: 100,
