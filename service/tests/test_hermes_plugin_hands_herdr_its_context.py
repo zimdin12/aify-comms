@@ -69,8 +69,8 @@ def register(ctx):
         f.write(json.dumps({"turn-start": ctx.name}) + "\\n")
 """
 
-# hermes-aify names aify-wrapper's hermes-file-activity.py in AIFY_FILE_ACTIVITY_HERMES_PLUGIN when the operator
-# opts a launch into file activity (dashboard #53); the loader treats it exactly like the turn-start module.
+# hermes-aify names aify-wrapper's hermes-file-activity.py in AIFY_FILE_ACTIVITY_HERMES_PLUGIN unless the launch
+# sets AIFY_FILE_ACTIVITY to something other than 1; the loader treats it exactly like the turn-start module.
 FILE_ACTIVITY_PLUGIN = TURN_START_PLUGIN.replace("turn-start", "file-activity").replace("pre_llm_call", "post_tool_call")
 
 

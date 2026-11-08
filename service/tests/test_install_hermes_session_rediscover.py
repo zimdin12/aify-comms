@@ -255,7 +255,8 @@ def test_hermes_wrapper_loads_aify_plugin_by_default():
     """hermes-aify should load the durable aify plugin unless explicitly disabled."""
     text = _read_hermes_wrapper()
     assert "AIFY_HERMES_PLUGIN" in text
-    # The rendered path: a native Windows hermes is given it with backslashes.
-    assert re.search(r"integrations[\\/]hermes-aify-plugin", text)
+    # The rendered path: a native Windows hermes is given it with backslashes. The render escapes them inside the
+    # double-quoted assignment, so the text holds two where bash hands hermes one.
+    assert re.search(r"integrations(?:/|\\{1,2})hermes-aify-plugin", text)
     assert "AIFY_HERMES_DISABLE_PLUGIN" in text
     assert "PYTHONPATH" in text

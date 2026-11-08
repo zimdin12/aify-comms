@@ -26,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { tmpDir } from "./_tmpdir.js";
 import { sealedChildEnv } from "./_child-env.mjs";
 
@@ -173,9 +174,11 @@ test("hermes-aify wrapper: --check reports and exits before any side effect", ()
 
 test("hermes-aify wrapper: reports its own version for doctor's wrapper-current check", () => {
   const text = sharedText();
-  assert.match(
-    text,
-    /HARNESS_WRAPPER_VERSION="\d+\.\d+\.\d+"/,
+  // The pinned package's own version, prerelease suffix included (main carries -dev between tags). Resolved as a
+  // module: npm installs it from the lockfile, as it does the templates rendered above.
+  const pinned = createRequire(import.meta.url)("aify-wrapper/package.json").version;
+  assert.ok(
+    text.includes(`HARNESS_WRAPPER_VERSION="${pinned}"`),
     "a literal version, substituted at render — not a command the wrapper runs at launch",
   );
 });

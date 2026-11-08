@@ -12,13 +12,13 @@ const installScript = readFileSync(join(renderWrapper("codex"), "codex-aify"), "
 
 assert.match(
   installScript,
-  /setsid codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?(?:"\$\{CODEX_APP_SERVER_CONFIG\[@\]\}" )?app-server --listen "\$APP_SERVER_URL" <\/dev\/null >>"\$LOG_FILE" 2>&1 &/,
+  /setsid codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?(?:"\$\{CODEX_APP_SERVER_CONFIG\[@\]\}" )?app-server --listen "\$APP_SERVER_URL" "\$\{CODEX_APP_SERVER_AUTH\[@\]\}" <\/dev\/null >>"\$LOG_FILE" 2>&1 &/,
   "codex-aify must not leave the background app-server attached to terminal stdin",
 );
 
 assert.match(
   installScript,
-  /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}"/,
+  /run_codex_foreground --remote "\$APP_SERVER_URL" --remote-auth-token-env AIFY_CODEX_APP_SERVER_TOKEN "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}"/,
   "codex-aify must run the foreground Codex TUI through the wrapper helper",
 );
 

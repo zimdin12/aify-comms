@@ -74,17 +74,18 @@ test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the fo
   // The app-server launch applies the permission-flags array (both setsid and the
   // no-setsid fallback path).
   assert.ok(
-    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?(?:"\$\{CODEX_APP_SERVER_CONFIG\[@\]\}" )?app-server --listen "\$APP_SERVER_URL"/.test(text),
+    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?(?:"\$\{CODEX_APP_SERVER_CONFIG\[@\]\}" )?app-server --listen "\$APP_SERVER_URL" "\$\{CODEX_APP_SERVER_AUTH\[@\]\}"/.test(text),
     "the app-server launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
   );
-  // The foreground (fresh) TUI launch applies the permission-flags array.
+  // The foreground (fresh) TUI launch applies the permission-flags array, after the app-server token
+  // carrier that aify-wrapper d07ba67 (#14) puts on every TUI attach.
   assert.ok(
-    /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}"\n/.test(text),
+    /run_codex_foreground --remote "\$APP_SERVER_URL" --remote-auth-token-env AIFY_CODEX_APP_SERVER_TOKEN "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}"\n/.test(text),
     "the foreground TUI launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
   );
   // The resume TUI launch applies the permission-flags array too.
   assert.ok(
-    /run_codex_foreground --remote "\$APP_SERVER_URL" "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}" resume/.test(text),
+    /run_codex_foreground --remote "\$APP_SERVER_URL" --remote-auth-token-env AIFY_CODEX_APP_SERVER_TOKEN "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" "\$\{CODEX_ARGS\[@\]\}" resume/.test(text),
     "the resume TUI launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
   );
 });
