@@ -37,5 +37,10 @@ The goal is the joint switch: what is built goes live together, and then the ins
 6. The joint switch: comms pin bump with its queued test changes, rebuild, install; the operator restarts
    aify-env.
 
+7. After the switch, comms, env and wrapper each remove agent names from shipped code and tests in one
+   comments-and-test-data change, as the dashboard does now. Each adds a check that derives the pattern
+   from role suffixes rather than a name list. Nothing ships under the operator's name carrying an agent's
+   name; for comms this is also comms#40.
+
 Everything else in the lane tables waits until after the switch. Each one is built against its trimmed
 criteria, with a size budget.
