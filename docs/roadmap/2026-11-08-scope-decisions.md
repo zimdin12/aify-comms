@@ -38,6 +38,8 @@ The goal is the joint switch: what is built goes live together, and then the ins
    aify-env. Then check aify-dashboard#18 on the real system: a relaunched Claude agent with no flag set writes
    a file and the dashboard's activity for that project shows it; the same with `AIFY_FILE_ACTIVITY=0` shows
    nothing.
+   And E3's live half: a logged-in Codex agent's comms MCP child connects to its app-server with the forwarded
+   token, and a message to it wakes it (staging cannot start the child without a model turn).
 
 7. After the switch, comms, env and wrapper each remove agent names from shipped code and tests in one
    comments-and-test-data change, as the dashboard does now. Each adds a check that derives the pattern
