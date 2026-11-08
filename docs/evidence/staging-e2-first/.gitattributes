@@ -1,1 +1,2 @@
 first-run.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+complete-run.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

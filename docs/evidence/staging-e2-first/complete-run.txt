@@ -1,0 +1,39 @@
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+PASS candidate_installed_source_comms
+PASS candidate_installed_source_env
+PASS candidate_installed_source_wrapper
+PASS candidate_definitions_published
+PASS e2_managed_worker
+PASS e2_linked_reply
+PASS mixed_targets_refused_unstored
+PASS e2_stop_os_exit
+PASS e2_stop_owner_readback
+PASS terminal_environment_ended
+PASS unrelated_initially_live
+PASS piped_environment
+PASS spawn_failure_names_errno
+PASS raw_start_outside_roots_live
+PASS piped_stop_answered
+PASS piped_stop_ended_group
+PASS environment_crashed
+PASS orphan_outlived_crash
+PASS successor_reaped_orphan_group
+PASS recovery_spared_unrelated
+PASS successor_owns_nothing
+NOT_RUN env#31: the frozen env has no start-failed report
+NOT_RUN comms#31: the frozen comms still closes terminal runs from screen text
+NOT_RUN env#15 service bound: the comms plugin refuses outside-root starts first; no service path reaches the core check
+PASS cleanup
+PASS E2
+ACTUAL_EXIT=0
+STARTED=2026-11-08T05:32:26.0427771Z
+ENDED=2026-11-08T05:38:00.0314852Z
+SECONDS=334

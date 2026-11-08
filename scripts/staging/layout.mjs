@@ -37,7 +37,8 @@ export class StagingLayout {
         },
         host: {
           image: `${this.project}-host`, container_name: `${this.project}-host`, restart: 'no',
-          labels: { ...labels }, networks: ['staging'], command: ['sleep', 'infinity'],
+          // A real host's init reaps orphans; without one a zombie keeps a stopped process group present.
+          init: true, labels: { ...labels }, networks: ['staging'], command: ['sleep', 'infinity'],
           environment: { HOME: '/home/staging' },
           volumes: [{ type: 'volume', source: 'host-home', target: '/home/staging' }],
         },
