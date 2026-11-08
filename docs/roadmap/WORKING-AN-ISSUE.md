@@ -15,6 +15,10 @@ acceptance criteria and option text are proposals too: on 2026-11-07 two small w
 ownership mechanism, grew to 31 changed files without the requested change being made, and
 were reverted.
 
+No overbuilding. Solve real issues: a failure seen on the system, not a case constructed in
+review. Make only real improvements. Each repository, file and function has one goal and
+concern, and a change stays inside the one it serves.
+
 0. Before planning, write three lines: the responsibility the issue targets and its owner
    (repository, component, file); that responsibility's goal; the smallest change that meets
    it. Keep only the acceptance criteria that goal needs. Move the rest to a separate issue,
