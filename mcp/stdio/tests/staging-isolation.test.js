@@ -15,7 +15,7 @@ test('the generated staging layout has no host bind or credential input', () => 
   assert.equal(config.volumes['service-data'].name, layout.dataVolume);
   assert.equal(config.services.host.environment.HOME, '/home/staging');
   assert.equal(config.services.service.environment.API_KEY, options().fixtureKey);
-  assert.equal(config.services.service.ports[0].host_ip, '127.0.0.1');
+  for (const service of Object.values(config.services)) assert.equal(service.ports, undefined);
 });
 
 for (const value of [undefined, '', 'aify-comms-data', 'another-run-data']) {
@@ -35,7 +35,8 @@ const corruptions = {
   'host network': (c) => { c.services.host.network_mode = 'host'; },
   'privileged container': (c) => { c.services.host.privileged = true; },
   'external network': (c) => { c.networks.staging.internal = false; },
-  'public port': (c) => { c.services.service.ports[0].host_ip = '0.0.0.0'; },
+  'public port': (c) => { c.services.service.ports = [{ target: 8800, published: '8820', host_ip: '0.0.0.0', protocol: 'tcp' }]; },
+  'loopback publication': (c) => { c.services.service.ports = [{ target: 8800, published: '8820', host_ip: '127.0.0.1', protocol: 'tcp' }]; },
   'foreign image': (c) => { c.services.host.image = 'foreign-image:latest'; },
   'surprise service': (c) => { c.services.foreign = { image: 'foreign-image:latest' }; },
   'missing service': (c) => { delete c.services.service; },

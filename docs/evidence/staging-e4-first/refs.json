@@ -1,0 +1,19 @@
+{
+  "baseline": {
+    "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+    "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+    "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+  },
+  "candidate": {
+    "comms": "b40c1b88828a004708e85bb96049175d2a309cff",
+    "env": "4e10bc54be973b05121294d470417d23e0e64de9",
+    "wrapper": "d07ba67c51233b012e8d3917047d78b8d8e412f3"
+  },
+  "runtimeVersions": {
+    "nodeImage": "node:22.20.0-bookworm",
+    "codex": "0.166.0",
+    "claude": "2.1.316"
+  },
+  "seed": "synthetic-linux-fleet",
+  "liveCopyEnabled": false
+}

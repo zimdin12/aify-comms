@@ -1,18 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
 import { StagingManifest } from './manifest.mjs';
 import { StagingLayout } from './layout.mjs';
-import { StagingDocker } from './docker.mjs';
-import { StagingResources } from './resources.mjs';
+import { StagingSession } from './session.mjs';
 
 const scenarios = Object.freeze({ E4: new URL('./scenarios/e4.mjs', import.meta.url) });
 
 function readOptions(argv) {
   const parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
     refs: { type: 'string' }, out: { type: 'string' }, preflight: { type: 'boolean', default: false },
-    'service-port': { type: 'string', default: '8820' }, 'dashboard-port': { type: 'string', default: '8821' },
+    'env-repo': { type: 'string' }, 'wrapper-repo': { type: 'string' },
   } });
   const [run, ...extra] = parsed.positionals;
   if (extra.length || (!Object.hasOwn(scenarios, run) && run !== 'all') || !parsed.values.refs) {
@@ -28,51 +26,46 @@ function readManifest(file) {
   return new StagingManifest(input);
 }
 
-function prepareContext(options) {
-  const manifest = readManifest(options.refs);
-  const layout = new StagingLayout({ runId: randomBytes(6).toString('hex'), fixtureKey: randomBytes(24).toString('hex'),
-    ports: { service: Number(options['service-port']), dashboard: Number(options['dashboard-port']) } });
-  const environment = { DATA_VOLUME_NAME: layout.dataVolume };
-  layout.assertIsolation({ config: layout.compose('baseline'), environment });
-  layout.assertIsolation({ config: layout.compose('candidate'), environment });
-  const docker = new StagingDocker({ environment: process.env, dataVolume: layout.dataVolume, timeoutMs: 120_000 });
-  const resources = new StagingResources({ layout, docker: (args) => docker.run(args) });
-  return { manifest, layout, environment, options, docker, resources };
-}
-
-async function executeSelected(context) {
-  for (const id of context.options.selected) {
-    const location = scenarios[id];
-    if (!fs.existsSync(fileURLToPath(location))) {
-      console.error(`NOT_RUN ${id}: scenario is not yet available; input preflight is not switch qualification`);
-      return 2;
+async function executeSelected(manifest, layout, options) {
+  if (!options.out) throw new Error('an explicit new evidence directory is required for execution');
+  const session = new StagingSession({ manifest, layout, options });
+  let result, cleanup, unchanged;
+  try {
+    for (const id of options.selected) {
+      const { run } = await import(scenarios[id].href);
+      result = await run(session);
     }
-    if (!context.options.out) throw new Error('an explicit new evidence directory is required for execution');
-    const { run } = await import(location.href);
-    let result, cleanup;
-    try { result = await run(context); }
-    finally {
-      cleanup = context.resources.cleanup();
-      if (!cleanup.ok || !context.docker.settlement().settled) console.error('FAIL cleanup: a resource or daemon-side command remains unconfirmed');
-    }
-    const complete = Array.isArray(result?.checks) && result.checks.length > 0
-      && result.checks.every((check) => check.ok === true) && cleanup.ok && context.docker.settlement().settled;
-    if (!complete) { console.error(`FAIL ${id}: scenario or cleanup is incomplete`); return 1; }
-    console.log(`PASS ${id}`);
+  } catch (error) {
+    session.save('failure.json', { name: error.name, message: error.message });
+    throw error;
+  } finally {
+    cleanup = session.resources.cleanup();
+    unchanged = session.finish(cleanup);
+    console.log(`${cleanup.ok && unchanged && session.docker.settlement().settled ? 'PASS' : 'FAIL'} cleanup`);
   }
+  if (!result?.checks?.length || result.checks.some(check => check.ok !== true)
+      || !cleanup.ok || !unchanged || !session.docker.settlement().settled) return 1;
+  if (result.qualified !== true) {
+    console.error('NOT_RUN E4 qualification: see remaining-qualification.json; completed checks are not full acceptance');
+    return 2;
+  }
+  console.log('PASS E4');
   return 0;
 }
 
 async function main(argv) {
   const options = readOptions(argv);
-  const context = prepareContext(options);
+  const manifest = readManifest(options.refs);
+  const layout = new StagingLayout({ runId: randomBytes(6).toString('hex'), fixtureKey: randomBytes(24).toString('hex') });
+  const environment = { DATA_VOLUME_NAME: layout.dataVolume };
+  for (const phase of ['baseline', 'candidate']) layout.assertIsolation({ config: layout.compose(phase), environment });
   console.log('PASS manifest_syntax');
   console.log('PASS generated_isolation_intent');
   if (options.preflight) {
     console.log('NOT_RUN switch: preflight checks syntax and generated intent only; no Git, Docker or runtime qualification');
     return 0;
   }
-  return executeSelected(context);
+  return executeSelected(manifest, layout, options);
 }
 
 try { process.exitCode = await main(process.argv.slice(2)); }
