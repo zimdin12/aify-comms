@@ -46,6 +46,19 @@ test('private Docker config discovers the existing Compose tool without importin
   assert.equal(session.finish({ ok: true, receipts: [] }), true, 'healthy unchanged-input control failed');
 }));
 
+test('a later baseline-health annotation cannot rewrite an earlier check observation', () => world(({ session }) => {
+  const health = { pid: 812, processes: [{ pid: 1206 }] };
+  session.check('baseline_env_linux', true, { health });
+  health.environment = { bridgeId: 'later-observation' };
+  health.processes[0].pid = 2200;
+  session.check('candidate_owner', true, { health });
+  const recorded = JSON.parse(fs.readFileSync(path.join(session.out, 'checks.json'), 'utf8'));
+  assert.deepEqual(recorded[0].detail, { health: { pid: 812, processes: [{ pid: 1206 }] } });
+  assert.deepEqual(session.checks[0].detail, recorded[0].detail);
+  assert.equal(recorded[1].detail.health.environment.bridgeId, 'later-observation');
+  assert.equal(session.receipts.length, 0);
+}));
+
 test('replacing the selected Compose binary invalidates the native input binding', () => world(({ session, compose }) => {
   fs.writeFileSync(compose, 'changed-fixture-never-executed');
   assert.equal(session.finish({ ok: true, receipts: [] }), false);

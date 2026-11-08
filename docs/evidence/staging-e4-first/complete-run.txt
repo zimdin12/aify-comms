@@ -1,0 +1,52 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-staging-e4", "command": ["C:/Program Files/Git/bin/bash.exe", "C:/Users/Administrator/projects/aify-comms-staging-e4/scripts/staging-e2e.sh", "E4", "--refs", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/staging-e4/refs-selected.json", "--out", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/staging-e4/e4-complete-1"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null}
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS baseline_isolation_created
+PASS baseline_isolation_after_start
+PASS baseline_internal_health
+PASS baseline_network_endpoint
+PASS runtime_versions
+PASS baseline_installed_source_comms
+PASS baseline_installed_source_env
+PASS baseline_installed_source_wrapper
+PASS baseline_env_initially_absent
+PASS baseline_env_linux
+PASS baseline_definitions_published
+PASS baseline-stopped_managed_worker
+PASS baseline-stopped_stop_os_exit
+PASS baseline-stopped_stop_owner_readback
+PASS baseline_stopped_definition
+PASS baseline_managed_worker
+PASS baseline_linked_reply
+PASS os_probe_controls
+PASS unrelated_initially_live
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS candidate_installed_source_comms
+PASS candidate_installed_source_env
+PASS candidate_installed_source_wrapper
+PASS takeover_disabled_control
+PASS candidate_owner
+PASS predecessor_and_owned_children_ended
+PASS unrelated_survived
+PASS definitions_preserved
+PASS agent_identities_preserved
+PASS candidate_stopped_definition
+PASS candidate_managed_worker
+PASS candidate_linked_reply
+PASS stopped_bridge_settled_before_doctors
+NOT_RUN comms_usage-openai: provider qualification excluded
+NOT_RUN env_context-window: provider qualification excluded
+NOT_RUN env_claude-login: provider qualification excluded
+PASS comms_doctor_applicable
+PASS env_doctor_applicable
+PASS candidate_stop_os_exit
+PASS candidate_stop_owner_readback
+PASS cleanup
+PASS E4
+
+ACTUAL_EXIT=0

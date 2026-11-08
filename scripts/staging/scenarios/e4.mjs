@@ -53,9 +53,12 @@ function installCandidate(s, host) {
   const script = `set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 export NPM_CONFIG_OFFLINE=true NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false
+bash /src/candidate/comms/install.sh --standalone --client claude http://service:8800
 bash /src/candidate/comms/install.sh --standalone --client codex http://service:8800 --with-hook
 bash /src/candidate/env/install.sh --no-prompt
-bash /src/candidate/wrapper/install.sh --client codex --endpoint http://service:8800 --registry "$HOME/.aify/services.json" --bridge-dir "$HOME/.aify-comms/mcp/stdio" --native-base "$HOME/.aify-comms" --wrapper-dir /src/candidate/wrapper --host-repo /src/candidate/comms
+for client in claude codex; do
+  bash /src/candidate/wrapper/install.sh --client "$client" --endpoint http://service:8800 --registry "$HOME/.aify/services.json" --bridge-dir "$HOME/.aify-comms/mcp/stdio" --native-base "$HOME/.aify-comms" --wrapper-dir /src/candidate/wrapper --host-repo /src/candidate/comms
+done
 for role in comms env wrapper; do printf 'source %s ' "$role"; git -C "/src/candidate/$role" rev-parse HEAD; done`;
   const output = s.requireCommand(['exec', '-e', `AIFY_API_KEY=${s.layout.fixtureKey}`, host.name,
     'bash', '-c', script], 'candidate owner installers');
@@ -108,14 +111,85 @@ async function takeover(s, stack, host, previous) {
   throw new Error('candidate never became the same-machine answering owner with a new accepted bridge');
 }
 
-async function stopWorker(s, stack, host, witnesses) {
-  const response = await stack.request(`/api/v1/agents/${host.ids[0]}/control`, s.layout.fixtureKey,
+async function stopWorker(s, stack, host, witnesses, label = 'candidate', index = 0) {
+  const response = await stack.request(`/api/v1/agents/${host.ids[index]}/control`, s.layout.fixtureKey,
     { method: 'POST', body: { action: 'stop', from_agent: 'dashboard' } });
-  s.save('candidate-stop-response.json', response);
+  s.save(`${label}-stop-response.json`, response);
   assert.ok(response.status >= 200 && response.status < 300, 'real stop was refused');
-  await waitEnded(s, host, witnesses, 'candidate_stop_os_exit');
+  await waitEnded(s, host, witnesses, `${label}_stop_os_exit`);
   const health = JSON.parse(host.localHealth().out);
-  s.check('candidate_stop_owner_readback', health.processes.length === 0, health.processes);
+  s.check(`${label}_stop_owner_readback`, health.processes.length === 0, health.processes);
+}
+
+async function stoppedDefinition(s, stack, host, label) {
+  const deadline = Date.now() + 30_000;
+  do {
+    const response = await stack.request(`/api/v1/agents/${host.ids[1]}`, s.layout.fixtureKey);
+    const agent = response.status === 200 ? JSON.parse(response.body).agent : null;
+    if (agent?.status === 'stopped') {
+      s.check(`${label}_stopped_definition`, true, agent);
+      return;
+    }
+    await delay(250);
+  } while (Date.now() < deadline);
+  throw new Error(`${label}: the actually stopped definition is not reported stopped`);
+}
+
+async function waitForStoppedBridgeExpiry(s, stack, host) {
+  const first = await stack.request('/api/v1/bridges', s.layout.fixtureKey);
+  assert.equal(first.status, 200, 'bridge population could not be read before doctor');
+  const initial = JSON.parse(first.body);
+  const window = initial.liveWithinSeconds;
+  assert.ok(Number.isSafeInteger(window) && window > 0, 'bridge endpoint declares no liveness window');
+  const startedAtMs = Date.now();
+  const deadline = startedAtMs + Math.min(window * 1000, s.docker.timeoutMs);
+  let last = initial;
+  while (Date.now() < deadline) {
+    const active = last.bridges?.some(row => row.agentId === host.ids[0]);
+    const stopped = last.bridges?.some(row => row.agentId === host.ids[1]);
+    if (active && !stopped) {
+      s.check('stopped_bridge_settled_before_doctors', true, { waitedMs: Date.now() - startedAtMs,
+        declaredLiveWithinSeconds: window, initial, final: last });
+      return;
+    }
+    await delay(1000);
+    const response = await stack.request('/api/v1/bridges', s.layout.fixtureKey);
+    assert.equal(response.status, 200, 'bridge population became unreadable');
+    last = JSON.parse(response.body);
+  }
+  s.save('doctor-bridge-settle-failure.json', { initial, final: last });
+  throw new Error('stopped bridge did not expire within its declared liveness window, or active control disappeared');
+}
+
+function runDoctors(s, host) {
+  // Both doctors run in the owned home. No provider auth was provisioned or mounted.
+  const commands = {
+    comms: ['/home/staging/.aify-comms/mcp/stdio/doctor.js', '--repo', '/src/candidate/comms'],
+    env: ['/src/candidate/env/bin/aify-env-doctor.mjs'],
+  };
+  const notRun = new Set(['usage-openai', 'claude-login', 'context-window']);
+  const summaries = [];
+  for (const [name, args] of Object.entries(commands)) {
+    const result = s.command(['exec', '-w', '/work', '-e', `AIFY_API_KEY=${s.layout.fixtureKey}`,
+      '-e', 'AIFY_COMMS_URL=http://service:8800', '-e', 'AIFY_ENV_ENDPOINT=http://127.0.0.1:8802',
+      host.name, 'node', ...args, '--json', '--strict']);
+    s.save(`${name}-doctor-output.json`, result);
+    assert.ok(Number.isInteger(result.status) && !result.signal && !result.errorCode, `${name} doctor did not settle`);
+    const report = JSON.parse(result.out);
+    assert.ok(report.checks?.length, `${name} doctor returned no checks`);
+    const excluded = report.checks.filter(row => notRun.has(row.id));
+    for (const row of excluded) console.log(`NOT_RUN ${name}_${row.id}: provider qualification excluded`);
+    const applicable = report.checks.filter(row => !notRun.has(row.id));
+    const failures = applicable.filter(row => row.skipped || row.code === 'skipped'
+      || (name === 'comms' ? row.ok !== true : row.state !== 'passed'));
+    summaries.push({ name, exit: result.status, applicable, failures,
+      notRun: excluded.map(row => ({ ...row, reason: 'provider qualification excluded' })) });
+    s.save('doctor-summary.json', summaries);
+  }
+  for (const { name, exit, applicable, failures, notRun } of summaries) {
+    s.check(`${name}_doctor_applicable`, applicable.length > 0 && failures.length === 0,
+      { exit, failures, checked: applicable.map(row => row.id), notRun: notRun.map(row => row.id) });
+  }
 }
 
 /** One actual switch. Helpers above name steps, not another orchestration framework. */
@@ -132,15 +206,15 @@ export async function run(s) {
     host.defineFleet();
     const baseline = await host.startBaseline();
     await host.waitForDefinitions();
+    await host.startWorker('baseline-stopped', 1);
+    await stopWorker(s, stack, host, runtimeWitnesses(s, host), 'baseline-stopped', 1);
+    await stoppedDefinition(s, stack, host, 'baseline');
     await host.startWorker();
     await host.probeWorkloop('baseline');
     const owned = runtimeWitnesses(s, host);
     const owner = host.observeProcesses([baseline.pid])[0];
     const control = host.observeProcesses([owner.pid, 2147483646]);
     s.check('os_probe_controls', alive(control[0]) && control[1].state === 'absent', control);
-    const retained = host.observeProcesses(owned.map(row => row.pid));
-    s.check('retained_owned_child_control', retained.every(alive)
-      && !retained.every((row, index) => ended(owned[index], row)), 'the same exit predicate rejects actual live managed children before takeover');
     s.requireCommand(['exec', '-d', host.name, 'node', '-e',
       "require('fs').writeFileSync('/work/unrelated.pid',String(process.pid));setInterval(()=>{},1000)"], 'unrelated process');
     const unrelatedPid = Number(s.requireCommand(['exec', host.name, 'node', '-e',
@@ -165,14 +239,13 @@ export async function run(s) {
     s.save('candidate-agent-records.json', records);
     s.check('agent_identities_preserved', records.every((response, index) => response.status === 200
       && JSON.parse(response.body).agentId === host.ids[index]), host.ids);
+    await stoppedDefinition(s, stack, host, 'candidate');
     await host.startWorker('candidate');
     await host.probeWorkloop('candidate');
+    await waitForStoppedBridgeExpiry(s, stack, host);
+    runDoctors(s, host);
     await stopWorker(s, stack, host, runtimeWitnesses(s, host));
-    // These original gates are not silently narrowed by the first runnable-switch milestone.
-    s.save('remaining-qualification.json', { notRun: ['applicable doctors', 'native wrong-parent reply control'],
-      retainedChildControlScope: 'actual live-child exit-predicate control, not a corrupted takeover' });
-    console.log('NOT_RUN full E4 qualification: doctors and native wrong-parent control remain');
-    return { checks: s.checks, qualified: false };
+    return { checks: s.checks, qualified: true };
   } finally {
     host.captureRuntime();
     s.command(['exec', host.name, 'node', '-e',

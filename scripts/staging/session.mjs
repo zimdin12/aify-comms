@@ -113,7 +113,7 @@ export class StagingSession {
   }
 
   check(id, ok, detail) {
-    this.checks.push({ id, ok: ok === true, detail });
+    this.checks.push({ id, ok: ok === true, detail: structuredClone(detail) });
     this.save('checks.json', this.checks);
     console.log(`${ok === true ? 'PASS' : 'FAIL'} ${id}`);
     if (ok !== true) throw new Error(`staging check failed: ${id}`);

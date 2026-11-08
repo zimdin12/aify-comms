@@ -68,9 +68,9 @@ export class StagingHost {
     throw new Error('baseline definitions did not reach real staging comms');
   }
 
-  async startWorker(label = 'baseline') {
+  async startWorker(label = 'baseline', index = 0) {
     const s = this.session;
-    const id = this.ids[0];
+    const id = this.ids[index];
     const requested = await this.stack.request(`/api/v1/agents/${id}/control`, s.layout.fixtureKey,
       { method: 'POST', body: { action: 'start', from_agent: 'dashboard' } });
     s.save(`${label}-start-response.json`, requested);
