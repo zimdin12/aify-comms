@@ -20,18 +20,18 @@ export class StagingStack {
     s.check('compose_cli', compose.trim().length > 0, { version: compose.trim(), executable: s.composeExecutable });
   }
 
-  createBaseline() {
+  create(phase) {
     const s = this.session;
-    const rendered = s.writeCompose('baseline');
-    assertRenderedIsolation(s.layout, 'baseline', rendered);
-    s.save('baseline-rendered.json', rendered);
-    const intent = s.layout.compose('baseline');
+    const rendered = s.writeCompose(phase);
+    assertRenderedIsolation(s.layout, phase, rendered);
+    s.save(`${phase}-rendered.json`, rendered);
+    const intent = s.layout.compose(phase);
     s.resources.plan({ kind: 'network', name: s.layout.network });
     for (const volume of Object.values(intent.volumes)) s.resources.plan({ kind: 'volume', name: volume.name });
     for (const service of Object.values(intent.services)) s.resources.plan({ kind: 'container', name: service.container_name });
-    this.assertImages('baseline');
-    s.requireCommand(s.composeArgs('baseline', 'up', '--no-start', '--no-build', '--pull', 'never'), 'isolated container creation');
-    this.assertActualIsolation('baseline');
+    this.assertImages(phase);
+    s.requireCommand(s.composeArgs(phase, 'up', '--no-start', '--no-build', '--pull', 'never'), 'isolated container creation');
+    this.assertActualIsolation(phase);
   }
 
   assertImages(phase) {
@@ -62,12 +62,12 @@ export class StagingStack {
     s.check(`${phase}_isolation_${observation}`, true, 'actual own images, mounts, environment, internal network and no published ports observed');
   }
 
-  async startBaseline() {
+  async start(phase) {
     const s = this.session;
-    s.requireCommand(s.composeArgs('baseline', 'start'), 'baseline container start');
-    this.assertActualIsolation('baseline', 'after_start');
-    await this.waitForInternalHealth('baseline');
-    await this.qualifyNetworkEndpoint('baseline');
+    s.requireCommand(s.composeArgs(phase, 'start'), 'staging container start');
+    this.assertActualIsolation(phase, 'after_start');
+    await this.waitForInternalHealth(phase);
+    await this.qualifyNetworkEndpoint(phase);
     this.qualifyRuntimeVersions();
   }
 
@@ -105,14 +105,14 @@ export class StagingStack {
     { health, authenticatedStatus: admitted.status, wrongKeyStatus: refused.status });
   }
 
-  async request(route, key, { method = 'GET', body } = {}) {
+  async request(route, key, { method = 'GET', body, origin = 'http://service:8800' } = {}) {
     const s = this.session;
-    const script = `const [route,key,method,body]=process.argv.slice(1);
-      const response=await fetch('http://service:8800'+route,{method,signal:AbortSignal.timeout(5000),
+    const script = `const [route,key,method,body,origin]=process.argv.slice(1);
+      const response=await fetch(origin+route,{method,signal:AbortSignal.timeout(5000),
         headers:{...(key?{'x-api-key':key}:{}),...(body?{'content-type':'application/json'}:{})},body:body||undefined});
       console.log(JSON.stringify({status:response.status,body:await response.text()}));`;
     return JSON.parse(s.requireCommand(['exec', `${s.layout.project}-host`, 'node', '--input-type=module', '-e', script,
-      route, key ?? '', method, body === undefined ? '' : JSON.stringify(body)], 'staging-network HTTP request'));
+      route, key ?? '', method, body === undefined ? '' : JSON.stringify(body), origin], 'staging-network HTTP request'));
   }
 
   qualifyRuntimeVersions() {

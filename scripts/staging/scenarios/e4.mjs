@@ -5,11 +5,11 @@ import { StagingStack } from '../stack.mjs';
 import { StagingHost } from '../host.mjs';
 import { assertRenderedIsolation } from '../observed-isolation.mjs';
 
-const alive = process => !['absent', 'unknown', 'Z', 'X'].includes(process.state);
-const ended = (before, after) => after.state === 'absent' || ['Z', 'X'].includes(after.state)
+export const alive = process => !['absent', 'unknown', 'Z', 'X'].includes(process.state);
+export const ended = (before, after) => after.state === 'absent' || ['Z', 'X'].includes(after.state)
   || (after.state !== 'unknown' && after.startTicks !== before.startTicks);
 
-function runtimeWitnesses(s, host) {
+export function runtimeWitnesses(s, host) {
   const text = s.requireCommand(['exec', host.name, 'node', '-e',
     "process.stdout.write(require('fs').readFileSync('/work/e4-runtime/runtime.jsonl','utf8'))"], 'runtime process identities');
   const records = text.trim().split('\n').map(line => JSON.parse(line));
@@ -20,7 +20,18 @@ function runtimeWitnesses(s, host) {
   return witnesses;
 }
 
-async function waitEnded(s, host, before, id) {
+/** A process this environment does not own; recovery must leave it running. */
+export function startUnrelated(s, host) {
+  s.requireCommand(['exec', '-d', host.name, 'node', '-e',
+    "require('fs').writeFileSync('/work/unrelated.pid',String(process.pid));setInterval(()=>{},1000)"], 'unrelated process');
+  const unrelatedPid = Number(s.requireCommand(['exec', host.name, 'node', '-e',
+    "process.stdout.write(require('fs').readFileSync('/work/unrelated.pid','utf8'))"], 'unrelated process identity'));
+  const unrelated = host.observeProcesses([unrelatedPid])[0];
+  s.check('unrelated_initially_live', alive(unrelated), unrelated);
+  return unrelated;
+}
+
+export async function waitEnded(s, host, before, id) {
   const deadline = Date.now() + 30_000;
   do {
     const after = host.observeProcesses(before.map(row => row.pid));
@@ -111,7 +122,7 @@ async function takeover(s, stack, host, previous) {
   throw new Error('candidate never became the same-machine answering owner with a new accepted bridge');
 }
 
-async function stopWorker(s, stack, host, witnesses, label = 'candidate', index = 0) {
+export async function stopWorker(s, stack, host, witnesses, label = 'candidate', index = 0) {
   const response = await stack.request(`/api/v1/agents/${host.ids[index]}/control`, s.layout.fixtureKey,
     { method: 'POST', body: { action: 'stop', from_agent: 'dashboard' } });
   s.save(`${label}-stop-response.json`, response);
@@ -199,13 +210,13 @@ export async function run(s) {
   try {
     stack.qualifyDaemon();
     s.build();
-    stack.createBaseline();
-    await stack.startBaseline();
-    host.installBaseline();
+    stack.create('baseline');
+    await stack.start('baseline');
+    host.install('baseline');
     host.installRuntime();
-    host.defineFleet();
+    host.defineFleet('baseline');
     const baseline = await host.startBaseline();
-    await host.waitForDefinitions();
+    await host.waitForDefinitions('baseline');
     await host.startWorker('baseline-stopped', 1);
     await stopWorker(s, stack, host, runtimeWitnesses(s, host), 'baseline-stopped', 1);
     await stoppedDefinition(s, stack, host, 'baseline');
@@ -215,12 +226,7 @@ export async function run(s) {
     const owner = host.observeProcesses([baseline.pid])[0];
     const control = host.observeProcesses([owner.pid, 2147483646]);
     s.check('os_probe_controls', alive(control[0]) && control[1].state === 'absent', control);
-    s.requireCommand(['exec', '-d', host.name, 'node', '-e',
-      "require('fs').writeFileSync('/work/unrelated.pid',String(process.pid));setInterval(()=>{},1000)"], 'unrelated process');
-    const unrelatedPid = Number(s.requireCommand(['exec', host.name, 'node', '-e',
-      "process.stdout.write(require('fs').readFileSync('/work/unrelated.pid','utf8'))"], 'unrelated process identity'));
-    const unrelated = host.observeProcesses([unrelatedPid])[0];
-    s.check('unrelated_initially_live', alive(unrelated), unrelated);
+    const unrelated = startUnrelated(s, host);
     const environments = JSON.parse((await stack.request('/api/v1/environments', s.layout.fixtureKey)).body).environments;
     baseline.environment = environments.find(row => row.bridgeId && row.spawnClaim?.canClaim === true);
     assert.ok(baseline.environment, 'baseline accepted environment identity absent');

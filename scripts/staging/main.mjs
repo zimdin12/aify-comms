@@ -5,7 +5,7 @@ import { StagingManifest } from './manifest.mjs';
 import { StagingLayout } from './layout.mjs';
 import { StagingSession } from './session.mjs';
 
-const scenarios = Object.freeze({ E4: new URL('./scenarios/e4.mjs', import.meta.url) });
+const scenarios = Object.freeze({ E2: new URL('./scenarios/e2.mjs', import.meta.url), E4: new URL('./scenarios/e4.mjs', import.meta.url) });
 
 function readOptions(argv) {
   const parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
@@ -13,10 +13,10 @@ function readOptions(argv) {
     'env-repo': { type: 'string' }, 'wrapper-repo': { type: 'string' },
   } });
   const [run, ...extra] = parsed.positionals;
-  if (extra.length || (!Object.hasOwn(scenarios, run) && run !== 'all') || !parsed.values.refs) {
-    throw new Error('usage: staging-e2e.sh E4|all --refs <manifest> [--preflight] [--out <new evidence directory>]');
+  if (extra.length || !Object.hasOwn(scenarios, run) || !parsed.values.refs) {
+    throw new Error(`usage: staging-e2e.sh ${Object.keys(scenarios).join('|')} --refs <manifest> [--preflight] [--out <new evidence directory>]`);
   }
-  return { ...parsed.values, selected: run === 'all' ? Object.keys(scenarios) : [run] };
+  return { ...parsed.values, selected: run };
 }
 
 function readManifest(file) {
@@ -31,10 +31,8 @@ async function executeSelected(manifest, layout, options) {
   const session = new StagingSession({ manifest, layout, options });
   let result, cleanup, unchanged;
   try {
-    for (const id of options.selected) {
-      const { run } = await import(scenarios[id].href);
-      result = await run(session);
-    }
+    const { run } = await import(scenarios[options.selected].href);
+    result = await run(session);
   } catch (error) {
     session.save('failure.json', { name: error.name, message: error.message });
     throw error;
@@ -46,10 +44,10 @@ async function executeSelected(manifest, layout, options) {
   if (!result?.checks?.length || result.checks.some(check => check.ok !== true)
       || !cleanup.ok || !unchanged || !session.docker.settlement().settled) return 1;
   if (result.qualified !== true) {
-    console.error('NOT_RUN E4 qualification: see remaining-qualification.json; completed checks are not full acceptance');
+    console.error(`NOT_RUN ${options.selected} qualification: completed checks are not full acceptance`);
     return 2;
   }
-  console.log('PASS E4');
+  console.log(`PASS ${options.selected}`);
   return 0;
 }
 

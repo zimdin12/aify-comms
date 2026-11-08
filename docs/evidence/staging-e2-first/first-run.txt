@@ -1,0 +1,30 @@
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+PASS candidate_installed_source_comms
+PASS candidate_installed_source_env
+PASS candidate_installed_source_wrapper
+PASS candidate_definitions_published
+PASS e2_managed_worker
+PASS e2_linked_reply
+PASS mixed_targets_refused_unstored
+PASS e2_stop_os_exit
+PASS e2_stop_owner_readback
+PASS terminal_environment_ended
+PASS unrelated_initially_live
+PASS piped_environment
+PASS spawn_failure_names_errno
+PASS raw_start_outside_roots_live
+FAIL piped_stop_answered
+PASS cleanup
+FAIL staging: staging check failed: piped_stop_answered
+ACTUAL_EXIT=1
+STARTED=2026-11-08T05:25:05.2110504Z
+ENDED=2026-11-08T05:30:34.7409841Z
+SECONDS=330

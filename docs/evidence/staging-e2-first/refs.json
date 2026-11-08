@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+    "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+    "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+  },
+  "candidate": {
+    "comms": "29b91cd30c513e28699d385c6b1e6c4687c353f6",
+    "env": "45e76f776aec4c730053a6ac78cf6660af2bcdf0",
+    "wrapper": "2da3381bdcc9388718be45b59d6f403075d5b9b1"
+  },
+  "runtimeVersions": {
+    "nodeImage": "node:22.20.0-bookworm",
+    "codex": "0.166.0",
+    "claude": "2.1.316"
+  },
+  "provenance": {
+    "baseline": "Unchanged E4 baseline tuple; E2 builds it only because the manifest requires both tuples and does not run it",
+    "candidate": "Lead freeze 1794114617118-278779b0: env 45e76f77, wrapper #20 pushed sha 2da3381 (landed before freeze), comms main head 29b91cd3 read by git fetch on 2026-11-08",
+    "runtimeSelection": "Same runtimes as the published E4 run"
+  },
+  "seed": "synthetic-linux-fleet",
+  "liveCopyEnabled": false,
+  "note": "E2 input. Native qualification is the run output, not this file."
+}

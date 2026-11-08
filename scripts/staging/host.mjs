@@ -9,15 +9,15 @@ export class StagingHost {
     this.name = `${session.layout.project}-host`;
   }
 
-  installBaseline() {
+  install(phase) {
     const s = this.session;
     const script = fileURLToPath(new URL('./fixtures/bootstrap-host.sh', import.meta.url));
     s.requireCommand(['cp', script, `${this.name}:/work/bootstrap-host.sh`], 'copy staging bootstrap');
     const output = s.requireCommand(['exec', '-e', `AIFY_API_KEY=${s.layout.fixtureKey}`, this.name,
-      'bash', '/work/bootstrap-host.sh', '/src/baseline'], 'baseline owner installers');
-    s.save('baseline-install.txt', output);
-    for (const [role, ref] of Object.entries(s.manifest.baseline)) {
-      s.check(`baseline_installed_source_${role}`, output.includes(`source ${role} ${ref}`), 'owner script read the exact staged source HEAD');
+      'bash', '/work/bootstrap-host.sh', `/src/${phase}`], 'owner installers');
+    s.save(`${phase}-install.txt`, output);
+    for (const [role, ref] of Object.entries(s.manifest[phase])) {
+      s.check(`${phase}_installed_source_${role}`, output.includes(`source ${role} ${ref}`), 'owner script read the exact staged source HEAD');
     }
   }
 
@@ -34,16 +34,16 @@ export class StagingHost {
     s.requireCommand(['exec', this.name, 'node', '-e', script], 'fixture runtime on the real launcher PATH');
   }
 
-  defineFleet() {
+  defineFleet(phase) {
     const s = this.session;
     this.ids = ['worker', 'stopped', 'configured'].map(role => `e4-${role}-${s.layout.runId}`);
     for (const id of this.ids) {
-      s.requireCommand(['exec', this.name, 'node', '/src/baseline/env/bin/aify-env.mjs', 'agents', 'set', id,
+      s.requireCommand(['exec', this.name, 'node', `/src/${phase}/env/bin/aify-env.mjs`, 'agents', 'set', id,
         `name=${id}`, 'role=staging-fixture', 'harness=codex', 'mode=managed', 'workspace=/work', 'herdrSpace=false',
-        'env.STAGING_REPLY_TO=dashboard', `env.FIXTURE_TAG=${id}`], 'definition through the real baseline CLI');
+        'env.STAGING_REPLY_TO=dashboard', `env.FIXTURE_TAG=${id}`], 'definition through the real owner CLI');
     }
-    this.definitions = this.readDefinitions('baseline');
-    s.save('baseline-definitions.json', this.definitions);
+    this.definitions = this.readDefinitions(phase);
+    s.save(`${phase}-definitions.json`, this.definitions);
     return [...this.ids];
   }
 
@@ -52,20 +52,20 @@ export class StagingHost {
       `/src/${phase}/env/bin/aify-env.mjs`, 'agents', 'show', id], 'definition readback through owning CLI')));
   }
 
-  async waitForDefinitions() {
+  async waitForDefinitions(phase) {
     const s = this.session;
     const deadline = Date.now() + 75_000;
     while (Date.now() < deadline) {
       const records = await Promise.all(this.ids.map(id => this.stack.request(`/api/v1/agents/${id}`, s.layout.fixtureKey)));
       if (records.every(record => record.status === 200)) {
-        s.check('baseline_definitions_published', true, { ids: [...this.ids] });
+        s.check(`${phase}_definitions_published`, true, { ids: [...this.ids] });
         this.agentRecords = records.map(record => JSON.parse(record.body));
-        s.save('baseline-agent-records.json', this.agentRecords);
+        s.save(`${phase}-agent-records.json`, this.agentRecords);
         return this.agentRecords;
       }
       await delay(500);
     }
-    throw new Error('baseline definitions did not reach real staging comms');
+    throw new Error('definitions did not reach real staging comms');
   }
 
   async startWorker(label = 'baseline', index = 0) {

@@ -21,7 +21,7 @@ A separate compose project, `aify-comms-staging`, on Docker, never on the live h
 - **runtimes**: the real `codex` and `claude` binaries are installed, but **no run calls a model provider** and no
   host credential enters a container. The work loop is driven by a stub runtime that speaks the same launcher
   contract. The Codex app-server handshake needs no provider (shown on codex-cli 0.166.0 for wrapper#14).
-- **one command**: `scripts/staging-e2e.sh <run>|all` builds the named shas, runs, prints one PASS/FAIL line per
+- **one command**: `scripts/staging-e2e.sh <run>` builds the named shas, runs, prints one PASS/FAIL line per
   check, and tears down everything it created, volume included. Evidence is the printed result plus the shas.
 
 ## The four runs
