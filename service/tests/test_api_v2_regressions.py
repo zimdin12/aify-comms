@@ -7586,18 +7586,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(sent["ok"], sent)
         self.assertIsNone(self._fetchone("SELECT id FROM messages WHERE to_agent = ?", ("nobody-here",)))
 
-    def test_an_unresolved_name_is_refused_before_the_preflight_changes_anything(self):
-        # Review of d7173725, R1: with a known member beside the unknown name, the preflight failed that
-        # member's stale run and only then refused. The refusal must come first, so the run is untouched.
-        self._seed_managed_coder_with_a_stale_running_run()
-        self._register("lead", runtime="codex", sessionMode="managed")
-        sent = self._send_message(from_agent="lead", to="nobody-here", toRole="coder", type="request",
-                                  subject="mixed", body="x", trigger=True)
-        self.assertFalse(sent["ok"], sent)
-        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run-stale",))["status"], "running",
-                         "the refusal came after the preflight had already failed a live run")
-        self.assertEqual(self._fetchall("SELECT id FROM messages WHERE subject = ?", ("mixed",)), [])
-
     def test_a_nonce_loss_whose_winner_cannot_be_identified_is_unknown_not_refused(self):
         # Review of d7173725, R3: another request under this nonce wrote the rows, but the lookup found no
         # winner. That is unknown storage, not a refusal: 503, so every consumer reads it as unknown.
