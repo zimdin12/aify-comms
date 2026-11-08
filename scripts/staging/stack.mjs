@@ -1,6 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertRenderedIsolation, assertContainerIsolation } from './observed-isolation.mjs';
 
+/** One run's images plus the live services' growth (lead decision, 2026-11-08, after the disk filled). */
+export const MINIMUM_FREE_BYTES = 40 * 2 ** 30;
+const LEFTOVER_QUERIES = [['ps', '-a', '--format', '{{.Names}}'], ['volume', 'ls', '--format', '{{.Name}}'],
+  ['network', 'ls', '--format', '{{.Name}}'], ['images', '--format', '{{.Repository}}:{{.Tag}} {{.ID}}']];
+
 export class StagingStack {
   constructor(session) { this.session = session; }
 
@@ -18,6 +23,19 @@ export class StagingStack {
     { daemon: normal, absentStatus: absent.status });
     const compose = s.requireCommand(['compose', 'version', '--short'], 'Compose CLI prerequisite');
     s.check('compose_cli', compose.trim().length > 0, { version: compose.trim(), executable: s.composeExecutable });
+    this.qualifyCapacity();
+  }
+
+  /** Refuses before this run creates anything: a full daemon disk fails live comms writes, and a killed run leaves its labelled resources. */
+  qualifyCapacity() {
+    const s = this.session;
+    const free = Number(s.requireCommand(['run', '--rm', '--network', 'none', '--pull', 'missing', s.manifest.runtimeVersions.nodeImage,
+      'df', '-B1', '--output=avail', '/'], 'Docker disk free space').trim().split('\n').pop());
+    if (!(free >= MINIMUM_FREE_BYTES)) throw new Error(`the Docker disk has ${(free / 2 ** 30).toFixed(1)} GB free; a run needs ${MINIMUM_FREE_BYTES / 2 ** 30} GB`);
+    const leftovers = LEFTOVER_QUERIES.flatMap(query => s.requireCommand([...query, '--filter', 'label=aify.staging.run'],
+      'labelled staging resources').split('\n').map(line => line.trim()).filter(Boolean));
+    if (leftovers.length) throw new Error(`another staging run's resources exist; remove them first: ${leftovers.join(', ')}`);
+    s.check('daemon_capacity', true, { freeBytes: free, leftovers });
   }
 
   create(phase) {
