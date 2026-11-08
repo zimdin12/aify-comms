@@ -25,3 +25,9 @@ Limits:
 - NOT_RUN: the comms MCP child connecting with the forwarded token, and resident wake through it. Codex starts MCP
   children only on a turn; a premise probe saw none after app-server start, `thread/start` or `thread/list`. Both are
   checked on the live switch with a logged-in Codex agent.
+
+An independent run (`staging-e3/lead-independent-run-1`) recorded the same 18 checks passing and the same two NOT_RUN
+rows. It failed only `inputsUnchanged`: it ran from this checkout while uncommitted E1 edits to `main.mjs`,
+`session.mjs` and `e4.mjs` landed mid-run. A clean re-run from a separate checkout (`lead-independent-run-2`) stopped
+at service start ("staging service never reached internally observed health") because the Docker disk was full, which
+is not an E3 result.
