@@ -20,8 +20,8 @@ defect, not an env one. The fix gives the host container an init.
 
 ## After the fix
 
-`complete-run.txt` is the run on the same refs with the host init: exit 0 after 334 s, 30 checks, `PASS E2`, cleanup
-PASS. Each issue maps to these checks:
+`complete-run.txt` is the run on the same refs with the host init: exit 0 after 334 s, 28 recorded checks
+(32 PASS lines with the input, cleanup and final lines), `PASS E2`, cleanup PASS. Each issue maps to these checks:
 
 | Issue | Checks |
 |---|---|
@@ -42,3 +42,7 @@ no Windows ConPTY, no model provider.
 
 The host init also applies to E4, which shares the layout. E4 reran on its published refs with it: exit 0, 42 checks,
 the same three provider NOT_RUN rows, cleanup PASS, 457 s.
+
+An independent run from this checkout at cb26fab4, with its own output directory and the main env and wrapper
+checkouts as sources, recorded the same 28 checks and the same three NOT_RUN rows: exit 0, 5 min 38 s, all ten owned
+resources absent afterwards.
