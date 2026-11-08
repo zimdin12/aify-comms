@@ -35,7 +35,9 @@ The goal is the joint switch: what is built goes live together, and then the ins
    lease-home record).
 5. E2, then E3 and E1, as plain scenarios on the same layout.
 6. The joint switch: comms pin bump with its queued test changes, rebuild, install; the operator restarts
-   aify-env.
+   aify-env. Then check aify-dashboard#18 on the real system: a relaunched Claude agent with no flag set writes
+   a file and the dashboard's activity for that project shows it; the same with `AIFY_FILE_ACTIVITY=0` shows
+   nothing.
 
 7. After the switch, comms, env and wrapper each remove agent names from shipped code and tests in one
    comments-and-test-data change, as the dashboard does now. Each adds a check that derives the pattern
