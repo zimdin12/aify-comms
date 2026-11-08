@@ -42,7 +42,8 @@ No new shared class was added after the scope decision. Each staged source modul
 
 2026-11-08, by the comms lead from main e45e43c9, same refs.json: actual exit 0, PASS E4, 46 PASS lines,
 with `usage-openai`, `context-window` and `claude-login` NOT_RUN as above. 4 min 27 s from invocation to
-result. All six owned Docker resources were removed and read back absent by name afterwards. The env and
+result. All ten owned Docker resources (3 containers, 2 volumes, 1 network, 4 images) were removed and read back
+absent; a by-name search afterwards found none of the run's containers, volumes or network. The env and
 wrapper checkouts are not beside the comms checkout on this host, so the command needs
 `--env-repo <path> --wrapper-repo <path>`; without them it stops at staging with ENOENT before building anything.
 Receipts: `C:/Users/Administrator/projects/comms-evidence-fixes-20261106/staging-e4/lead-independent-run-3/`.
