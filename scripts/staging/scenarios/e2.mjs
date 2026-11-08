@@ -8,7 +8,7 @@ const MARKER = '#!/usr/bin/env bash\nHARNESS_WRAPPER_VERSION="staging-e2"\nsleep
 const NOT_RUN = { 'env#31': 'the frozen env has no start-failed report', 'comms#31': 'the frozen comms still closes terminal runs from screen text',
   'env#15 service bound': 'the comms plugin refuses outside-root starts first; no service path reaches the core check' };
 
-async function startEnv(s, host, label) {
+export async function startEnv(s, host, label) {
   s.requireCommand(['exec', '-d', '-w', '/work', '-e', 'AIFY_NO_DASHBOARD=1', '-e', `AIFY_API_KEY=${s.layout.fixtureKey}`, host.name,
     'bash', '-c', `exec node --import /work/observe-bind.mjs /src/candidate/env/bin/aify-env.mjs --port 8802 > /work/${label}-env.log 2>&1`],
   `${label} environment start`);

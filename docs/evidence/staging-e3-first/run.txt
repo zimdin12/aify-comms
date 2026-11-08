@@ -1,0 +1,28 @@
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+PASS candidate_installed_source_comms
+PASS candidate_installed_source_env
+PASS candidate_installed_source_wrapper
+PASS real_codex_on_path
+PASS candidate_definitions_published
+PASS app_server_requires_capability_token
+PASS token_in_no_argv_or_record
+PASS unauthenticated_upgrade_refused
+PASS launch_token_accepted
+PASS comms_allowlist_names_both_carriers
+PASS e3_stop_ended_app_server_and_launcher
+NOT_RUN comms MCP child with the forwarded token: Codex starts MCP children only on a model turn; checked on the live switch
+NOT_RUN record names the token variable only: the bridge publishes the runtime marker, and it starts only on a turn
+PASS cleanup
+PASS E3
+ACTUAL_EXIT=0
+STARTED=2026-11-08T06:16:45.7335480Z
+ENDED=2026-11-08T06:22:12.3872491Z
+SECONDS=327
