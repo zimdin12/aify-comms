@@ -33,6 +33,19 @@ A separate compose project, `aify-comms-staging`, on Docker, never on the live h
 | **E3 Codex auth** | `codex-aify` with the real app-server: an unauthenticated WebSocket gets 401, and the comms MCP child connects with the forwarded token. | the app-server accepts no token, or the comms child cannot reach it |
 | **E4 switch rehearsal** | Start the stack at the shas live today, seed it with a copy of the live database, then switch to the candidate shas exactly as the joint switch will: rebuild comms, `install.sh`, move the env/wrapper checkouts, restart aify-env. Then run E2's checks. | the new aify-env cannot take over from the old one, an agent record or definition is lost, or doctor is not green after the switch |
 
+### E1 consent contract, amended 2026-11-13
+
+Tech-lead decision for #49: success is one invocation by a consenting interactive operator. In staging, a tty
+supplies explicit approval of the shown artifact digest and consent to policy-only sudo preparation. The chain
+must finish complete, and the applicable doctors must be green on a run-owned host. Provider/context exclusions
+remain explicit. Do not pre-approve the digest or prepare policy in a fixture to manufacture that success.
+
+A separate noninteractive case supplies no consent. It must refuse with exactly one copyable next-action command,
+print no key, and publish no registry entry. Check policy readiness through its existing owner before connect;
+there is no rollback or second installation path. Exit 78 is never installation success. The existing E1 record
+remains RED until the amended successor run is observed. Test Codex in an independent fresh home, not after a
+partially completed Claude install. Container source overrides do not qualify GitHub retrieval or a work-PC install.
+
 The database copy follows the 2026-10-02 method: the SQLite backup API inside the live container, opened
 read-only, then seeded into the staging volume before first start.
 

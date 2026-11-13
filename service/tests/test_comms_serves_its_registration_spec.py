@@ -224,6 +224,40 @@ class TheSpecCarriesNoSecretTests(_Served):
         self.assertIn(KEY, self.client().get(SPEC_ROUTE).text)
 
 
+class TheRuntimeAuthRequirementMatchesTheApiTests(_Served):
+    def test_running_auth_overrides_either_stamped_requirement_without_changing_artifacts(self):
+        from service.tests._base import _fast_init_db
+
+        _fast_init_db(self.tmp / "runtime-auth.db")
+        for running_key in ("", KEY):
+            for stamped_required in (True, False):
+                with self.subTest(keyed=bool(running_key), stamped_required=stamped_required):
+                    self.config.api_key = running_key
+                    spec = _comms_spec()
+                    spec["secrets"][0]["required"] = stamped_required
+                    self.stamp(spec)
+                    before = self.spec_path.read_bytes()
+                    client = self.real_client()  # ASGI requests only, no service lifespan or listener.
+                    self.addCleanup(client.close)
+                    response = client.get(SPEC_ROUTE)
+                    self.assertEqual(response.status_code, 200, response.text)
+                    served = response.json()
+                    secret = next(s for s in served["secrets"] if s["field"] == "credentialRef")
+                    self.assertEqual(secret["required"], bool(running_key), "runtime auth, not stamped auth")
+                    probe = served["verify"]["probes"][secret["probe"]]
+                    self.assertEqual(probe, {"path": "/api/v1/agents", "header": "x-api-key"})
+                    expected = 401 if running_key else 200
+                    self.assertEqual(client.get(probe["path"]).status_code, expected)
+                    self.assertEqual(client.get(probe["path"], headers={probe["header"]: "wrong"}).status_code, expected)
+                    self.assertEqual(client.get(probe["path"], headers={probe["header"]: KEY}).status_code, 200)
+                    self.assertNotIn(KEY, response.text)
+                    self.assertEqual(served["artifacts"], spec["artifacts"])
+                    manifest = client.get(MANIFEST_ROUTE)
+                    self.assertEqual(manifest.status_code, 200, manifest.text)
+                    self.assertEqual(manifest.text, MANIFEST)
+                    self.assertEqual(self.spec_path.read_bytes(), before, "GET rewrote the stamp")
+
+
 class TheSpecsProbesHoldAgainstThisServiceTests(_Served):
     """The probe a connect runs must be one this service keeps: 401 unkeyed, 401 wrong key, 200 keyed,
     on a GET route the real app serves, with health answering unkeyed."""

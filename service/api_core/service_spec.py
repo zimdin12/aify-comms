@@ -66,6 +66,14 @@ def manifest_problems(spec: dict, manifests) -> list[str]:
     return problems
 
 
+def with_runtime_auth(spec: dict, *, api_key_required: bool) -> dict:
+    """Auth belongs to the running service, not the build host; leave stamped artifacts untouched."""
+    return {**spec, "secrets": [
+        {**secret, "required": api_key_required} if secret.get("field") == "credentialRef" else secret
+        for secret in spec.get("secrets", [])
+    ]}
+
+
 def served_spec(text: str | None, build_sha: str):
     """`({spec, manifests}, "")` when the stamped file may be served for this build, else `(None, reason)`."""
     if text is None:

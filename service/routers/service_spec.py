@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, Response
 
-from service.api_core.service_spec import served_spec
+from service.api_core.service_spec import served_spec, with_runtime_auth
 from service.config import get_config
 
 router = APIRouter()
@@ -52,7 +52,7 @@ def service_spec():
     stamped, reason = _stamped()
     if stamped is None:
         return JSONResponse({"error": reason}, status_code=503)
-    return stamped["spec"]
+    return with_runtime_auth(stamped["spec"], api_key_required=bool(get_config().api_key))
 
 
 @router.get(ARTIFACTS_PREFIX + "{name}")
