@@ -39,6 +39,17 @@ def tracked_markdown() -> list[Path]:
     return [ROOT / name for name in out.split("\n") if name.strip()]
 
 
+def test_documented_install_entrypoints_are_executable_in_the_git_index():
+    result = subprocess.run(
+        ["git", "ls-files", "--stage", "--", "setup.sh", "install.sh", "redeploy.sh", "absent-entry-control.sh"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    )
+    modes = {line.split("\t", 1)[1]: line.split()[0] for line in result.stdout.splitlines()}
+    assert set(modes) == {"setup.sh", "install.sh", "redeploy.sh"}, "present/absent path controls"
+    assert modes["redeploy.sh"] == "100755", "control: an existing executable is detected"
+    assert all(mode == "100755" for mode in modes.values()), modes
+
+
 def command_lines(lines: list[str]):
     """(line number, text) for each line a reader could COPY AND RUN.
 

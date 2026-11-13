@@ -110,6 +110,27 @@ test("the chain's own status is the answer, and no key means no --secret", () =>
   assert.ok(!out.calls.includes("--approve"), "CONTROL: nothing is approved unless the operator says so");
 });
 
+test("the source and global prefix are printed before npm installs, preserving a source override", () => {
+  const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "handoff prefix "));
+  const bins = fakeBins(["npm", "node"], { prefix });
+  const npm = path.join(bins.dir, "npm");
+  const before = fs.readFileSync(npm, "utf8");
+  const observed = before.replace('echo "npm $*" >>', 'echo "npm-install-start" >&2; echo "npm $*" >>');
+  assert.notEqual(observed, before, "control: the fake install boundary was instrumented");
+  fs.writeFileSync(npm, observed);
+  const source = "/fixture/env source";
+  const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: source, FAKE_KEY: "planted-private-key" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.ok(out.calls.includes(`npm install -g --no-audit --no-fund ${source}`), "control: npm received the chosen source");
+  const notice = out.stderr.indexOf(`Installing aify-env (${source}) into npm global prefix (${toBash(prefix)})`);
+  const install = out.stderr.indexOf("npm-install-start");
+  assert.ok(notice >= 0 && install > notice, `source/prefix notice must precede npm: ${out.stderr}`);
+  assert.ok(!out.stderr.includes("planted-private-key"), "the notice exposed the key");
+  const existing = handoff(fakeBins(["npm", "node"], { env: "chain" }));
+  assert.equal(existing.status, 0, existing.stderr);
+  assert.ok(!existing.stderr.includes("Installing aify-env"), "no install means no installation notice");
+});
+
 test("an operator's approvals reach the chain one by one", () => {
   const bins = fakeBins(["npm", "node"], { env: "chain" });
   const out = handoff(bins, { AIFY_INSTALL_APPROVE: "d1 d2" });

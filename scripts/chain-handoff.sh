@@ -139,7 +139,7 @@ done
 KEY="$(bash "$HERE/api-key-for-install.sh" $KEY_MODE)" || exit 1
 
 if [ -z "$CHAIN" ]; then
-  echo "Installing aify-env ($SOURCE) to run the guided-install chain..." >&2
+  echo "Installing aify-env ($SOURCE) into npm global prefix ($prefix) to run the guided-install chain..." >&2
   npm install -g --no-audit --no-fund "$SOURCE" || exit 1
   CHAIN="$(chain_module)" || { echo "aify-env was installed, but it holds no guided-install chain." >&2; exit 1; }
 fi

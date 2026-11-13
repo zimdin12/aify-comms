@@ -19,6 +19,11 @@ bash install.sh --client claude http://<service-host>:8800
 - It writes the service into `~/.aify/services.json`, which is how aify-env learns the service exists.
 - Running it again is how you update. `install.sh --help` lists the flags.
 
+The guided chain asks before using an artifact tuple that is not already approved. Review the shown source and
+revision before consenting. An unattended run refuses instead of approving for you. After reviewing its printed
+digest, rerun with `AIFY_INSTALL_APPROVE='<printed-digest>' bash install.sh --client claude http://<service-host>:8800`.
+This approves that exact tuple only; keep the API key out of the command.
+
 Restart Claude Code afterwards: a running session keeps the MCP servers it loaded.
 
 ## Run agents on this host

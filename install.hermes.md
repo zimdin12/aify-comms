@@ -42,6 +42,11 @@ it, and the installer rebuilds it (`npm install && npm run build` in Hermes' `we
 from an ordinary terminal: from an Administrator one it can relaunch a gateway elevated, where no aify
 cleanup can stop it.
 
+The guided chain asks before using an artifact tuple that is not already approved. Review the shown source and
+revision before consenting. An unattended run refuses instead of approving for you. After reviewing its printed
+digest, rerun with `AIFY_INSTALL_APPROVE='<printed-digest>' bash install.sh --client hermes http://<service-host>:8800`.
+This approves that exact tuple only; keep the API key out of the command.
+
 Restart Hermes afterwards: a running session keeps the MCP server it loaded.
 
 ## Run agents on this host

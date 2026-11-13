@@ -23,6 +23,12 @@ chain does not carry `--with-hook` yet; a plain chain install does not add that 
 - Running it again is how you update. `install.sh --help` lists the flags.
 - If Codex lives in WSL, install from WSL: a Windows Codex and a WSL Codex keep separate thread stores.
 
+The standalone command above does not enter guided artifact approval. If a separate guided-chain install refuses
+an unapproved artifact, review its shown source, revision and digest before consenting. For an unattended rerun,
+set `AIFY_INSTALL_APPROVE='<printed-digest>'` on the same guided invocation that refused. This approves that exact
+tuple only; keep the API key out of the command. A guided rerun still does not add the unread-message hook, so use
+the standalone hook command above when setting up Codex's notification path.
+
 Restart Codex afterwards: a running session keeps the MCP server it loaded.
 
 ## Run agents on this host
