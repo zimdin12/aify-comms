@@ -1,0 +1,30 @@
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS daemon_capacity
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+FAIL fresh_install_claude_in_one_run (comms#49)
+PASS fresh_install_codex_in_one_run (comms#49)
+PASS env_install_after_chain_no_prompt (env#32)
+NOT_RUN comms_usage-openai: provider qualification excluded
+NOT_RUN env_context-window: provider qualification excluded
+NOT_RUN env_claude-login: provider qualification excluded
+FAIL comms_doctor_applicable
+FAIL env_doctor_applicable
+PASS auth_exempt_paths_exact (comms#43)
+PASS gateway_host_admitted_attacker_refused (comms#27)
+PASS check_reports_wrapper_permissions (wrapper#21)
+PASS installed_launchers_parse (wrapper#9)
+PASS missing_option_value_refused (wrapper#18)
+NOT_RUN GitHub fetch of env and wrapper: staging has no internet; the work-PC install proves the fetch
+NOT_RUN comms#27 dashboard container half: no staging dashboard; checked live
+PASS cleanup
+ACTUAL_EXIT=1
+STARTED=2026-11-12T23:53:53.9010144Z
+ENDED=2026-11-12T23:59:11.1569153Z
+SECONDS=317

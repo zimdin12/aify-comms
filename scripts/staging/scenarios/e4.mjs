@@ -172,7 +172,7 @@ async function waitForStoppedBridgeExpiry(s, stack, host) {
   throw new Error('stopped bridge did not expire within its declared liveness window, or active control disappeared');
 }
 
-function runDoctors(s, host) {
+export function runDoctors(s, host) {
   // Both doctors run in the owned home. No provider auth was provisioned or mounted.
   const commands = {
     comms: ['/home/staging/.aify-comms/mcp/stdio/doctor.js', '--repo', '/src/candidate/comms'],

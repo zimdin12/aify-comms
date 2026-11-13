@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+    "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+    "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+  },
+  "candidate": {
+    "comms": "75a631f6f88241dd31e5ac56696815c4d309a2ba",
+    "env": "45e76f776aec4c730053a6ac78cf6660af2bcdf0",
+    "wrapper": "084e606d0724ce7215a9906b1aa24d19a1e6669a"
+  },
+  "runtimeVersions": {
+    "nodeImage": "node:22.20.0-bookworm",
+    "codex": "0.166.0",
+    "claude": "2.1.316"
+  },
+  "provenance": {
+    "baseline": "Unchanged E4 baseline tuple; E1 builds it only because the manifest requires both tuples and does not run it",
+    "candidate": "Lead E1 approval 1794119105939-dcfab2ef: the current mains read by git fetch on 2026-11-08 when E1 started",
+    "runtimeSelection": "Same runtimes as E2-E4"
+  },
+  "seed": "synthetic-linux-fleet",
+  "liveCopyEnabled": false,
+  "note": "E1 input. Native qualification is the run output, not this file."
+}

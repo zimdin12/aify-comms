@@ -1,0 +1,10 @@
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS cleanup
+FAIL staging: staging host image build did not complete successfully
+ACTUAL_EXIT=1
+STARTED=2026-11-08T06:27:13.6274160Z
+ENDED=2026-11-08T06:36:22.4059813Z
+SECONDS=549

@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+    "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+    "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+  },
+  "candidate": {
+    "comms": "4bb0041de578161fe63b35bc703665601ea2f21e",
+    "env": "45e76f776aec4c730053a6ac78cf6660af2bcdf0",
+    "wrapper": "084e606d0724ce7215a9906b1aa24d19a1e6669a"
+  },
+  "runtimeVersions": {
+    "nodeImage": "node:22.20.0-bookworm",
+    "codex": "0.166.0",
+    "claude": "2.1.316"
+  },
+  "provenance": {
+    "baseline": "Unchanged E4 baseline tuple, built but not run by E1",
+    "candidate": "Lead resume request 1794527565825-5301892e; all three remote main refs fetched and read back on 2026-11-13",
+    "scenario": "E1 and its three uncommitted wiring files byte-match the executed source capsule from e1-first-1; the published disk and leftover guards are now included"
+  },
+  "seed": "synthetic-linux-fleet",
+  "liveCopyEnabled": false,
+  "note": "One unchanged E1 rerun after disk-space clearance. No digest pre-approval or fresh-home doctor fixture."
+}

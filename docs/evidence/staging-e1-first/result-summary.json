@@ -1,0 +1,323 @@
+{
+  "qualification": "RED, Linux synthetic fresh home; no provider calls",
+  "checks": [
+    {
+      "id": "daemon",
+      "ok": true
+    },
+    {
+      "id": "compose_cli",
+      "ok": true
+    },
+    {
+      "id": "daemon_capacity",
+      "ok": true
+    },
+    {
+      "id": "candidate_isolation_created",
+      "ok": true
+    },
+    {
+      "id": "candidate_isolation_after_start",
+      "ok": true
+    },
+    {
+      "id": "candidate_internal_health",
+      "ok": true
+    },
+    {
+      "id": "candidate_network_endpoint",
+      "ok": true
+    },
+    {
+      "id": "runtime_versions",
+      "ok": true
+    },
+    {
+      "id": "fresh_install_claude_in_one_run (comms#49)",
+      "ok": false
+    },
+    {
+      "id": "fresh_install_codex_in_one_run (comms#49)",
+      "ok": true
+    },
+    {
+      "id": "env_install_after_chain_no_prompt (env#32)",
+      "ok": true
+    },
+    {
+      "id": "comms_doctor_applicable",
+      "ok": false
+    },
+    {
+      "id": "env_doctor_applicable",
+      "ok": false
+    },
+    {
+      "id": "auth_exempt_paths_exact (comms#43)",
+      "ok": true
+    },
+    {
+      "id": "gateway_host_admitted_attacker_refused (comms#27)",
+      "ok": true
+    },
+    {
+      "id": "check_reports_wrapper_permissions (wrapper#21)",
+      "ok": true
+    },
+    {
+      "id": "installed_launchers_parse (wrapper#9)",
+      "ok": true
+    },
+    {
+      "id": "missing_option_value_refused (wrapper#18)",
+      "ok": true
+    }
+  ],
+  "capacity": {
+    "freeBytes": 132790456320,
+    "leftovers": []
+  },
+  "cleanup": {
+    "ok": true,
+    "receipts": [
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-host",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-dashboard",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-service",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-e8b9c7f76493-home",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-e8b9c7f76493-data",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "network",
+        "name": "aify-comms-staging-e8b9c7f76493-network",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-host",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-comms-candidate",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-comms-baseline",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-dependencies",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      }
+    ]
+  },
+  "inputsUnchanged": true,
+  "settlement": {
+    "settled": true
+  },
+  "independentReadback": {
+    "observedAt": "2026-11-12T23:59:52.308Z",
+    "project": "aify-comms-staging-e8b9c7f76493",
+    "controls": [
+      {
+        "kind": "image",
+        "name": "node:22.20.0-bookworm",
+        "args": [
+          "image",
+          "inspect",
+          "node:22.20.0-bookworm"
+        ],
+        "status": 0,
+        "state": "present",
+        "out": "[\n    {\n        \"Id\": \"sha256:915acd9e9b885ead0c620e27e37c81b74c226e0e1c8177f37a60217b6eabb0d7\",\n        \"RepoTags\": [\n            \"node:22.20.0-bookworm\"\n        ],\n        \"RepoDigests\": [\n            \"node@sha256:915acd9e9b885ead0c620e27e37c81b74c226e0e1c8177f37a60217b6eabb0d7\"\n        ],\n        \"Comment\": \"buildkit.dockerfile.v0\",\n        \"Created\": \"2025-09-24T14:35:45Z\",\n        \"Config\": {\n            \"Env\": [\n                \"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\n                \"NODE_VERSION=22.20.0\",\n                \"YARN_VERSION=1.22.22\"\n            ],\n            \"Entrypoint\": [\n                \"docker-entrypoint.sh\"\n            ],\n            \"Cmd\": [\n                \"node\"\n            ]\n        },\n        \"Architecture\": \"amd64\",\n        \"Os\": \"linux\",\n        \"Size\": 1625059395,\n        \"RootFS\": {\n            \"Type\": \"layers\",\n            \"Layers\": [\n                \"sha256:f8cdb5cf560803416f8e03eb11978f8544a39b3969598866ea46ed7a3292b020\",\n                \"sha256:5bf927b2746ce44339825a4bc53b035ccc049618b70d5e4a0cba07dff23034ee\",\n                \"sha256:26e166a1f64e47da59f309ebd48fbf877b17ce90181ff10fcabbe831c2832a7c\",\n                \"sha256:242ad6fab9b6abd634346d01a69f6e946d4ecea7cc2dcf0b7a4ff6bd25d70f49\",\n                \"sha256:1c688427e499f59ba89433122cb4a98d4b55ebc0a838605a51fa0a983179abee\",\n                \"sha256:c06959b134a99f7c5264d46960867e9c903043a834692a242bc9b6b33b3f6b44\",\n                \"sha256:206126778bc58baa0bc3fc6ea52c1e1c3e2be00f7161c52931277035bdd4bd3c\",\n                \"sha256:525fadee23b8f632c43b9405196569e3bf6c67e4bbbe39b47d27e5e1d45723ff\"\n            ]\n        },\n        \"Metadata\": {\n            \"LastTagTime\": \"2026-10-24T23:40:15.312089712Z\"\n        },\n        \"Descriptor\": {\n            \"mediaType\": \"application/vnd.oci.image.index.v1+json\",\n            \"digest\": \"sha256:915acd9e9b885ead0c620e27e37c81b74c226e0e1c8177f37a60217b6eabb0d7\",\n            \"size\": 6410\n        },\n        \"Identity\": {\n            \"Pull\": [\n                {\n                    \"Repository\": \"docker.io/library/node\"\n                }\n            ]\n        }\n    }\n]\n"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-absent-control",
+        "args": [
+          "container",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-absent-control"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such container: aify-comms-staging-e8b9c7f76493-absent-control\n"
+      }
+    ],
+    "resources": [
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-host",
+        "args": [
+          "container",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-host"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such container: aify-comms-staging-e8b9c7f76493-host\n"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-dashboard",
+        "args": [
+          "container",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-dashboard"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such container: aify-comms-staging-e8b9c7f76493-dashboard\n"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-e8b9c7f76493-service",
+        "args": [
+          "container",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-service"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such container: aify-comms-staging-e8b9c7f76493-service\n"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-e8b9c7f76493-home",
+        "args": [
+          "volume",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-home"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: get aify-comms-staging-e8b9c7f76493-home: no such volume\n"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-e8b9c7f76493-data",
+        "args": [
+          "volume",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-data"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: get aify-comms-staging-e8b9c7f76493-data: no such volume\n"
+      },
+      {
+        "kind": "network",
+        "name": "aify-comms-staging-e8b9c7f76493-network",
+        "args": [
+          "network",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-network"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: network aify-comms-staging-e8b9c7f76493-network not found\n"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-host",
+        "args": [
+          "image",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-host"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such image: aify-comms-staging-e8b9c7f76493-host:latest\n"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-comms-candidate",
+        "args": [
+          "image",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-comms-candidate"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such image: aify-comms-staging-e8b9c7f76493-comms-candidate:latest\n"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-comms-baseline",
+        "args": [
+          "image",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-comms-baseline"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such image: aify-comms-staging-e8b9c7f76493-comms-baseline:latest\n"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-e8b9c7f76493-dependencies",
+        "args": [
+          "image",
+          "inspect",
+          "aify-comms-staging-e8b9c7f76493-dependencies"
+        ],
+        "status": 1,
+        "state": "absent",
+        "out": "[]\nError response from daemon: No such image: aify-comms-staging-e8b9c7f76493-dependencies:latest\n"
+      }
+    ],
+    "inputHashMismatches": []
+  }
+}

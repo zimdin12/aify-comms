@@ -5,7 +5,7 @@ import { StagingManifest } from './manifest.mjs';
 import { StagingLayout } from './layout.mjs';
 import { StagingSession } from './session.mjs';
 
-const scenarios = Object.freeze(Object.fromEntries(['E2', 'E3', 'E4'].map(id => [id, new URL(`./scenarios/${id.toLowerCase()}.mjs`, import.meta.url)])));
+const scenarios = Object.freeze(Object.fromEntries(['E1', 'E2', 'E3', 'E4'].map(id => [id, new URL(`./scenarios/${id.toLowerCase()}.mjs`, import.meta.url)])));
 
 function readOptions(argv) {
   const parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
