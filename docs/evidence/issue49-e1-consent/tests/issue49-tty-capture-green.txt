@@ -1,0 +1,12 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-issue49-auth", "command": ["wsl.exe", "--exec", "/usr/bin/env", "-u", "AIFY_AGENT_ID", "-u", "AIFY_AGENT_LEASE", "-u", "AIFY_ENV_INSTANCE", "-u", "AIFY_LIFETIME", "python3", "-I", "-m", "unittest", "discover", "-s", "/mnt/c/Users/Administrator/projects/aify-comms-issue49-auth/scripts/tests", "-p", "test_staging_tty_consent.py", "-v"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": false}
+test_a_prompt_that_never_arrives_cannot_manufacture_consent (test_staging_tty_consent.TtyConsent.test_a_prompt_that_never_arrives_cannot_manufacture_consent) ... ok
+test_alarm_captures_the_actual_child_owner_and_tty_before_exit (test_staging_tty_consent.TtyConsent.test_alarm_captures_the_actual_child_owner_and_tty_before_exit) ... ok
+test_answering_a_prompt_does_not_hide_child_failure (test_staging_tty_consent.TtyConsent.test_answering_a_prompt_does_not_hide_child_failure) ... ok
+test_displayed_prompts_are_answered_in_the_same_tty (test_staging_tty_consent.TtyConsent.test_displayed_prompts_are_answered_in_the_same_tty) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.192s
+
+OK
+
+ACTUAL_EXIT=0

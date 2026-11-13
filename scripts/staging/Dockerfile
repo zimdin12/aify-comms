@@ -10,7 +10,7 @@ COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     apt-get update && apt-get install -y --no-install-recommends \
-      bash ca-certificates curl git build-essential procps util-linux && \
+      bash ca-certificates curl git build-essential procps util-linux sudo && \
     rm -rf /var/lib/apt/lists/*
 # This Git configuration is image-local and contains no authentication material.
 RUN git config --global url.https://github.com/.insteadOf ssh://git@github.com/ && \
@@ -52,6 +52,9 @@ WORKDIR /src/candidate/comms
 CMD ["python", "-m", "uvicorn", "service.main:app", "--host", "0.0.0.0", "--port", "8800", "--no-access-log", "--timeout-graceful-shutdown", "3"]
 
 FROM dependencies AS host
+USER root
+RUN printf '%s\n' 'staging ALL=(root) NOPASSWD: /usr/local/bin/node /src/candidate/wrapper/lib/channel-install.mjs prepare-policy --path /etc/claude-code/managed-settings.json' > /etc/sudoers.d/e1-policy && chmod 0440 /etc/sudoers.d/e1-policy && visudo -cf /etc/sudoers.d/e1-policy
+USER staging
 ENV NPM_CONFIG_PREFIX=/home/staging/.local
 ENV PATH=/home/staging/.local/bin:$PATH
 WORKDIR /work

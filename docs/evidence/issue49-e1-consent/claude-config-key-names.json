@@ -1,0 +1,6 @@
+{
+  "status": 0,
+  "signal": null,
+  "errorCode": null,
+  "out": "{\"keys\":[\"firstStartTime\",\"firstStartVersion\",\"machineID\",\"opusProMigrationComplete\",\"sonnet1m45MigrationComplete\",\"seenNotifications\",\"hasResetAutoModeOptInForDefaultOffer\",\"migrationVersion\",\"userID\",\"mcpServers\"]}\n"
+}

@@ -57,6 +57,9 @@ export class StagingSources {
         const destination = path.join(phaseDirectory, role);
         fs.mkdirSync(destination);
         this.git(['-C', destination, 'init', '--quiet']);
+        const origin = this.git(['-C', this.repositories[role], 'remote', 'get-url', 'origin']).trim();
+        if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?$/.test(origin)) throw new Error(`${role} requires a canonical credential-free GitHub origin`);
+        this.git(['-C', destination, 'remote', 'add', 'origin', origin]);
         this.git(['-C', destination, 'fetch', '--quiet', '--no-tags', '--no-recurse-submodules', '--depth=1', this.repositories[role], ref]);
         this.git(['-C', destination, 'checkout', '--quiet', '--detach', ref]);
         if (this.git(['-C', destination, 'rev-parse', 'HEAD']).trim() !== ref

@@ -1,0 +1,21 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-issue49-auth", "command": ["C:/Program Files/Git/bin/bash.exe", "scripts/staging-e2e.sh", "E1", "--refs", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/refs-issue49-e1.json", "--out", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/e1-consented-20261113-1", "--env-repo", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/env-345fd0c", "--wrapper-repo", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/wrapper-c09fd03"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": false}
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS daemon_capacity
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+PASS fresh_policy_absent_with_present_file_controls
+PASS sudo_other_command_refused
+FAIL no_consent_one_command_no_publication (comms#49)
+FAIL fresh_install_claude_in_one_run (comms#49)
+FAIL fresh_install_codex_in_one_run (comms#49)
+PASS env_install_after_chain_no_prompt (env#32)
+PASS cleanup
+FAIL staging: definition through the real owner CLI did not complete successfully; see Docker receipts
+
+ACTUAL_EXIT=1

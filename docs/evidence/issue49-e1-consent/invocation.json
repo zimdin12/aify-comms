@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "C:\\nvm4w\\nodejs\\node.exe",
+    "C:\\Users\\Administrator\\projects\\aify-comms-issue49-auth\\scripts\\staging\\main.mjs",
+    "E1",
+    "--refs",
+    "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/refs-issue49-e1-trust.json",
+    "--out",
+    "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/e1-consented-20261113-3",
+    "--env-repo",
+    "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/env-2a2a702",
+    "--wrapper-repo",
+    "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/wrapper-c09fd03"
+  ],
+  "cwd": "C:\\Users\\Administrator\\projects\\aify-comms-issue49-auth",
+  "environmentNames": [
+    "COMSPEC",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "WINDIR",
+    "MSYS_NO_PATHCONV",
+    "DATA_VOLUME_NAME"
+  ]
+}

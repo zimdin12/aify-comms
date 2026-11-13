@@ -1,0 +1,308 @@
+{
+  "qualification": "precommit execution with exact captured-capsule/staged-blob correspondence",
+  "repository_inputs": [
+    {
+      "path": "scripts/staging/build.mjs",
+      "captured_sha256": "6c7a7f76f80f855cce73bf16bf37e31ba279da939e16c4b9de0d9d29f5399286",
+      "staged_sha256": "6c7a7f76f80f855cce73bf16bf37e31ba279da939e16c4b9de0d9d29f5399286",
+      "capsule_sha256": "6c7a7f76f80f855cce73bf16bf37e31ba279da939e16c4b9de0d9d29f5399286"
+    },
+    {
+      "path": "scripts/staging/docker.mjs",
+      "captured_sha256": "a8c8c42659c7a0e596504268d2198cff38eb2cf80f91f5536ddd58e58c0699f5",
+      "staged_sha256": "a8c8c42659c7a0e596504268d2198cff38eb2cf80f91f5536ddd58e58c0699f5",
+      "capsule_sha256": "a8c8c42659c7a0e596504268d2198cff38eb2cf80f91f5536ddd58e58c0699f5"
+    },
+    {
+      "path": "scripts/staging/Dockerfile",
+      "captured_sha256": "fb8c4efc37d24d08380e2244dd34f78260f49c638d285c64a065728ac25d31e6",
+      "staged_sha256": "fb8c4efc37d24d08380e2244dd34f78260f49c638d285c64a065728ac25d31e6",
+      "capsule_sha256": "fb8c4efc37d24d08380e2244dd34f78260f49c638d285c64a065728ac25d31e6"
+    },
+    {
+      "path": "scripts/staging/host.mjs",
+      "captured_sha256": "2d1dd3b44ba5d4c15901b475f03b1ef8c9c4f3bfa1bf60f3042b46284be5fd67",
+      "staged_sha256": "2d1dd3b44ba5d4c15901b475f03b1ef8c9c4f3bfa1bf60f3042b46284be5fd67",
+      "capsule_sha256": "2d1dd3b44ba5d4c15901b475f03b1ef8c9c4f3bfa1bf60f3042b46284be5fd67"
+    },
+    {
+      "path": "scripts/staging/layout.mjs",
+      "captured_sha256": "7a11e43c6a762ae0fa26a4097c0089d76e483a24fabb000bd7e4fffc2ecbb437",
+      "staged_sha256": "7a11e43c6a762ae0fa26a4097c0089d76e483a24fabb000bd7e4fffc2ecbb437",
+      "capsule_sha256": "7a11e43c6a762ae0fa26a4097c0089d76e483a24fabb000bd7e4fffc2ecbb437"
+    },
+    {
+      "path": "scripts/staging/main.mjs",
+      "captured_sha256": "737ba605a345c2847ca2f8e3d5e72691ac4db6c35b010144b04f1b2fde8da1a7",
+      "staged_sha256": "737ba605a345c2847ca2f8e3d5e72691ac4db6c35b010144b04f1b2fde8da1a7",
+      "capsule_sha256": "737ba605a345c2847ca2f8e3d5e72691ac4db6c35b010144b04f1b2fde8da1a7"
+    },
+    {
+      "path": "scripts/staging/manifest.mjs",
+      "captured_sha256": "51a918ec1678ab3d9c2e9396b8e150c068d5c926e1ce2e03082fb6a5b3a44eb0",
+      "staged_sha256": "51a918ec1678ab3d9c2e9396b8e150c068d5c926e1ce2e03082fb6a5b3a44eb0",
+      "capsule_sha256": "51a918ec1678ab3d9c2e9396b8e150c068d5c926e1ce2e03082fb6a5b3a44eb0"
+    },
+    {
+      "path": "scripts/staging/observed-isolation.mjs",
+      "captured_sha256": "e9b28fb24f9850b84e2b47b94789e263d2ff27c78ebf701ae027beb2d5d542de",
+      "staged_sha256": "e9b28fb24f9850b84e2b47b94789e263d2ff27c78ebf701ae027beb2d5d542de",
+      "capsule_sha256": "e9b28fb24f9850b84e2b47b94789e263d2ff27c78ebf701ae027beb2d5d542de"
+    },
+    {
+      "path": "scripts/staging/resources.mjs",
+      "captured_sha256": "115b2d643e1c6882f229aff3324cd8c95c8133b341f86e9c7a886025b8ac1d66",
+      "staged_sha256": "115b2d643e1c6882f229aff3324cd8c95c8133b341f86e9c7a886025b8ac1d66",
+      "capsule_sha256": "115b2d643e1c6882f229aff3324cd8c95c8133b341f86e9c7a886025b8ac1d66"
+    },
+    {
+      "path": "scripts/staging/session.mjs",
+      "captured_sha256": "91a9727685ae37b08e932e9458d03bd7046095cfc26a4a84af34fa3095929344",
+      "staged_sha256": "91a9727685ae37b08e932e9458d03bd7046095cfc26a4a84af34fa3095929344",
+      "capsule_sha256": "91a9727685ae37b08e932e9458d03bd7046095cfc26a4a84af34fa3095929344"
+    },
+    {
+      "path": "scripts/staging/shell-syntax.mjs",
+      "captured_sha256": "e28c1c25661170c78f6c9affe2e707752060392f41c219795a46b643ba40d325",
+      "staged_sha256": "e28c1c25661170c78f6c9affe2e707752060392f41c219795a46b643ba40d325",
+      "capsule_sha256": "e28c1c25661170c78f6c9affe2e707752060392f41c219795a46b643ba40d325"
+    },
+    {
+      "path": "scripts/staging/sources.mjs",
+      "captured_sha256": "b964b73b223a6109c5cfe4a8d6099eba4dca7da0bc7a6a690d8e1ea18cdc6ca5",
+      "staged_sha256": "b964b73b223a6109c5cfe4a8d6099eba4dca7da0bc7a6a690d8e1ea18cdc6ca5",
+      "capsule_sha256": "b964b73b223a6109c5cfe4a8d6099eba4dca7da0bc7a6a690d8e1ea18cdc6ca5"
+    },
+    {
+      "path": "scripts/staging/stack.mjs",
+      "captured_sha256": "d9fafa0c0145feea3b3e89602e65a4529076d8f8f4d5caf6a5d763ca08b91b6f",
+      "staged_sha256": "d9fafa0c0145feea3b3e89602e65a4529076d8f8f4d5caf6a5d763ca08b91b6f",
+      "capsule_sha256": "d9fafa0c0145feea3b3e89602e65a4529076d8f8f4d5caf6a5d763ca08b91b6f"
+    },
+    {
+      "path": "scripts/staging/fixtures/bootstrap-host.sh",
+      "captured_sha256": "32cca25fe6e1ed86b6329d9caaee1964c40eaee0e77270d823e8072c8b6c9501",
+      "staged_sha256": "32cca25fe6e1ed86b6329d9caaee1964c40eaee0e77270d823e8072c8b6c9501",
+      "capsule_sha256": "32cca25fe6e1ed86b6329d9caaee1964c40eaee0e77270d823e8072c8b6c9501"
+    },
+    {
+      "path": "scripts/staging/fixtures/codex-auth-probe.mjs",
+      "captured_sha256": "623fd2c4f18e44fea059b5db1d25ce513fbffa086402543277f380030966b1b6",
+      "staged_sha256": "623fd2c4f18e44fea059b5db1d25ce513fbffa086402543277f380030966b1b6",
+      "capsule_sha256": "623fd2c4f18e44fea059b5db1d25ce513fbffa086402543277f380030966b1b6"
+    },
+    {
+      "path": "scripts/staging/fixtures/codex-runtime.mjs",
+      "captured_sha256": "a80039449a8b25fa80f9846ef896416d6717b9d8a911bc73e597621ab64abccc",
+      "staged_sha256": "a80039449a8b25fa80f9846ef896416d6717b9d8a911bc73e597621ab64abccc",
+      "capsule_sha256": "a80039449a8b25fa80f9846ef896416d6717b9d8a911bc73e597621ab64abccc"
+    },
+    {
+      "path": "scripts/staging/fixtures/observe-bind.mjs",
+      "captured_sha256": "9135ae55cf926bcd95a85326ff9393a7857ff04774e43c779af171f62cedb3a0",
+      "staged_sha256": "9135ae55cf926bcd95a85326ff9393a7857ff04774e43c779af171f62cedb3a0",
+      "capsule_sha256": "9135ae55cf926bcd95a85326ff9393a7857ff04774e43c779af171f62cedb3a0"
+    },
+    {
+      "path": "scripts/staging/fixtures/tty-consent.py",
+      "captured_sha256": "73da935f3c9f0d8fe6781aea1bef478ced555d50571e4b2c67f5a4a32c01395e",
+      "staged_sha256": "73da935f3c9f0d8fe6781aea1bef478ced555d50571e4b2c67f5a4a32c01395e",
+      "capsule_sha256": "73da935f3c9f0d8fe6781aea1bef478ced555d50571e4b2c67f5a4a32c01395e"
+    },
+    {
+      "path": "scripts/staging/fixtures/turn-brain.mjs",
+      "captured_sha256": "cffa81abb994b5c719dc9711c5dc02c4c84536a51d68c1e96939fe2601e3ec18",
+      "staged_sha256": "cffa81abb994b5c719dc9711c5dc02c4c84536a51d68c1e96939fe2601e3ec18",
+      "capsule_sha256": "cffa81abb994b5c719dc9711c5dc02c4c84536a51d68c1e96939fe2601e3ec18"
+    },
+    {
+      "path": "scripts/staging/scenarios/e1.mjs",
+      "captured_sha256": "f96d4c8989d04f8e3e2a78573a9e337a141531d23f91df4d30e0a75a14d515a0",
+      "staged_sha256": "f96d4c8989d04f8e3e2a78573a9e337a141531d23f91df4d30e0a75a14d515a0",
+      "capsule_sha256": "f96d4c8989d04f8e3e2a78573a9e337a141531d23f91df4d30e0a75a14d515a0"
+    },
+    {
+      "path": "scripts/staging/scenarios/e2.mjs",
+      "captured_sha256": "34c97d9e009bad5048bb31993bd74b33b75ac06cfe69cf635e921f577a54afe3",
+      "staged_sha256": "34c97d9e009bad5048bb31993bd74b33b75ac06cfe69cf635e921f577a54afe3",
+      "capsule_sha256": "34c97d9e009bad5048bb31993bd74b33b75ac06cfe69cf635e921f577a54afe3"
+    },
+    {
+      "path": "scripts/staging/scenarios/e3.mjs",
+      "captured_sha256": "2ef1b545ef5abb65b26a692760edd1d69fa9449585be88dccd521a216f055649",
+      "staged_sha256": "2ef1b545ef5abb65b26a692760edd1d69fa9449585be88dccd521a216f055649",
+      "capsule_sha256": "2ef1b545ef5abb65b26a692760edd1d69fa9449585be88dccd521a216f055649"
+    },
+    {
+      "path": "scripts/staging/scenarios/e4.mjs",
+      "captured_sha256": "2f99e12cf0d134a7fe2b2ff3594269d33e3d990ff2e0f729ea6cbdd6350313b2",
+      "staged_sha256": "2f99e12cf0d134a7fe2b2ff3594269d33e3d990ff2e0f729ea6cbdd6350313b2",
+      "capsule_sha256": "2f99e12cf0d134a7fe2b2ff3594269d33e3d990ff2e0f729ea6cbdd6350313b2"
+    },
+    {
+      "path": "scripts/sandbox/docker-readback.mjs",
+      "captured_sha256": "ae52341375dd902fbc9c3fb5b2cc09f72bc384085f55be5a72abd9dbbcd876bc",
+      "staged_sha256": "ae52341375dd902fbc9c3fb5b2cc09f72bc384085f55be5a72abd9dbbcd876bc",
+      "capsule_sha256": "ae52341375dd902fbc9c3fb5b2cc09f72bc384085f55be5a72abd9dbbcd876bc"
+    }
+  ],
+  "external_inputs": [
+    {
+      "path": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker-compose.exe",
+      "sha256": "e6176502e836a7fee8d71cab5fcda736c8dacc79ccefdf9659af977f7eae2375",
+      "note": "external execution input, not a repository blob"
+    },
+    {
+      "path": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config\\config.json",
+      "sha256": "d39a8d366ad8f466665904ed832c8d5e657dd08850ecf538985984f75922d5c5",
+      "note": "external execution input, not a repository blob"
+    }
+  ],
+  "copied_evidence": [
+    {
+      "path": "refs.json",
+      "sha256": "e7c7910bd3c2861a1b78cf6af5afa66cc8c86cb16eecdf566e1f9ea50212e01b"
+    },
+    {
+      "path": "result.json",
+      "sha256": "a61a814f6033eed348ac1cd42cd6eaff7be768b40640527233cc1d97591084f9"
+    },
+    {
+      "path": "doctor-summary.json",
+      "sha256": "fd9d33f27a76aa0e01e66b509b9cd1a2c25034fb5fc931e5690761e0bfac0c59"
+    },
+    {
+      "path": "claude-config-key-names.json",
+      "sha256": "97dc3e6cf905fd79ad8d4df70fc95d5daefbdb7046e9fcd03bfa28df605a9ec6"
+    },
+    {
+      "path": "fresh-install-claude.json",
+      "sha256": "f31a7af19b93880aba00ad2c97d8c23c10e948ee5a180bb30d18b52bfa5ebbd6"
+    },
+    {
+      "path": "fresh-install-codex.json",
+      "sha256": "a3722992e90f9467b6d9d6c952872ffc35cdd3f72d13b7babaf8eecb9ff7f412"
+    },
+    {
+      "path": "fresh-install-no-consent.json",
+      "sha256": "d430d643ea9217a0eb74c61e9e56dbbcd00108149d61f734416b164092959c1e"
+    },
+    {
+      "path": "comms-doctor-output.json",
+      "sha256": "7f968ed14a2c2b31e8475fa6b972a63d3c1955c5e52b02d21281cb0f8f74a50a"
+    },
+    {
+      "path": "env-doctor-output.json",
+      "sha256": "c45bb019f9531e7609c4e124e7cb055fc67d62248685663f5bb5ee19e0cc9cc4"
+    },
+    {
+      "path": "cleanup-independent-readback.json",
+      "sha256": "5f332c4bcdd3b06f1e7ce49e63643d3c2b2c2e1cb179de0d7f01c3be57d59f37"
+    },
+    {
+      "path": "input-hashes.json",
+      "sha256": "67654823109e23f3b720be4f61ad1ed7026d9f748fa2d9e183856e9f32aad2bc"
+    },
+    {
+      "path": "invocation.json",
+      "sha256": "78a48ca512ae27a67f36e7873809e4eea552d03e1ec3946d84e2a51114858a74"
+    },
+    {
+      "path": "native-run.txt",
+      "sha256": "98b40ba93838b5585c6640c106e99a8dd18234d41bab6c045f6e97b1512a548c"
+    },
+    {
+      "path": "earlier-runs/first/refs.json",
+      "sha256": "52ba741badf8e0f12344406592ea539fee3b36ed586cddb3a46a965acc9fc066"
+    },
+    {
+      "path": "earlier-runs/first/result.json",
+      "sha256": "2e7d139f026d6705aa2c1416e095ddc8aed2a928d1ff641382c02c7e9b98d884"
+    },
+    {
+      "path": "earlier-runs/first/cleanup-independent-readback.json",
+      "sha256": "7d863f50afd5b0326bdf5814726f1c826c8c6086afc542ab765776d27b16f410"
+    },
+    {
+      "path": "earlier-runs/first/fresh-install-claude.json",
+      "sha256": "2c6dff0558039085abcffa7a9963307ce8a134c9d9e1d9c599de6daa9d163344"
+    },
+    {
+      "path": "earlier-runs/first/fresh-install-codex.json",
+      "sha256": "59616eed2781be51d94d66e6bb57300a502e6ff8c9ef6502a2b1171145645cde"
+    },
+    {
+      "path": "earlier-runs/first/fresh-install-no-consent.json",
+      "sha256": "57dc22696f57f1b8608b1d8726b87eae0edcb28a794f131f81881e7965448a03"
+    },
+    {
+      "path": "earlier-runs/first/native-run.txt",
+      "sha256": "acf31b397ffd35c7a66b0b400d375bd3e7821306b477f5cc44ced183ad09563b"
+    },
+    {
+      "path": "earlier-runs/trust/refs.json",
+      "sha256": "9009d0f460bf9d06b89195a4d967f9f1d3192e05ed1224cd2808098132b0fd81"
+    },
+    {
+      "path": "earlier-runs/trust/result.json",
+      "sha256": "52e775479e5830904d236362ec402f4d1e1e5bdd92993b1f4a0a853d20669c7d"
+    },
+    {
+      "path": "earlier-runs/trust/cleanup-independent-readback.json",
+      "sha256": "b7b488f57f793d94c938e3fa20218c59881f2d256014a8cfccbf5be64b092ff3"
+    },
+    {
+      "path": "earlier-runs/trust/fresh-install-claude.json",
+      "sha256": "84ab345d132e5076bbea6245d6bc94834c4ae8b0aaca5818a13935188f83a3c4"
+    },
+    {
+      "path": "earlier-runs/trust/fresh-install-codex.json",
+      "sha256": "7e12004dadc31726cb253db236c0f328fb5aad7557ec30d279274c57acd001b5"
+    },
+    {
+      "path": "earlier-runs/trust/fresh-install-no-consent.json",
+      "sha256": "f7be1d4ad2abb1c571433fa4dcd4eb0c5c8805978a6d9376d0cbf0b03e80474d"
+    },
+    {
+      "path": "earlier-runs/trust/doctor-summary.json",
+      "sha256": "367c7460c3a0884b50c3e86ee3be4b86ba4d87a7e519cb6934ce033c81c997a1"
+    },
+    {
+      "path": "earlier-runs/trust/native-run.txt",
+      "sha256": "84f6e283155745aa5d9ec043664a676a82fbe10a9fb0024f92dcc5009215612f"
+    },
+    {
+      "path": "tests/issue49-e1-key-capture-staging.txt",
+      "sha256": "2935b5cdfec48733d924846600014fbe9220a7edf94f24b8663e3cd1c83c48f9"
+    },
+    {
+      "path": "tests/issue49-e1-key-capture-governing.txt",
+      "sha256": "d4ff54b2d764e286fbc11eeba0e152eee499bac71065dd164320e44c3b55a3e7"
+    },
+    {
+      "path": "tests/issue49-tty-capture-green.txt",
+      "sha256": "df4b1c9ca816374a797ae0d034357bdcda45eaf55307bd21d80a985b3aa0805c"
+    },
+    {
+      "path": "tests/issue49-origin-definition-red.txt",
+      "sha256": "2a6b20a710a969db743dcdd8cffc52d7de227209e85f8cf1ed0f9e41c36cd567"
+    },
+    {
+      "path": "tests/issue49-origin-definition-green.txt",
+      "sha256": "00de0e54cbdd8d148cce843cd0a1786ec957048da32ed59d2a4c8627b3cc815c"
+    },
+    {
+      "path": "tests/issue49-config-keys-mutant-red.txt",
+      "sha256": "88c9d664e421eca5dad486d61bbb717bccee0f09ff8a56016e8f36efe5fa3ad6"
+    },
+    {
+      "path": "tests/issue49-config-keys-green.txt",
+      "sha256": "29f2f4adb6db91ed46eb28ff5a09d212768302312b36c53a3959972bbb0a8d0e"
+    }
+  ],
+  "controls": {
+    "known_e1_input_present": true,
+    "absent_path_missing": true,
+    "wrong_digest_refused": true
+  }
+}

@@ -1,0 +1,5 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-issue49-auth", "command": ["python", "-m", "pytest", "service/tests/test_no_new_oversized_source_file.py", "service/tests/test_no_import_cycles.py", "service/tests/test_no_dead_imports.py", "service/tests/test_leaves_do_not_import_the_carrier.py", "service/tests/test_fixtures_are_tracked.py", "service/tests/test_prose_paths_resolve.py", "service/tests/test_docs_name_symbols_not_line_numbers.py", "service/tests/test_every_doc_is_in_the_index.py", "-q"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": false}
+........................................                               [100%]
+40 passed, 2 subtests passed in 10.67s
+
+ACTUAL_EXIT=0

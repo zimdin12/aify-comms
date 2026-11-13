@@ -1,0 +1,14 @@
+{
+  "status": 78,
+  "out": "=== aify-comms installer ===\nRepo: /src/candidate/comms\nClient: claude\nServer: http://service:8800\n\n\nadded 1 package in 196ms\n[aify-env] chain: entered for aify-comms\n[aify-env] installing aify-wrapper (/src/candidate/wrapper)\n\nadded 1 package in 170ms\n[aify-env] problem: aify-comms: comms-bridge is not approved\n'aify-env' 'install' '--connect' 'aify-comms=http://service:8800' '--client' 'claude' '--installer' 'aify-comms=/src/candidate/comms/install.sh' '--no-prompt' '--secret-stdin' 'aify-comms.credentialRef' '--approve' 'efb478b71646ab11f941464c30d550a4b7696be82bba003b022f6bd8b7cb3f40'\n[aify-env] chain: not complete\nregistry-absent 0\nInstalling aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain...\n",
+  "tail": [
+    "[aify-env] installing aify-wrapper (/src/candidate/wrapper)",
+    "",
+    "added 1 package in 170ms",
+    "[aify-env] problem: aify-comms: comms-bridge is not approved",
+    "'aify-env' 'install' '--connect' 'aify-comms=http://service:8800' '--client' 'claude' '--installer' 'aify-comms=/src/candidate/comms/install.sh' '--no-prompt' '--secret-stdin' 'aify-comms.credentialRef' '--approve' 'efb478b71646ab11f941464c30d550a4b7696be82bba003b022f6bd8b7cb3f40'",
+    "[aify-env] chain: not complete",
+    "registry-absent 0",
+    "Installing aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain..."
+  ]
+}

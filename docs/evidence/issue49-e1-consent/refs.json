@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+    "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+    "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+  },
+  "candidate": {
+    "comms": "05b7f2dca4096f3c45341b11d5533d93a7e85900",
+    "env": "2a2a702cdaa3735a748ba2c4aa38bc3ffd00490a",
+    "wrapper": "c09fd03cb17d076acd8cd9c20ad5517efbea09d0"
+  },
+  "runtimeVersions": {
+    "nodeImage": "node:22.20.0-bookworm",
+    "codex": "0.166.0",
+    "claude": "2.1.316"
+  },
+  "provenance": {
+    "baseline": "Unchanged E4 baseline, built but not executed by E1",
+    "candidate": "Exact tuple selected by lead 1794604652685-23c86a47 after the env trust-config fix",
+    "scenario": "Tested 120-line local staging source captured and hashed by StagingSession; both earlier amended failures retained"
+  },
+  "seed": "synthetic-linux-fleet",
+  "liveCopyEnabled": false,
+  "note": "One authorized native attempt with exact env trust verdict fix and doctor-time top-level Claude config key names only. Real tuple and policy-only consent; independent client homes/prefixes/PATHs. No trust fixture, catalogue edit, preapproval, provider call or host credential. Local acquisition overrides do not qualify GitHub retrieval."
+}

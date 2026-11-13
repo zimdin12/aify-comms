@@ -46,6 +46,10 @@ there is no rollback or second installation path. Exit 78 is never installation 
 remains RED until the amended successor run is observed. Test Codex in an independent fresh home, not after a
 partially completed Claude install. Container source overrides do not qualify GitHub retrieval or a work-PC install.
 
+The amended successor was observed on 2026-11-13: 26 of 26 E1 checks passed on the exact local-source tuple.
+[Its evidence and retained failures](../evidence/issue49-e1-consent/README.md) distinguish applicable doctor success
+from excluded provider setup, and preserve the earlier red records. This is not a live rollout or a GitHub fetch qualification.
+
 The database copy follows the 2026-10-02 method: the SQLite backup API inside the live container, opened
 read-only, then seeded into the staging volume before first start.
 

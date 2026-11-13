@@ -34,11 +34,11 @@ export class StagingHost {
     s.requireCommand(['exec', this.name, 'node', '-e', script], 'fixture runtime on the real launcher PATH');
   }
 
-  defineFleet(phase) {
+  defineFleet(phase, environment = []) {
     const s = this.session;
     this.ids = ['worker', 'stopped', 'configured'].map(role => `e4-${role}-${s.layout.runId}`);
     for (const id of this.ids) {
-      s.requireCommand(['exec', this.name, 'node', `/src/${phase}/env/bin/aify-env.mjs`, 'agents', 'set', id,
+      s.requireCommand(['exec', ...environment.flatMap(pair => ['-e', pair]), this.name, 'node', `/src/${phase}/env/bin/aify-env.mjs`, 'agents', 'set', id,
         `name=${id}`, 'role=staging-fixture', 'harness=codex', 'mode=managed', 'workspace=/work', 'herdrSpace=false',
         'env.STAGING_REPLY_TO=dashboard', `env.FIXTURE_TAG=${id}`], 'definition through the real owner CLI');
     }
@@ -157,14 +157,15 @@ export class StagingHost {
       "const r=await fetch('http://127.0.0.1:8802/health',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw new Error('env health '+r.status);console.log(await r.text());"]);
   }
 
-  async startBaseline() {
+  async startBaseline(phase = 'baseline', environment = []) {
     const s = this.session;
     const before = this.localHealth();
-    s.check('baseline_env_initially_absent', before.status === 1 && /ECONNREFUSED/.test(before.out),
+    s.check(`${phase}_env_initially_absent`, before.status === 1 && /ECONNREFUSED/.test(before.out),
       'no local env answered in this fresh container before the real start');
     s.requireCommand(['exec', '-d', '-w', '/work', '-e', 'AIFY_NO_DASHBOARD=1', '-e', `AIFY_API_KEY=${s.layout.fixtureKey}`,
-      this.name, 'bash', '-c', 'exec node /src/baseline/env/bin/aify-env.mjs --port 8802 > /work/baseline-env.log 2>&1'],
-    'baseline environment start inside staging container');
+      ...environment.flatMap(pair => ['-e', pair]), this.name, 'bash', '-c',
+      `exec node /src/${phase}/env/bin/aify-env.mjs --port 8802 > /work/baseline-env.log 2>&1`],
+    'selected environment start inside staging container');
     const deadline = Date.now() + 45_000;
     while (Date.now() < deadline) {
       const result = this.localHealth();
@@ -173,7 +174,7 @@ export class StagingHost {
         if (health.status !== 'healthy' || !Number.isSafeInteger(health.pid) || health.pid <= 1
             || !health.build || health.build !== health.codeOnDisk) throw new Error('baseline environment identity is not established');
         const process = s.requireCommand(['exec', this.name, 'ps', '-p', String(health.pid), '-o', 'pid=,stat=,args='], 'baseline environment OS witness');
-        s.check('baseline_env_linux', process.includes('/src/baseline/env/bin/aify-env.mjs') && !/^\s*\d+\s+[ZX]/.test(process),
+        s.check(`${phase}_env_linux`, process.includes(`/src/${phase}/env/bin/aify-env.mjs`) && !/^\s*\d+\s+[ZX]/.test(process),
           { health, process });
         s.save('baseline-env-health.json', health);
         const environments = await this.stack.request('/api/v1/environments', s.layout.fixtureKey);

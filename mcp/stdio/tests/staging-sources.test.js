@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { StagingManifest } from '../../../scripts/staging/manifest.mjs';
 import { StagingSources } from '../../../scripts/staging/sources.mjs';
 import { dockerEnvironment } from '../../../scripts/staging/docker.mjs';
@@ -28,9 +29,12 @@ function world(work) {
       fs.mkdirSync(directory);
       const git = (...args) => gitAt(directory, ...args);
       git('init', '--quiet');
+      git('remote', 'add', 'origin', `https://github.com/fixture/${role}.git`);
+      fs.mkdirSync(path.join(directory, 'mcp', 'stdio'), { recursive: true });
+      for (const entry of ['server.js', 'claude-channel.js']) fs.writeFileSync(path.join(directory, 'mcp', 'stdio', entry), '// fixture bridge entry\n');
       for (const [phase, tuple] of [['baseline', baseline], ['candidate', candidate]]) {
         fs.writeFileSync(path.join(directory, 'tracked.txt'), `${role} ${phase}\n`);
-        git('add', 'tracked.txt');
+        git('add', 'tracked.txt', 'mcp/stdio');
         git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', phase);
         tuple[role] = git('rev-parse', 'HEAD');
       }
@@ -69,6 +73,27 @@ test('exact snapshots use each role and phase, exclude dirty bytes and preserve 
   assert.ok(reader.receipts.some(item => item.command.includes('fetch') && item.status === 0));
 }));
 
+test('the actual stamp binds a snapshot artifact rather than silently declaring it pending', () => world(context => {
+  const snapshots = sources(context).prepare();
+  const stamp = (repository, output) => {
+    const run = spawnSync(process.execPath, [fileURLToPath(new URL('../service-spec-cli.mjs', import.meta.url)),
+      repository, context.manifest.candidate.comms, '0.0.0-fixture', output],
+    { env: dockerEnvironment(process.env, volume), encoding: 'utf8', timeout: 15_000 });
+    assert.equal(run.status, 0, run.stderr);
+    return JSON.parse(fs.readFileSync(output, 'utf8'));
+  };
+  const original = stamp(context.repositories.comms, path.join(context.root, 'original-stamp.json'));
+  assert.equal(original.spec.artifacts[0].source.pending, undefined, 'known-origin control must bind');
+  const copy = stamp(snapshots.candidate.comms, path.join(context.root, 'snapshot-stamp.json'));
+  assert.equal(copy.spec.artifacts[0].source.pending, undefined, 'snapshot must retain the real origin before stamping');
+  assert.deepEqual(copy.spec.artifacts, original.spec.artifacts);
+  assert.deepEqual(copy.manifests, original.manifests);
+  context.gitAt(snapshots.candidate.comms, 'remote', 'remove', 'origin');
+  const absent = stamp(snapshots.candidate.comms, path.join(context.root, 'absent-stamp.json'));
+  assert.equal(absent.spec.artifacts[0].source.pending, 'the build checkout has no origin remote');
+  assert.deepEqual(absent.manifests, {});
+}));
+
 test('untracked credential-like input is excluded while tracked source is materialized', () => world(context => {
   for (const directory of Object.values(context.repositories)) fs.writeFileSync(path.join(directory, '.env'), 'fixture-credential-never-copy');
   const snapshots = sources(context).prepare();
@@ -78,6 +103,16 @@ test('untracked credential-like input is excluded while tracked source is materi
   });
   for (const directory of Object.values(context.repositories)) assert.equal(fs.readFileSync(path.join(directory, '.env'), 'utf8'), 'fixture-credential-never-copy');
 }));
+
+for (const origin of ['https://fixture:synthetic@github.com/fixture/comms.git', 'https://example.invalid/fixture/comms.git']) {
+  test('a noncanonical or credential-bearing origin is refused before snapshot fetch', () => world(context => {
+    context.gitAt(context.repositories.comms, 'remote', 'set-url', 'origin', origin);
+    const reader = sources(context);
+    assert.throws(() => reader.prepare(), /canonical credential-free GitHub origin/);
+    assert.equal(reader.receipts.some(item => item.command.includes('fetch')), false);
+    assert.equal(context.gitAt(context.repositories.comms, 'remote', 'get-url', 'origin'), origin);
+  }));
+}
 
 for (const phase of ['baseline', 'candidate']) {
   test(`an unresolved ${phase} commit is refused before any snapshot fetch`, () => world(context => {

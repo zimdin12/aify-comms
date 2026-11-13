@@ -1,0 +1,296 @@
+{
+  "manifest": {
+    "baseline": {
+      "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+      "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+      "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+    },
+    "candidate": {
+      "comms": "05b7f2dca4096f3c45341b11d5533d93a7e85900",
+      "env": "345fd0c3cab1b035bde1b5dd3ceb82359be595a5",
+      "wrapper": "c09fd03cb17d076acd8cd9c20ad5517efbea09d0"
+    },
+    "runtimeVersions": {
+      "nodeImage": "node:22.20.0-bookworm",
+      "codex": "0.166.0",
+      "claude": "2.1.316"
+    },
+    "seed": "synthetic-linux-fleet",
+    "liveCopyEnabled": false
+  },
+  "project": "aify-comms-staging-c75ab1aeb375",
+  "checks": [
+    {
+      "id": "daemon",
+      "ok": true,
+      "detail": {
+        "daemon": {
+          "id": "32587306-bd39-4a4e-936a-a30c9a764b10",
+          "osType": "linux"
+        },
+        "absentStatus": 1
+      }
+    },
+    {
+      "id": "compose_cli",
+      "ok": true,
+      "detail": {
+        "version": "5.6.0",
+        "executable": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker-compose.exe"
+      }
+    },
+    {
+      "id": "daemon_capacity",
+      "ok": true,
+      "detail": {
+        "freeBytes": 98554458112,
+        "leftovers": []
+      }
+    },
+    {
+      "id": "candidate_isolation_created",
+      "ok": true,
+      "detail": "actual own images, mounts, environment, internal network and no published ports observed"
+    },
+    {
+      "id": "candidate_isolation_after_start",
+      "ok": true,
+      "detail": "actual own images, mounts, environment, internal network and no published ports observed"
+    },
+    {
+      "id": "candidate_internal_health",
+      "ok": true,
+      "detail": {
+        "status": "healthy",
+        "version": "0.9.18",
+        "build": "05b7f2d",
+        "operatorGate": false,
+        "sockets": 0,
+        "ntfy": {
+          "enabled": false,
+          "workerAlive": false,
+          "queueDepth": 0,
+          "queueMax": 256,
+          "sent": 0,
+          "coalesced": 0,
+          "droppedFull": 0,
+          "sendFailures": 0,
+          "lastSuccessAt": null,
+          "lastFailureAt": null
+        }
+      }
+    },
+    {
+      "id": "candidate_network_endpoint",
+      "ok": true,
+      "detail": {
+        "health": {
+          "status": 200,
+          "body": "{\"status\":\"healthy\",\"version\":\"0.9.18\",\"build\":\"05b7f2d\",\"operatorGate\":false,\"sockets\":0,\"ntfy\":{\"enabled\":false,\"workerAlive\":false,\"queueDepth\":0,\"queueMax\":256,\"sent\":0,\"coalesced\":0,\"droppedFull\":0,\"sendFailures\":0,\"lastSuccessAt\":null,\"lastFailureAt\":null}}"
+        },
+        "authenticatedStatus": 200,
+        "wrongKeyStatus": 401
+      }
+    },
+    {
+      "id": "runtime_versions",
+      "ok": true,
+      "detail": {
+        "node": "v22.20.0",
+        "codex": "codex-cli 0.166.0",
+        "claude": "2.1.316 (Claude Code)"
+      }
+    },
+    {
+      "id": "fresh_policy_absent_with_present_file_controls",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "out": "",
+        "tail": [
+          ""
+        ]
+      }
+    },
+    {
+      "id": "sudo_other_command_refused",
+      "ok": true,
+      "detail": {
+        "status": 1,
+        "out": "sudo: a password is required\n",
+        "tail": [
+          "sudo: a password is required"
+        ]
+      }
+    },
+    {
+      "id": "no_consent_one_command_no_publication (comms#49)",
+      "ok": false,
+      "detail": {
+        "status": 78,
+        "out": "=== aify-comms installer ===\nRepo: /src/candidate/comms\nClient: claude\nServer: http://service:8800\n\n\nadded 1 package in 193ms\n[aify-env] chain: entered for aify-comms\n[aify-env] installing aify-wrapper (/src/candidate/wrapper)\n\nadded 1 package in 167ms\n[aify-env] problem: policy: the managed channel policy is absent; explicit policy-only preparation is required\n'sudo' '/usr/local/bin/node' '/src/candidate/wrapper/lib/channel-install.mjs' 'prepare-policy' '--path' '/etc/claude-code/managed-settings.json'\n[aify-env] chain: not complete\nregistry-absent 0\nInstalling aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain...\n",
+        "tail": [
+          "[aify-env] installing aify-wrapper (/src/candidate/wrapper)",
+          "",
+          "added 1 package in 167ms",
+          "[aify-env] problem: policy: the managed channel policy is absent; explicit policy-only preparation is required",
+          "'sudo' '/usr/local/bin/node' '/src/candidate/wrapper/lib/channel-install.mjs' 'prepare-policy' '--path' '/etc/claude-code/managed-settings.json'",
+          "[aify-env] chain: not complete",
+          "registry-absent 0",
+          "Installing aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain..."
+        ]
+      }
+    },
+    {
+      "id": "fresh_install_claude_in_one_run (comms#49)",
+      "ok": false,
+      "detail": {
+        "status": 142,
+        "tail": [
+          "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")\r",
+          "  comms_agents()\r",
+          "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")\r",
+          "  comms_inbox(agentId=\"my-agent\", mode=\"headers\")\r",
+          "  comms_inbox(agentId=\"my-agent\", messageId=\"<message id>\")\r",
+          "[aify-env] registry after assets: 5608d96c2ec7708b7ba460f9edb111ba7e8ab39a3cb05653863f788381afb9eb\r",
+          "[aify-env] chain: complete\r",
+          "bash: line 1:   241 Alarm clock             python3 -I /work/tty-consent.py '[[\"approve comms-bridge from .* for aify-comms \\\\(tuple [0-9a-f]{64}\\\\)\\\\? \\\\[y/N\\\\]\",\"y\\n\"],[\"prepare only the channel policy with .*prepare-policy.*\\\\? \\\\[y/N\\\\]\",\"y\\n\"]]' bash -c 'cd /src/candidate/comms && exec bash install.sh --client claude http://service:8800'"
+        ]
+      }
+    },
+    {
+      "id": "fresh_install_codex_in_one_run (comms#49)",
+      "ok": false,
+      "detail": {
+        "status": 78,
+        "tail": [
+          "=== aify-comms installer ===\r",
+          "Repo: /src/candidate/comms\r",
+          "Client: codex\r",
+          "Server: http://service:8800\r",
+          "\r",
+          "aify-env is on PATH (/home/staging/.local/bin/aify-env) but npm did not install it, so it is not replaced.\r",
+          "  Update it where it came from, or rerun with --standalone to use this installer's full path.\r",
+          "TTY_CONSENT answered=0 expected=1"
+        ]
+      }
+    },
+    {
+      "id": "env_install_after_chain_no_prompt (env#32)",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "tail": [
+          "up to date in 170ms",
+          "[aify-env] installed: /home/staging/.local/bin/aify-env",
+          "[aify-env] /home/staging/.aify/config.json: transport.localSocket = true",
+          "[aify-env] aify-comms: ready (a usable credential is configured)",
+          "[aify-env] done.",
+          "[aify-env]   aify-env          starts the environment",
+          "[aify-env]   aify-env doctor   checks it",
+          "[aify-env]   aify-env tui      shows it"
+        ]
+      }
+    }
+  ],
+  "cleanup": {
+    "ok": true,
+    "receipts": [
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-c75ab1aeb375-host",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-c75ab1aeb375-dashboard",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-c75ab1aeb375-service",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-c75ab1aeb375-home",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-c75ab1aeb375-data",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "network",
+        "name": "aify-comms-staging-c75ab1aeb375-network",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-c75ab1aeb375-host",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-c75ab1aeb375-comms-candidate",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-c75ab1aeb375-comms-baseline",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-c75ab1aeb375-dependencies",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      }
+    ]
+  },
+  "inputsUnchanged": true,
+  "settlement": {
+    "settled": true
+  },
+  "environmentNames": [
+    "COMSPEC",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "WINDIR",
+    "MSYS_NO_PATHCONV",
+    "DATA_VOLUME_NAME"
+  ],
+  "qualification": "Linux synthetic fleet only"
+}

@@ -32,3 +32,18 @@ native Windows path for `--import` and failed before loading the tests. Its reco
 Env source and author receipts were checked separately. Its final fixture runs do not prove the real entry's connect
 CLI argument composition, sudo, policy elevation or E1 success. Those remain the single composed staging run's job.
 No service rebuild, host install, relaunch, policy edit or staging run was performed for this pin.
+
+## Subsequent full bridge gate and publication decision
+
+The full maintained bridge suite exited 1 with seven failed files and 12 failed assertions under the outer sealed
+runner. The same seven files, with the same 12 assertion labels, failed on pre-pin parent `bfdd0b5b` with wrapper
+`084e606`. Passing Windows USERNAME/USERDOMAIN through the otherwise unchanged seal cleared six files and 11
+assertions. The remaining usage-auth path assertion passed all seven cases with the normal repository path
+environment and the maintained runner's session/Herdr removal. The seal had replaced LOCALAPPDATA with the synthetic
+HOME root, while that assertion expects the normal AppData/Local suffix. No product or test was changed to fix it.
+
+The original full run remains red; these discriminators are not a new full-suite green. On 2026-11-13 the tech lead
+explicitly accepted those parent/harness controls and authorized publication of `05b7f2dc`. Remote main was read back
+at that exact commit after an ordinary push. The record is an explicit post-result gate decision, not the failed
+suite passing. Raw records are `issue49-pin-c09-full-bridge.txt`, `issue49-pin-parent-seven.txt`,
+`issue49-pin-c09-seven-identity.txt` and `issue49-usage-auth-repo-env.txt`.

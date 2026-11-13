@@ -172,7 +172,7 @@ async function waitForStoppedBridgeExpiry(s, stack, host) {
   throw new Error('stopped bridge did not expire within its declared liveness window, or active control disappeared');
 }
 
-export function runDoctors(s, host) {
+export function runDoctors(s, host, environment = []) {
   // Both doctors run in the owned home. No provider auth was provisioned or mounted.
   const commands = {
     comms: ['/home/staging/.aify-comms/mcp/stdio/doctor.js', '--repo', '/src/candidate/comms'],
@@ -183,7 +183,7 @@ export function runDoctors(s, host) {
   for (const [name, args] of Object.entries(commands)) {
     const result = s.command(['exec', '-w', '/work', '-e', `AIFY_API_KEY=${s.layout.fixtureKey}`,
       '-e', 'AIFY_COMMS_URL=http://service:8800', '-e', 'AIFY_ENV_ENDPOINT=http://127.0.0.1:8802',
-      host.name, 'node', ...args, '--json', '--strict']);
+      ...environment.flatMap(pair => ['-e', pair]), host.name, 'node', ...args, '--json', '--strict']);
     s.save(`${name}-doctor-output.json`, result);
     assert.ok(Number.isInteger(result.status) && !result.signal && !result.errorCode, `${name} doctor did not settle`);
     const report = JSON.parse(result.out);

@@ -1,0 +1,67 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-issue49-auth", "command": ["node", "--test", "mcp/stdio/tests/staging-sources.test.js", "mcp/stdio/tests/staging-e1-consent.test.js"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": false}
+TAP version 13
+# Subtest: definition commands retain the independently installed client environment
+ok 1 - definition commands retain the independently installed client environment
+  ---
+  duration_ms: 0.7125
+  type: 'test'
+  ...
+# Subtest: host starter preserves the baseline source and explicit client environment
+ok 2 - host starter preserves the baseline source and explicit client environment
+  ---
+  duration_ms: 0.3003
+  type: 'test'
+  ...
+# Subtest: host starter preserves the candidate source and explicit client environment
+ok 3 - host starter preserves the candidate source and explicit client environment
+  ---
+  duration_ms: 0.1582
+  type: 'test'
+  ...
+# Subtest: exact snapshots use each role and phase, exclude dirty bytes and preserve the input
+ok 4 - exact snapshots use each role and phase, exclude dirty bytes and preserve the input
+  ---
+  duration_ms: 3074.9926
+  type: 'test'
+  ...
+# Subtest: the actual stamp binds a snapshot artifact rather than silently declaring it pending
+ok 5 - the actual stamp binds a snapshot artifact rather than silently declaring it pending
+  ---
+  duration_ms: 4875.3925
+  type: 'test'
+  ...
+# Subtest: untracked credential-like input is excluded while tracked source is materialized
+ok 6 - untracked credential-like input is excluded while tracked source is materialized
+  ---
+  duration_ms: 2563.9679
+  type: 'test'
+  ...
+# Subtest: an unresolved baseline commit is refused before any snapshot fetch
+ok 7 - an unresolved baseline commit is refused before any snapshot fetch
+  ---
+  duration_ms: 815.5035
+  type: 'test'
+  ...
+# Subtest: an unresolved candidate commit is refused before any snapshot fetch
+ok 8 - an unresolved candidate commit is refused before any snapshot fetch
+  ---
+  duration_ms: 865.8227
+  type: 'test'
+  ...
+# Subtest: a pre-existing output directory is refused without changing its contents
+ok 9 - a pre-existing output directory is refused without changing its contents
+  ---
+  duration_ms: 763.8803
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 13048.6286
+
+ACTUAL_EXIT=0

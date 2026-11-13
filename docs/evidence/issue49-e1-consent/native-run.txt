@@ -1,0 +1,38 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-issue49-auth", "command": ["C:/Program Files/Git/bin/bash.exe", "scripts/staging-e2e.sh", "E1", "--refs", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/refs-issue49-e1-trust.json", "--out", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/e1-consented-20261113-3", "--env-repo", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/env-2a2a702", "--wrapper-repo", "C:/Users/Administrator/projects/comms-evidence-fixes-20261106/wrapper-c09fd03"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": false}
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS daemon_capacity
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+PASS fresh_policy_absent_with_present_file_controls
+PASS sudo_other_command_refused
+PASS no_consent_one_command_no_publication (comms#49)
+PASS fresh_install_claude_in_one_run (comms#49)
+PASS fresh_codex_path_excludes_claude_prefix
+PASS fresh_install_codex_in_one_run (comms#49)
+PASS env_install_after_chain_no_prompt (env#32)
+PASS candidate_env_initially_absent
+PASS candidate_env_linux
+PASS candidate_definitions_published
+PASS candidate_managed_worker
+NOT_RUN comms_usage-openai: provider qualification excluded
+NOT_RUN env_context-window: provider qualification excluded
+NOT_RUN env_claude-login: provider qualification excluded
+PASS comms_doctor_applicable
+PASS env_doctor_applicable
+PASS auth_exempt_paths_exact (comms#43)
+PASS gateway_host_admitted_attacker_refused (comms#27)
+PASS check_reports_wrapper_permissions (wrapper#21)
+PASS installed_launchers_parse (wrapper#9)
+PASS missing_option_value_refused (wrapper#18)
+NOT_RUN GitHub fetch of env and wrapper: staging has no internet; the work-PC install proves the fetch
+NOT_RUN comms#27 dashboard container half: no staging dashboard; checked live
+PASS cleanup
+PASS E1
+
+ACTUAL_EXIT=0

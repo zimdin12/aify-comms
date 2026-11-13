@@ -1,0 +1,1215 @@
+{"cwd": "C:\\Users\\Administrator\\projects\\aify-comms-issue49-auth", "command": ["node", "--test", "mcp/stdio/tests/staging-build.test.js", "mcp/stdio/tests/staging-capacity.test.js", "mcp/stdio/tests/staging-cli.test.js", "mcp/stdio/tests/staging-e1-config-keys.test.js", "mcp/stdio/tests/staging-e1-consent.test.js", "mcp/stdio/tests/staging-isolation.test.js", "mcp/stdio/tests/staging-manifest.test.js", "mcp/stdio/tests/staging-observed-isolation.test.js", "mcp/stdio/tests/staging-resources.test.js", "mcp/stdio/tests/staging-runtime-brain.test.js", "mcp/stdio/tests/staging-session.test.js", "mcp/stdio/tests/staging-shell-syntax.test.js", "mcp/stdio/tests/staging-sources.test.js"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": false}
+TAP version 13
+# Subtest: each image is admitted before its build
+ok 1 - each image is admitted before its build
+  ---
+  duration_ms: 1.0729
+  type: 'test'
+  ...
+# Subtest: image builds receive the exact frozen runtime inputs
+ok 2 - image builds receive the exact frozen runtime inputs
+  ---
+  duration_ms: 0.1795
+  type: 'test'
+  ...
+# Subtest: an unsuccessful image build stops before admitting another image: {"status":null}
+ok 3 - an unsuccessful image build stops before admitting another image: {"status":null}
+  ---
+  duration_ms: 0.2998
+  type: 'test'
+  ...
+# Subtest: an unsuccessful image build stops before admitting another image: {"status":1}
+ok 4 - an unsuccessful image build stops before admitting another image: {"status":1}
+  ---
+  duration_ms: 0.0819
+  type: 'test'
+  ...
+# Subtest: an unsuccessful image build stops before admitting another image: {"status":0,"errorCode":"ETIMEDOUT"}
+ok 5 - an unsuccessful image build stops before admitting another image: {"status":0,"errorCode":"ETIMEDOUT"}
+  ---
+  duration_ms: 0.1293
+  type: 'test'
+  ...
+# Subtest: an unsuccessful image build stops before admitting another image: {"status":0,"signal":"SIGTERM"}
+ok 6 - an unsuccessful image build stops before admitting another image: {"status":0,"signal":"SIGTERM"}
+  ---
+  duration_ms: 0.0794
+  type: 'test'
+  ...
+# Subtest: refused resource admission never reaches Docker build
+ok 7 - refused resource admission never reaches Docker build
+  ---
+  duration_ms: 0.1699
+  type: 'test'
+  ...
+# Subtest: a run refuses to start below 40 GB free, naming what is free
+ok 8 - a run refuses to start below 40 GB free, naming what is free
+  ---
+  duration_ms: 1.2887
+  type: 'test'
+  ...
+# Subtest: a run refuses to start beside another run's labelled resources, listing them, and deletes nothing
+ok 9 - a run refuses to start beside another run's labelled resources, listing them, and deletes nothing
+  ---
+  duration_ms: 0.2355
+  type: 'test'
+  ...
+# Subtest: enough space and no labelled leftovers pass, after asking all four resource kinds
+ok 10 - enough space and no labelled leftovers pass, after asking all four resource kinds
+  ---
+  duration_ms: 0.602
+  type: 'test'
+  ...
+# Subtest: real Node entry checks inputs without claiming a switch
+ok 11 - real Node entry checks inputs without claiming a switch
+  ---
+  duration_ms: 62.1304
+  type: 'test'
+  ...
+# Subtest: real shell entry checks inputs without claiming a switch
+ok 12 - real shell entry checks inputs without claiming a switch
+  ---
+  duration_ms: 492.2214
+  type: 'test'
+  ...
+# Subtest: the real entry refuses incomplete version inputs instead of filling from this host
+ok 13 - the real entry refuses incomplete version inputs instead of filling from this host
+  ---
+  duration_ms: 61.0233
+  type: 'test'
+  ...
+# Subtest: an unavailable or unconfigured scenario never becomes a successful preflight placeholder
+ok 14 - an unavailable or unconfigured scenario never becomes a successful preflight placeholder
+  ---
+  duration_ms: 61.67
+  type: 'test'
+  ...
+# Subtest: the Docker process environment drops live carriers and credentials but retains OS plumbing
+ok 15 - the Docker process environment drops live carriers and credentials but retains OS plumbing
+  ---
+  duration_ms: 0.2437
+  type: 'test'
+  ...
+# Subtest: a malformed refs file is refused without echoing its credential-like bytes
+ok 16 - a malformed refs file is refused without echoing its credential-like bytes
+  ---
+  duration_ms: 64.0588
+  type: 'test'
+  ...
+# Subtest: a later successful inspection cannot settle an earlier timed-out Docker command
+ok 17 - a later successful inspection cannot settle an earlier timed-out Docker command
+  ---
+  duration_ms: 0.3539
+  type: 'test'
+  ...
+# Subtest: dockerEnvironment refuses live/default DATA_VOLUME_NAME
+ok 18 - dockerEnvironment refuses live/default DATA_VOLUME_NAME
+  ---
+  duration_ms: 0.4117
+  type: 'test'
+  ...
+# Subtest: StagingDocker refuses live/default DATA_VOLUME_NAME
+ok 19 - StagingDocker refuses live/default DATA_VOLUME_NAME
+  ---
+  duration_ms: 0.2821
+  type: 'test'
+  ...
+# Subtest: dockerEnvironment refuses empty DATA_VOLUME_NAME
+ok 20 - dockerEnvironment refuses empty DATA_VOLUME_NAME
+  ---
+  duration_ms: 0.3016
+  type: 'test'
+  ...
+# Subtest: StagingDocker refuses empty DATA_VOLUME_NAME
+ok 21 - StagingDocker refuses empty DATA_VOLUME_NAME
+  ---
+  duration_ms: 0.1162
+  type: 'test'
+  ...
+# Subtest: dockerEnvironment refuses undefined DATA_VOLUME_NAME
+ok 22 - dockerEnvironment refuses undefined DATA_VOLUME_NAME
+  ---
+  duration_ms: 0.0532
+  type: 'test'
+  ...
+# Subtest: StagingDocker refuses undefined DATA_VOLUME_NAME
+ok 23 - StagingDocker refuses undefined DATA_VOLUME_NAME
+  ---
+  duration_ms: 0.0664
+  type: 'test'
+  ...
+# Subtest: direct Docker execution retains status, uses a timeout and copies argv
+ok 24 - direct Docker execution retains status, uses a timeout and copies argv
+  ---
+  duration_ms: 0.5516
+  type: 'test'
+  ...
+# Subtest: missing/timeout Docker status cannot become settled: {"status":null,"error":{"code":"ETIMEDOUT"}}
+ok 25 - missing/timeout Docker status cannot become settled: {"status":null,"error":{"code":"ETIMEDOUT"}}
+  ---
+  duration_ms: 0.1137
+  type: 'test'
+  ...
+# Subtest: missing/timeout Docker status cannot become settled: {}
+ok 26 - missing/timeout Docker status cannot become settled: {}
+  ---
+  duration_ms: 0.0446
+  type: 'test'
+  ...
+# Subtest: an executor exception is also unsettled, not an acknowledgement of completion
+ok 27 - an executor exception is also unsettled, not an acknowledgement of completion
+  ---
+  duration_ms: 0.0986
+  type: 'test'
+  ...
+# Subtest: valid config emits names only
+ok 28 - valid config emits names only
+  ---
+  duration_ms: 51.7866
+  type: 'test'
+  ...
+# Subtest: missing config reports only the error code
+ok 29 - missing config reports only the error code
+  ---
+  duration_ms: 155.4461
+  type: 'test'
+  ...
+# Subtest: malformed config never prints input or parser detail
+ok 30 - malformed config never prints input or parser detail
+  ---
+  duration_ms: 269.6709
+  type: 'test'
+  ...
+# Subtest: definition commands retain the independently installed client environment
+ok 31 - definition commands retain the independently installed client environment
+  ---
+  duration_ms: 0.7137
+  type: 'test'
+  ...
+# Subtest: host starter preserves the baseline source and explicit client environment
+ok 32 - host starter preserves the baseline source and explicit client environment
+  ---
+  duration_ms: 0.3168
+  type: 'test'
+  ...
+# Subtest: host starter preserves the candidate source and explicit client environment
+ok 33 - host starter preserves the candidate source and explicit client environment
+  ---
+  duration_ms: 0.1725
+  type: 'test'
+  ...
+# Subtest: the generated staging layout has no host bind or credential input
+ok 34 - the generated staging layout has no host bind or credential input
+  ---
+  duration_ms: 1.4548
+  type: 'test'
+  ...
+# Subtest: DATA_VOLUME_NAME must be explicitly owned, not undefined
+ok 35 - DATA_VOLUME_NAME must be explicitly owned, not undefined
+  ---
+  duration_ms: 0.3635
+  type: 'test'
+  ...
+# Subtest: DATA_VOLUME_NAME must be explicitly owned, not 
+ok 36 - DATA_VOLUME_NAME must be explicitly owned, not 
+  ---
+  duration_ms: 0.0868
+  type: 'test'
+  ...
+# Subtest: DATA_VOLUME_NAME must be explicitly owned, not aify-comms-data
+ok 37 - DATA_VOLUME_NAME must be explicitly owned, not aify-comms-data
+  ---
+  duration_ms: 0.1229
+  type: 'test'
+  ...
+# Subtest: DATA_VOLUME_NAME must be explicitly owned, not another-run-data
+ok 38 - DATA_VOLUME_NAME must be explicitly owned, not another-run-data
+  ---
+  duration_ms: 0.1006
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses live volume
+ok 39 - the real isolation validator refuses live volume
+  ---
+  duration_ms: 0.2797
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses external volume
+ok 40 - the real isolation validator refuses external volume
+  ---
+  duration_ms: 0.1403
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses host credential mount
+ok 41 - the real isolation validator refuses host credential mount
+  ---
+  duration_ms: 0.0967
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses Docker socket mount
+ok 42 - the real isolation validator refuses Docker socket mount
+  ---
+  duration_ms: 0.2741
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses ambient provider key
+ok 43 - the real isolation validator refuses ambient provider key
+  ---
+  duration_ms: 0.3315
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses ambient env file
+ok 44 - the real isolation validator refuses ambient env file
+  ---
+  duration_ms: 0.1642
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses host network
+ok 45 - the real isolation validator refuses host network
+  ---
+  duration_ms: 0.119
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses privileged container
+ok 46 - the real isolation validator refuses privileged container
+  ---
+  duration_ms: 0.0911
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses external network
+ok 47 - the real isolation validator refuses external network
+  ---
+  duration_ms: 0.0882
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses public port
+ok 48 - the real isolation validator refuses public port
+  ---
+  duration_ms: 0.0845
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses loopback publication
+ok 49 - the real isolation validator refuses loopback publication
+  ---
+  duration_ms: 0.0727
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses foreign image
+ok 50 - the real isolation validator refuses foreign image
+  ---
+  duration_ms: 0.0753
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses surprise service
+ok 51 - the real isolation validator refuses surprise service
+  ---
+  duration_ms: 0.0708
+  type: 'test'
+  ...
+# Subtest: the real isolation validator refuses missing service
+ok 52 - the real isolation validator refuses missing service
+  ---
+  duration_ms: 0.066
+  type: 'test'
+  ...
+# Subtest: isolation diagnostics do not echo unexpected credential values
+ok 53 - isolation diagnostics do not echo unexpected credential values
+  ---
+  duration_ms: 0.176
+  type: 'test'
+  ...
+# Subtest: invalid run identity undefined refuses
+ok 54 - invalid run identity undefined refuses
+  ---
+  duration_ms: 0.0793
+  type: 'test'
+  ...
+# Subtest: invalid run identity "" refuses
+ok 55 - invalid run identity "" refuses
+  ---
+  duration_ms: 0.0407
+  type: 'test'
+  ...
+# Subtest: invalid run identity "aify-comms" refuses
+ok 56 - invalid run identity "aify-comms" refuses
+  ---
+  duration_ms: 0.0338
+  type: 'test'
+  ...
+# Subtest: invalid run identity "../live" refuses
+ok 57 - invalid run identity "../live" refuses
+  ---
+  duration_ms: 0.0341
+  type: 'test'
+  ...
+# Subtest: invalid run identity "0123456789ab\\n" refuses
+ok 58 - invalid run identity "0123456789ab\\n" refuses
+  ---
+  duration_ms: 0.031
+  type: 'test'
+  ...
+# Subtest: a complete frozen tuple retains exact refs without consulting moving main
+ok 59 - a complete frozen tuple retains exact refs without consulting moving main
+  ---
+  duration_ms: 1.5142
+  type: 'test'
+  ...
+# Subtest: baseline.comms refuses incomplete or moving ref undefined
+ok 60 - baseline.comms refuses incomplete or moving ref undefined
+  ---
+  duration_ms: 0.2762
+  type: 'test'
+  ...
+# Subtest: baseline.comms refuses incomplete or moving ref 
+ok 61 - baseline.comms refuses incomplete or moving ref 
+  ---
+  duration_ms: 0.0708
+  type: 'test'
+  ...
+# Subtest: baseline.comms refuses incomplete or moving ref main
+ok 62 - baseline.comms refuses incomplete or moving ref main
+  ---
+  duration_ms: 0.7319
+  type: 'test'
+  ...
+# Subtest: baseline.comms refuses incomplete or moving ref 0ae107d0
+ok 63 - baseline.comms refuses incomplete or moving ref 0ae107d0
+  ---
+  duration_ms: 0.18
+  type: 'test'
+  ...
+# Subtest: baseline.comms refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+ok 64 - baseline.comms refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  ---
+  duration_ms: 0.0697
+  type: 'test'
+  ...
+# Subtest: baseline.comms refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+ok 65 - baseline.comms refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+  ---
+  duration_ms: 0.1172
+  type: 'test'
+  ...
+# Subtest: baseline.env refuses incomplete or moving ref undefined
+ok 66 - baseline.env refuses incomplete or moving ref undefined
+  ---
+  duration_ms: 0.0701
+  type: 'test'
+  ...
+# Subtest: baseline.env refuses incomplete or moving ref 
+ok 67 - baseline.env refuses incomplete or moving ref 
+  ---
+  duration_ms: 0.225
+  type: 'test'
+  ...
+# Subtest: baseline.env refuses incomplete or moving ref main
+ok 68 - baseline.env refuses incomplete or moving ref main
+  ---
+  duration_ms: 0.3127
+  type: 'test'
+  ...
+# Subtest: baseline.env refuses incomplete or moving ref 0ae107d0
+ok 69 - baseline.env refuses incomplete or moving ref 0ae107d0
+  ---
+  duration_ms: 0.1188
+  type: 'test'
+  ...
+# Subtest: baseline.env refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+ok 70 - baseline.env refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  ---
+  duration_ms: 0.0623
+  type: 'test'
+  ...
+# Subtest: baseline.env refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+ok 71 - baseline.env refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+  ---
+  duration_ms: 0.081
+  type: 'test'
+  ...
+# Subtest: baseline.wrapper refuses incomplete or moving ref undefined
+ok 72 - baseline.wrapper refuses incomplete or moving ref undefined
+  ---
+  duration_ms: 0.0604
+  type: 'test'
+  ...
+# Subtest: baseline.wrapper refuses incomplete or moving ref 
+ok 73 - baseline.wrapper refuses incomplete or moving ref 
+  ---
+  duration_ms: 0.0627
+  type: 'test'
+  ...
+# Subtest: baseline.wrapper refuses incomplete or moving ref main
+ok 74 - baseline.wrapper refuses incomplete or moving ref main
+  ---
+  duration_ms: 0.0626
+  type: 'test'
+  ...
+# Subtest: baseline.wrapper refuses incomplete or moving ref 0ae107d0
+ok 75 - baseline.wrapper refuses incomplete or moving ref 0ae107d0
+  ---
+  duration_ms: 0.0413
+  type: 'test'
+  ...
+# Subtest: baseline.wrapper refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+ok 76 - baseline.wrapper refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  ---
+  duration_ms: 0.0425
+  type: 'test'
+  ...
+# Subtest: baseline.wrapper refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+ok 77 - baseline.wrapper refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+  ---
+  duration_ms: 0.0576
+  type: 'test'
+  ...
+# Subtest: baseline must not silently omit a source tuple
+ok 78 - baseline must not silently omit a source tuple
+  ---
+  duration_ms: 0.0909
+  type: 'test'
+  ...
+# Subtest: candidate.comms refuses incomplete or moving ref undefined
+ok 79 - candidate.comms refuses incomplete or moving ref undefined
+  ---
+  duration_ms: 0.0557
+  type: 'test'
+  ...
+# Subtest: candidate.comms refuses incomplete or moving ref 
+ok 80 - candidate.comms refuses incomplete or moving ref 
+  ---
+  duration_ms: 0.0487
+  type: 'test'
+  ...
+# Subtest: candidate.comms refuses incomplete or moving ref main
+ok 81 - candidate.comms refuses incomplete or moving ref main
+  ---
+  duration_ms: 0.0435
+  type: 'test'
+  ...
+# Subtest: candidate.comms refuses incomplete or moving ref 0ae107d0
+ok 82 - candidate.comms refuses incomplete or moving ref 0ae107d0
+  ---
+  duration_ms: 0.0423
+  type: 'test'
+  ...
+# Subtest: candidate.comms refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+ok 83 - candidate.comms refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  ---
+  duration_ms: 0.045
+  type: 'test'
+  ...
+# Subtest: candidate.comms refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+ok 84 - candidate.comms refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+  ---
+  duration_ms: 0.0398
+  type: 'test'
+  ...
+# Subtest: candidate.env refuses incomplete or moving ref undefined
+ok 85 - candidate.env refuses incomplete or moving ref undefined
+  ---
+  duration_ms: 0.0433
+  type: 'test'
+  ...
+# Subtest: candidate.env refuses incomplete or moving ref 
+ok 86 - candidate.env refuses incomplete or moving ref 
+  ---
+  duration_ms: 0.0453
+  type: 'test'
+  ...
+# Subtest: candidate.env refuses incomplete or moving ref main
+ok 87 - candidate.env refuses incomplete or moving ref main
+  ---
+  duration_ms: 0.041
+  type: 'test'
+  ...
+# Subtest: candidate.env refuses incomplete or moving ref 0ae107d0
+ok 88 - candidate.env refuses incomplete or moving ref 0ae107d0
+  ---
+  duration_ms: 0.0913
+  type: 'test'
+  ...
+# Subtest: candidate.env refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+ok 89 - candidate.env refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  ---
+  duration_ms: 0.0598
+  type: 'test'
+  ...
+# Subtest: candidate.env refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+ok 90 - candidate.env refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+  ---
+  duration_ms: 0.0457
+  type: 'test'
+  ...
+# Subtest: candidate.wrapper refuses incomplete or moving ref undefined
+ok 91 - candidate.wrapper refuses incomplete or moving ref undefined
+  ---
+  duration_ms: 0.0437
+  type: 'test'
+  ...
+# Subtest: candidate.wrapper refuses incomplete or moving ref 
+ok 92 - candidate.wrapper refuses incomplete or moving ref 
+  ---
+  duration_ms: 0.0398
+  type: 'test'
+  ...
+# Subtest: candidate.wrapper refuses incomplete or moving ref main
+ok 93 - candidate.wrapper refuses incomplete or moving ref main
+  ---
+  duration_ms: 0.6076
+  type: 'test'
+  ...
+# Subtest: candidate.wrapper refuses incomplete or moving ref 0ae107d0
+ok 94 - candidate.wrapper refuses incomplete or moving ref 0ae107d0
+  ---
+  duration_ms: 0.071
+  type: 'test'
+  ...
+# Subtest: candidate.wrapper refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+ok 95 - candidate.wrapper refuses incomplete or moving ref zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+  ---
+  duration_ms: 0.0531
+  type: 'test'
+  ...
+# Subtest: candidate.wrapper refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+ok 96 - candidate.wrapper refuses incomplete or moving ref 1111111111111111111111111111111111111111\\n
+  ---
+  duration_ms: 0.0493
+  type: 'test'
+  ...
+# Subtest: candidate must not silently omit a source tuple
+ok 97 - candidate must not silently omit a source tuple
+  ---
+  duration_ms: 0.0485
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.nodeImage requires an explicit qualified version
+ok 98 - runtimeVersions.nodeImage requires an explicit qualified version
+  ---
+  duration_ms: 0.1042
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.nodeImage requires an explicit qualified version
+ok 99 - runtimeVersions.nodeImage requires an explicit qualified version
+  ---
+  duration_ms: 0.1074
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.nodeImage requires an explicit qualified version
+ok 100 - runtimeVersions.nodeImage requires an explicit qualified version
+  ---
+  duration_ms: 0.0534
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.codex requires an explicit qualified version
+ok 101 - runtimeVersions.codex requires an explicit qualified version
+  ---
+  duration_ms: 0.0519
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.codex requires an explicit qualified version
+ok 102 - runtimeVersions.codex requires an explicit qualified version
+  ---
+  duration_ms: 0.0492
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.codex requires an explicit qualified version
+ok 103 - runtimeVersions.codex requires an explicit qualified version
+  ---
+  duration_ms: 0.0429
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.claude requires an explicit qualified version
+ok 104 - runtimeVersions.claude requires an explicit qualified version
+  ---
+  duration_ms: 0.1951
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.claude requires an explicit qualified version
+ok 105 - runtimeVersions.claude requires an explicit qualified version
+  ---
+  duration_ms: 0.0643
+  type: 'test'
+  ...
+# Subtest: runtimeVersions.claude requires an explicit qualified version
+ok 106 - runtimeVersions.claude requires an explicit qualified version
+  ---
+  duration_ms: 0.052
+  type: 'test'
+  ...
+# Subtest: missing runtimes refuses before any runner exists
+ok 107 - missing runtimes refuses before any runner exists
+  ---
+  duration_ms: 0.1437
+  type: 'test'
+  ...
+# Subtest: live-copy seed refuses before any runner exists
+ok 108 - live-copy seed refuses before any runner exists
+  ---
+  duration_ms: 0.0858
+  type: 'test'
+  ...
+# Subtest: missing seed refuses before any runner exists
+ok 109 - missing seed refuses before any runner exists
+  ---
+  duration_ms: 0.078
+  type: 'test'
+  ...
+# Subtest: live-copy enabled refuses before any runner exists
+ok 110 - live-copy enabled refuses before any runner exists
+  ---
+  duration_ms: 0.0539
+  type: 'test'
+  ...
+# Subtest: missing live-copy flag refuses before any runner exists
+ok 111 - missing live-copy flag refuses before any runner exists
+  ---
+  duration_ms: 0.0471
+  type: 'test'
+  ...
+# Subtest: rendered defaults and actual own containers retain isolation for service
+ok 112 - rendered defaults and actual own containers retain isolation for service
+  ---
+  duration_ms: 2.2204
+  type: 'test'
+  ...
+# Subtest: rendered defaults and actual own containers retain isolation for dashboard
+ok 113 - rendered defaults and actual own containers retain isolation for dashboard
+  ---
+  duration_ms: 0.4269
+  type: 'test'
+  ...
+# Subtest: rendered defaults and actual own containers retain isolation for host
+ok 114 - rendered defaults and actual own containers retain isolation for host
+  ---
+  duration_ms: 0.2555
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses an additional host bind for host
+ok 115 - actual container inspection refuses an additional host bind for host
+  ---
+  duration_ms: 6.8393
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses an additional host bind for dashboard
+ok 116 - actual container inspection refuses an additional host bind for dashboard
+  ---
+  duration_ms: 0.1333
+  type: 'test'
+  ...
+# Subtest: actual host inspection refuses a foreign persistent home volume
+ok 117 - actual host inspection refuses a foreign persistent home volume
+  ---
+  duration_ms: 0.1441
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses ambient environment
+ok 118 - actual Compose rendering refuses ambient environment
+  ---
+  duration_ms: 0.7541
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses host bind
+ok 119 - actual Compose rendering refuses host bind
+  ---
+  duration_ms: 0.1519
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses public port
+ok 120 - actual Compose rendering refuses public port
+  ---
+  duration_ms: 0.3245
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses loopback publication
+ok 121 - actual Compose rendering refuses loopback publication
+  ---
+  duration_ms: 0.3105
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses external data volume
+ok 122 - actual Compose rendering refuses external data volume
+  ---
+  duration_ms: 0.1509
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses noninternal network
+ok 123 - actual Compose rendering refuses noninternal network
+  ---
+  duration_ms: 0.0968
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses privileged service
+ok 124 - actual Compose rendering refuses privileged service
+  ---
+  duration_ms: 0.1078
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses ambient env file
+ok 125 - actual Compose rendering refuses ambient env file
+  ---
+  duration_ms: 0.1697
+  type: 'test'
+  ...
+# Subtest: actual Compose rendering refuses missing service
+ok 126 - actual Compose rendering refuses missing service
+  ---
+  duration_ms: 0.0901
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses foreign data volume
+ok 127 - actual container inspection refuses foreign data volume
+  ---
+  duration_ms: 0.1944
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses host bind
+ok 128 - actual container inspection refuses host bind
+  ---
+  duration_ms: 0.1002
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses additional mount
+ok 129 - actual container inspection refuses additional mount
+  ---
+  duration_ms: 0.1036
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses foreign image
+ok 130 - actual container inspection refuses foreign image
+  ---
+  duration_ms: 0.0715
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses foreign labels
+ok 131 - actual container inspection refuses foreign labels
+  ---
+  duration_ms: 0.0689
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses host network
+ok 132 - actual container inspection refuses host network
+  ---
+  duration_ms: 0.0851
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses privileged runtime
+ok 133 - actual container inspection refuses privileged runtime
+  ---
+  duration_ms: 0.0848
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses loopback host binding
+ok 134 - actual container inspection refuses loopback host binding
+  ---
+  duration_ms: 0.0845
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses automatic port publication
+ok 135 - actual container inspection refuses automatic port publication
+  ---
+  duration_ms: 0.1243
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses unobserved port bindings
+ok 136 - actual container inspection refuses unobserved port bindings
+  ---
+  duration_ms: 0.1174
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses host pid namespace
+ok 137 - actual container inspection refuses host pid namespace
+  ---
+  duration_ms: 0.1036
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses ambient credential
+ok 138 - actual container inspection refuses ambient credential
+  ---
+  duration_ms: 0.0857
+  type: 'test'
+  ...
+# Subtest: actual container inspection refuses unobserved metadata
+ok 139 - actual container inspection refuses unobserved metadata
+  ---
+  duration_ms: 0.0763
+  type: 'test'
+  ...
+# Subtest: a staging volume is inspected as a volume, never as a container
+ok 140 - a staging volume is inspected as a volume, never as a container
+  ---
+  duration_ms: 1.1505
+  type: 'test'
+  ...
+# Subtest: Docker not-found for this volume proves ABSENT
+ok 141 - Docker not-found for this volume proves ABSENT
+  ---
+  duration_ms: 0.2392
+  type: 'test'
+  ...
+# Subtest: a successful container inspection is PRESENT
+ok 142 - a successful container inspection is PRESENT
+  ---
+  duration_ms: 0.0916
+  type: 'test'
+  ...
+# Subtest: container daemon unavailable is UNKNOWN, not ABSENT
+ok 143 - container daemon unavailable is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.1692
+  type: 'test'
+  ...
+# Subtest: container timeout is UNKNOWN, not ABSENT
+ok 144 - container timeout is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.1162
+  type: 'test'
+  ...
+# Subtest: container another resource missing is UNKNOWN, not ABSENT
+ok 145 - container another resource missing is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.0924
+  type: 'test'
+  ...
+# Subtest: a successful network inspection is PRESENT
+ok 146 - a successful network inspection is PRESENT
+  ---
+  duration_ms: 0.1471
+  type: 'test'
+  ...
+# Subtest: network daemon unavailable is UNKNOWN, not ABSENT
+ok 147 - network daemon unavailable is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.1138
+  type: 'test'
+  ...
+# Subtest: network timeout is UNKNOWN, not ABSENT
+ok 148 - network timeout is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.2162
+  type: 'test'
+  ...
+# Subtest: network another resource missing is UNKNOWN, not ABSENT
+ok 149 - network another resource missing is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.2685
+  type: 'test'
+  ...
+# Subtest: a successful image inspection is PRESENT
+ok 150 - a successful image inspection is PRESENT
+  ---
+  duration_ms: 0.1187
+  type: 'test'
+  ...
+# Subtest: image daemon unavailable is UNKNOWN, not ABSENT
+ok 151 - image daemon unavailable is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.1096
+  type: 'test'
+  ...
+# Subtest: image timeout is UNKNOWN, not ABSENT
+ok 152 - image timeout is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.0368
+  type: 'test'
+  ...
+# Subtest: image another resource missing is UNKNOWN, not ABSENT
+ok 153 - image another resource missing is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.0744
+  type: 'test'
+  ...
+# Subtest: a successful volume inspection is PRESENT
+ok 154 - a successful volume inspection is PRESENT
+  ---
+  duration_ms: 0.0326
+  type: 'test'
+  ...
+# Subtest: volume daemon unavailable is UNKNOWN, not ABSENT
+ok 155 - volume daemon unavailable is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.0759
+  type: 'test'
+  ...
+# Subtest: volume timeout is UNKNOWN, not ABSENT
+ok 156 - volume timeout is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.0346
+  type: 'test'
+  ...
+# Subtest: volume another resource missing is UNKNOWN, not ABSENT
+ok 157 - volume another resource missing is UNKNOWN, not ABSENT
+  ---
+  duration_ms: 0.0292
+  type: 'test'
+  ...
+# Subtest: existing container exact-name absence stays supported
+ok 158 - existing container exact-name absence stays supported
+  ---
+  duration_ms: 0.0562
+  type: 'test'
+  ...
+# Subtest: cancelled container inspection cannot prove absence from residual output
+ok 159 - cancelled container inspection cannot prove absence from residual output
+  ---
+  duration_ms: 0.0507
+  type: 'test'
+  ...
+# Subtest: existing network exact-name absence stays supported
+ok 160 - existing network exact-name absence stays supported
+  ---
+  duration_ms: 0.031
+  type: 'test'
+  ...
+# Subtest: cancelled network inspection cannot prove absence from residual output
+ok 161 - cancelled network inspection cannot prove absence from residual output
+  ---
+  duration_ms: 0.0259
+  type: 'test'
+  ...
+# Subtest: existing image exact-name absence stays supported
+ok 162 - existing image exact-name absence stays supported
+  ---
+  duration_ms: 0.0255
+  type: 'test'
+  ...
+# Subtest: cancelled image inspection cannot prove absence from residual output
+ok 163 - cancelled image inspection cannot prove absence from residual output
+  ---
+  duration_ms: 0.0242
+  type: 'test'
+  ...
+# Subtest: unsupported resource kind undefined fails closed
+ok 164 - unsupported resource kind undefined fails closed
+  ---
+  duration_ms: 0.2719
+  type: 'test'
+  ...
+# Subtest: unsupported resource kind  fails closed
+ok 165 - unsupported resource kind  fails closed
+  ---
+  duration_ms: 0.048
+  type: 'test'
+  ...
+# Subtest: unsupported resource kind not-a-docker-resource fails closed
+ok 166 - unsupported resource kind not-a-docker-resource fails closed
+  ---
+  duration_ms: 0.0515
+  type: 'test'
+  ...
+# Subtest: owned container is witnessed PRESENT before removal and ABSENT after
+ok 167 - owned container is witnessed PRESENT before removal and ABSENT after
+  ---
+  duration_ms: 0.6327
+  type: 'test'
+  ...
+# Subtest: a foreign container beside an owned resource survives
+ok 168 - a foreign container beside an owned resource survives
+  ---
+  duration_ms: 0.479
+  type: 'test'
+  ...
+# Subtest: owned network is witnessed PRESENT before removal and ABSENT after
+ok 169 - owned network is witnessed PRESENT before removal and ABSENT after
+  ---
+  duration_ms: 0.2898
+  type: 'test'
+  ...
+# Subtest: a foreign network beside an owned resource survives
+ok 170 - a foreign network beside an owned resource survives
+  ---
+  duration_ms: 0.2341
+  type: 'test'
+  ...
+# Subtest: owned image is witnessed PRESENT before removal and ABSENT after
+ok 171 - owned image is witnessed PRESENT before removal and ABSENT after
+  ---
+  duration_ms: 0.2267
+  type: 'test'
+  ...
+# Subtest: a foreign image beside an owned resource survives
+ok 172 - a foreign image beside an owned resource survives
+  ---
+  duration_ms: 0.2142
+  type: 'test'
+  ...
+# Subtest: owned volume is witnessed PRESENT before removal and ABSENT after
+ok 173 - owned volume is witnessed PRESENT before removal and ABSENT after
+  ---
+  duration_ms: 0.5483
+  type: 'test'
+  ...
+# Subtest: a foreign volume beside an owned resource survives
+ok 174 - a foreign volume beside an owned resource survives
+  ---
+  duration_ms: 0.2422
+  type: 'test'
+  ...
+# Subtest: UNKNOWN readback fails cleanup and does not authorize a removal
+ok 175 - UNKNOWN readback fails cleanup and does not authorize a removal
+  ---
+  duration_ms: 0.7223
+  type: 'test'
+  ...
+# Subtest: a name outside this run is refused before any Docker command
+ok 176 - a name outside this run is refused before any Docker command
+  ---
+  duration_ms: 0.1465
+  type: 'test'
+  ...
+# Subtest: a pre-existing resource cannot be adopted even when its run label matches
+ok 177 - a pre-existing resource cannot be adopted even when its run label matches
+  ---
+  duration_ms: 0.1639
+  type: 'test'
+  ...
+# Subtest: refused reservation never authorizes cleanup of a pre-existing volume
+ok 178 - refused reservation never authorizes cleanup of a pre-existing volume
+  ---
+  duration_ms: 0.1997
+  type: 'test'
+  ...
+# Subtest: UNKNOWN pre-creation inspection cannot reserve a resource
+ok 179 - UNKNOWN pre-creation inspection cannot reserve a resource
+  ---
+  duration_ms: 0.1741
+  type: 'test'
+  ...
+# Subtest: the actual prompt producer supplies the exact parent and nonce used by the fixture reply
+ok 180 - the actual prompt producer supplies the exact parent and nonce used by the fixture reply
+  ---
+  duration_ms: 2.808
+  type: 'test'
+  ...
+# Subtest: a non-probe turn sends nothing
+ok 181 - a non-probe turn sends nothing
+  ---
+  duration_ms: 0.6084
+  type: 'test'
+  ...
+# Subtest: a probe without the real producer message ID is refused before sending
+ok 182 - a probe without the real producer message ID is refused before sending
+  ---
+  duration_ms: 0.7829
+  type: 'test'
+  ...
+# Subtest: a probe with missing AIFY_AGENT_ID is refused before sending
+ok 183 - a probe with missing AIFY_AGENT_ID is refused before sending
+  ---
+  duration_ms: 0.6112
+  type: 'test'
+  ...
+# Subtest: a probe with missing STAGING_REPLY_TO is refused before sending
+ok 184 - a probe with missing STAGING_REPLY_TO is refused before sending
+  ---
+  duration_ms: 0.5521
+  type: 'test'
+  ...
+# Subtest: a refused real MCP send never becomes a successful fixture reply
+ok 185 - a refused real MCP send never becomes a successful fixture reply
+  ---
+  duration_ms: 1.1825
+  type: 'test'
+  ...
+# PASS baseline_env_linux
+# PASS candidate_owner
+# Subtest: private Docker config discovers the existing Compose tool without importing ambient auth or context
+ok 186 - private Docker config discovers the existing Compose tool without importing ambient auth or context
+  ---
+  duration_ms: 39.8344
+  type: 'test'
+  ...
+# Subtest: a later baseline-health annotation cannot rewrite an earlier check observation
+ok 187 - a later baseline-health annotation cannot rewrite an earlier check observation
+  ---
+  duration_ms: 40.4169
+  type: 'test'
+  ...
+# Subtest: replacing the selected Compose binary invalidates the native input binding
+ok 188 - replacing the selected Compose binary invalidates the native input binding
+  ---
+  duration_ms: 31.6081
+  type: 'test'
+  ...
+# Subtest: healthy shell population passes without executing it
+ok 189 - healthy shell population passes without executing it
+  ---
+  duration_ms: 141.3862
+  type: 'test'
+  ...
+# Subtest: a JavaScript command in the installed population is not parsed as Bash
+ok 190 - a JavaScript command in the installed population is not parsed as Bash
+  ---
+  duration_ms: 164.2196
+  type: 'test'
+  ...
+# Subtest: selection follows the Bash shebang, not a launcher-name suffix
+ok 191 - selection follows the Bash shebang, not a launcher-name suffix
+  ---
+  duration_ms: 226.2281
+  type: 'test'
+  ...
+# Subtest: invalid Bash refuses the syntax probe
+ok 192 - invalid Bash refuses the syntax probe
+  ---
+  duration_ms: 59.1849
+  type: 'test'
+  ...
+# Subtest: exact snapshots use each role and phase, exclude dirty bytes and preserve the input
+ok 193 - exact snapshots use each role and phase, exclude dirty bytes and preserve the input
+  ---
+  duration_ms: 2931.6111
+  type: 'test'
+  ...
+# Subtest: the actual stamp binds a snapshot artifact rather than silently declaring it pending
+ok 194 - the actual stamp binds a snapshot artifact rather than silently declaring it pending
+  ---
+  duration_ms: 5609.4096
+  type: 'test'
+  ...
+# Subtest: untracked credential-like input is excluded while tracked source is materialized
+ok 195 - untracked credential-like input is excluded while tracked source is materialized
+  ---
+  duration_ms: 4135.1818
+  type: 'test'
+  ...
+# Subtest: a noncanonical or credential-bearing origin is refused before snapshot fetch
+ok 196 - a noncanonical or credential-bearing origin is refused before snapshot fetch
+  ---
+  duration_ms: 1842.0183
+  type: 'test'
+  ...
+# Subtest: a noncanonical or credential-bearing origin is refused before snapshot fetch
+ok 197 - a noncanonical or credential-bearing origin is refused before snapshot fetch
+  ---
+  duration_ms: 948.8475
+  type: 'test'
+  ...
+# Subtest: an unresolved baseline commit is refused before any snapshot fetch
+ok 198 - an unresolved baseline commit is refused before any snapshot fetch
+  ---
+  duration_ms: 698.3563
+  type: 'test'
+  ...
+# Subtest: an unresolved candidate commit is refused before any snapshot fetch
+ok 199 - an unresolved candidate commit is refused before any snapshot fetch
+  ---
+  duration_ms: 854.0043
+  type: 'test'
+  ...
+# Subtest: a pre-existing output directory is refused without changing its contents
+ok 200 - a pre-existing output directory is refused without changing its contents
+  ---
+  duration_ms: 756.9997
+  type: 'test'
+  ...
+1..200
+# tests 200
+# suites 0
+# pass 200
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 18364.575
+
+ACTUAL_EXIT=0

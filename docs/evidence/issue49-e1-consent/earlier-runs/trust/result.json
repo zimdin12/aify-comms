@@ -1,0 +1,552 @@
+{
+  "manifest": {
+    "baseline": {
+      "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+      "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+      "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+    },
+    "candidate": {
+      "comms": "05b7f2dca4096f3c45341b11d5533d93a7e85900",
+      "env": "68dcee4ddffffe192e6ecd6b8c7fbaf915a00401",
+      "wrapper": "c09fd03cb17d076acd8cd9c20ad5517efbea09d0"
+    },
+    "runtimeVersions": {
+      "nodeImage": "node:22.20.0-bookworm",
+      "codex": "0.166.0",
+      "claude": "2.1.316"
+    },
+    "seed": "synthetic-linux-fleet",
+    "liveCopyEnabled": false
+  },
+  "project": "aify-comms-staging-3865451fda1b",
+  "checks": [
+    {
+      "id": "daemon",
+      "ok": true,
+      "detail": {
+        "daemon": {
+          "id": "32587306-bd39-4a4e-936a-a30c9a764b10",
+          "osType": "linux"
+        },
+        "absentStatus": 1
+      }
+    },
+    {
+      "id": "compose_cli",
+      "ok": true,
+      "detail": {
+        "version": "5.6.0",
+        "executable": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker-compose.exe"
+      }
+    },
+    {
+      "id": "daemon_capacity",
+      "ok": true,
+      "detail": {
+        "freeBytes": 94587125760,
+        "leftovers": []
+      }
+    },
+    {
+      "id": "candidate_isolation_created",
+      "ok": true,
+      "detail": "actual own images, mounts, environment, internal network and no published ports observed"
+    },
+    {
+      "id": "candidate_isolation_after_start",
+      "ok": true,
+      "detail": "actual own images, mounts, environment, internal network and no published ports observed"
+    },
+    {
+      "id": "candidate_internal_health",
+      "ok": true,
+      "detail": {
+        "status": "healthy",
+        "version": "0.9.18",
+        "build": "05b7f2d",
+        "operatorGate": false,
+        "sockets": 0,
+        "ntfy": {
+          "enabled": false,
+          "workerAlive": false,
+          "queueDepth": 0,
+          "queueMax": 256,
+          "sent": 0,
+          "coalesced": 0,
+          "droppedFull": 0,
+          "sendFailures": 0,
+          "lastSuccessAt": null,
+          "lastFailureAt": null
+        }
+      }
+    },
+    {
+      "id": "candidate_network_endpoint",
+      "ok": true,
+      "detail": {
+        "health": {
+          "status": 200,
+          "body": "{\"status\":\"healthy\",\"version\":\"0.9.18\",\"build\":\"05b7f2d\",\"operatorGate\":false,\"sockets\":0,\"ntfy\":{\"enabled\":false,\"workerAlive\":false,\"queueDepth\":0,\"queueMax\":256,\"sent\":0,\"coalesced\":0,\"droppedFull\":0,\"sendFailures\":0,\"lastSuccessAt\":null,\"lastFailureAt\":null}}"
+        },
+        "authenticatedStatus": 200,
+        "wrongKeyStatus": 401
+      }
+    },
+    {
+      "id": "runtime_versions",
+      "ok": true,
+      "detail": {
+        "node": "v22.20.0",
+        "codex": "codex-cli 0.166.0",
+        "claude": "2.1.316 (Claude Code)"
+      }
+    },
+    {
+      "id": "fresh_policy_absent_with_present_file_controls",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "out": "",
+        "tail": [
+          ""
+        ]
+      }
+    },
+    {
+      "id": "sudo_other_command_refused",
+      "ok": true,
+      "detail": {
+        "status": 1,
+        "out": "sudo: a password is required\n",
+        "tail": [
+          "sudo: a password is required"
+        ]
+      }
+    },
+    {
+      "id": "no_consent_one_command_no_publication (comms#49)",
+      "ok": true,
+      "detail": {
+        "status": 78,
+        "out": "=== aify-comms installer ===\nRepo: /src/candidate/comms\nClient: claude\nServer: http://service:8800\n\n\nadded 1 package in 193ms\n[aify-env] chain: entered for aify-comms\n[aify-env] installing aify-wrapper (/src/candidate/wrapper)\n\nadded 1 package in 172ms\n[aify-env] problem: aify-comms: comms-bridge is not approved\n'aify-env' 'install' '--connect' 'aify-comms=http://service:8800' '--client' 'claude' '--installer' 'aify-comms=/src/candidate/comms/install.sh' '--no-prompt' '--secret-stdin' 'aify-comms.credentialRef' '--approve' 'efb478b71646ab11f941464c30d550a4b7696be82bba003b022f6bd8b7cb3f40'\n[aify-env] chain: not complete\nregistry-absent 0\nInstalling aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain...\n",
+        "tail": [
+          "[aify-env] installing aify-wrapper (/src/candidate/wrapper)",
+          "",
+          "added 1 package in 172ms",
+          "[aify-env] problem: aify-comms: comms-bridge is not approved",
+          "'aify-env' 'install' '--connect' 'aify-comms=http://service:8800' '--client' 'claude' '--installer' 'aify-comms=/src/candidate/comms/install.sh' '--no-prompt' '--secret-stdin' 'aify-comms.credentialRef' '--approve' 'efb478b71646ab11f941464c30d550a4b7696be82bba003b022f6bd8b7cb3f40'",
+          "[aify-env] chain: not complete",
+          "registry-absent 0",
+          "Installing aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain..."
+        ]
+      }
+    },
+    {
+      "id": "fresh_install_claude_in_one_run (comms#49)",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "tail": [
+          "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")\r",
+          "  comms_agents()\r",
+          "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")\r",
+          "  comms_inbox(agentId=\"my-agent\", mode=\"headers\")\r",
+          "  comms_inbox(agentId=\"my-agent\", messageId=\"<message id>\")\r",
+          "[aify-env] registry after assets: f6dd46c777886695b9c31eabf7333f6dd6d3f38b9f08322320eea0b26f12e63b\r",
+          "[aify-env] chain: complete\r",
+          "TTY_CONSENT answered=2 expected=2"
+        ]
+      }
+    },
+    {
+      "id": "fresh_codex_path_excludes_claude_prefix",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "out": "/usr/local/bin/node\n/usr/local/bin/npm\n",
+        "tail": [
+          "/usr/local/bin/node",
+          "/usr/local/bin/npm"
+        ]
+      }
+    },
+    {
+      "id": "fresh_install_codex_in_one_run (comms#49)",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "tail": [
+          "  # Add sessionHandle=\"$CODEX_THREAD_ID\" only when CODEX_THREAD_ID is non-empty in this same session.\r",
+          "  comms_agents()\r",
+          "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")\r",
+          "  comms_inbox(agentId=\"my-agent\", mode=\"headers\")\r",
+          "  comms_inbox(agentId=\"my-agent\", messageId=\"<message id>\")\r",
+          "[aify-env] registry after assets: 0bf1ca19d46f46bd5a9b5adbd6b58b10ef496c552361c3c27fef753f002d5f6d\r",
+          "[aify-env] chain: complete\r",
+          "TTY_CONSENT answered=1 expected=1"
+        ]
+      }
+    },
+    {
+      "id": "env_install_after_chain_no_prompt (env#32)",
+      "ok": true,
+      "detail": {
+        "status": 0,
+        "tail": [
+          "up to date in 171ms",
+          "[aify-env] installed: /home/staging/.local/bin/aify-env",
+          "[aify-env] /home/staging/.aify/config.json: transport.localSocket = true",
+          "[aify-env] aify-comms: ready (a usable credential is configured)",
+          "[aify-env] done.",
+          "[aify-env]   aify-env          starts the environment",
+          "[aify-env]   aify-env doctor   checks it",
+          "[aify-env]   aify-env tui      shows it"
+        ]
+      }
+    },
+    {
+      "id": "candidate_env_initially_absent",
+      "ok": true,
+      "detail": "no local env answered in this fresh container before the real start"
+    },
+    {
+      "id": "candidate_env_linux",
+      "ok": true,
+      "detail": {
+        "health": {
+          "status": "healthy",
+          "version": "0.9.12-dev",
+          "build": "02493dc4",
+          "codeOnDisk": "02493dc4",
+          "cwdRoots": [
+            "/work"
+          ],
+          "launchRootsFile": {
+            "file": "/home/staging/.aify/launch-roots.json",
+            "stored": [],
+            "problem": ""
+          },
+          "inputSocket": "/tmp/aify-env-1000/aify-env-8802.sock",
+          "pid": 1441,
+          "ownerIdentity": {
+            "version": 1,
+            "platform": "linux",
+            "bootId": "382d04b4-91e2-49ca-bb39-0babd1402e57",
+            "pid": 1441,
+            "startTicks": "54649992"
+          },
+          "ownershipRecovery": {
+            "ready": true,
+            "state": "ready",
+            "problem": "",
+            "displacedPid": null,
+            "unresolvedRecords": 0
+          },
+          "instance": "8bc69cb8-6092-4ebc-ab0d-d7db10686ce2",
+          "processes": [],
+          "unknown": [],
+          "history": {
+            "startedTotal": 0,
+            "lastExitAtMs": null,
+            "recentExits": []
+          },
+          "terminals": {
+            "available": true,
+            "reason": "",
+            "conptyDll": false
+          },
+          "residents": {
+            "held": true,
+            "state": "holding",
+            "reason": "",
+            "generation": 1794604084947,
+            "publisherInstance": "residents-8ba3bc6c7335",
+            "endpoint": "\u0000aify-residents-8ba3bc6c73358e55"
+          },
+          "advertising": false,
+          "advertisingTo": {},
+          "advertisingEnabled": true,
+          "advertiseCredentials": {},
+          "advertiseAttempts": {},
+          "advertiseOptedOut": [],
+          "advertiseIgnored": [],
+          "plugins": [],
+          "traffic": {
+            "requests": 1,
+            "bytesOut": 0
+          }
+        },
+        "process": "   1441 Ssl  node /src/candidate/env/bin/aify-env.mjs --port 8802\n"
+      }
+    },
+    {
+      "id": "candidate_definitions_published",
+      "ok": true,
+      "detail": {
+        "ids": [
+          "e4-worker-3865451fda1b",
+          "e4-stopped-3865451fda1b",
+          "e4-configured-3865451fda1b"
+        ]
+      }
+    },
+    {
+      "id": "candidate_managed_worker",
+      "ok": true,
+      "detail": {
+        "id": "e4-worker-3865451fda1b",
+        "sessionHandle": "6e588f8c-7391-491b-afe1-6972451e6840",
+        "processes": [
+          {
+            "id": "8bc69cb8-6092-4ebc-ab0d-d7db10686ce2-p1",
+            "service": "aify-comms",
+            "pid": 1863,
+            "terminal": true,
+            "startedAtMs": 1794604095025,
+            "label": "e4-worker-3865451fda1b",
+            "title": "",
+            "uptimeMs": 1040
+          }
+        ],
+        "witnesses": [
+          {
+            "pid": 1863,
+            "state": "S",
+            "startTicks": "54651019"
+          }
+        ]
+      }
+    },
+    {
+      "id": "comms_doctor_applicable",
+      "ok": true,
+      "detail": {
+        "exit": 0,
+        "failures": [],
+        "checked": [
+          "service",
+          "agent-state-publishers",
+          "session-handles",
+          "api-exposure",
+          "external-keys",
+          "bridge-installed",
+          "skills-installed",
+          "spawn-delegation",
+          "spawn-queue",
+          "tier-version",
+          "definitions-fresh",
+          "client-api-key",
+          "bridge-running",
+          "agent-identity",
+          "env-bridge",
+          "bridge-current"
+        ],
+        "notRun": [
+          "usage-openai"
+        ]
+      }
+    },
+    {
+      "id": "env_doctor_applicable",
+      "ok": false,
+      "detail": {
+        "exit": 1,
+        "failures": [
+          {
+            "id": "claude-trust-roots",
+            "state": "unanswered",
+            "detail": "~/.claude.json could not be read as claude's config, so which folders it trusts is unknown",
+            "fix": "",
+            "code": "unknown-claude-config"
+          }
+        ],
+        "checked": [
+          "terminal",
+          "registry",
+          "environment",
+          "agent-picker",
+          "processes",
+          "advertise-cred",
+          "claiming",
+          "code-current",
+          "definitions",
+          "undefined-agents",
+          "launch-roots",
+          "agents-outside-roots",
+          "aify-comms",
+          "credentials",
+          "env-processes",
+          "managed-orphans",
+          "auto-confirm",
+          "claude-trust-roots",
+          "gateway-orphans"
+        ],
+        "notRun": [
+          "context-window",
+          "claude-login"
+        ]
+      }
+    },
+    {
+      "id": "auth_exempt_paths_exact (comms#43)",
+      "ok": true,
+      "detail": {
+        "health": "200",
+        "docsWithoutKey": "401",
+        "docsWithKey": "200",
+        "lookalike": "401"
+      }
+    },
+    {
+      "id": "gateway_host_admitted_attacker_refused (comms#27)",
+      "ok": true,
+      "detail": {
+        "gateway": "200",
+        "attacker": "403"
+      }
+    },
+    {
+      "id": "check_reports_wrapper_permissions (wrapper#21)",
+      "ok": true,
+      "detail": {
+        "tail": [
+          "syntax-ok aify-comms",
+          "syntax-ok aify-doctor",
+          "syntax-ok aify-wrapper-install",
+          "syntax-ok claude-aify",
+          "syntax-ok codex",
+          "syntax-exit 0",
+          "missing-value 78",
+          "install.sh: --endpoint needs a value"
+        ]
+      }
+    },
+    {
+      "id": "installed_launchers_parse (wrapper#9)",
+      "ok": true,
+      "detail": [
+        "syntax-ok aify-comms",
+        "syntax-ok aify-doctor",
+        "syntax-ok aify-wrapper-install",
+        "syntax-ok claude-aify",
+        "syntax-ok codex"
+      ]
+    },
+    {
+      "id": "missing_option_value_refused (wrapper#18)",
+      "ok": true,
+      "detail": {
+        "tail": [
+          "syntax-ok aify-comms",
+          "syntax-ok aify-doctor",
+          "syntax-ok aify-wrapper-install",
+          "syntax-ok claude-aify",
+          "syntax-ok codex",
+          "syntax-exit 0",
+          "missing-value 78",
+          "install.sh: --endpoint needs a value"
+        ]
+      }
+    }
+  ],
+  "cleanup": {
+    "ok": true,
+    "receipts": [
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-3865451fda1b-host",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-3865451fda1b-dashboard",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "container",
+        "name": "aify-comms-staging-3865451fda1b-service",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-3865451fda1b-home",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "volume",
+        "name": "aify-comms-staging-3865451fda1b-data",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "network",
+        "name": "aify-comms-staging-3865451fda1b-network",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-3865451fda1b-host",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-3865451fda1b-comms-candidate",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-3865451fda1b-comms-baseline",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      },
+      {
+        "kind": "image",
+        "name": "aify-comms-staging-3865451fda1b-dependencies",
+        "plannedAfter": "absent",
+        "before": "present",
+        "removeStatus": 0,
+        "after": "absent"
+      }
+    ]
+  },
+  "inputsUnchanged": true,
+  "settlement": {
+    "settled": true
+  },
+  "environmentNames": [
+    "COMSPEC",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "WINDIR",
+    "MSYS_NO_PATHCONV",
+    "DATA_VOLUME_NAME"
+  ],
+  "qualification": "Linux synthetic fleet only"
+}

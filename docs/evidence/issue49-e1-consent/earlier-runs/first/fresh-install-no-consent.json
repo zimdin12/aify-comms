@@ -1,0 +1,14 @@
+{
+  "status": 78,
+  "out": "=== aify-comms installer ===\nRepo: /src/candidate/comms\nClient: claude\nServer: http://service:8800\n\n\nadded 1 package in 193ms\n[aify-env] chain: entered for aify-comms\n[aify-env] installing aify-wrapper (/src/candidate/wrapper)\n\nadded 1 package in 167ms\n[aify-env] problem: policy: the managed channel policy is absent; explicit policy-only preparation is required\n'sudo' '/usr/local/bin/node' '/src/candidate/wrapper/lib/channel-install.mjs' 'prepare-policy' '--path' '/etc/claude-code/managed-settings.json'\n[aify-env] chain: not complete\nregistry-absent 0\nInstalling aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain...\n",
+  "tail": [
+    "[aify-env] installing aify-wrapper (/src/candidate/wrapper)",
+    "",
+    "added 1 package in 167ms",
+    "[aify-env] problem: policy: the managed channel policy is absent; explicit policy-only preparation is required",
+    "'sudo' '/usr/local/bin/node' '/src/candidate/wrapper/lib/channel-install.mjs' 'prepare-policy' '--path' '/etc/claude-code/managed-settings.json'",
+    "[aify-env] chain: not complete",
+    "registry-absent 0",
+    "Installing aify-env (/src/candidate/env) into npm global prefix (/work/refusal-home/.local) to run the guided-install chain..."
+  ]
+}

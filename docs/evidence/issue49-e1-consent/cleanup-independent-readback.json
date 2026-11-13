@@ -1,0 +1,233 @@
+{
+  "project": "aify-comms-staging-6c0cf40fc521",
+  "present_control": {
+    "command": [
+      "docker",
+      "--config",
+      "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+      "image",
+      "inspect",
+      "node:22.20.0-bookworm",
+      "--format",
+      "{{.Id}}"
+    ],
+    "status": 0,
+    "out": "sha256:915acd9e9b885ead0c620e27e37c81b74c226e0e1c8177f37a60217b6eabb0d7\n",
+    "error": ""
+  },
+  "absent_control": {
+    "command": [
+      "docker",
+      "--config",
+      "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+      "container",
+      "inspect",
+      "aify-comms-staging-6c0cf40fc521-never-created-control"
+    ],
+    "status": 1,
+    "out": "[]\n",
+    "error": "Error response from daemon: No such container: aify-comms-staging-6c0cf40fc521-never-created-control\n"
+  },
+  "resources": [
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "container",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-host"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such container: aify-comms-staging-6c0cf40fc521-host\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "container",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-dashboard"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such container: aify-comms-staging-6c0cf40fc521-dashboard\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "container",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-service"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such container: aify-comms-staging-6c0cf40fc521-service\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "volume",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-home"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: get aify-comms-staging-6c0cf40fc521-home: no such volume\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "volume",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-data"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: get aify-comms-staging-6c0cf40fc521-data: no such volume\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "network",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-network"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: network aify-comms-staging-6c0cf40fc521-network not found\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "image",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-host"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such image: aify-comms-staging-6c0cf40fc521-host:latest\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "image",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-comms-candidate"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such image: aify-comms-staging-6c0cf40fc521-comms-candidate:latest\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "image",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-comms-baseline"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such image: aify-comms-staging-6c0cf40fc521-comms-baseline:latest\n"
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "image",
+        "inspect",
+        "aify-comms-staging-6c0cf40fc521-dependencies"
+      ],
+      "status": 1,
+      "out": "[]\n",
+      "error": "Error response from daemon: No such image: aify-comms-staging-6c0cf40fc521-dependencies:latest\n"
+    }
+  ],
+  "labelled_leftovers": [
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "container",
+        "ls",
+        "-a",
+        "--filter",
+        "label=aify.staging.run",
+        "--format",
+        "{{.ID}}"
+      ],
+      "status": 0,
+      "out": "",
+      "error": ""
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "volume",
+        "ls",
+        "--filter",
+        "label=aify.staging.run",
+        "--format",
+        "{{.Name}}"
+      ],
+      "status": 0,
+      "out": "",
+      "error": ""
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "network",
+        "ls",
+        "--filter",
+        "label=aify.staging.run",
+        "--format",
+        "{{.ID}}"
+      ],
+      "status": 0,
+      "out": "",
+      "error": ""
+    },
+    {
+      "command": [
+        "docker",
+        "--config",
+        "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\e1-consented-20261113-3\\private-docker-config",
+        "image",
+        "ls",
+        "--filter",
+        "label=aify.staging.run",
+        "--format",
+        "{{.ID}}"
+      ],
+      "status": 0,
+      "out": "",
+      "error": ""
+    }
+  ],
+  "input_hash_count": 26,
+  "changed_inputs": [],
+  "six_pre_run_product_files_unchanged": true
+}

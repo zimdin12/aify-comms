@@ -1,0 +1,267 @@
+[
+  {
+    "name": "comms",
+    "exit": 0,
+    "applicable": [
+      {
+        "id": "service",
+        "ok": true,
+        "code": "ok",
+        "detail": "healthy — build 05b7f2d == repo HEAD"
+      },
+      {
+        "id": "agent-state-publishers",
+        "ok": true,
+        "code": "fresh",
+        "detail": "2 of 2 publisher(s) fresh"
+      },
+      {
+        "id": "session-handles",
+        "ok": true,
+        "code": "ok",
+        "detail": "1 agent(s) carry a session handle, each one claimed by exactly one agent"
+      },
+      {
+        "id": "api-exposure",
+        "ok": true,
+        "code": "authenticated",
+        "detail": "The fleet listing requires an API key."
+      },
+      {
+        "id": "external-keys",
+        "ok": true,
+        "code": "none-configured",
+        "detail": "No keys are issued to other machines (EXTERNAL_KEYS is unset)."
+      },
+      {
+        "id": "bridge-installed",
+        "ok": true,
+        "code": "ok",
+        "detail": "installed — 05b7f2d == repo HEAD"
+      },
+      {
+        "id": "skills-installed",
+        "ok": true,
+        "code": "ok",
+        "detail": "installed skills match the checkout (30 file(s)) (~/.claude/skills, /work/codex-home/.codex/skills)"
+      },
+      {
+        "id": "spawn-delegation",
+        "ok": true,
+        "code": "answering",
+        "detail": "Managed spawns run on aify-env at http://127.0.0.1:8802, which is answering."
+      },
+      {
+        "id": "spawn-queue",
+        "ok": true,
+        "code": "empty",
+        "detail": "no spawn requests on this service."
+      },
+      {
+        "id": "tier-version",
+        "ok": true,
+        "code": "ok",
+        "detail": "every live aify-env is 0.9.5 or newer (1 judged)."
+      },
+      {
+        "id": "definitions-fresh",
+        "ok": true,
+        "code": "fresh",
+        "detail": "1 host(s) push their agent definitions, each within the last 10 minutes"
+      },
+      {
+        "id": "client-api-key",
+        "ok": true,
+        "code": "authenticated",
+        "detail": "http://service:8800 requires a key and the one this host resolves (from the environment) is accepted."
+      },
+      {
+        "id": "bridge-running",
+        "ok": true,
+        "code": "none",
+        "detail": "no bridge processes are running"
+      },
+      {
+        "id": "agent-identity",
+        "ok": true,
+        "code": "ok",
+        "detail": "0 agent session(s), all carry an agent id"
+      },
+      {
+        "id": "env-bridge",
+        "ok": true,
+        "code": "ok",
+        "detail": "1 online: docker:107a1c105889:default"
+      },
+      {
+        "id": "bridge-current",
+        "ok": true,
+        "code": "ok",
+        "detail": "1 live bridge(s) running repo HEAD 05b7f2d"
+      }
+    ],
+    "failures": [],
+    "notRun": [
+      {
+        "id": "usage-openai",
+        "ok": false,
+        "code": "skipped",
+        "detail": "OpenAI/ChatGPT quota is not set up on this host (no codex or hermes login). It is optional; Claude agents do not use it.",
+        "skipped": true,
+        "reason": "provider qualification excluded"
+      }
+    ]
+  },
+  {
+    "name": "env",
+    "exit": 1,
+    "applicable": [
+      {
+        "id": "terminal",
+        "state": "passed",
+        "detail": "this process can open a real terminal (the environment reports its own)",
+        "fix": ""
+      },
+      {
+        "id": "registry",
+        "state": "passed",
+        "detail": "1 service(s) registered: aify-comms",
+        "fix": ""
+      },
+      {
+        "id": "environment",
+        "state": "passed",
+        "detail": "an environment is running at http://127.0.0.1:8802",
+        "fix": ""
+      },
+      {
+        "id": "agent-picker",
+        "state": "passed",
+        "detail": "the agent picker can list this host's startable agents",
+        "fix": ""
+      },
+      {
+        "id": "processes",
+        "state": "passed",
+        "detail": "1 process(es) owned by this environment",
+        "fix": ""
+      },
+      {
+        "id": "advertise-cred",
+        "state": "passed",
+        "detail": "every target is accepting beats (1/1 with a credential configured)",
+        "fix": ""
+      },
+      {
+        "id": "claiming",
+        "state": "passed",
+        "detail": "claiming work for: aify-comms",
+        "fix": ""
+      },
+      {
+        "id": "code-current",
+        "state": "passed",
+        "detail": "running the code on disk (build 02493dc4)",
+        "fix": "",
+        "code": "current"
+      },
+      {
+        "id": "definitions",
+        "state": "passed",
+        "detail": "this host's definitions are published: aify-comms has revision 5",
+        "fix": ""
+      },
+      {
+        "id": "undefined-agents",
+        "state": "passed",
+        "detail": "every agent the services know on this host is defined here",
+        "fix": ""
+      },
+      {
+        "id": "launch-roots",
+        "state": "passed",
+        "detail": "work starts under /work, the folder it was started in (`aify-env roots add <folder>` adds more)",
+        "fix": ""
+      },
+      {
+        "id": "agents-outside-roots",
+        "state": "passed",
+        "detail": "every managed agent defined here works under /work",
+        "fix": ""
+      },
+      {
+        "id": "aify-comms",
+        "state": "passed",
+        "detail": "http://service:8800 reports healthy version 0.9.18 build 05b7f2d",
+        "fix": ""
+      },
+      {
+        "id": "credentials",
+        "state": "passed",
+        "detail": "1 stored credential(s), each referenced by the registry",
+        "fix": ""
+      },
+      {
+        "id": "env-processes",
+        "state": "passed",
+        "detail": "1 process(es) matched a live terminal; nothing unaccounted for",
+        "fix": "",
+        "code": "ok"
+      },
+      {
+        "id": "managed-orphans",
+        "state": "passed",
+        "detail": "No managed delivery loops are running on this host.",
+        "fix": "",
+        "code": "none"
+      },
+      {
+        "id": "auto-confirm",
+        "state": "passed",
+        "detail": "folderTrust on (nothing written, so the defaults)",
+        "fix": "",
+        "code": "default"
+      },
+      {
+        "id": "claude-trust-roots",
+        "state": "unanswered",
+        "detail": "~/.claude.json could not be read as claude's config, so which folders it trusts is unknown",
+        "fix": "",
+        "code": "unknown-claude-config"
+      },
+      {
+        "id": "gateway-orphans",
+        "state": "passed",
+        "detail": "every hermes gateway in the agent port range belongs to a recorded agent lifetime",
+        "fix": ""
+      }
+    ],
+    "failures": [
+      {
+        "id": "claude-trust-roots",
+        "state": "unanswered",
+        "detail": "~/.claude.json could not be read as claude's config, so which folders it trusts is unknown",
+        "fix": "",
+        "code": "unknown-claude-config"
+      }
+    ],
+    "notRun": [
+      {
+        "id": "context-window",
+        "state": "passed",
+        "detail": "no running console shows a context figure to measure; 2 managed agent(s) not running.",
+        "fix": "",
+        "code": "skipped",
+        "reason": "provider qualification excluded"
+      },
+      {
+        "id": "claude-login",
+        "state": "failed",
+        "detail": "Claude Code's first-run setup was never completed on this host, and claude-aify is installed, so this host offers claude agents to its services: each claude started here waits on its first screen, which asks for a theme",
+        "fix": "Run `claude` once by hand in a terminal on this host: choose a theme, then log in.",
+        "code": "not-set-up",
+        "reason": "provider qualification excluded"
+      }
+    ]
+  }
+]

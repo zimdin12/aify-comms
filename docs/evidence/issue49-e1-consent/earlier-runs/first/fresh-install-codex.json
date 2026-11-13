@@ -1,0 +1,14 @@
+{
+  "status": 78,
+  "out": "=== aify-comms installer ===\r\nRepo: /src/candidate/comms\r\nClient: codex\r\nServer: http://service:8800\r\n\r\naify-env is on PATH (/home/staging/.local/bin/aify-env) but npm did not install it, so it is not replaced.\r\n  Update it where it came from, or rerun with --standalone to use this installer's full path.\r\nTTY_CONSENT answered=0 expected=1\n",
+  "tail": [
+    "=== aify-comms installer ===\r",
+    "Repo: /src/candidate/comms\r",
+    "Client: codex\r",
+    "Server: http://service:8800\r",
+    "\r",
+    "aify-env is on PATH (/home/staging/.local/bin/aify-env) but npm did not install it, so it is not replaced.\r",
+    "  Update it where it came from, or rerun with --standalone to use this installer's full path.\r",
+    "TTY_CONSENT answered=0 expected=1"
+  ]
+}

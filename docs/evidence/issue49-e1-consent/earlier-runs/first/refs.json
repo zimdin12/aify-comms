@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "comms": "1c9611b3346b61a2a56fcd7641f910999e48fdca",
+    "env": "dde9d6df19fcde77fcb134dd3a6de39184a6c327",
+    "wrapper": "dd04bd4ac94faaf09889be64d9988ca3b52e027b"
+  },
+  "candidate": {
+    "comms": "05b7f2dca4096f3c45341b11d5533d93a7e85900",
+    "env": "345fd0c3cab1b035bde1b5dd3ceb82359be595a5",
+    "wrapper": "c09fd03cb17d076acd8cd9c20ad5517efbea09d0"
+  },
+  "runtimeVersions": {
+    "nodeImage": "node:22.20.0-bookworm",
+    "codex": "0.166.0",
+    "claude": "2.1.316"
+  },
+  "provenance": {
+    "baseline": "Unchanged E4 baseline, built but not executed by E1",
+    "candidate": "Published matching #49 tuple; lead GO 1794592914578-e42c6793",
+    "scenario": "Amended E1 consent/refusal and independent-home scenario; actual uncommitted harness bytes are captured and hashed by StagingSession"
+  },
+  "seed": "synthetic-linux-fleet",
+  "liveCopyEnabled": false,
+  "note": "Single approved E1 attempt. Real tty prompt consent, no policy preseed or digest preapproval, no provider or live credential. Local source overrides do not qualify GitHub retrieval."
+}
