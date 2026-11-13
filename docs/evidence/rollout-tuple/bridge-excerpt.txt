@@ -1,0 +1,37 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-rollout-pin/mcp/stdio", "command": ["node", "--import", "file:///C:/Users/Administrator/projects/comms-evidence-fixes-20261106/peers-rollout-8c7.mjs", "tests/run-all.mjs"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": true, "privateWindowsAppData": true}
+[run-all] skipped, so NOT verified here:
+  - tests\bridge-exits-when-its-terminal-goes.test.js (1 test(s))
+  - tests\a-plain-install-hands-off-to-the-chain-once.test.js (1 test(s))
+  - tests\runtime-launch-helpers.test.js (1 test(s))
+
+[run-all] disabled, deprecated runtime (AIFY_TEST_DEPRECATED=<runtime> runs them):
+  - tests\pi-session-interrupt-and-child-errors.test.js (pi)
+  - tests\pi-session-pool.test.js (pi)
+  - tests\pi-session-terminal.test.js (pi)
+  - tests\pi-session-timeouts.test.js (pi)
+  - tests\pi-terminal-frame.test.js (pi)
+  - tests\pi-wrapper-determinism.test.js (pi)
+  - tests\runtimes-pi.test.js (pi)
+  - tests\adapters\pi.test.js (pi)
+  - tests\controllers\pi-controller.test.js (pi)
+
+[run-all] all 367 suite(s) passed — 3 test(s) skipped in 3 files
+
+[run-all] 367 file(s) at concurrency 6: 107.9s wall, 592.4s summed. The 15 slowest hold 56.8% of the summed time:
+     65.2s   11.0%  tests\a-plain-install-hands-off-to-the-chain-once.test.js
+     58.0s    9.8%  tests\hermes-wrapper-determinism.test.js
+     30.6s    5.2%  tests\install-bakes-the-registry-fragments.test.js
+     27.6s    4.7%  tests\the-channel-produces-only-on-its-own-route.test.js
+     27.0s    4.6%  tests\staging-sources.test.js
+     22.4s    3.8%  tests\resume-recovery-sends-the-key.test.js
+     19.6s    3.3%  tests\hermes-session-servers.test.js
+     14.4s    2.4%  tests\install-claude-strict-mcp.test.js
+     12.8s    2.2%  tests\install-chain-across-three-repos.test.js
+     12.6s    2.1%  tests\wrapper-harness-isolation.test.js
+     12.3s    2.1%  tests\notify-hook-leaves-queued-channel-bodies-to-the-channel.test.js
+      9.9s    1.7%  tests\codex-session.test.js
+      8.2s    1.4%  tests\reply-capture-fallback.test.js
+      8.2s    1.4%  tests\the-installed-wrapper-is-the-pinned-commit.test.js
+      7.9s    1.3%  tests\claude-wrapper-template.test.js
+
+ACTUAL_EXIT=0

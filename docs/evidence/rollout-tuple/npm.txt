@@ -1,0 +1,11 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-rollout-pin/mcp/stdio", "command": ["node", "C:/nvm4w/nodejs/node_modules/npm/bin/npm-cli.js", "install", "aify-wrapper@github:zimdin12/aify-wrapper#8c7d8f43c92d21440e582368240e4bd9bb79dfcd", "--ignore-scripts", "--no-audit", "--no-fund"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": true, "privateWindowsAppData": true}
+npm warn skipping integrity check for git dependency ssh://git@github.com/zimdin12/aify-wrapper.git
+
+added 1 package in 3s
+npm notice
+npm notice New major version of npm available! 10.9.3 -> 12.2.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+npm notice To update run: npm install -g npm@12.2.2
+npm notice
+
+ACTUAL_EXIT=0

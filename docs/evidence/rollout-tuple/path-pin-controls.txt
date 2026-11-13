@@ -1,0 +1,157 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-rollout-pin/mcp/stdio", "command": ["node", "--import", "file:///C:/Users/Administrator/projects/comms-evidence-fixes-20261106/peers-rollout-8c7.mjs", "--test", "tests/usage-auth-discovery.test.js", "tests/the-installed-wrapper-is-the-pinned-commit.test.js", "tests/the-wrapper-pin-is-not-behind-a-template-change.test.js", "tests/wrapper-exports-are-read-by-the-bridge.test.js"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": true, "privateWindowsAppData": true}
+TAP version 13
+# Subtest: THE INSTALLED WRAPPER IS THE PINNED COMMIT, byte for byte
+ok 1 - THE INSTALLED WRAPPER IS THE PINNED COMMIT, byte for byte
+  ---
+  duration_ms: 3009.114
+  type: 'test'
+  ...
+# Subtest: a consistent pin passes
+ok 2 - a consistent pin passes
+  ---
+  duration_ms: 0.6925
+  type: 'test'
+  ...
+# Subtest: a lock or a node_modules that disagrees is the failure
+ok 3 - a lock or a node_modules that disagrees is the failure
+  ---
+  duration_ms: 0.0894
+  type: 'test'
+  ...
+# Subtest: an unpinned dependency is refused
+ok 4 - an unpinned dependency is refused
+  ---
+  duration_ms: 0.0695
+  type: 'test'
+  ...
+# Subtest: NEITHER RECORD PRESENT IS NOT AGREEMENT
+ok 5 - NEITHER RECORD PRESENT IS NOT AGREEMENT
+  ---
+  duration_ms: 0.0655
+  type: 'test'
+  ...
+# Subtest: no arguments does not pass
+ok 6 - no arguments does not pass
+  ---
+  duration_ms: 0.1212
+  type: 'test'
+  ...
+# Subtest: EVERY NON-ANSWER IS UNKNOWN, never ok
+ok 7 - EVERY NON-ANSWER IS UNKNOWN, never ok
+  ---
+  duration_ms: 0.1749
+  type: 'test'
+  ...
+# Subtest: pin-not-ancestor says WHY, because the remedy differs
+ok 8 - pin-not-ancestor says WHY, because the remedy differs
+  ---
+  duration_ms: 0.1915
+  type: 'test'
+  ...
+# Subtest: behind by a commit that touches the consumed surface is reported
+ok 9 - behind by a commit that touches the consumed surface is reported
+  ---
+  duration_ms: 0.1347
+  type: 'test'
+  ...
+# Subtest: behind by commits that cannot change what we render is quiet
+ok 10 - behind by commits that cannot change what we render is quiet
+  ---
+  duration_ms: 0.2466
+  type: 'test'
+  ...
+# Subtest: the consumed surface is wider than the templates
+ok 11 - the consumed surface is wider than the templates
+  ---
+  duration_ms: 0.2997
+  type: 'test'
+  ...
+# Subtest: only a FULL sha is read as a pin
+ok 12 - only a FULL sha is read as a pin
+  ---
+  duration_ms: 0.1899
+  type: 'test'
+  ...
+# Subtest: THE GATE: this repo consumes exactly the pin it declares
+ok 13 - THE GATE: this repo consumes exactly the pin it declares
+  ---
+  duration_ms: 1.3891
+  type: 'test'
+  ...
+# Subtest: THE ADVISORY: what upstream has landed since the pin
+ok 14 - THE ADVISORY: what upstream has landed since the pin
+  ---
+  duration_ms: 217.6428
+  type: 'test'
+  ...
+# Subtest: candidate stores cover BOTH tools on ANY platform — no process.platform branch
+ok 15 - candidate stores cover BOTH tools on ANY platform — no process.platform branch
+  ---
+  duration_ms: 1.1679
+  type: 'test'
+  ...
+# Subtest: a non-default install is honoured via the tool's OWN env var
+ok 16 - a non-default install is honoured via the tool's OWN env var
+  ---
+  duration_ms: 0.2432
+  type: 'test'
+  ...
+# Subtest: no codex or hermes store at all reads as not set up, which is optional, not a missing token
+ok 17 - no codex or hermes store at all reads as not set up, which is optional, not a missing token
+  ---
+  duration_ms: 0.578
+  type: 'test'
+  ...
+# Subtest: preflight: codex missing / not logged in -> actionable warning, not silence
+ok 18 - preflight: codex missing / not logged in -> actionable warning, not silence
+  ---
+  duration_ms: 0.8336
+  type: 'test'
+  ...
+# Subtest: preflight PROVES the connection — a present-but-EXPIRED token is not 'healthy'
+ok 19 - preflight PROVES the connection — a present-but-EXPIRED token is not 'healthy'
+  ---
+  duration_ms: 0.6074
+  type: 'test'
+  ...
+# Subtest: preflight: offline is reported as UNREACHABLE, not as a bad token
+ok 20 - preflight: offline is reported as UNREACHABLE, not as a bad token
+  ---
+  duration_ms: 0.176
+  type: 'test'
+  ...
+# Subtest: preflight: a working token reports OK
+ok 21 - preflight: a working token reports OK
+  ---
+  duration_ms: 0.1945
+  type: 'test'
+  ...
+# Subtest: both scans find what is known to be there, or every result below is vacuous
+ok 22 - both scans find what is known to be there, or every result below is vacuous
+  ---
+  duration_ms: 3111.1604
+  type: 'test'
+  ...
+# Subtest: every name a launcher exports has a reader
+ok 23 - every name a launcher exports has a reader
+  ---
+  duration_ms: 54.4533
+  type: 'test'
+  ...
+# Subtest: the orphan check can actually find one, against input it is given
+ok 24 - the orphan check can actually find one, against input it is given
+  ---
+  duration_ms: 6.1788
+  type: 'test'
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3281.1178
+
+ACTUAL_EXIT=0

@@ -1,0 +1,12 @@
+{"cwd": "C:/Users/Administrator/projects/aify-comms-rollout-pin", "command": ["python", "-m", "pytest", "service/tests/test_comms_serves_its_registration_spec.py", "service/tests/test_service_runtime_boundary.py", "service/tests/test_no_import_cycles.py", "service/tests/test_no_dead_imports.py", "service/tests/test_no_new_oversized_source_file.py", "service/tests/test_leaves_do_not_import_the_carrier.py", "service/tests/test_fixtures_are_tracked.py", "-q"], "home": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\home", "temporary": "C:\\Users\\Administrator\\projects\\comms-evidence-fixes-20261106\\tmp", "pythonSite": "C:/Users/Administrator/AppData/Roaming/Python/Python314/site-packages", "AIFY_TEST_DEPRECATED": null, "windowsIdentityPassed": true, "privateWindowsAppData": true}
+.................................... [ 65%]
+...................                                                    [100%]
+============================== warnings summary ===============================
+..\..\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1
+  C:\Users\Administrator\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+55 passed, 1 warning, 38 subtests passed in 15.19s
+
+ACTUAL_EXIT=0

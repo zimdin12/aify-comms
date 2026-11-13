@@ -1,0 +1,576 @@
+{
+  "sha": "8c7d8f43c92d21440e582368240e4bd9bb79dfcd",
+  "expected_package_paths": 140,
+  "missing": [],
+  "different": [],
+  "controls": {
+    "template_present": true,
+    "report_present": true,
+    "absent_path_absent": true,
+    "historical_evidence_not_selected": true
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "beea8f1ab70115adc59a0831f9c470ad052fa9e7e4ed557100850095e927f2fa"
+    },
+    {
+      "path": "VERSION",
+      "sha256": "7b31cdb22b4a80bceb81c0243472f6278c8aa77cd5ed9fb0700b7b39aaf2f963"
+    },
+    {
+      "path": "bin/aify-agent-lease.mjs",
+      "sha256": "23a054d6f701c2c123fa047c6be2095f0c6afab023ccb14409cb8395e49971a4"
+    },
+    {
+      "path": "bin/aify-claude-default-model.mjs",
+      "sha256": "854adc23c571d2267c0869b329bb62b2b385632b3505bfe1d5742d4e0d3bb153"
+    },
+    {
+      "path": "bin/aify-claude-session.mjs",
+      "sha256": "0f5bd51005fb8740fee42e5f6d33b9f06f21fc4f54c7d984ec506dd02376be80"
+    },
+    {
+      "path": "bin/aify-definition.mjs",
+      "sha256": "3267c0f7fef0d53b44431d442f328fabad1458f720a08cf540a159f28641de6d"
+    },
+    {
+      "path": "bin/aify-definition.sh",
+      "sha256": "50b18d3998fa5033086f7dc38138932b26be2aed9c550c0d58aa0774200faeb4"
+    },
+    {
+      "path": "bin/aify-herdr-launch.sh",
+      "sha256": "c80a73c3b61ccb5f6c13e16ea3cc06c9206bb997523e9082cdf14ad1f70199a0"
+    },
+    {
+      "path": "bin/aify-herdr-pane.mjs",
+      "sha256": "088a4bb7e3efaf3318b00964bcd849d69772df8316e796ec3fa56a4b188b7fde"
+    },
+    {
+      "path": "bin/aify-herdr-state.sh",
+      "sha256": "5ed022989dcaeb13fbbe6257a26c5094f2c66358982f5653d8fa4d068e11171f"
+    },
+    {
+      "path": "bin/aify-hermes-file-event.mjs",
+      "sha256": "b7cc439bf2643714213f24b04412b36b3f42b7558178da634f60c9c80eb8f888"
+    },
+    {
+      "path": "bin/aify-hermes-fresh-markers.mjs",
+      "sha256": "cc00e52e7eb541336fd81f9f9ef33db6bc251201b926a36097b68ff5ff13736f"
+    },
+    {
+      "path": "bin/aify-hermes-gateway.mjs",
+      "sha256": "44b16b55a68d7210ecc5ea0663dc3779708634f4419992e2fcaf95e9d3d1e5c0"
+    },
+    {
+      "path": "bin/aify-hermes-pending-config.mjs",
+      "sha256": "f8ead2fbfd667769e2b8a1ecfafc28769ec444eb9a499742d21cbdc3c7b911d0"
+    },
+    {
+      "path": "bin/aify-hermes-reap-prior.mjs",
+      "sha256": "3ba5fd09a4717caed8053d18d14f1436328830481e09ef3c2b91e375692ea680"
+    },
+    {
+      "path": "bin/aify-inherited-session.sh",
+      "sha256": "d5e6a93e025a3ffbb10604c64521dfc0578d82f223362dc0c280a921322ff9b9"
+    },
+    {
+      "path": "bin/aify-input-boundary.sh",
+      "sha256": "3e032212b94c0eebe4419473039fd13bb0db383ed2671b6f53ff7e593e52c50b"
+    },
+    {
+      "path": "bin/aify-launcher-common.sh",
+      "sha256": "443a949e924b0adb65df6d82f4e7dccc96c59396a59273600b7384c86f233d7e"
+    },
+    {
+      "path": "bin/aify-lease.sh",
+      "sha256": "bec33f8d9b2f5374243cd3e1df7a1b270770ae0a17dbd70747c1e999a2067eb2"
+    },
+    {
+      "path": "bin/aify-lifetime.sh",
+      "sha256": "f80781217345207192f9f1eb1becba60c5af9f71a211ebe6eb6e51bc0bba0940"
+    },
+    {
+      "path": "bin/aify-model-selection.mjs",
+      "sha256": "f01d30a8f6ecfb0a7fe59986b5eefd9a15c6e7a08333730bd0e200d4a900834c"
+    },
+    {
+      "path": "bin/aify-model-selection.sh",
+      "sha256": "9003868c16114f05765043d4c3b54ceb991ad74cf5edac369ce4e06a5913784f"
+    },
+    {
+      "path": "bin/aify-node-22.sh",
+      "sha256": "70d44889fee167c3b6360632bff2195c54b9a7eedb07e935ab8e9c5e7c8cf429"
+    },
+    {
+      "path": "bin/aify-registry-pair-categories.sh",
+      "sha256": "c6167cd9c33c550a77117f4ae40fbb1b7d6a795943c96b8496996aa709183bf0"
+    },
+    {
+      "path": "bin/aify-render-frame.sh",
+      "sha256": "a894753d8eabed5ce45d27288a1cd3e08b7d6377b408632766839ef5caa39e55"
+    },
+    {
+      "path": "bin/aify-resident-record.mjs",
+      "sha256": "69023757abe2615a43998f24f136a0bd6cf039390d052561faebaab5f9308811"
+    },
+    {
+      "path": "bin/aify-runtime-exited.sh",
+      "sha256": "20505ed94f26286e70ea2aec5a4105dd5e77b76dbe1147c033889eaa92eb5406"
+    },
+    {
+      "path": "bin/aify-session-mcp.mjs",
+      "sha256": "e6537306ec0e14319e11cf7b6431288a6695c5dcd3e58ccf2f33ccf8b3c0345a"
+    },
+    {
+      "path": "bin/aify-tool-event.mjs",
+      "sha256": "6fb2d6bade5953e5ec67409ad6d992d59cbbe3cda60c0d7be3a3435bbca2e071"
+    },
+    {
+      "path": "bin/aify-tool-hook-json.sh",
+      "sha256": "f320f01f07ceff2c4e966254cc402a2985a1eee6c0abc81cac9e579543a5aedb"
+    },
+    {
+      "path": "bin/aify-turn-start.mjs",
+      "sha256": "f4c7c6e165a32e602167986af0e26250050e24cc85ffa0937f37865cd6834074"
+    },
+    {
+      "path": "bin/aify-wrapper-check.mjs",
+      "sha256": "cc4d4ee5ddf85d47172c40f1f485cf4b6009cc1f9cca1c9bb11084fc72d2b25a"
+    },
+    {
+      "path": "bin/aify-wrapper-connect.mjs",
+      "sha256": "366e75554fccc6e7525f9cf25146e14a2c04382b443383ea240465c91bcefeff"
+    },
+    {
+      "path": "bin/herdr-aify.mjs",
+      "sha256": "44f0a9dde33fc30e0b7e4577b9fdb7296994b9c26f35c0f474373a76da6f4680"
+    },
+    {
+      "path": "docs/CLAUDE-CONVERSATIONS.md",
+      "sha256": "0ccde777ea9dbc891de85f4308690ea55a8c15eaf4d8df072d037966449bc2cb"
+    },
+    {
+      "path": "docs/FILE-ACTIVITY-SPOOL-v1.md",
+      "sha256": "90ea71a802ded38e23d0d22836ef2e03415f52e6385a593509f9194577431aa3"
+    },
+    {
+      "path": "docs/INPUT-BOUNDARIES.md",
+      "sha256": "a70486f32e6f60ba6da604adcc4de97710915246440be30a971332d4d9798bb2"
+    },
+    {
+      "path": "docs/MODEL-SELECTION.md",
+      "sha256": "08b0283d71c942fa06c7467b2aacd6e884e831a68983de78e2a27db43fd65d30"
+    },
+    {
+      "path": "docs/REGISTRY.md",
+      "sha256": "f1222791efbe1784d15f76dcc7d49321c5feccabcf303967ef02045e932337d7"
+    },
+    {
+      "path": "docs/RESIDENT-START-TOKEN.md",
+      "sha256": "85f741f5641854c246f93844b0b521a330ff43bcc8a8c1f4ad269456731874e5"
+    },
+    {
+      "path": "docs/TURN-START-WSL.md",
+      "sha256": "b72310c21112f40150bc1c8a8c941a9849ffc88d3433d61232cba9b8c1aa7d34"
+    },
+    {
+      "path": "docs/contracts/codex-app-server-auth.md",
+      "sha256": "eb97d8f6007cd5ef22434a3841bc0085796fbe3dcafa2b44877ea48b49f3a283"
+    },
+    {
+      "path": "docs/contracts/dashboard-launch-env.md",
+      "sha256": "f9fdc71996b5c9e5cc0ea30434f26300e44a58bf1e39d3a5c29124c92a401e3c"
+    },
+    {
+      "path": "docs/contracts/dashboard-turn-start.md",
+      "sha256": "47ba788cd144120fec34387aa36207b292d2727c4bc469df7975a1ad5eb46a07"
+    },
+    {
+      "path": "docs/contracts/harness-wrapper.md",
+      "sha256": "17ecf449976eda536489ce9ae18a6052f906a36b8087d61e50f0644ba9d48afe"
+    },
+    {
+      "path": "docs/contracts/launcher-staleness.md",
+      "sha256": "fd60d74016cb2c4f152d34513f8067514b4646ca3876a872f16c63add4350e29"
+    },
+    {
+      "path": "herdr-plugin/herdr-plugin.toml",
+      "sha256": "fd3fa15df595deb370e3f45be058eb6ae221b43474983034070dd99a850c5aab"
+    },
+    {
+      "path": "install.sh",
+      "sha256": "07a3eb18f55d5064089d2d10273183a957f81a0de73a782e30d821929a2878c4"
+    },
+    {
+      "path": "lib/activity-spool.mjs",
+      "sha256": "b707c0847280d01b7cc091c7cb69e79c4d9087dbeb5db380404adae20b51248b"
+    },
+    {
+      "path": "lib/activity-storage.mjs",
+      "sha256": "5336864b482fa0970de836a539b7eff6021a0a68a8edfebf02ff4603ebb0906a"
+    },
+    {
+      "path": "lib/agent-definition-defaults.mjs",
+      "sha256": "fb9003b1ec106747e7009aab3736b3456dcb7c58578c31424430356c0f0932dd"
+    },
+    {
+      "path": "lib/agent-definition-schema.mjs",
+      "sha256": "a66a362591918afb330cfa97db4197f45121a88514a6365975d7374d7de9904c"
+    },
+    {
+      "path": "lib/agent-lease-watch.mjs",
+      "sha256": "98354df69d8fc8be034d1a39aea1bb07b648ac6e7400c881fa24e4d5cfe53039"
+    },
+    {
+      "path": "lib/agent-lease.mjs",
+      "sha256": "813785a8d5bd017d7aa1c7292b229f7b84967450f5e079cadefd2b61eb92344f"
+    },
+    {
+      "path": "lib/artifact-catalogue.json",
+      "sha256": "d0f100f1eb08ca6fb7c2a296f87daee2276e8152093c613ff9338538c52938d0"
+    },
+    {
+      "path": "lib/channel-install.mjs",
+      "sha256": "c444de414ee6f5cda6d97dd5fc8b765152940ede32b1605595720f3afa3d2e3d"
+    },
+    {
+      "path": "lib/channel-plugin.mjs",
+      "sha256": "abe3a4b75c2c6fe2242e5b2d14559630a6689a3a404e95b1ef2e4d28309056d9"
+    },
+    {
+      "path": "lib/channel-policy.mjs",
+      "sha256": "2d63b7c0201672e2a550d257528b11e8a0281c41500dd9d97b337ad4841dc1b0"
+    },
+    {
+      "path": "lib/channel-posix-policy.mjs",
+      "sha256": "2aea8968a519c86886f0b7b536b4fed54b29643406415519271ca1709b3264e0"
+    },
+    {
+      "path": "lib/channel-route-cli.mjs",
+      "sha256": "4ae88e68e04ea946c4bba40f4fb6226a701ee633414dd0db370a95c18b129a79"
+    },
+    {
+      "path": "lib/channel-route.mjs",
+      "sha256": "ea8ad535d8cd2fbb43d08966ea4918d3f58d177d2b0f5f6f900ea915bd0bb1d5"
+    },
+    {
+      "path": "lib/claude-default-model.mjs",
+      "sha256": "0b8fdb42bb85e7363d87ffa3f959a0c523da28a363b7ba25390cdbf660d29d4d"
+    },
+    {
+      "path": "lib/claude-sessions.mjs",
+      "sha256": "b1549c00dbdf2a4d4a58b4a119f9ea3be123616aa87c0cc60ac59a9419c14e0f"
+    },
+    {
+      "path": "lib/codex-app-server-auth.mjs",
+      "sha256": "ece457e26fc141d7690e91ca75c18ace7f63907bb46b8de87c846510d0127edb"
+    },
+    {
+      "path": "lib/codex-herdr-hooks.mjs",
+      "sha256": "f25386037acfed96dca32cbd56581aca4763a3d9a1b76b83850910342a89d89b"
+    },
+    {
+      "path": "lib/connect-args.mjs",
+      "sha256": "5b09cd12b79a295be81134b7c1c9f21c41fad62cbca65a16774b900ca483bf20"
+    },
+    {
+      "path": "lib/connect-entry.mjs",
+      "sha256": "bfaf3138f57cac6820b37b037388ceb1f77fe813295436274d13bdbbae0a4a78"
+    },
+    {
+      "path": "lib/connect-http.mjs",
+      "sha256": "ad33b4ba5419577f51a60ebb06e764128a9af9f059a76c4153d11b26f4e190c6"
+    },
+    {
+      "path": "lib/connect-report.mjs",
+      "sha256": "95df1d9e44a889c2aa88b7a501cb9b9779289dba86ae884ef76d7cafc0be989e"
+    },
+    {
+      "path": "lib/connect.mjs",
+      "sha256": "63f76c47da1d73014d899bb37ae1b1752619dc80deda99f93b5d1c1f87ada9a2"
+    },
+    {
+      "path": "lib/credential-custody.mjs",
+      "sha256": "a3237f1df02e8b0cdad2c41904b172779384bca94bd1d3f30e21ee643bb2792e"
+    },
+    {
+      "path": "lib/credential-file.mjs",
+      "sha256": "76c0ec56ea2f38c3084da5011316bbece35e2e86b2278c3262d121382669f0f1"
+    },
+    {
+      "path": "lib/detect-cli.mjs",
+      "sha256": "7738639c404da6d172cb56026f06ad96f7aaaf1631dc141679f3dd3f53894f8b"
+    },
+    {
+      "path": "lib/detect-harnesses.mjs",
+      "sha256": "fa1665b838a35219af5b33c9ddff679a1a7a8fa687bdf11744714025a5a9014a"
+    },
+    {
+      "path": "lib/file-activity.mjs",
+      "sha256": "6e152f2fda4069ec45696daa65cec90be711b0a0dadf130f29ea1b72f2e70c65"
+    },
+    {
+      "path": "lib/file-lock.mjs",
+      "sha256": "f8961cb392ab13081ad2763535f39c2577aaa8b9bd66557132ab2b47040766a8"
+    },
+    {
+      "path": "lib/herdr-binary.mjs",
+      "sha256": "efb187f7969b54d644b4cfbb53c2cd77597bae8fe1910cdea824ffff72e21add"
+    },
+    {
+      "path": "lib/herdr-cli.mjs",
+      "sha256": "ea115891f80e21bdd7d281dd50436e3817ce199fedf8219490c62bb4e2f59b26"
+    },
+    {
+      "path": "lib/herdr-instance.mjs",
+      "sha256": "e979b3ab6d134f80f37e92ca80ff57bd4641e232b41c81478691169440e9021f"
+    },
+    {
+      "path": "lib/herdr-owner.mjs",
+      "sha256": "6a421d77536069a41ce347e44e7ada1a10141f4006b0c4da9693334d9aaeebdd"
+    },
+    {
+      "path": "lib/herdr-pane.mjs",
+      "sha256": "c202b2c0f6bea635b8e076b266f3e2041eb8b8b1f065054b8637cc7c95ced248"
+    },
+    {
+      "path": "lib/herdr-profile.mjs",
+      "sha256": "05f68853f5e546ad27280e3dfb44747b9c2f7d53c8d47cef686434db9e55cdd1"
+    },
+    {
+      "path": "lib/herdr-records.mjs",
+      "sha256": "dc0895ff8918c818b8b1346cab1c0db954c82784352e5fcbb8abf16e0c5c7ea4"
+    },
+    {
+      "path": "lib/herdr-replay.mjs",
+      "sha256": "5d3e9d5c46481a054bbf51069f696ab3344a41ec224baeac5aecc6796c90c038"
+    },
+    {
+      "path": "lib/herdr-resident.mjs",
+      "sha256": "2ce6c3e289de52e44462e395f37a7dab31f5a2e6d113f841b5fc3430d1b7d280"
+    },
+    {
+      "path": "lib/herdr-restore.mjs",
+      "sha256": "e74f294e61d333814f8c6515179533568d0562ddc249abde6c915a5ee41b4c87"
+    },
+    {
+      "path": "lib/herdr-stop.mjs",
+      "sha256": "c6a1181ac2815a9da38fc97eb391c3f22aa35ba80bec0ccb7d2f57914d6cd002"
+    },
+    {
+      "path": "lib/herdr-supervisor.mjs",
+      "sha256": "a157353f03e10f3443beff66bbe895a1ef80c1d4db4a1b061079cd662739bee7"
+    },
+    {
+      "path": "lib/herdr-tool-state.mjs",
+      "sha256": "0b14bb2417004aa550000f59d3d4c872c16fd07296f122620171739e0e75ecdf"
+    },
+    {
+      "path": "lib/heredoc-scan.mjs",
+      "sha256": "2160dbc7ff41dd2cafba75aeeaa18f3d648c84bab2eaf02d7c12a06d166b978c"
+    },
+    {
+      "path": "lib/hermes-config-cli.mjs",
+      "sha256": "9588461352c6444e5fafa59657e292974323f428418b9c04aaaf94dcefa0c98f"
+    },
+    {
+      "path": "lib/hermes-config-install.mjs",
+      "sha256": "fbf1372348b82550bd6bbcae2003b40a529c42e2ba72cb5799b0ebc0b3e4b640"
+    },
+    {
+      "path": "lib/hermes-config-receipts.mjs",
+      "sha256": "2e059cfeba5cf81044ad0eecfa556f61ac376ae2bbc3c6ced2a140e8e0550a7a"
+    },
+    {
+      "path": "lib/hermes-file-activity.py",
+      "sha256": "243e7e8b31ee6bd03000a0d1e4bc9a98e5229520ffb57c15577f0b2781d22f79"
+    },
+    {
+      "path": "lib/hermes-gateway-ensure.mjs",
+      "sha256": "e2810b603a5ebe56c877617aab9513c8414f32c46276734a8f8d99c0ef59c7cc"
+    },
+    {
+      "path": "lib/hermes-gateway-start.mjs",
+      "sha256": "9bddd992df5c09e3ccbf6b70304037d0cfa2059b681d5e082581fad020ed3ef0"
+    },
+    {
+      "path": "lib/hermes-herdr-state.py",
+      "sha256": "5ddb793867123a1d5ad2e5af9f3ca34bbb7643d597e58c60df08c5e1f8b810e5"
+    },
+    {
+      "path": "lib/hermes-pending-config.mjs",
+      "sha256": "e6cd33cb0da124c165341befa4eb7dded2f68999fe21f1cfe6e2db81d105661b"
+    },
+    {
+      "path": "lib/hermes-prior-runs.mjs",
+      "sha256": "8940a975930d3cdc40bb65efb800db95f8e8a1fe05dbcb7db65b11da1459f98c"
+    },
+    {
+      "path": "lib/hermes-turn-start.py",
+      "sha256": "48d8c507e6ec529059c3dc9cdbaebfb9804f0ea1f0e016cdb235df0f37667565"
+    },
+    {
+      "path": "lib/inherited-session.mjs",
+      "sha256": "faa845bbd239b8826384a678a27f71819a4475dcad307ac6233d54db59612eb4"
+    },
+    {
+      "path": "lib/installed-endpoint-cli.mjs",
+      "sha256": "87b37cc0ac899d2fa89acaa4a2017449f3fa5b3bb9fa6edaeaae0c8df8bb8429"
+    },
+    {
+      "path": "lib/installed-endpoint.mjs",
+      "sha256": "299ee26c9cc0e2c80c868d34170d496187b858e82a488b0992efff20b3b02ea4"
+    },
+    {
+      "path": "lib/launcher-names.mjs",
+      "sha256": "9e6ab864fc0359355e0b9e74b4438576026d38694d73fc0f6dd5f899cad06a58"
+    },
+    {
+      "path": "lib/launcher-provenance.mjs",
+      "sha256": "2bfcd48212099aff552773752390d91adee8d190eae68dd9a440da9d84e7a8b4"
+    },
+    {
+      "path": "lib/launcher-rerender.mjs",
+      "sha256": "e141079dc77864036ddffe12286677211b5f4b488f000f2f2357c6d7f340cc1f"
+    },
+    {
+      "path": "lib/linux-process-token.mjs",
+      "sha256": "6c974a031ab586275950c7e1b9614aef9d9c6a23fd2c7f0789a8e454d50f28e9"
+    },
+    {
+      "path": "lib/machine-id.mjs",
+      "sha256": "50a49a719530c9c52c539b028a2b23a76d46a09cd3a0df98b3301eb0e4819ded"
+    },
+    {
+      "path": "lib/main-module.mjs",
+      "sha256": "9ce73eee4e99f55c5c6356b076a9971be3b11186d59c9d7aa0446ac9693fa624"
+    },
+    {
+      "path": "lib/model-catalog.mjs",
+      "sha256": "e4fcce35ebe0ad9a8c30504ae6831207dfa54c4d700b66f28f6b342c3357eb7a"
+    },
+    {
+      "path": "lib/model-selection-post.mjs",
+      "sha256": "dbe0c898d0fb7fe07d89cf21d77886e779ea858e8f6c762246a5201c5aa36be0"
+    },
+    {
+      "path": "lib/model-selection-reporter.mjs",
+      "sha256": "46a1a01308c8d893771e2222dbc5a89ee483cf34af003c11196c0df488dc5b91"
+    },
+    {
+      "path": "lib/model-selection.mjs",
+      "sha256": "b4e18fb77db387e74d8c0d7ea00dff2a74b30857bda81a1e5bd8bcf0da82e76c"
+    },
+    {
+      "path": "lib/model-transcript-cursor.mjs",
+      "sha256": "37fc9618b18105a682165009311cecbbff3f5d44c8bd82b57d381ccf534545a8"
+    },
+    {
+      "path": "lib/package-install.mjs",
+      "sha256": "725cadda60c201bde486618727f14cbb3fb3a9a2e92c3a930df46f73c938c3dd"
+    },
+    {
+      "path": "lib/path-lookup.mjs",
+      "sha256": "e341cd92a014cb99d67bbe7c57b016af736e0152f9d0372a62987b839ed9a47a"
+    },
+    {
+      "path": "lib/process-argv.mjs",
+      "sha256": "828ecd17906d1df9fed1897bccd56c37917a83a75f274bb0c2cd56ae5153d540"
+    },
+    {
+      "path": "lib/process-identity.mjs",
+      "sha256": "1c686fca4a4e406d7229ff92da23a6944001260d7cbefc12aca62c53bf23ac7b"
+    },
+    {
+      "path": "lib/registry-cli.mjs",
+      "sha256": "7c0823170a46bba3227221a567801af1c51690496ad5c3d7f84740f8b8acbb53"
+    },
+    {
+      "path": "lib/registry-pair-categories.mjs",
+      "sha256": "b132cb5a14d326dac78730eca89418ee03f4ce92dd77095e9d3a1c59de30ed25"
+    },
+    {
+      "path": "lib/registry-publish.mjs",
+      "sha256": "8b4cc2c9f888e77269da1ba013a40bbb65ace08ef28b79aace3db7c08c1e1a4d"
+    },
+    {
+      "path": "lib/registry.mjs",
+      "sha256": "46fb2f5d6410f97c17de2f7ca6f8d67064486623616c4f324b3c44fec8fa260c"
+    },
+    {
+      "path": "lib/render-frame.mjs",
+      "sha256": "1ebdcff44fb7560e5085717487f575fab7c371b7f368fb300c1ae3618bdef1b0"
+    },
+    {
+      "path": "lib/render-record.mjs",
+      "sha256": "faf41d82315c983be326183ee5d8ef376da27636a06323c2cc573296e4f3bf54"
+    },
+    {
+      "path": "lib/service-spec.mjs",
+      "sha256": "c42ade66aaddafa380ba05bd2398644547a7cdcd7e7918d234943f7c35011fa8"
+    },
+    {
+      "path": "lib/session-codex.mjs",
+      "sha256": "a91378b11d486c1e8b2958253448c40645d869f41ea1a468848dea8600f3537c"
+    },
+    {
+      "path": "lib/session-folder.mjs",
+      "sha256": "4729bc683deb81f43ec6105048bc34e5ec4490cf42451802a07d9b1ad1a3e52c"
+    },
+    {
+      "path": "lib/session-hermes.mjs",
+      "sha256": "8dd167407178bde2f25666b92d49e1c6830ed3bf0ee0c4c52c5b07d116ef8194"
+    },
+    {
+      "path": "lib/session-http.mjs",
+      "sha256": "abc3a3c5ac40b3afbe92130c0fcca2f3abf858a411d796cd066a08978b54a448"
+    },
+    {
+      "path": "lib/staleness.mjs",
+      "sha256": "0ca01aabbfee8ec8f6fba84dd0de28612af69a30a988537b7e74763ebb6f2b75"
+    },
+    {
+      "path": "lib/template-source.mjs",
+      "sha256": "1e9cb5b749336c43f2f82999811a1fe56e5c47b026d7bcfba770a9c947923e33"
+    },
+    {
+      "path": "lib/turn-start.mjs",
+      "sha256": "93e1ac17175abb9ab21ea179eb0f66d108e23dd8635fdd1fb15ef055004805c4"
+    },
+    {
+      "path": "lib/wsl-facts.mjs",
+      "sha256": "c3347c69dafbbafb0845d2051e64aec80455a63f6fb2ec5238458c504eb89407"
+    },
+    {
+      "path": "package.json",
+      "sha256": "bca3c538317a149a75c6e8ebee0594cd9b12ceeb61f2764f818738c45af73ed4"
+    },
+    {
+      "path": "render.sh",
+      "sha256": "1af04688b3f24cf0b3c011a1c2cd89a015926a94614263823ee5e5a9bf9c92cd"
+    },
+    {
+      "path": "wrappers/aliases",
+      "sha256": "8812ddeff61b6dc549a3c4bdc42b69350e3b598b34f0a15b0ad026a59242f85e"
+    },
+    {
+      "path": "wrappers/claude-aify.sh.in",
+      "sha256": "02d2f6f145cd8c4f79f29f38b80d06c968bb16e9ccb9de2df7848021fad19921"
+    },
+    {
+      "path": "wrappers/codex-aify.sh.in",
+      "sha256": "7d8245a77fbb1a3b919025a8989bba311b22916212045d7838289fc2934bc80a"
+    },
+    {
+      "path": "wrappers/hermes-aify.sh.in",
+      "sha256": "e48a430d59d2b17a20813bb0de9f42eb90c6adde82c709dbe542b1e976478a8a"
+    },
+    {
+      "path": "wrappers/pi-aify.sh.in",
+      "sha256": "75f21e324ccafd200ea42afc5b1f11291013efa49e5b5f416f5757d03c59880f"
+    }
+  ],
+  "integrity_note": "npm Git integrity warning retained; no independent archive digest claim",
+  "probe_history": "Initial inventory matcher treated root README.md as a suffix pattern and wrongly expected5historical evidence READMEs. Corrected exact root-file equality; docs glob remains one level. No package/source change."
+}
