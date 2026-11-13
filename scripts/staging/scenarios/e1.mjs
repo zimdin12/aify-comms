@@ -1,6 +1,7 @@
 import { StagingStack } from '../stack.mjs';
 import { StagingHost } from '../host.mjs';
 import { runDoctors } from './e4.mjs';
+import { CHECK_SHELL_LAUNCHERS } from '../shell-syntax.mjs';
 
 // The README's sources are GitHub; staging has no internet, so the documented overrides name the staged checkouts.
 const SOURCES = ['AIFY_INSTALL_ENV_SOURCE=/src/candidate/env', 'AIFY_INSTALL_WRAPPER_SOURCE=/src/candidate/wrapper',
@@ -50,13 +51,14 @@ export async function run(s) {
       attacker: ['/api/v1/agents', 'host.docker.internal.evil.example:8800', key] });
     s.check('gateway_host_admitted_attacker_refused (comms#27)', gateway.gateway === '200' && /^4\d\d$/.test(gateway.attacker), gateway);
     const launchers = inHost(s, host, 'for l in claude-aify codex-aify; do "$l" --check; echo "exit $l $?"; done; '
-      + 'for f in "$HOME"/.local/bin/*-aify; do bash -n "$f" && echo "syntax-ok $(basename "$f")"; done; '
+      + CHECK_SHELL_LAUNCHERS + '; echo "syntax-exit $?"; '
       + 'bash /src/candidate/wrapper/install.sh --client claude --endpoint; echo "missing-value $?"');
     s.save('launchers.json', launchers);
     const lines = launchers.out.split('\n');
     s.check('check_reports_wrapper_permissions (wrapper#21)', lines.filter(line => line.includes('wrapper-selected permissions:')).length === 2
       && lines.includes('exit claude-aify 0') && lines.includes('exit codex-aify 0'), { tail: launchers.tail });
-    s.check('installed_launchers_parse (wrapper#9)', lines.filter(line => line.startsWith('syntax-ok ')).length >= 2,
+    s.check('installed_launchers_parse (wrapper#9)', lines.includes('syntax-exit 0')
+      && lines.filter(line => line.startsWith('syntax-ok ')).length >= 2,
       lines.filter(line => line.startsWith('syntax-ok ')));
     s.check('missing_option_value_refused (wrapper#18)', lines.includes('missing-value 78') && launchers.out.includes('--endpoint'), { tail: launchers.tail });
     for (const [item, reason] of Object.entries(NOT_RUN)) console.log(`NOT_RUN ${item}: ${reason}`);
