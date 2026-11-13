@@ -4,7 +4,7 @@
 "Add a status to a canonical set and every hardcoded twin silently keeps the old meaning". It scans
 `service/**/*.py`. **The JavaScript copies were outside every scan it makes.**
 
-There are nine of them, in two runtimes that cannot import Python at all — the dashboard, which
+These copies live in two runtimes that cannot import Python at all — the dashboard, which
 runs in a browser, and the MCP bridge, which runs on the host. Each spells out a set whose owner is a
 Python constant:
 
@@ -14,7 +14,6 @@ Python constant:
     service/new_dashboard/sessions-list.mjs  LIVE_SESSION_ROW_STATUSES <- _LIVE_SESSION_STATUSES (+)
     service/new_dashboard/console-chooser.js sessionDead               <- (four candidates; see below)
     mcp/stdio/dispatch-execution.js          NATIVE_MANAGED_RUNTIMES   <- _NATIVE_MANAGED_RUNTIMES
-    mcp/stdio/lifecycle-tools.mjs            live                      <- _LIVE_SESSION_STATUSES
     mcp/stdio/virtual-terminals.mjs          VIRTUAL_RPC_RUNTIMES      <- _NATIVE_MANAGED_RUNTIMES
     mcp/stdio/doctor-predicates.js           ENV_KNOWN_STATES          <- env_status.ENVIRONMENT_STATUSES
 
@@ -36,8 +35,8 @@ WHAT DRIFT WOULD ACTUALLY DO, per twin, because "they should match" is not a rea
     That list collapses each agent to one entry and keeps SEVERAL rows only when several are live,
     deliberately: "that is not clutter, it is a duplicate-worker leak — a class this repo has been
     bitten by — and hiding it would be the dashboard lying about a real fault." The drift hides
-    exactly the fault the design refuses to hide. In `lifecycle-tools.mjs` the same set gates a
-    bridge tool's view of which sessions are running.
+    exactly the fault the design refuses to hide. The restart tool no longer copies this set:
+    it addresses the agent's lifecycle route without selecting from session history.
   * `_NATIVE_MANAGED_RUNTIMES` gains a runtime -> the bridge does not dispatch to it natively and
     does not give it a virtual terminal. A new runtime that looks installed and never receives work.
   * `_DISPATCH_TERMINAL_STATUSES` gains a member -> the run inspector offers controls on a finished
@@ -106,7 +105,6 @@ EXACT_TWINS: dict[tuple[str, str], list[str]] = {
     # gate demanded the declaration on the same run.
     ("mcp/stdio/doctor-predicates.js", "ENV_KNOWN_STATES"): ["ENVIRONMENT_STATUSES"],
     ("mcp/stdio/dispatch-execution.js", "NATIVE_MANAGED_RUNTIMES"): ["_NATIVE_MANAGED_RUNTIMES"],
-    ("mcp/stdio/lifecycle-tools.mjs", "live"): ["_LIVE_SESSION_STATUSES"],
     ("mcp/stdio/virtual-terminals.mjs", "VIRTUAL_RPC_RUNTIMES"): ["_NATIVE_MANAGED_RUNTIMES"],
     ("service/new_dashboard/notify.mjs", "NOTIFIABLE_EVENTS"): ["NOTIFIABLE_EVENTS"],
     ("service/new_dashboard/run-inspector-controls.mjs", "terminal"): ["_DISPATCH_TERMINAL_STATUSES"],

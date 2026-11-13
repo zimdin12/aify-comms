@@ -15,7 +15,7 @@ const savedFetch = globalThis.fetch;
 globalThis.fetch = async (url, options) => {
   assert.equal(new URL(url).origin, "http://d9c-fixture.invalid");
   const path = new URL(url).pathname.replace(/^\/api\/v1/, "");
-  return new Response(JSON.stringify(reply(path, options.method)), { status: 200 });
+  return new Response(JSON.stringify(reply(path, options.method, options.body ? JSON.parse(options.body) : null)), { status: 200 });
 };
 test.after(() => { globalThis.fetch = savedFetch; });
 
@@ -43,13 +43,32 @@ test("control: an undefined agent's removal is still done at once and forgotten"
   assert.equal(state.REMOTE_AGENT_STATE.has("plain"), false);
 });
 
-test("a queued restart names its request and never says restarted", async () => {
-  reply = (path, method) => {
-    if (method === "GET" && path === "/agents/defined-agent") return { agent: { sessionMode: "managed" }, sessionMode: "managed" };
-    if (method === "GET" && path === "/sessions") return { sessions: [{ id: "sess-1", agentId: "defined-agent", status: "running" }] };
-    return queued("restart");
-  };
-  const said = text(await tools.get("comms_restart")({ agentId: "defined-agent" }));
-  assert.match(said, /queued as lifecycle request legacy-restart \[pending\]/);
-  assert.doesNotMatch(said, /restarted|reset with a fresh context/);
+test("restart and reset target the agent without asking for session history", async () => {
+  for (const freshContext of [false, true]) {
+    const calls = [];
+    reply = (path, method, body) => {
+      calls.push([method, path]);
+      if (method === "POST") assert.deepEqual(body, { action: freshContext ? "recreate" : "restart", from_agent: "agent" });
+      if (method === "GET" && path === "/agents/defined-agent") return { agent: { sessionMode: "managed" } };
+      assert.equal(path, "/agents/defined-agent/control", "restart must not infer a target from session history");
+      return queued("restart");
+    };
+    const said = text(await tools.get("comms_restart")({ agentId: "defined-agent", freshContext }));
+    assert.match(said, /queued as lifecycle request legacy-restart \[pending\]/);
+    assert.match(said, /GET \/api\/v1\/agent-lifecycle-requests\/legacy-restart/);
+    assert.doesNotMatch(said, /restarted|reset with a fresh context|worker is stopped/);
+    assert.deepEqual(calls, [["GET", "/agents/defined-agent"], ["POST", "/agents/defined-agent/control"]]);
+  }
+});
+
+test("a nonqueued or malformed restart receipt never claims a completed effect", async () => {
+  for (const answer of [{ ok: true }, {}, { queued: true, request: {} }, { queued: true, request: { id: "" } }]) {
+    reply = (path, method) => method === "GET" && path === "/agents/defined-agent"
+      ? { agent: { sessionMode: "managed" } } : path === "/sessions"
+        ? { sessions: [{ id: "old", status: "stopped" }] } : answer;
+    const result = await tools.get("comms_restart")({ agentId: "defined-agent" });
+    assert.equal(result.isError, true, "a missing queued receipt must fail closed");
+    assert.match(text(result), /no lifecycle request receipt/);
+    assert.doesNotMatch(text(result), /restarted|worker is stopped/);
+  }
 });

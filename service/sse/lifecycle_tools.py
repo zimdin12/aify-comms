@@ -13,7 +13,6 @@ from urllib.parse import quote
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.sse.api_client import call
 from service.sse.caller import caller_id
 from service.sse.registration import register_tools
@@ -27,7 +26,7 @@ def _queued(answer: dict) -> bool:
 def _queued_text(answer: dict, what: str) -> str:
     request = answer["request"]
     return (f"{what} is queued as lifecycle request {request['id']} [{request.get('status')}]; aify-env on "
-            f"its host carries it out. Read GET /agent-lifecycle-requests/{request['id']} before acting on it.")
+            f"its host carries it out. Read GET /api/v1/agent-lifecycle-requests/{request['id']} before acting on it.")
 
 
 async def comms_remove_agent(agentId: str = Field(description="Agent ID to remove")):
@@ -75,21 +74,13 @@ async def comms_restart(
         if mode != "managed":
             return tool_error(f'Agent "{target_id}" is {mode}, not managed. Resident sessions are operator-owned and can\'t be restarted '
                               "remotely — ask the operator to relaunch it, or use comms_run_interrupt to stop its current run.")
-        sessions = (await call("GET", f"/sessions?agentId={quote(target_id, safe='')}")).get("sessions") or []
-        target = next((s for s in sessions if str(s.get("status") or "").lower() in _LIVE_SESSION_STATUSES), sessions[0] if sessions else None)
-        if not target or not target.get("id"):
-            return tool_error(f'Agent "{target_id}" has no session to restart — send it a message instead; a managed agent cold-starts a fresh worker on send.')
         action = "recreate" if freshContext else "restart"
-        r = await call("POST", f"/sessions/{quote(target['id'], safe='')}/control", {"action": action, "from_agent": caller_id(ctx)})
+        r = await call("POST", f"/agents/{quote(target_id, safe='')}/control", {"action": action, "from_agent": caller_id(ctx)})
     except Exception as error:  # noqa: BLE001
         return tool_error(str(error) or "Failed to restart agent.")
-    if _queued(r):
+    if _queued(r) and r["request"]["id"].strip():
         return _queued_text(r, f'Restart of "{target_id}"')
-    if r.get("ok") is False:
-        return f'Restart of "{target_id}" was not accepted: {r.get("error") or "unknown reason"}.'
-    verb = "reset with a fresh context" if freshContext else "restarted"
-    return (f'Managed session for "{target_id}" {verb} (session {target["id"]}, action={action}); '
-            "the live worker is stopped and aify-env starts the replacement.")
+    return tool_error(f'Restart of "{target_id}" was not accepted: {r.get("error") or "no lifecycle request receipt"}.')
 
 
 TOOLS = (comms_remove_agent, comms_delete_session, comms_restart)

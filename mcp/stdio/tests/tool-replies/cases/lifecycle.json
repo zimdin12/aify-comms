@@ -69,7 +69,7 @@
         "body": null
       }
     ],
-    "text": "Removal of \"agent-b\" is queued as lifecycle request lr_1 [pending]; aify-env on its host carries it out. Read GET /agent-lifecycle-requests/lr_1 before acting on it.",
+    "text": "Removal of \"agent-b\" is queued as lifecycle request lr_1 [pending]; aify-env on its host carries it out. Read GET /api/v1/agent-lifecycle-requests/lr_1 before acting on it.",
     "isError": false
   },
   {
@@ -179,23 +179,10 @@
           }
         }
       },
-      "GET /sessions?agentId=agent-b": {
+      "POST /agents/agent-b/control": {
         "body": {
-          "sessions": [
-            {
-              "id": "s0",
-              "status": "ended"
-            },
-            {
-              "id": "s1",
-              "status": "Running"
-            }
-          ]
-        }
-      },
-      "POST /sessions/s1/control": {
-        "body": {
-          "ok": true
+          "queued": true,
+          "request": { "id": "lr_1", "status": "pending" }
         }
       }
     },
@@ -206,20 +193,15 @@
         "body": null
       },
       {
-        "method": "GET",
-        "path": "/sessions?agentId=agent-b",
-        "body": null
-      },
-      {
         "method": "POST",
-        "path": "/sessions/s1/control",
+        "path": "/agents/agent-b/control",
         "body": {
           "action": "restart",
           "from_agent": "agent-a"
         }
       }
     ],
-    "text": "Managed session for \"agent-b\" restarted (session s1, action=restart); the live worker is stopped and aify-env starts the replacement.",
+    "text": "Restart of \"agent-b\" is queued as lifecycle request lr_1 [pending]; aify-env on its host carries it out. Read GET /api/v1/agent-lifecycle-requests/lr_1 before acting on it.",
     "isError": false
   },
   {
@@ -237,17 +219,7 @@
           }
         }
       },
-      "GET /sessions?agentId=agent-b": {
-        "body": {
-          "sessions": [
-            {
-              "id": "s0",
-              "status": "ended"
-            }
-          ]
-        }
-      },
-      "POST /sessions/s0/control": {
+      "POST /agents/agent-b/control": {
         "body": {
           "queued": true,
           "request": {
@@ -264,20 +236,15 @@
         "body": null
       },
       {
-        "method": "GET",
-        "path": "/sessions?agentId=agent-b",
-        "body": null
-      },
-      {
         "method": "POST",
-        "path": "/sessions/s0/control",
+        "path": "/agents/agent-b/control",
         "body": {
           "action": "recreate",
           "from_agent": "agent-a"
         }
       }
     ],
-    "text": "Restart of \"agent-b\" is queued as lifecycle request lr_2 [pending]; aify-env on its host carries it out. Read GET /agent-lifecycle-requests/lr_2 before acting on it.",
+    "text": "Restart of \"agent-b\" is queued as lifecycle request lr_2 [pending]; aify-env on its host carries it out. Read GET /api/v1/agent-lifecycle-requests/lr_2 before acting on it.",
     "isError": false
   },
   {
@@ -294,17 +261,7 @@
           }
         }
       },
-      "GET /sessions?agentId=agent-b": {
-        "body": {
-          "sessions": [
-            {
-              "id": "s1",
-              "status": "starting"
-            }
-          ]
-        }
-      },
-      "POST /sessions/s1/control": {
+      "POST /agents/agent-b/control": {
         "body": {
           "ok": false,
           "error": "booting"
@@ -318,13 +275,8 @@
         "body": null
       },
       {
-        "method": "GET",
-        "path": "/sessions?agentId=agent-b",
-        "body": null
-      },
-      {
         "method": "POST",
-        "path": "/sessions/s1/control",
+        "path": "/agents/agent-b/control",
         "body": {
           "action": "restart",
           "from_agent": "agent-a"
@@ -332,7 +284,7 @@
       }
     ],
     "text": "Restart of \"agent-b\" was not accepted: booting.",
-    "isError": false
+    "isError": true
   },
   {
     "name": "restart a resident",
@@ -373,10 +325,8 @@
           }
         }
       },
-      "GET /sessions?agentId=agent-b": {
-        "body": {
-          "sessions": []
-        }
+      "POST /agents/agent-b/control": {
+        "body": { "queued": true, "request": { "id": "lr_cold", "status": "pending" } }
       }
     },
     "requests": [
@@ -386,13 +336,13 @@
         "body": null
       },
       {
-        "method": "GET",
-        "path": "/sessions?agentId=agent-b",
-        "body": null
+        "method": "POST",
+        "path": "/agents/agent-b/control",
+        "body": { "action": "restart", "from_agent": "agent-a" }
       }
     ],
-    "text": "Agent \"agent-b\" has no session to restart — send it a message instead; a managed agent cold-starts a fresh worker on send.",
-    "isError": true
+    "text": "Restart of \"agent-b\" is queued as lifecycle request lr_cold [pending]; aify-env on its host carries it out. Read GET /api/v1/agent-lifecycle-requests/lr_cold before acting on it.",
+    "isError": false
   },
   {
     "name": "restart an agent with no session mode",
@@ -439,6 +389,36 @@
       }
     ],
     "text": "HTTP 404: {\"detail\":\"Agent not found\"}",
+    "isError": true
+  },
+  {
+    "name": "restart without a queued receipt fails closed",
+    "tool": "comms_restart",
+    "args": { "agentId": "agent-b" },
+    "routes": {
+      "GET /agents/agent-b": { "body": { "agent": { "sessionMode": "managed" } } },
+      "POST /agents/agent-b/control": { "body": { "ok": true } }
+    },
+    "requests": [
+      { "method": "GET", "path": "/agents/agent-b", "body": null },
+      { "method": "POST", "path": "/agents/agent-b/control", "body": { "action": "restart", "from_agent": "agent-a" } }
+    ],
+    "text": "Restart of \"agent-b\" was not accepted: no lifecycle request receipt.",
+    "isError": true
+  },
+  {
+    "name": "restart with an empty receipt id fails closed",
+    "tool": "comms_restart",
+    "args": { "agentId": "agent-b" },
+    "routes": {
+      "GET /agents/agent-b": { "body": { "agent": { "sessionMode": "managed" } } },
+      "POST /agents/agent-b/control": { "body": { "queued": true, "request": { "id": "" } } }
+    },
+    "requests": [
+      { "method": "GET", "path": "/agents/agent-b", "body": null },
+      { "method": "POST", "path": "/agents/agent-b/control", "body": { "action": "restart", "from_agent": "agent-a" } }
+    ],
+    "text": "Restart of \"agent-b\" was not accepted: no lifecycle request receipt.",
     "isError": true
   },
   {

@@ -34,7 +34,7 @@ import { validateName } from "./safe-name.mjs";
 // A DEFINED agent's restart or removal is queued for its host (D9c): say queued, never done.
 function queuedText(answer, what) {
   return `${what} is queued as lifecycle request ${answer.request.id} [${answer.request.status}]; aify-env on `
-    + `its host carries it out. Read GET /agent-lifecycle-requests/${answer.request.id} before acting on it.`;
+    + `its host carries it out. Read GET /api/v1/agent-lifecycle-requests/${answer.request.id} before acting on it.`;
 }
 const isQueued = (answer) => answer?.queued === true && typeof answer.request?.id === "string";
 
@@ -134,27 +134,15 @@ export function registerLifecycleTools(server, z) {
             isError: true,
           };
         }
-        const list = await httpCall("GET", `/sessions?agentId=${encodeURIComponent(id)}`);
-        const sessions = Array.isArray(list.sessions) ? list.sessions : [];
-        const live = new Set(["starting", "running", "recovering", "restarting", "cli-takeover"]);
-        const target = sessions.find((s) => live.has(String(s.status || "").toLowerCase())) || sessions[0];
-        if (!target || !target.id) {
-          return { content: [{ type: "text", text: `Agent "${id}" has no session to restart — send it a message instead; a managed agent cold-starts a fresh worker on send.` }], isError: true };
-        }
         const action = freshContext ? "recreate" : "restart";
-        const r = await httpCall("POST", `/sessions/${encodeURIComponent(target.id)}/control`, {
+        const r = await httpCall("POST", `/agents/${encodeURIComponent(id)}/control`, {
           action,
           from_agent: process.env.AIFY_AGENT_ID || "agent",
         });
-        const verb = freshContext ? "reset with a fresh context" : "restarted";
-        if (isQueued(r)) return { content: [{ type: "text", text: queuedText(r, `Restart of "${id}"`) }] };
+        if (isQueued(r) && r.request.id.trim()) return { content: [{ type: "text", text: queuedText(r, `Restart of "${id}"`) }] };
         return {
-          content: [{
-            type: "text",
-            text: r && r.ok === false
-              ? `Restart of "${id}" was not accepted: ${r.error || "unknown reason"}.`
-              : `Managed session for "${id}" ${verb} (session ${target.id}, action=${action}); the live worker is stopped and aify-env starts the replacement.`,
-          }],
+          content: [{ type: "text", text: `Restart of "${id}" was not accepted: ${r?.error || "no lifecycle request receipt"}.` }],
+          isError: true,
         };
       } catch (error) {
         return { content: [{ type: "text", text: error?.message || "Failed to restart agent." }], isError: true };

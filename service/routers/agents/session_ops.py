@@ -37,6 +37,7 @@ from service.api_core.records import _agent_record_to_dict, _terminal_session_to
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.status_refresh import _compute_agent_status
+from service.api_core.switched_view import view_for
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.clock import now as _now
@@ -52,7 +53,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
     # An omitted name is recorded as `dashboard`, which needs the operator key once one is set.
     actor = recorded_operator_actor(req.from_agent, request, action="controlling an agent as the operator")
     action = str(req.action or "").strip().lower()
-    if action not in {"interrupt", "stop", "resume", "start"}:
+    if action not in {"interrupt", "stop", "resume", "start", "restart", "recreate"}:
         raise HTTPException(400, f'Unsupported agent control action "{req.action}"')
 
     db = await get_db()
@@ -61,10 +62,18 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         agent = await cursor.fetchone()
         if not agent:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        # A DEFINED agent's start, stop (the operator's HOLD) and resume go to its host through the D9 lifecycle queue
-        # (D9c). Resume is the host's `release`: a hold there is aify-env's, and comms' own stop row never held it.
-        if action in {"start", "stop", "resume"}:
-            delegated = await delegate(db, agent_id, "release" if action == "resume" else action, actor, request)
+        async def admit_restart(db):
+            current = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            if current is None:
+                raise HTTPException(404, f"Agent '{agent_id}' not found")
+            if (await view_for(db, current)).status == "starting":
+                raise HTTPException(409, f'Agent "{agent_id}" is starting; retry once the agent is online')
+
+        # Defined controls belong to the host. Reset restarts with fresh context; resume releases its hold.
+        if action != "interrupt":
+            delegated = await delegate(
+                db, agent_id, {"resume": "release", "recreate": "restart"}.get(action, action), actor, request,
+                fresh_context=action == "recreate", admit=admit_restart if action in {"restart", "recreate"} else None)
             if delegated:
                 return delegated
 
@@ -72,7 +81,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
 
         # START: a defined agent's was handed to its host above (D9c). What reaches here no host defines, and
         # since D8 that is not started; a resident is told where its terminal is instead.
-        if action == "start":
+        if action in {"start", "restart", "recreate"}:
             if _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
                 raise HTTPException(
                     409,

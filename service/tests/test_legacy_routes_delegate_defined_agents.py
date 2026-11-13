@@ -145,6 +145,70 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
         self.assertIn("as resident", refused.json()["detail"])
         self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
 
+    def agent_restart(self, action="restart"):
+        return self.client.post("/api/v1/agents/coder/control", json={"action": action, "from_agent": "manager"})
+
+    def test_agent_restart_ignores_history_order_and_also_works_without_history(self):
+        for history in ("tied-stopped", "hidden-newest", "live", "none"):
+            with self.subTest(history=history):
+                self.sql("DELETE FROM agent_lifecycle_requests")
+                self.sql("DELETE FROM agent_sessions")
+                if history != "none":
+                    for sid, status, started in (("old", "stopped", "2026-11-01T00:00:00Z"),
+                                                  ("new", "running" if history == "live" else "ended" if history == "hidden-newest" else "stopped",
+                                                   "2026-11-12T00:00:00Z")):
+                        self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, started_at, last_seen) "
+                                 "VALUES (?, 'coder', ?, 'claude-code', 'managed-warm', ?, ?, '2026-11-13T14:21:15Z')",
+                                 (sid, A["env"], status, started))
+                lifetime = "current-worker" if history == "live" else None
+                publish(self, A["machine"], {"coder": (lifetime, "idle" if lifetime else "available")})
+                for action in ("restart", "recreate"):
+                    self.sql("DELETE FROM agent_lifecycle_requests")
+                    self.queued(self.agent_restart(action), "restart", lifetime, fresh=action == "recreate")
+
+    def test_agent_restart_refuses_undefined_and_resident_without_writes(self):
+        for mode in ("resident", "undefined"):
+            with self.subTest(mode=mode):
+                if mode == "resident":
+                    self.sql("UPDATE agent_definitions SET body = json_set(body, '$.mode', 'resident')")
+                else:
+                    self.sql("DELETE FROM agent_definitions")
+                for action in ("restart", "recreate"):
+                    answer = self.agent_restart(action)
+                    self.assertEqual(answer.status_code, 409, answer.text)
+                    self.assertIn("as resident" if mode == "resident" else "no host defines", answer.json()["detail"])
+                    self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
+                    self.assertEqual(self.legacy_effects(), {"spawn_requests": [], "terminal_controls": [], "definition_requests": []})
+
+    def test_starting_is_read_inside_admission_not_from_a_cached_online_word(self):
+        from unittest.mock import patch
+        from service.api_core import agent_state_mirror as mirror
+        from service.api_core import lifecycle_delegation
+        from service.reconcilers.status_cache import _live_state_set
+
+        publish(self, A["machine"], {"coder": ("L1", "idle")})
+        _live_state_set("coder", {"status": "online", "refresh_after": "2999-01-01T00:00:00Z"})
+        original_owner = lifecycle_delegation.owner_of
+
+        async def owner_then_start(db, agent_id):
+            owner = await original_owner(db, agent_id)
+            mirror.mirror.feed(mirror.Projection((A["machine"], "default"), "snapshot", 2, mirror.clock(),
+                               (mirror.Record("coder", "L1", "starting", False),), ()))
+            mirror.mirror.renew_report((A["machine"], "default"), mirror.clock(), 1000)
+            return owner
+
+        with patch.object(lifecycle_delegation, "owner_of", owner_then_start):
+            for action in ("restart", "recreate"):
+                refused = self.agent_restart(action)
+                self.assertEqual((refused.status_code, self.sql("SELECT id FROM agent_lifecycle_requests")),
+                                 (409, []), "starting must be refused without a lifecycle write")
+                self.assertIn("starting", refused.json()["detail"])
+                self.assertIn("retry once the agent is online", refused.json()["detail"])
+                self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
+        mirror.mirror.feed(mirror.Projection((A["machine"], "default"), "snapshot", 3, mirror.clock(),
+                           (mirror.Record("coder", "L1", "idle", False),), ()))
+        self.queued(self.agent_restart(), "restart", "L1")
+
     def cold_start(self, reasons):
         async def run():
             db = await get_db()
