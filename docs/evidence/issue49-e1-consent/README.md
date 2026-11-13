@@ -25,7 +25,7 @@ The existing local acquisition overrides select the staged sources. Restored can
 - Codex installation exits 0 naturally from its independent home and prefix, with `chain: complete` and one tuple answer out of one expected. Its actual PATH excludes Claude's install prefix.
 - The sudoers entry permits only the owner's exact `prepare-policy` invocation. An unrelated sudo command is refused. Plugin installation stays with the non-root user.
 - The candidate host runs, publishes definitions and starts a managed worker using the existing no-provider Codex runtime double. That is a real host/launcher/process observation, not a native provider or model qualification.
-- All 16 applicable comms doctor rows and all 19 applicable env doctor rows pass. The raw env strict doctor exit is 1 because the excluded `claude-login` row reports first-run setup incomplete. It is not a full doctor green. The unchanged exclusions are `usage-openai`, `claude-login` and `context-window`.
+- All 16 applicable comms doctor rows and all 19 applicable aify-env doctor rows pass. The raw env strict doctor exit is 1 because the excluded `claude-login` row reports first-run setup incomplete. It is not a full doctor green. The unchanged exclusions are `usage-openai`, `claude-login` and `context-window`.
 - Authentication, exact health exemptions, gateway Host admission, attacker Host refusal, both launcher checks, installed shell syntax and missing-option refusal pass.
 
 The doctor-time config diagnostic records key names only. It observes ten names and no `projects` key. Env correctly reports no trusted roots and the existing folder-trust policy answering the dialog. No credential, identifier value or full Claude configuration was captured.
