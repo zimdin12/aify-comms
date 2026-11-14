@@ -1,6 +1,7 @@
 """D9 service lifecycle receipts, driven through private HTTP and SQLite."""
 import asyncio
 import sqlite3
+import httpx
 from fastapi import HTTPException
 from service.api_core import agent_lifecycle_requests as lifecycle_core
 from service.api_core.operator_authz import LifecycleProof
@@ -62,6 +63,72 @@ class LifecycleRequests(FastApiTestCase):
         self.assertEqual(self.ask(action='kill').status_code, 409)
         self.assertEqual(self.client.get('/api/v1/agents/coder/lifecycle-requests').json()['requests'], [receipt])
         self.assertEqual(self.client.get('/api/v1/agent-lifecycle-requests/life-1').json()['request'], receipt)
+
+    def assert_open_conflict(self, response, request_id):
+        self.assertEqual((response.status_code, response.json()), (409, {'detail': {
+            'code': 'OPEN_REQUEST', 'openRequestId': request_id,
+            'message': f'agent has an open lifecycle request {request_id}'}}))
+        self.assertRegex(response.json()['detail']['openRequestId'], r'\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z')
+
+    def test_open_conflict_names_pending_and_claimed_receipt_without_writing(self):
+        self.ask().raise_for_status()
+        for claimed in (False, True):
+            with self.subTest(claimed=claimed):
+                if claimed:
+                    self.claim().raise_for_status()
+                before = self.sql('SELECT * FROM agent_lifecycle_requests')
+                self.assert_open_conflict(self.ask(requestId='blocked', action='kill'), 'life-1')
+                self.assertEqual(self.sql('SELECT * FROM agent_lifecycle_requests'), before)
+                self.assertEqual(self.client.get('/api/v1/agent-lifecycle-requests/blocked').status_code, 404)
+        self.report().raise_for_status()
+        self.ask(requestId='blocked', action='kill').raise_for_status()
+        self.assertEqual(len(self.sql('SELECT id FROM agent_lifecycle_requests')), 2)
+
+    def test_conflict_id_grammar_boundaries_and_invalid_stored_ids(self):
+        self.ask().raise_for_status()
+        for request_id in ('A', 'A' + 'x'*124 + '._-', '', '-bad', 'x'*129, 'x\n'):
+            with self.subTest(request_id=repr(request_id)):
+                self.sql('UPDATE agent_lifecycle_requests SET id=?', (request_id,))
+                before = self.sql('SELECT * FROM agent_lifecycle_requests')
+                response = self.ask(requestId='blocked')
+                if request_id in ('A', 'A' + 'x'*124 + '._-'):
+                    self.assert_open_conflict(response, request_id)
+                else:
+                    self.assertEqual((response.status_code, response.json()), (409, {'detail':
+                        'agent has an open lifecycle request with an invalid id; ask its owner to inspect the receipt'}))
+                self.assertEqual(self.sql('SELECT * FROM agent_lifecycle_requests'), before)
+
+    def test_lost_submit_response_recovers_same_intent_not_a_second_request(self):
+        def lose_response(response):
+            if response.request.method == 'POST' and response.request.url.path.endswith('/lifecycle-requests'):
+                raise httpx.ReadError('fixture lost the response after commit', request=response.request)
+        self.client.event_hooks['response'].append(lose_response)
+        try:
+            with self.assertRaisesRegex(httpx.ReadError, 'after commit'):
+                self.ask(expectedRevision=5)
+        finally:
+            self.client.event_hooks['response'].remove(lose_response)
+        stored = self.client.get('/api/v1/agent-lifecycle-requests/life-1').json()['request']
+        self.assertEqual((stored['status'], stored['outcome'], stored['expectedLifetime']),
+                         ('pending', '', 'worker-1'), 'lost response is not a durable refusal or host outcome')
+        before = self.sql('SELECT * FROM agent_lifecycle_requests')
+        self.push('s2', 1, [valid('coder', incarnation=3, revision=7)])
+        replay = self.ask(expectedRevision=5)
+        self.assertEqual((replay.status_code, replay.json()['request']), (200, stored))
+        self.assertEqual(self.sql('SELECT * FROM agent_lifecycle_requests'), before)
+        changed = self.ask(action='kill', expectedRevision=5)
+        self.assertEqual((changed.status_code, changed.json()),
+                         (409, {'detail': 'requestId already records a different intent'}))
+        self.assertEqual(self.sql('SELECT * FROM agent_lifecycle_requests'), before)
+
+    def test_other_errors_keep_their_existing_detail_shapes(self):
+        wrong_revision = self.ask(expectedRevision=4)
+        self.assertEqual((wrong_revision.status_code, wrong_revision.json()),
+                         (409, {'detail': 'definition revision moved'}))
+        invalid = self.client.post('/api/v1/agents/coder/lifecycle-requests', json={})
+        self.assertEqual(invalid.status_code, 422)
+        self.assertIsInstance(invalid.json()['detail'], list)
+        self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [])
 
     def test_explicit_lifetime_revision_and_bounded_id(self):
         missing = self.client.post('/api/v1/agents/coder/lifecycle-requests', json={
@@ -303,7 +370,7 @@ class LifecycleRequests(FastApiTestCase):
         self.refused(self.ask(expectedRevision=4), 409, 'definition revision moved')
         self.ask().raise_for_status()
         self.refused(self.ask(action='kill'), 409, 'requestId already records a different intent')
-        self.refused(self.ask(requestId='life-2'), 409, 'agent has an open lifecycle request life-1')
+        self.assert_open_conflict(self.ask(requestId='life-2'), 'life-1')
         self.refused(self.client.get('/api/v1/agent-lifecycle-requests/nothing'), 404, 'no lifecycle request')
         # Claim and report.
         self.refused(self.report(), 409, 'lifecycle request was never claimed')

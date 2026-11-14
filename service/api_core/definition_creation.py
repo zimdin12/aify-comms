@@ -88,5 +88,6 @@ async def _spawn(db, row, held, now: str) -> str:
                                         expected_lifetime=None, fresh_context=True, intent=intent, now=now,
                                         brief=row["brief"] or "")
     except HTTPException as refused:
-        return f"nothing spawned: {refused.detail}"
+        message = refused.detail['message'] if isinstance(refused.detail, dict) else refused.detail
+        return f"nothing spawned: {message}"
     return f"spawn queued {request_id}"

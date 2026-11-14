@@ -6,6 +6,16 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## 2026-11-14: both UIs use one lifecycle admission owner
+
+The owner split in [the approved roles](docs/audit-2026-11/ROLES.md) supersedes any older "pure comms service" or "dashboard must not control the fleet" wording. The comms UI and aify-dashboard may both offer intentional fleet controls through comms' existing request endpoints. Comms owns request admission and durable receipts; aify-env owns execution and agent status. Neither UI submits lifecycle actions to discover available capabilities.
+
+An open pending or claimed lifecycle request refuses another intent with HTTP 409 and `detail` containing `code: "OPEN_REQUEST"`, `openRequestId` and `message`. The id is the existing receipt's nonempty request id under the admission grammar. Other lifecycle conflicts keep string details; request-validation errors retain their existing shapes. Dashboard consumes the fields instead of parsing prose. Its reader must accept both old and new forms before this service change goes live.
+
+Same-id, same-intent replay returns the original receipt even after definition drift. Different intent, definition revision and host/lifetime fences remain in force. A lost response leaves the caller's outcome unknown: recover by reading the receipt or replaying the same id and intent, not by inventing a new request or reporting a refusal. Admission is not host execution.
+
+Stop ends the worker with `kill`; Hold uses `stop`; Release hold uses `release` without starting a worker. Delete retains confirmation and its configured operator-key gate. The skill's single owner-decision sentence chooses `dashboard_question_ask` when present and comms as fallback; replies to actual operator comms messages and delivery incidents keep their comms route. Dashboard-side rule removal belongs to dashboard issue 8; receiver schema adoption is comms issue 22, not part of this conflict change.
+
 ## A usage-limited agent reads `blocked`, from comms' own pool reading (2026-10-26, 0.9.9)
 
 - **Rule:** while the quota pool an agent draws on is at its limit (a window at 100% used, or OpenAI's

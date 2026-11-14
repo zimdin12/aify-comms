@@ -106,6 +106,18 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
         self.report(request["id"])
         self.assertEqual([r["action"] for r in self.sql("SELECT action FROM agent_lifecycle_requests")], ["spawn"])
 
+    def test_an_open_lifecycle_receipt_keeps_the_spawn_consequence_human_readable(self):
+        request = self.created()
+        self.claim()
+        self.defined()
+        self.client.post('/api/v1/agents/newbie/lifecycle-requests', json={
+            'requestId': 'occupied', 'action': 'stop', 'requestedBy': 'peer',
+            'expectedLifetime': None}).raise_for_status()
+        before = self.sql('SELECT * FROM agent_lifecycle_requests')
+        self.report(request['id'])
+        self.assertEqual((self.consequence(request['id']), self.sql('SELECT * FROM agent_lifecycle_requests')),
+                         ('nothing spawned: agent has an open lifecycle request occupied', before))
+
     def test_a_definition_at_another_lifetime_spawns_nothing_and_says_so(self):
         request = self.created()
         self.claim()

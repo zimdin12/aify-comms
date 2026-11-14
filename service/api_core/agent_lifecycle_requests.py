@@ -14,6 +14,8 @@ from service.api_core.agent_remove import remove_agent
 from service.lifecycle_models import ACTION_ADDED_IN, ACTIONS, OPEN_SQL, TERMINAL, UNDECLARED_HOST_ACTIONS
 
 
+REQUEST_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}')
+
 
 def lifecycle_record(row):
     return {key: row[column] for key, column in {
@@ -42,7 +44,7 @@ async def admit_lifecycle(db, agent_id, body, proof, now, *, brief=''):
     if proof.actor != lifecycle_actor(body):
         raise HTTPException(403, 'lifecycle proof does not match caller actor')
     request_id = body.get('requestId')
-    if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', request_id):
+    if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
         raise HTTPException(422, 'requestId: 1 to 128 ASCII letters, digits, dot, underscore or hyphen; first character must be alphanumeric')
     old = await (await db.execute('SELECT * FROM agent_lifecycle_requests WHERE id=?', (request_id,))).fetchone()
     held = await (await db.execute('SELECT * FROM agent_definitions WHERE agent_id=?', (agent_id,))).fetchone()
@@ -78,7 +80,11 @@ async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifet
     agent has another one open."""
     waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN " + OPEN_SQL, (held['agent_id'],))).fetchone()
     if waiting:
-        raise HTTPException(409, f"agent has an open lifecycle request {waiting['id']}")
+        open_id = waiting['id']
+        if not isinstance(open_id, str) or not REQUEST_ID.fullmatch(open_id):
+            raise HTTPException(409, 'agent has an open lifecycle request with an invalid id; ask its owner to inspect the receipt')
+        raise HTTPException(409, {'code': 'OPEN_REQUEST', 'openRequestId': open_id,
+                                  'message': f'agent has an open lifecycle request {open_id}'})
     await db.execute('INSERT INTO agent_lifecycle_requests (id,agent_id,machine_id,store_id,expected_incarnation,expected_revision,expected_lifetime,action,requested_by,fresh_context,intent,brief,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         (request_id,held['agent_id'],held['machine_id'],held['store_id'],held['incarnation'],held['revision'],expected_lifetime,action,actor,fresh_context,intent,brief,now))
 

@@ -8,7 +8,7 @@ description: Use when comms_* MCP tools are available or an agent needs aify-com
 ## Operating model
 
 aify-comms connects persistent teammates (different models, harnesses and machines)
-with a human operator who watches the dashboard.
+with a human operator who watches the comms UI.
 
 1. **A message wakes the recipient into a full turn** (their whole context re-read).
    Send one when it changes what the recipient does or knows. One sharp question to the
@@ -110,7 +110,7 @@ An `available` managed agent auto-starts on send, so do not pre-spawn it. A send
 
 Set `priority="high"` or `"urgent"` only for a real blocker.
 
-The dashboard is the operator. Answer a dashboard message with `comms_send(to="dashboard", type="response", inReplyTo=…)`. Unprompted, send the operator only something that went wrong and needs a human, once, with what they must do: `comms_send(to="dashboard", type="request", subject="…", body="…")`.
+For an owner decision, use `dashboard_question_ask` when present, otherwise `comms_send(to="dashboard", type="request")`. Reply to operator comms with `comms_send(to="dashboard", type="response", inReplyTo=…)`; send unsolicited comms to the operator only for delivery incidents needing a human.
 
 ## Channels
 
