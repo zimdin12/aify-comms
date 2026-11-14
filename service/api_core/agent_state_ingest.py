@@ -28,7 +28,6 @@ RETIREMENT_REASONS = {'shutdown'}
 
 # Pinned agent-state.mjs deriveAgentState and AgentStateHost.current vocabulary.
 _STATES = {'unknown', 'stopped', 'misconfigured', 'working', 'blocked', 'shell', 'idle', 'starting', 'available', 'offline'}
-_CAUSES = {'unrecognised', 'operator-stop', 'conflict', 'config', 'identity-unknown', 'screen', 'turn-open', 'at-prompt', 'starting', 'startable', 'absent', 'turn-unknown'}
 _PROCESS_STATES = {'running', 'starting', 'exited', 'none', 'unknown'}
 _VERIFIED = {'yes', 'no', 'unknown'}
 _SAFE_INTEGER = 9007199254740991
@@ -115,7 +114,7 @@ def _record(record):
     if record['lifetime'] is not None:
         _text(record['lifetime'])
     _word(record['state'], _STATES)
-    _word(record['stateCause'], _CAUSES)
+    _text(record['stateCause'])
     _flag(record['busy'])
     process = record['process']
     _object(process, ('state', 'verified', 'pid'))

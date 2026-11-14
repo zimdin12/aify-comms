@@ -174,7 +174,7 @@ class AgentStateReceiverTest(FastApiTestCase):
             invalid.extend([missing, body(kind, generation=9, inputs={'x': 1}), body(kind, unexpected=True)])
         for counter in (True, 1.0, 0, -1, 9007199254740992):
             invalid.extend([body(generation=counter), body(publication=counter)])
-        for change in ({'state': 'invented'}, {'stateCause': 'invented'}, {'busy': 1}, {'lifetime': ''},
+        for change in ({'state': 'invented'}, {'stateCause': ''}, {'stateCause': None}, {'stateCause': 1}, {'busy': 1}, {'lifetime': ''},
                        {'process': dict(state='running', verified='maybe', pid=1)},
                        {'process': dict(state='invented', verified='yes', pid=1)},
                        {'process': dict(state='running', verified='yes', pid=True)},
@@ -200,8 +200,7 @@ class AgentStateReceiverTest(FastApiTestCase):
         for value in invalid:
             with self.subTest(value=value):
                 response = self.post(value)
-                self.assertEqual(response.status_code, 422, response.text)
-                self.assertEqual(self.stored(), before)
+                self.assertEqual((response.status_code, self.stored()), (422, before), response.text)
         raw_cases = [b'\xff', b'[]', b'null', b'{', wire(body()).replace(b'"generation":10', b'"generation":' + b'9' * 5000),
                      wire(body()).replace(b'"generation":10', b'"generation":NaN'),
                      wire(body()).replace(b'"busy":true', b'"busy":true,"b\\u0075sy":false'),
