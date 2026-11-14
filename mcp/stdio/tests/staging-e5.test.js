@@ -74,3 +74,23 @@ for (const [version, engine, expected] of [
 ]) {
   test(`node ${version} against engine ${engine} is ${expected ? 'admitted' : 'refused'}`, () => assert.equal(meetsEngine(version, engine), expected));
 }
+
+const { publicationHolds } = await import('../../../scripts/staging/scenarios/e5.mjs');
+const IDS = ['a', 'b'];
+const RES = 'residents-1';
+const pub = (instance, agents, fresh = true) => ({ instance, fresh, agents });
+const read = (publishers, conflicts = {}) => ({ status: 200, publishers,
+  agents: IDS.map(agentId => ({ agentId, conflict: conflicts[agentId] ?? false })) });
+for (const [label, value, residents, expected] of [
+  ['the managed publisher alone', read([pub('m', IDS)]), RES, true],
+  ['the managed publisher beside an empty residents one', read([pub('m', IDS), pub(RES, [])]), RES, true],
+  ['two managed publishers', read([pub('m', IDS), pub('m2', IDS)]), RES, false],
+  ['a second publisher while no residents role is held', read([pub('m', IDS), pub(RES, [])]), null, false],
+  ['a defined agent only the residents publisher names', read([pub('m', ['a']), pub(RES, ['b'])]), RES, false],
+  ['a stale publisher', read([pub('m', IDS), pub(RES, [], false)]), RES, false],
+  ['an agent read as a conflict', read([pub('m', IDS)], { b: true }), RES, false],
+  ['a refused read', { status: 401, publishers: null, agents: [] }, RES, false],
+  ['no publishers', read([]), RES, false],
+]) {
+  test(`publication: ${label} is ${expected ? 'admitted' : 'refused'}`, () => assert.equal(publicationHolds(value, residents, IDS), expected));
+}

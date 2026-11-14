@@ -13,8 +13,13 @@ engine: a two-part range leaves its patch unset: RED | node v24.15.0 against eng
 engine: no declared engine admitted: RED | node v24.22.1 against engine null is refused | node v24.22.1 against engine ^24.15 is refused | node 24.22.1 against engine >=24.15 is refused
 engine: an unanchored version admitted: RED | node 24.22.1 against engine >=24.15 is refused
 engine: a caret range admitted: RED | node v24.22.1 against engine ^24.15 is refused
+publication: a second managed publisher admitted: RED | publication: two managed publishers is refused | publication: a second publisher while no residents role is held is refused
+publication: any residents-named publisher admitted: RED | publication: a second publisher while no residents role is held is refused
+publication: an agent from any publisher counts: RED | publication: a defined agent only the residents publisher names is refused
+publication: freshness not required: RED | publication: a stale publisher is refused
+publication: conflict not read: RED | publication: an agent read as a conflict is refused
 scripts/staging/session.mjs restored identical: true
 scripts/staging/manifest.mjs restored identical: true
 scripts/staging/layout.mjs restored identical: true
 scripts/staging/scenarios/e5.mjs restored identical: true
-14/14 red on the named test
+19/19 red on the named test

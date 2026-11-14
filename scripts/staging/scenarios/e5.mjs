@@ -11,7 +11,9 @@ const NOT_RUN = { 'the dashboard image': 'the staged dashboard runs its own serv
 const READ = `const [origin,key]=process.argv.slice(1);
   const r=await fetch(origin+'/api/v1/agent-state',{signal:AbortSignal.timeout(5000),headers:key?{'x-api-key':key}:{}});
   const body=r.ok?await r.json():null;
-  console.log(JSON.stringify({status:r.status,publishers:body?.publishers?.length??null,agents:(body?.agents??[]).map(a=>a.agentId)}));`;
+  console.log(JSON.stringify({status:r.status,
+    publishers:body?.publishers?.map(p=>({instance:p.instance,fresh:p.fresh,agents:p.agents.map(a=>a.agentId)}))??null,
+    agents:(body?.agents??[]).map(a=>({agentId:a.agentId,conflict:a.conflict}))}));`;
 
 function inHost(s, host, script, environment = []) {
   const result = s.command(['exec', '-w', '/work', ...[...HOST_ENV, ...environment].flatMap(pair => ['-e', pair]),
@@ -44,6 +46,18 @@ export function meetsEngine(version, engine) {
   return order === -1 || have[order] > want[order];
 }
 
+/**
+ * One managed publisher holds every defined agent; any other is the residents instance env announced; every publisher
+ * is fresh, and no defined agent reads as a conflict. Anything else, a second claimant included, is refused.
+ */
+export function publicationHolds(read, residentsInstance, ids) {
+  const publishers = Array.isArray(read?.publishers) ? read.publishers : [];
+  const managed = publishers.filter(p => p.instance !== residentsInstance);
+  return managed.length === 1 && ids.every(id => managed[0].agents.includes(id))
+    && publishers.every(p => p.fresh === true)
+    && ids.every(id => read.agents.some(a => a.agentId === id && a.conflict === false));
+}
+
 /** E5: fresh env install, dashboard registration, then env's own publication arrives at the staged dashboard. */
 export async function run(s) {
   if (!s.layout.dashboardKey || !('dashboard' in s.manifest.candidate)) throw new Error('E5 requires a dashboard source role in the refs');
@@ -65,11 +79,12 @@ export async function run(s) {
   s.check('fresh_host_install', installed.status === 0 && ['comms', 'env', 'wrapper'].every(role =>
     installed.out.includes(`source ${role} ${s.manifest.candidate[role]}`)), { status: installed.status, tail: installed.tail });
   host.defineFleet('candidate', HOST_ENV);
-  await host.startBaseline('candidate', HOST_ENV);
+  const health = await host.startBaseline('candidate', HOST_ENV);
+  const residents = health.residents?.held === true ? health.residents.publisherInstance : null;
   const wrongKey = readAgentState(s, host, `absent-${s.layout.runId}`);
   const before = readAgentState(s, host, s.layout.dashboardKey);
   s.check('dashboard_refuses_wrong_key_and_holds_nothing_before_registration', wrongKey.status === 401
-    && before.status === 200 && before.publishers === 0, { wrongKey, before });
+    && before.status === 200 && before.publishers?.length === 0, { wrongKey, before });
   const registered = inHost(s, host, 'cd /src/candidate/dashboard && node --experimental-strip-types bin/register.mjs',
     [`PUBLIC_ORIGINS=${s.layout.dashboardOrigin}`, `API_KEY=${s.layout.dashboardKey}`]);
   s.save('register.json', registered);
@@ -84,12 +99,15 @@ export async function run(s) {
   let after;
   do {
     after = readAgentState(s, host, s.layout.dashboardKey);
-    if (after.publishers > 0 && host.ids.every(id => after.agents.includes(id))) break;
+    if (publicationHolds(after, residents, host.ids)) break;
     await delay(2000);
   } while (Date.now() < deadline);
-  s.save('agent-state-after.json', after);
-  s.check('env_publication_arrives_at_registered_dashboard', after.publishers > 0 && host.ids.every(id => after.agents.includes(id)),
-    { after, expected: host.ids });
+  // A second claimant could arrive on its own report clock, so read again a full report interval (60 s) later.
+  await delay(65_000);
+  const settled = readAgentState(s, host, s.layout.dashboardKey);
+  s.save('agent-state-after.json', { after, settled, residents });
+  s.check('env_publication_arrives_at_registered_dashboard', publicationHolds(after, residents, host.ids)
+    && publicationHolds(settled, residents, host.ids), { after, settled, residents, expected: host.ids });
   for (const [item, reason] of Object.entries(NOT_RUN)) console.log(`NOT_RUN ${item}: ${reason}`);
   return { checks: s.checks, qualified: true };
 }

@@ -18,6 +18,11 @@ const PLANTS = [
   ["engine: no declared engine admitted", S + "scenarios/e5.mjs", "if (!have || !want) return false;", "if (!have || !want) return true;", "engine null is refused"],
   ["engine: an unanchored version admitted", S + "scenarios/e5.mjs", "/^v(\\d+)", "/v?(\\d+)", "node 24.22.1 against engine >=24.15 is refused"],
   ["engine: a caret range admitted", S + "scenarios/e5.mjs", "/^>=\\s*(", "/^(?:>=|\\^)\\s*(", "engine ^24.15 is refused"],
+  ["publication: a second managed publisher admitted", S + "scenarios/e5.mjs", "managed.length === 1 &&", "managed.length >= 1 &&", "two managed publishers is refused"],
+  ["publication: any residents-named publisher admitted", S + "scenarios/e5.mjs", "publishers.filter(p => p.instance !== residentsInstance)", "publishers.filter(p => !p.instance.startsWith('residents-'))", "no residents role is held is refused"],
+  ["publication: an agent from any publisher counts", S + "scenarios/e5.mjs", "ids.every(id => managed[0].agents.includes(id))", "ids.every(id => publishers.some(p => p.agents.includes(id)))", "only the residents publisher names is refused"],
+  ["publication: freshness not required", S + "scenarios/e5.mjs", "\n    && publishers.every(p => p.fresh === true)", "", "a stale publisher is refused"],
+  ["publication: conflict not read", S + "scenarios/e5.mjs", "a.agentId === id && a.conflict === false", "a.agentId === id", "an agent read as a conflict is refused"],
 ];
 const TEST = "mcp/stdio/tests/staging-e5.test.js";
 const run = () => spawnSync(process.execPath, ["--test", TEST], { encoding: "utf8" });
