@@ -94,4 +94,6 @@ async def _spawn(db, row, held, now: str) -> str:
     except HTTPException as refused:
         message = refused.detail['message'] if isinstance(refused.detail, dict) else refused.detail
         return f"nothing spawned: {message}"
+    if lifecycle.REQUEST_ID.fullmatch(request_id):
+        await db.execute("UPDATE definition_requests SET spawn_request_id=? WHERE id=?", (request_id, row['id']))
     return f"spawn queued {request_id}"

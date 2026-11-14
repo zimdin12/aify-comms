@@ -62,6 +62,8 @@ def patch_problems(patch: Any) -> list[str]:
 
 
 def request_record(row) -> dict:
+    from service.api_core.agent_lifecycle_requests import REQUEST_ID
+    spawn_id = row['spawn_request_id']
     return {
         "id": row["id"], "agentId": row["agent_id"], "machineId": row["machine_id"], "storeId": row["store_id"],
         "expectedIncarnation": row["expected_incarnation"], "expectedRevision": row["expected_revision"],
@@ -70,7 +72,8 @@ def request_record(row) -> dict:
         "resultRevision": row["result_revision"], "createdAt": row["created_at"], "expiresAt": row["expires_at"],
         "claimedAt": row["claimed_at"] or "", "finishedAt": row["finished_at"] or "",
         "consequence": row["consequence"] or "",
-    }
+    } | (
+        {'spawnRequestId': spawn_id} if isinstance(spawn_id, str) and REQUEST_ID.fullmatch(spawn_id) else {})
 
 
 async def expire_unclaimed(db, now: str) -> None:

@@ -94,6 +94,8 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
                          ("spawn", "manager", 1))
         self.assertEqual(json.loads(spawned[0]["brief"])["body"], "review the index")
         self.assertEqual(self.consequence(request["id"]), f"spawn queued {spawned[0]['id']}")
+        self.assertEqual(self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests'][0].get('spawnRequestId'),
+                         spawned[0]['id'], 'the definition push also exposes its actual queued id')
         self.defined(revision=3)
         self.report(request["id"])
         self.assertEqual(len(self.sql("SELECT id FROM agent_lifecycle_requests")), 1, "a repeat queues nothing more")
@@ -114,9 +116,71 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
             'requestId': 'occupied', 'action': 'stop', 'requestedBy': 'peer',
             'expectedLifetime': None}).raise_for_status()
         before = self.sql('SELECT * FROM agent_lifecycle_requests')
-        self.report(request['id'])
+        reported = self.report(request['id'])
+        self.assertNotIn('spawnRequestId', reported, 'a refused spawn names no lifecycle id')
         self.assertEqual((self.consequence(request['id']), self.sql('SELECT * FROM agent_lifecycle_requests')),
                          ('nothing spawned: agent has an open lifecycle request occupied', before))
+
+    def test_spawn_identity_is_durable_and_independent_of_consequence_text(self):
+        import asyncio
+        import service.db as db_module
+        request = self.created()
+        self.assertNotIn('spawnRequestId', request)
+        self.claim()
+        self.defined()
+        reported = self.report(request['id'])
+        [queued] = self.sql('SELECT id FROM agent_lifecycle_requests')
+        self.assertEqual(reported.get('spawnRequestId'), queued['id'], 'the applied creation names its actual queued lifecycle request')
+        self.assertEqual(reported['consequence'], f"spawn queued {queued['id']}")
+        self.assertEqual(self.sql('SELECT spawn_request_id FROM definition_requests'), [{'spawn_request_id': queued['id']}])
+        self.sql('UPDATE definition_requests SET consequence=?', ('a different human sentence',))
+        expected = {**reported, 'consequence': 'a different human sentence'}
+        self.assertEqual(self.report(request['id']), expected)
+        init = getattr(db_module, '_real_init_db', None) or db_module.init_db
+        for _ in range(2):
+            asyncio.run(init(self._db_path))
+        listed = self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests']
+        self.assertEqual(listed, [expected])
+        self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [queued], 'receipt replay does not spawn twice')
+
+    def test_invalid_stored_spawn_links_are_omitted_without_touching_the_receipt(self):
+        request = self.created()
+        for spawn_id in ('A', 'A' + 'x'*124 + '._-', None, '', '-bad', 'x'*129, 'x\n', b'blob'):
+            with self.subTest(spawn_id=repr(spawn_id)):
+                self.sql('UPDATE definition_requests SET status=?,consequence=?,spawn_request_id=?',
+                         ('done', 'spawn queued misleading-id', spawn_id))
+                before = self.sql('SELECT * FROM definition_requests')
+                listed = self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests'][0]
+                expected = {**request, 'status': 'done', 'consequence': 'spawn queued misleading-id'}
+                if spawn_id in ('A', 'A' + 'x'*124 + '._-'):
+                    expected['spawnRequestId'] = spawn_id
+                self.assertEqual((listed, self.sql('SELECT * FROM definition_requests')), (expected, before))
+
+    def test_legacy_spawn_sentence_is_not_backfilled_when_the_new_column_arrives(self):
+        import asyncio
+        import service.db as db_module
+        request = self.created()
+        self.sql('UPDATE definition_requests SET status=?,consequence=?', ('done', 'spawn queued legacy-id'))
+        self.sql('ALTER TABLE definition_requests DROP COLUMN spawn_request_id')
+        self.assertNotIn('spawn_request_id', {r['name'] for r in self.sql('PRAGMA table_info(definition_requests)')})
+        init = getattr(db_module, '_real_init_db', None) or db_module.init_db
+        for _ in range(2):
+            asyncio.run(init(self._db_path))
+        listed = self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests']
+        self.assertEqual(listed, [{**request, 'status': 'done', 'consequence': 'spawn queued legacy-id'}])
+        self.assertEqual(self.sql('SELECT spawn_request_id FROM definition_requests'), [{'spawn_request_id': ''}])
+
+    def test_invalid_generated_spawn_id_is_not_published_as_a_structured_link(self):
+        self.created()
+        self.claim()
+        self.defined()
+        request_id = 'A' * 123
+        self.sql('UPDATE definition_requests SET id=?', (request_id,))
+        reported = self.report(request_id)
+        self.assertEqual(('spawnRequestId' in reported, self.sql('SELECT spawn_request_id FROM definition_requests')),
+                         (False, [{'spawn_request_id': ''}]))
+        self.assertEqual(reported['consequence'], f'spawn queued spawn-{request_id}', 'existing human outcome is unchanged')
+        self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [{'id': f'spawn-{request_id}'}])
 
     def test_a_definition_at_another_lifetime_spawns_nothing_and_says_so(self):
         request = self.created()

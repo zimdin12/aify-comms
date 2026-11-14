@@ -423,6 +423,7 @@ DEFINITION_STORE_MIGRATIONS = {
 # request has no service consequence; 'pending', then 'removed' or 'nothing removed: <why>'. A done creation (D8)
 # is 'spawn pending', then 'spawn queued <lifecycle request>' or 'nothing spawned: <why>'.
 DEFINITION_REQUEST_MIGRATIONS = {
+    "spawn_request_id": "ALTER TABLE definition_requests ADD COLUMN spawn_request_id TEXT DEFAULT ''",
     "consequence": "ALTER TABLE definition_requests ADD COLUMN consequence TEXT DEFAULT ''",
     # When the reconcile pass last failed to finish this owed removal ('' never): a failing one goes
     # behind every other owed removal, so a prefix that keeps failing cannot starve the rest (review
