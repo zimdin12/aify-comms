@@ -202,8 +202,7 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
                 refused = self.agent_restart(action)
                 self.assertEqual((refused.status_code, self.sql("SELECT id FROM agent_lifecycle_requests")),
                                  (409, []), "starting must be refused without a lifecycle write")
-                self.assertIn("starting", refused.json()["detail"])
-                self.assertIn("retry once the agent is online", refused.json()["detail"])
+                self.assertEqual(refused.json()["detail"], 'Agent "coder" is starting; retry once the agent is online')
                 self.assertEqual(self.sql("SELECT id FROM agent_lifecycle_requests"), [])
         mirror.mirror.feed(mirror.Projection((A["machine"], "default"), "snapshot", 3, mirror.clock(),
                            (mirror.Record("coder", "L1", "idle", False),), ()))

@@ -92,8 +92,8 @@ class AgentControlRefusalTests(FastApiTestCase):
 
     # ── the action allowlist ─────────────────────────────────────────────────────────────────
 
-    def test_the_action_allowlist_is_exactly_the_four_buttons(self):
-        for action in ("cancel", "kill", "restart", "pause", "", "start-now"):
+    def test_unknown_actions_are_refused_before_control_admission(self):
+        for action in ("cancel", "kill", "pause", "", "start-now"):
             with self.subTest(refused=action):
                 response = self._control(action)
                 self.assertEqual(response.status_code, 400, response.text)
