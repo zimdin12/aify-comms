@@ -120,8 +120,10 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
         refused = self.client.post("/api/v1/spawn-requests", json={
             "agentId": "lead", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})
         self.assertEqual(refused.status_code, 409, refused.text)
-        self.assertEqual(refused.json()["detail"],
-                         'Agent "lead" is defined in aify-env on win32:host-a; start it, and its spawn is built from that definition')
+        self.assertEqual(refused.json(), {'detail': {'code': 'ALREADY_DEFINED', 'message':
+                         'Agent "lead" is defined in aify-env on win32:host-a; start it, and its spawn is built from that definition'}})
+        self.assertEqual(self.rows("SELECT id FROM definition_requests"), [])
+        self.assertEqual(self.rows("SELECT id FROM agent_lifecycle_requests"), [])
         self.assertEqual(self.rows("SELECT id FROM spawn_requests WHERE agent_id = 'lead'"), [])
         allowed = self.client.post("/api/v1/spawn-requests", json={
             "agentId": "plain", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})
@@ -161,7 +163,8 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
         response = outcome["response"]
         self.assertEqual(reads, [True], "the owner was read once, and only after the lock was taken")
         self.assertEqual(response.status_code, 409, response.text)
-        self.assertIn('Agent "racer" is defined in aify-env on win32:host-a', response.json()["detail"])
+        self.assertEqual(response.json(), {'detail': {'code': 'ALREADY_DEFINED', 'message':
+            'Agent "racer" is defined in aify-env on win32:host-a; start it, and its spawn is built from that definition'}})
         self.assertEqual(self.rows("SELECT id FROM spawn_requests WHERE agent_id = 'racer'"), [])
         self.assertEqual(self.rows("SELECT id FROM spawn_specs WHERE agent_id = 'racer'"), [], "no spec either")
 

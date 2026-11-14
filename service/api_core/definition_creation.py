@@ -49,7 +49,11 @@ async def admit_creation(db, agent_id: str, machine_id: str, agent: dict, brief:
         f"SELECT id FROM definition_requests WHERE agent_id = ? AND status IN {requests.OPEN_SQL}",
         (agent_id,))).fetchone()
     if waiting:
-        raise HTTPException(409, f'"{agent_id}" already has a request waiting for its host ({waiting["id"]})')
+        open_id = waiting['id']
+        if not isinstance(open_id, str) or not lifecycle.REQUEST_ID.fullmatch(open_id):
+            raise HTTPException(409, 'agent has an open definition request with an invalid id; ask its owner to inspect the receipt')
+        raise HTTPException(409, {'code': 'DEFINITION_WAITING', 'openRequestId': open_id,
+                                 'message': f'"{agent_id}" already has a request waiting for its host ({open_id})'})
     request_id = f"defreq_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     await db.execute(
         "INSERT INTO definition_requests (id, agent_id, machine_id, store_id, expected_incarnation, expected_revision, "

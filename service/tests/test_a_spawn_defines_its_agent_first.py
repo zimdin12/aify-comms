@@ -164,10 +164,41 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
                          (422, "runtimeConfig: quietTimeoutMs cannot be carried; an agent definition holds a model and "
                                "an effort only"))
         self.assertEqual(self.sql("SELECT * FROM definition_requests"), [], "nothing queued for an option it would drop")
-        self.created()
+        created = self.created()
         again = self.spawn()
-        self.assertEqual(again.status_code, 409, again.text)
-        self.assertTrue(again.json()["detail"].startswith('"newbie" already has a request waiting for its host ('))
+        self.assertEqual((again.status_code, again.json()), (409, {'detail': {
+            'code': 'DEFINITION_WAITING', 'openRequestId': created['id'],
+            'message': f'"newbie" already has a request waiting for its host ({created["id"]})'}}))
+
+    def test_waiting_definition_conflict_keeps_pending_and_claimed_receipts(self):
+        created = self.created()
+        for claimed in (False, True):
+            with self.subTest(claimed=claimed):
+                if claimed:
+                    self.claim()
+                before = self.sql('SELECT * FROM definition_requests')
+                answer = self.spawn()
+                self.assertEqual((answer.status_code, answer.json(), self.sql('SELECT * FROM definition_requests')),
+                    (409, {'detail': {'code': 'DEFINITION_WAITING', 'openRequestId': created['id'],
+                     'message': f'"newbie" already has a request waiting for its host ({created["id"]})'}}, before))
+                self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [])
+                self.assertEqual(self.sql('SELECT id FROM spawn_requests'), [])
+
+    def test_waiting_definition_id_boundaries_and_invalid_stored_ids(self):
+        self.created()
+        for request_id in ('A', 'A' + 'x'*124 + '._-', '', '-bad', 'x'*129, 'x\n'):
+            with self.subTest(request_id=repr(request_id)):
+                self.sql('UPDATE definition_requests SET id=?', (request_id,))
+                before = self.sql('SELECT * FROM definition_requests')
+                answer = self.spawn()
+                detail = ({'code': 'DEFINITION_WAITING', 'openRequestId': request_id,
+                           'message': f'"newbie" already has a request waiting for its host ({request_id})'}
+                          if request_id in ('A', 'A' + 'x'*124 + '._-') else
+                          'agent has an open definition request with an invalid id; ask its owner to inspect the receipt')
+                self.assertEqual((answer.status_code, answer.json(), self.sql('SELECT * FROM definition_requests')),
+                                 (409, {'detail': detail}, before))
+                self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [])
+                self.assertEqual(self.sql('SELECT id FROM spawn_requests'), [])
 
     def test_a_machine_whose_host_published_no_store_cannot_define_one(self):
         self.client.post("/api/v1/environments/heartbeat", json={

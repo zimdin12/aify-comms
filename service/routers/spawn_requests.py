@@ -284,8 +284,9 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         except StartRefused as refused:
             raise HTTPException(409, str(refused))
         if defined:
-            raise HTTPException(409, f'Agent "{req.agentId}" is defined in aify-env on {defined.machine_id}; '
-                                     f'start it, and its spawn is built from that definition')
+            raise HTTPException(409, {'code': 'ALREADY_DEFINED', 'message':
+                f'Agent "{req.agentId}" is defined in aify-env on {defined.machine_id}; '
+                f'start it, and its spawn is built from that definition'})
         if await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (req.agentId,))).fetchone():
             raise HTTPException(409, f'Agent "{req.agentId}" already exists and no host defines it; define it on its '
                                      f'host (`aify-env agents import --write`), then start it')
