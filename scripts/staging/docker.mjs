@@ -41,6 +41,7 @@ export class StagingDocker {
     if (!Number.isInteger(answer?.status) || answer?.error) this.#unsettled = true;
     return { status: Number.isInteger(answer?.status) ? answer.status : null,
       signal: answer?.signal ?? null, errorCode: answer?.error?.code ?? null,
+      stdout: answer?.stdout ?? '',
       out: `${answer?.stdout ?? ''}${answer?.stderr ?? ''}` };
   }
 

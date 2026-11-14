@@ -29,8 +29,10 @@ export class StagingStack {
   /** Refuses before this run creates anything: a full daemon disk fails live comms writes, and a killed run leaves its labelled resources. */
   qualifyCapacity() {
     const s = this.session;
-    const free = Number(s.requireCommand(['run', '--rm', '--network', 'none', '--pull', 'missing', s.manifest.runtimeVersions.nodeImage,
-      'df', '-B1', '--output=avail', '/'], 'Docker disk free space').trim().split('\n').pop());
+    const disk = s.command(['run', '--rm', '--network', 'none', '--pull', 'missing', s.manifest.runtimeVersions.nodeImage,
+      'df', '-B1', '--output=avail', '/']);
+    if (disk.status !== 0 || disk.signal || disk.errorCode) throw new Error('Docker disk free space did not complete successfully');
+    const free = Number(disk.stdout.trim().split('\n').pop());
     if (!(free >= MINIMUM_FREE_BYTES)) throw new Error(`the Docker disk has ${(free / 2 ** 30).toFixed(1)} GB free; a run needs ${MINIMUM_FREE_BYTES / 2 ** 30} GB`);
     const leftovers = LEFTOVER_QUERIES.flatMap(query => s.requireCommand([...query, '--filter', 'label=aify.staging.run'],
       'labelled staging resources').split('\n').map(line => line.trim()).filter(Boolean));

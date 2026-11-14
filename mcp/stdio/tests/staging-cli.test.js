@@ -97,12 +97,13 @@ for (const [label, dataVolume] of [['live/default', 'aify-comms-data'], ['empty'
 test('direct Docker execution retains status, uses a timeout and copies argv', () => {
   const calls = [];
   const docker = new StagingDocker({ environment: { PATH: 'fixture-bin' }, dataVolume: volume, timeoutMs: 100,
-    execute: (...args) => { calls.push(args); return { status: 0, stdout: '[]', stderr: '' }; } });
+    execute: (...args) => { calls.push(args); return { status: 0, stdout: '[]', stderr: 'diagnostic' }; } });
   const args = ['volume', 'inspect', volume];
   const answer = docker.run(args);
   args.push('changed-later');
   assert.equal(answer.status, 0);
-  assert.equal(answer.out, '[]');
+  assert.equal(answer.out, '[]diagnostic', 'stderr remains in the diagnostic receipt');
+  assert.equal(answer.stdout, '[]', 'the machine-readable stream excludes stderr');
   assert.deepEqual(calls[0][1], ['volume', 'inspect', volume]);
   assert.equal(calls[0][2].timeout, 100);
   assert.equal(docker.settlement().settled, true);
