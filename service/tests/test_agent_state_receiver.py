@@ -76,6 +76,39 @@ class AgentStateReceiverTest(FastApiTestCase):
                                     headers={'content-type': 'application/json'})
         self.assertEqual(response.status_code, 204, response.text)
 
+    def test_optional_definition_fact_is_stored_without_changing_launch_reference(self):
+        from service.api_core.vocabulary import DEFINITION_STATES
+        facts = ('valid', 'invalid', 'unavailable', 'none')
+        self.assertEqual(DEFINITION_STATES, frozenset(facts))
+        record = row()
+        record['launch'] = {'cwd': '/work', 'definition': {'storeId': 's', 'incarnation': 1, 'revision': 3}}
+        self.assertEqual(self.post(body(agents=[record])).status_code, 204)
+        self.assertNotIn('definition', json.loads(self.stored()[1][0]['record_json']))
+        for publication, fact in enumerate(facts, 2):
+            with self.subTest(definition=fact):
+                expected = {**record, 'definition': fact}
+                answer = self.post(body(publication=publication, agents=[expected]))
+                self.assertEqual((answer.status_code, answer.content), (204, b''), answer.text)
+                self.assertEqual(json.loads(self.stored()[1][0]['record_json']), expected)
+        self.assertEqual(self.post(body(publication=6, agents=[record])).status_code, 204)
+        self.assertEqual(json.loads(self.stored()[1][0]['record_json']), record, 'omission is not implicit none')
+
+    def test_invalid_definition_facts_refuse_without_changing_cursor_or_rows(self):
+        self.assertEqual(self.post(body()).status_code, 204)
+        before = self.stored()
+        for fact in (None, '', 'unknown', 'VALID', True, 1, [], {}, {'storeId': 's', 'incarnation': 1, 'revision': 3}):
+            with self.subTest(definition=repr(fact)):
+                bad = {**row(), 'definition': fact}
+                answer = self.post(body(publication=2, agents=[bad]))
+                self.assertEqual((answer.status_code, self.stored()), (422, before), answer.text)
+        self.assertEqual(self.post(body(publication=3)).status_code, 204)
+        before = self.stored()
+        for value in (body(publication=2, definition='valid'), body(publication=2, agents=[{
+                **row(), 'launch': {'cwd': None, 'definition': 'valid'}}])):
+            with self.subTest(scope=value):
+                answer = self.post(value)
+                self.assertEqual((answer.status_code, self.stored()), (422, before), answer.text)
+
     def test_protected_real_ingest_refuses_before_writing(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient

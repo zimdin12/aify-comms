@@ -47,6 +47,8 @@
     }
   },
 
+  "definitionStates": {"values": ["valid", "invalid", "unavailable", "none"]},
+
   "sessionModes": {
     "values": ["resident", "managed"]
   },

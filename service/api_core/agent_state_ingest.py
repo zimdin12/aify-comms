@@ -6,6 +6,7 @@ import re
 
 from service.api_core import agent_state_mirror as state_mirror, switched_view
 from service.api_core.report_age import is_report_interval
+from service.api_core.vocabulary import DEFINITION_STATES
 
 _INGEST_LOCK = asyncio.Lock()
 import json
@@ -96,7 +97,9 @@ def _report_every(value):
 
 def _record(record):
     # name, role and launch arrived with C1: optional, so a publisher from before them is still read.
-    _object(record, ('agentId', 'lifetime', 'state', 'stateCause', 'busy', 'process', 'turn'), ('name', 'role', 'launch'))
+    _object(record, ('agentId', 'lifetime', 'state', 'stateCause', 'busy', 'process', 'turn'), ('name', 'role', 'launch', 'definition'))
+    if 'definition' in record:
+        _word(record['definition'], DEFINITION_STATES)
     for key in ('name', 'role'):
         if record.get(key) is not None:
             _text(record[key])
