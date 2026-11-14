@@ -12,6 +12,12 @@ const PLANTS = [
   ["dashboard volume unlabelled", S + "layout.mjs", "{ 'dashboard-data': { name: `${this.project}-dashboard-data`, labels: { ...labels } } }", "{ 'dashboard-data': { name: `${this.project}-dashboard-data` } }", "own run volume"],
   ["dashboard service always generated", S + "layout.mjs", "...(this.dashboardKey ? { 'aify-dashboard': {", "...(true ? { 'aify-dashboard': {", "without a dashboard key"],
   ["dashboard uses the fixture key", S + "layout.mjs", "API_KEY: this.dashboardKey,", "API_KEY: this.fixtureKey,", "its own key"],
+  ["engine: an equal version refused", S + "scenarios/e5.mjs", "return order === -1 || have[order]", "return have[order]", "node v24.15.0 against engine >=24.15 is admitted"],
+  ["engine: the comparison reversed", S + "scenarios/e5.mjs", "have[order] > want[order]", "have[order] < want[order]", "node v22.20.0 against engine >=24.15 is refused"],
+  ["engine: a two-part range leaves its patch unset", S + "scenarios/e5.mjs", "Number(part ?? 0)", "Number(part)", "node v24.15.0 against engine >=24.15 is admitted"],
+  ["engine: no declared engine admitted", S + "scenarios/e5.mjs", "if (!have || !want) return false;", "if (!have || !want) return true;", "engine null is refused"],
+  ["engine: an unanchored version admitted", S + "scenarios/e5.mjs", "/^v(\\d+)", "/v?(\\d+)", "node 24.22.1 against engine >=24.15 is refused"],
+  ["engine: a caret range admitted", S + "scenarios/e5.mjs", "/^>=\\s*(", "/^(?:>=|\\^)\\s*(", "engine ^24.15 is refused"],
 ];
 const TEST = "mcp/stdio/tests/staging-e5.test.js";
 const run = () => spawnSync(process.execPath, ["--test", TEST], { encoding: "utf8" });

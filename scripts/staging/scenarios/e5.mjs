@@ -35,6 +35,15 @@ async function dashboardUp(s, host) {
   throw new Error('the staged dashboard never answered');
 }
 
+/** True only for a `>=X.Y[.Z]` engine that `vA.B.C` meets; anything else the dashboard might declare is refused. */
+export function meetsEngine(version, engine) {
+  const have = /^v(\d+)\.(\d+)\.(\d+)$/.exec(version ?? '')?.slice(1).map(Number);
+  const want = /^>=\s*(\d+)\.(\d+)(?:\.(\d+))?$/.exec((engine ?? '').trim())?.slice(1).map(part => Number(part ?? 0));
+  if (!have || !want) return false;
+  const order = have.findIndex((part, index) => part !== want[index]);
+  return order === -1 || have[order] > want[order];
+}
+
 /** E5: fresh env install, dashboard registration, then env's own publication arrives at the staged dashboard. */
 export async function run(s) {
   if (!s.layout.dashboardKey || !('dashboard' in s.manifest.candidate)) throw new Error('E5 requires a dashboard source role in the refs');
@@ -44,6 +53,9 @@ export async function run(s) {
   s.build();
   stack.create('candidate');
   await stack.start('candidate');
+  const [node, engine] = JSON.parse(s.requireCommand(['exec', host.name, 'node', '-p',
+    "JSON.stringify([process.version, require('/src/candidate/dashboard/package.json').engines?.node ?? null])"], 'dashboard engine read'));
+  s.check('host_node_meets_dashboard_engine', meetsEngine(node, engine), { node, engine });
   await dashboardUp(s, host);
   // The fresh host E4 starts from: env, comms for both clients and the wrapper's launchers, by their own installers.
   // host.install would also demand a source line for the dashboard role, which the bootstrap does not install.

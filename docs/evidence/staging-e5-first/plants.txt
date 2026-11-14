@@ -7,7 +7,14 @@ empty dashboard key admitted: RED | a dashboard key "" is refused | a dashboard 
 dashboard volume unlabelled: RED | a staged dashboard has its own key, its own run volume, no published port, and passes isolation
 dashboard service always generated: RED | a run without a dashboard key generates no dashboard service or volume
 dashboard uses the fixture key: RED | a staged dashboard has its own key, its own run volume, no published port, and passes isolation
+engine: an equal version refused: RED | node v24.15.0 against engine >=24.15 is admitted | node v24.15.3 against engine >=24.15.3 is admitted
+engine: the comparison reversed: RED | node v24.22.1 against engine >=24.15 is admitted | node v25.0.0 against engine >=24.15 is admitted | node v22.20.0 against engine >=24.15 is refused | node v24.14.9 against engine >=24.15 is refused | node v24.15.2 against engine >=24.15.3 is refused
+engine: a two-part range leaves its patch unset: RED | node v24.15.0 against engine >=24.15 is admitted
+engine: no declared engine admitted: RED | node v24.22.1 against engine null is refused | node v24.22.1 against engine ^24.15 is refused | node 24.22.1 against engine >=24.15 is refused
+engine: an unanchored version admitted: RED | node 24.22.1 against engine >=24.15 is refused
+engine: a caret range admitted: RED | node v24.22.1 against engine ^24.15 is refused
 scripts/staging/session.mjs restored identical: true
 scripts/staging/manifest.mjs restored identical: true
 scripts/staging/layout.mjs restored identical: true
-8/8 red on the named test
+scripts/staging/scenarios/e5.mjs restored identical: true
+14/14 red on the named test

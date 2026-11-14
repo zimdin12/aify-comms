@@ -65,3 +65,12 @@ test('saved receipts redact the dashboard key as well as the fixture key', () =>
     fs.rmSync(out, { recursive: true, force: true });
   }
 });
+
+const { meetsEngine } = await import('../../../scripts/staging/scenarios/e5.mjs');
+for (const [version, engine, expected] of [
+  ['v24.22.1', '>=24.15', true], ['v24.15.0', '>=24.15', true], ['v25.0.0', '>=24.15', true], ['v24.15.3', '>=24.15.3', true],
+  ['v22.20.0', '>=24.15', false], ['v24.14.9', '>=24.15', false], ['v24.15.2', '>=24.15.3', false],
+  ['v24.22.1', null, false], ['v24.22.1', '^24.15', false], ['24.22.1', '>=24.15', false],
+]) {
+  test(`node ${version} against engine ${engine} is ${expected ? 'admitted' : 'refused'}`, () => assert.equal(meetsEngine(version, engine), expected));
+}

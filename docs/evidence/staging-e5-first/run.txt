@@ -8,6 +8,7 @@ PASS candidate_isolation_after_start
 PASS candidate_internal_health
 PASS candidate_network_endpoint
 PASS runtime_versions
+PASS host_node_meets_dashboard_engine
 PASS fresh_host_install
 PASS candidate_env_initially_absent
 PASS candidate_env_linux
