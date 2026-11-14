@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 /** One run's resource identity and generated isolation intent. No Docker or filesystem access. */
 export class StagingLayout {
-  constructor({ runId, fixtureKey }) {
+  constructor({ runId, fixtureKey, dashboardKey }) {
     if (typeof runId !== 'string' || runId.length !== 12 || !/^[0-9a-f]{12}$/.test(runId)) {
       throw new TypeError('staging run identity must be twelve lowercase hex characters');
     }
@@ -13,6 +13,11 @@ export class StagingLayout {
     this.homeVolume = `${this.project}-home`;
     this.network = `${this.project}-network`;
     this.fixtureKey = fixtureKey;
+    if (dashboardKey !== undefined && (typeof dashboardKey !== 'string' || !dashboardKey.trim() || dashboardKey === fixtureKey)) {
+      throw new TypeError('a staged dashboard needs its own run-owned key');
+    }
+    this.dashboardKey = dashboardKey;
+    this.dashboardOrigin = 'http://aify-dashboard:9700';
     Object.freeze(this);
   }
 
@@ -42,10 +47,20 @@ export class StagingLayout {
           environment: { HOME: '/home/staging' },
           volumes: [{ type: 'volume', source: 'host-home', target: '/home/staging' }],
         },
+        // E5 only: the dashboard's own server from the staged source, on the host image, with its own volume and key.
+        ...(this.dashboardKey ? { 'aify-dashboard': {
+          image: `${this.project}-host`, container_name: `${this.project}-aify-dashboard`, restart: 'no',
+          labels: { ...labels }, networks: ['staging'], working_dir: `/src/${phase}/dashboard`,
+          command: ['node', '--experimental-strip-types', 'server/src/main.ts'],
+          environment: { PORT: '9700', BIND_HOST: '0.0.0.0', API_KEY: this.dashboardKey,
+            PUBLIC_ORIGINS: this.dashboardOrigin, DATABASE_PATH: '/data/dashboard.db' },
+          volumes: [{ type: 'volume', source: 'dashboard-data', target: '/data' }],
+        } } : {}),
       },
       volumes: {
         'service-data': { name: this.dataVolume, labels: { ...labels } },
         'host-home': { name: this.homeVolume, labels: { ...labels } },
+        ...(this.dashboardKey ? { 'dashboard-data': { name: `${this.project}-dashboard-data`, labels: { ...labels } } } : {}),
       },
       networks: { staging: { name: this.network, internal: true, labels: { ...labels } } },
     };

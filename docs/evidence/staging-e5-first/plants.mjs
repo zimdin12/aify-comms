@@ -1,0 +1,46 @@
+// E5 plants: each removes one limb; the named test must go red. Foreground; restored by copy, compared by bytes.
+import { copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+
+const S = "scripts/staging/";
+const PLANTS = [
+  ["redaction of the dashboard key dropped", S + "session.mjs", "this.layout.dashboardKey ? redacted.replaceAll(this.layout.dashboardKey, '<dashboard-key>') : redacted", "redacted", "redact"],
+  ["both-phases rule dropped", S + "manifest.mjs", "    if (('dashboard' in this.baseline) !== ('dashboard' in this.candidate)) throw new TypeError('dashboard must be staged in both phases or neither');\n", "", "one phase only"],
+  ["dashboard ref not validated", S + "manifest.mjs", "  if (value.dashboard !== undefined) result.dashboard = value.dashboard;\n", "  const dashboard = value.dashboard;\n", "moving dashboard ref"],
+  ["dashboard key may equal the fixture key", S + "layout.mjs", " || dashboardKey === fixtureKey)", ")", "run-owned-fixture-key"],
+  ["empty dashboard key admitted", S + "layout.mjs", " || !dashboardKey.trim()", "", "\"  \""],
+  ["dashboard volume unlabelled", S + "layout.mjs", "{ 'dashboard-data': { name: `${this.project}-dashboard-data`, labels: { ...labels } } }", "{ 'dashboard-data': { name: `${this.project}-dashboard-data` } }", "own run volume"],
+  ["dashboard service always generated", S + "layout.mjs", "...(this.dashboardKey ? { 'aify-dashboard': {", "...(true ? { 'aify-dashboard': {", "without a dashboard key"],
+  ["dashboard uses the fixture key", S + "layout.mjs", "API_KEY: this.dashboardKey,", "API_KEY: this.fixtureKey,", "its own key"],
+];
+const TEST = "mcp/stdio/tests/staging-e5.test.js";
+const run = () => spawnSync(process.execPath, ["--test", TEST], { encoding: "utf8" });
+const named = (out) => [...out.matchAll(/^not ok \d+ - (.*)$/gm)].map((m) => m[1]);
+const files = [...new Set(PLANTS.map((p) => p[1]))];
+const saved = new Map(files.map((f) => [f, readFileSync(f)]));
+for (const f of files) copyFileSync(f, `${f}.plant-orig`);
+const base = run();
+console.log(`baseline exit ${base.status}`);
+if (base.status !== 0) { for (const f of files) rmSync(`${f}.plant-orig`); console.log("REFUSED: red baseline"); process.exit(2); }
+let red = 0;
+try {
+  for (const [name, file, from, to, expect] of PLANTS) {
+    const text = saved.get(file).toString("utf8");
+    if (text.split(from).length !== 2) { console.log(`${name}: NEEDLE NOT UNIQUE`); continue; }
+    writeFileSync(file, text.replace(from, to));
+    const r = run();
+    const fails = named(r.stdout);
+    const hit = r.status !== 0 && fails.some((n) => n.includes(expect));
+    if (hit) red += 1;
+    console.log(`${name}: ${hit ? "RED" : r.status !== 0 ? "RED ELSEWHERE" : "STILL GREEN"} | ${fails.join(" | ")}`);
+    copyFileSync(`${file}.plant-orig`, file);
+  }
+} finally {
+  for (const f of files) {
+    copyFileSync(`${f}.plant-orig`, f);
+    rmSync(`${f}.plant-orig`);
+    console.log(`${f} restored identical: ${Buffer.compare(readFileSync(f), saved.get(f)) === 0}`);
+  }
+}
+console.log(`${red}/${PLANTS.length} red on the named test`);
+process.exit(red === PLANTS.length ? 0 : 1);

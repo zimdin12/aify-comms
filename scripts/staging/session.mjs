@@ -67,7 +67,8 @@ export class StagingSession {
 
   save(name, data) {
     const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2) + '\n';
-    fs.writeFileSync(path.join(this.out, name), text.replaceAll(this.layout.fixtureKey, '<fixture-key>'));
+    const redacted = text.replaceAll(this.layout.fixtureKey, '<fixture-key>');
+    fs.writeFileSync(path.join(this.out, name), this.layout.dashboardKey ? redacted.replaceAll(this.layout.dashboardKey, '<dashboard-key>') : redacted);
   }
 
   command(args) {
@@ -94,7 +95,8 @@ export class StagingSession {
     const root = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
     const repositories = { comms: root,
       env: this.options['env-repo'] ?? path.join(path.dirname(root), 'aify-env'),
-      wrapper: this.options['wrapper-repo'] ?? path.join(path.dirname(root), 'aify-wrapper') };
+      wrapper: this.options['wrapper-repo'] ?? path.join(path.dirname(root), 'aify-wrapper'),
+      dashboard: this.options['dashboard-repo'] ?? path.join(path.dirname(root), 'aify-dashboard') };
     return new StagingBuild({ manifest: this.manifest, layout: this.layout, repositories,
       directory: this.out, docker: args => this.command(args), resources: this.resources, environment: process.env }).run();
   }

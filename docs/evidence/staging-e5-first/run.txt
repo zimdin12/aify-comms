@@ -1,0 +1,21 @@
+PASS manifest_syntax
+PASS generated_isolation_intent
+PASS daemon
+PASS compose_cli
+PASS daemon_capacity
+PASS candidate_isolation_created
+PASS candidate_isolation_after_start
+PASS candidate_internal_health
+PASS candidate_network_endpoint
+PASS runtime_versions
+PASS fresh_host_install
+PASS candidate_env_initially_absent
+PASS candidate_env_linux
+PASS dashboard_refuses_wrong_key_and_holds_nothing_before_registration
+PASS register_writes_entry_with_stored_key
+PASS env_publication_arrives_at_registered_dashboard
+NOT_RUN the dashboard image: the staged dashboard runs its own server source on the host image, not its Dockerfile
+NOT_RUN the dashboard bridge in an agent session: cut by the lead; E5 proves registration and publication only
+PASS cleanup
+PASS E5
+exit 0

@@ -6,6 +6,8 @@ const IMAGE = /^(?:[^\s]+@sha256:[0-9a-f]{64}|[^\s]+:\d+\.\d+\.\d+(?:-[A-Za-z0-9
 function sourceTuple(value, phase) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${phase} tuple is required`);
   const result = { comms: value.comms, env: value.env, wrapper: value.wrapper };
+  // Optional: only E5 stages the dashboard, and only it requires the role.
+  if (value.dashboard !== undefined) result.dashboard = value.dashboard;
   for (const [repo, ref] of Object.entries(result)) {
     if (typeof ref !== 'string' || !SHA.test(ref)) throw new TypeError(`${phase}.${repo} requires a full lowercase commit SHA`);
   }
@@ -28,6 +30,7 @@ export class StagingManifest {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('staging manifest is required');
     this.baseline = sourceTuple(value.baseline, 'baseline');
     this.candidate = sourceTuple(value.candidate, 'candidate');
+    if (('dashboard' in this.baseline) !== ('dashboard' in this.candidate)) throw new TypeError('dashboard must be staged in both phases or neither');
     this.runtimeVersions = runtimeVersions(value.runtimeVersions);
     if (value.seed !== 'synthetic-linux-fleet') throw new TypeError('first E4 requires a synthetic-linux-fleet seed');
     if (value.liveCopyEnabled !== false) throw new TypeError('liveCopyEnabled must be explicitly false');

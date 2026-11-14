@@ -34,6 +34,9 @@ RUN for phase in baseline candidate; do \
       else \
         (cd "/src/$phase/wrapper" && npm install --no-package-lock --no-audit --no-fund) || exit; \
       fi; \
+      if [ -d "/src/$phase/dashboard" ]; then \
+        (cd "/src/$phase/dashboard" && npm ci --ignore-scripts --no-audit --no-fund) || exit; \
+      fi; \
     done
 RUN useradd --create-home --home-dir /home/staging --shell /bin/bash staging && \
     mkdir -p /data /work && chown -R staging:staging /src /data /work

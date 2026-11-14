@@ -1,0 +1,13 @@
+baseline exit 0
+redaction of the dashboard key dropped: RED | saved receipts redact the dashboard key as well as the fixture key
+both-phases rule dropped: RED | a dashboard in one phase only is refused
+dashboard ref not validated: RED | the dashboard role is optional, and kept exactly when both phases name it | a moving dashboard ref is refused | a dashboard in one phase only is refused
+dashboard key may equal the fixture key: RED | a dashboard key "run-owned-fixture-key" is refused
+empty dashboard key admitted: RED | a dashboard key "" is refused | a dashboard key "  " is refused
+dashboard volume unlabelled: RED | a staged dashboard has its own key, its own run volume, no published port, and passes isolation
+dashboard service always generated: RED | a run without a dashboard key generates no dashboard service or volume
+dashboard uses the fixture key: RED | a staged dashboard has its own key, its own run volume, no published port, and passes isolation
+scripts/staging/session.mjs restored identical: true
+scripts/staging/manifest.mjs restored identical: true
+scripts/staging/layout.mjs restored identical: true
+8/8 red on the named test

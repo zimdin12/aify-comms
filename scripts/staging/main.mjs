@@ -5,12 +5,12 @@ import { StagingManifest } from './manifest.mjs';
 import { StagingLayout } from './layout.mjs';
 import { StagingSession } from './session.mjs';
 
-const scenarios = Object.freeze(Object.fromEntries(['E1', 'E2', 'E3', 'E4'].map(id => [id, new URL(`./scenarios/${id.toLowerCase()}.mjs`, import.meta.url)])));
+const scenarios = Object.freeze(Object.fromEntries(['E1', 'E2', 'E3', 'E4', 'E5'].map(id => [id, new URL(`./scenarios/${id.toLowerCase()}.mjs`, import.meta.url)])));
 
 function readOptions(argv) {
   const parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
     refs: { type: 'string' }, out: { type: 'string' }, preflight: { type: 'boolean', default: false },
-    'env-repo': { type: 'string' }, 'wrapper-repo': { type: 'string' },
+    'env-repo': { type: 'string' }, 'wrapper-repo': { type: 'string' }, 'dashboard-repo': { type: 'string' },
   } });
   const [run, ...extra] = parsed.positionals;
   if (extra.length || !Object.hasOwn(scenarios, run) || !parsed.values.refs) {
@@ -54,7 +54,8 @@ async function executeSelected(manifest, layout, options) {
 async function main(argv) {
   const options = readOptions(argv);
   const manifest = readManifest(options.refs);
-  const layout = new StagingLayout({ runId: randomBytes(6).toString('hex'), fixtureKey: randomBytes(24).toString('hex') });
+  const layout = new StagingLayout({ runId: randomBytes(6).toString('hex'), fixtureKey: randomBytes(24).toString('hex'),
+    dashboardKey: 'dashboard' in manifest.candidate ? randomBytes(24).toString('hex') : undefined });
   const environment = { DATA_VOLUME_NAME: layout.dataVolume };
   for (const phase of ['baseline', 'candidate']) layout.assertIsolation({ config: layout.compose(phase), environment });
   console.log('PASS manifest_syntax');
