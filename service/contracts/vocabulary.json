@@ -48,6 +48,7 @@
   },
 
   "definitionStates": {"values": ["valid", "invalid", "unavailable", "none"]},
+  "spawnStates": {"values": ["pending", "queued", "none"]},
 
   "sessionModes": {
     "values": ["resident", "managed"]

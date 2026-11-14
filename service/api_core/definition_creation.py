@@ -74,16 +74,18 @@ async def spawn_created(db, machine_id: str, now: str) -> None:
             "SELECT * FROM agent_definitions WHERE agent_id = ?", (row["agent_id"],))).fetchone()
         if held is None:
             continue
-        settled = await _spawn(db, row, held, now)
+        state, reason, settled = await _spawn(db, row, held, now)
         # ONE SPAWN PER CREATION: both callers hold the write lock, and its consequence leaves `spawn pending` in
         # the transaction that inserts `spawn-<id>`, so no later call can find this row owed and insert again.
-        await db.execute("UPDATE definition_requests SET consequence = ? WHERE id = ?", (settled, row["id"]))
+        await db.execute("UPDATE definition_requests SET consequence = ?, spawn_state = ?, spawn_reason = ? WHERE id = ?",
+                         (settled, state, reason, row["id"]))
 
 
-async def _spawn(db, row, held, now: str) -> str:
+async def _spawn(db, row, held, now: str) -> tuple[str, str, str]:
     created = (row["machine_id"], row["store_id"], row["result_incarnation"])
     if (held["machine_id"], held["store_id"], held["incarnation"]) != created:
-        return f"nothing spawned: {row['agent_id']} is now defined by {held['machine_id']} at another lifetime"
+        reason = f"{row['agent_id']} is now defined by {held['machine_id']} at another lifetime"
+        return 'none', reason, f"nothing spawned: {reason}"
     request_id = f"spawn-{row['id']}"
     intent = json.dumps({"agentId": row["agent_id"], "action": "spawn", "requestedBy": row["requested_by"],
                          "createdBy": row["id"]}, sort_keys=True)
@@ -93,7 +95,7 @@ async def _spawn(db, row, held, now: str) -> str:
                                         brief=row["brief"] or "")
     except HTTPException as refused:
         message = refused.detail['message'] if isinstance(refused.detail, dict) else refused.detail
-        return f"nothing spawned: {message}"
+        return 'none', message, f"nothing spawned: {message}"
     if lifecycle.REQUEST_ID.fullmatch(request_id):
         await db.execute("UPDATE definition_requests SET spawn_request_id=? WHERE id=?", (request_id, row['id']))
-    return f"spawn queued {request_id}"
+    return 'queued', '', f"spawn queued {request_id}"

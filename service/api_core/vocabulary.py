@@ -54,6 +54,7 @@ LAUNCHABLE_RUNTIMES = frozenset(_CONTRACT["runtimes"]["launchable"])
 #: is the one that changes and the contract is the one that does not.
 RUNTIMES_THAT_TRACK_A_TURN = frozenset({"claude-code", "codex", "hermes", "opencode", "pi"})
 DEFINITION_STATES = frozenset(_CONTRACT["definitionStates"]["values"])
+SPAWN_STATES = frozenset(_CONTRACT["spawnStates"]["values"])
 SESSION_MODES = frozenset(_CONTRACT["sessionModes"]["values"])
 SELF_REPORTED_STATUSES = tuple(_CONTRACT["selfReportedStatuses"]["values"])
 AGENT_STATUSES = tuple(_CONTRACT["agentStatuses"]["values"])

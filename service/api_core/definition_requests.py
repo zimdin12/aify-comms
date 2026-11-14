@@ -20,7 +20,7 @@ from service.lifecycle_models import OPEN_SQL
 from service.api_core.agent_remove import remove_agent
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.definition_guard import defined_on
-from service.api_core.vocabulary import RUNTIME_HARNESS
+from service.api_core.vocabulary import RUNTIME_HARNESS, SPAWN_STATES
 from service.api_core.definition_schema import AGENT_FIELDS
 from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core.operator_authz import OperatorProof
@@ -64,6 +64,10 @@ def patch_problems(patch: Any) -> list[str]:
 def request_record(row) -> dict:
     from service.api_core.agent_lifecycle_requests import REQUEST_ID
     spawn_id = row['spawn_request_id']
+    state = row['spawn_state']
+    spawn = {'spawnState': state} if state in SPAWN_STATES else {}
+    if spawn.get('spawnState') == 'none' and isinstance(row['spawn_reason'], str):
+        spawn['spawnReason'] = row['spawn_reason']
     return {
         "id": row["id"], "agentId": row["agent_id"], "machineId": row["machine_id"], "storeId": row["store_id"],
         "expectedIncarnation": row["expected_incarnation"], "expectedRevision": row["expected_revision"],
@@ -73,7 +77,7 @@ def request_record(row) -> dict:
         "claimedAt": row["claimed_at"] or "", "finishedAt": row["finished_at"] or "",
         "consequence": row["consequence"] or "",
     } | (
-        {'spawnRequestId': spawn_id} if isinstance(spawn_id, str) and REQUEST_ID.fullmatch(spawn_id) else {})
+        {'spawnRequestId': spawn_id} if isinstance(spawn_id, str) and REQUEST_ID.fullmatch(spawn_id) else {}) | spawn
 
 
 async def expire_unclaimed(db, now: str) -> None:
@@ -306,10 +310,11 @@ async def report(db, environment: Optional[dict], request_id: str, body: dict, n
         raise HTTPException(409, f"definition request {request_id} was never claimed; claim it first")
     owed = "" if body["status"] != "done" else (
         "pending" if is_removal(json.loads(row["patch"])) else SPAWN_OWED if is_creation(row) else "")
+    spawn_state = 'pending' if body['status'] == 'done' and is_creation(row) else ''
     await db.execute(
         "UPDATE definition_requests SET status = ?, outcome = ?, result_incarnation = ?, result_revision = ?, "
-        "finished_at = ?, consequence = ? WHERE id = ?",
-        (body["status"], body.get("outcome", ""), *result, now, owed, request_id))
+        "finished_at = ?, consequence = ?, spawn_state = ? WHERE id = ?",
+        (body["status"], body.get("outcome", ""), *result, now, owed, spawn_state, request_id))
     return await request_by_id(db, request_id)
 
 

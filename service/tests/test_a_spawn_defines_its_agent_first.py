@@ -105,7 +105,9 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
         self.claim()
         self.defined()
         self.assertEqual(self.sql("SELECT * FROM agent_lifecycle_requests"), [], "not before the host says it is done")
-        self.report(request["id"])
+        reported = self.report(request["id"])
+        self.assertEqual(reported.get('spawnState'), 'queued')
+        self.assertNotIn('spawnReason', reported)
         self.assertEqual([r["action"] for r in self.sql("SELECT action FROM agent_lifecycle_requests")], ["spawn"])
 
     def test_an_open_lifecycle_receipt_keeps_the_spawn_consequence_human_readable(self):
@@ -118,6 +120,10 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
         before = self.sql('SELECT * FROM agent_lifecycle_requests')
         reported = self.report(request['id'])
         self.assertNotIn('spawnRequestId', reported, 'a refused spawn names no lifecycle id')
+        self.assertEqual((reported.get('spawnState'), reported.get('spawnReason'),
+                          self.sql('SELECT spawn_state,spawn_reason FROM definition_requests')),
+                         ('none', 'agent has an open lifecycle request occupied',
+                          [{'spawn_state': 'none', 'spawn_reason': 'agent has an open lifecycle request occupied'}]))
         self.assertEqual((self.consequence(request['id']), self.sql('SELECT * FROM agent_lifecycle_requests')),
                          ('nothing spawned: agent has an open lifecycle request occupied', before))
 
@@ -182,13 +188,88 @@ class ASpawnDefinesItsAgentFirst(FastApiTestCase):
         self.assertEqual(reported['consequence'], f'spawn queued spawn-{request_id}', 'existing human outcome is unchanged')
         self.assertEqual(self.sql('SELECT id FROM agent_lifecycle_requests'), [{'id': f'spawn-{request_id}'}])
 
+    def test_spawn_state_words_and_reason_visibility_are_not_inferred_from_text(self):
+        from service.api_core.vocabulary import SPAWN_STATES
+        self.assertEqual(SPAWN_STATES, {'pending', 'queued', 'none'})
+        request = self.created()
+        cases = [('pending', 'hidden'), ('queued', 'hidden'), ('none', 'the actual reason'),
+                 ('unknown', 'hidden'), ('PENDING', 'hidden'), ('', 'hidden'), (None, 'hidden'),
+                 (b'none', 'hidden'), ('none', None), ('none', b'not text')]
+        for state, reason in cases:
+            with self.subTest(state=repr(state), reason=repr(reason)):
+                self.sql('UPDATE definition_requests SET status=?,consequence=?,spawn_state=?,spawn_reason=?',
+                         ('done', 'spawn queued misleading-id', state, reason))
+                before = self.sql('SELECT * FROM definition_requests')
+                expected = {**request, 'status': 'done', 'consequence': 'spawn queued misleading-id'}
+                if state in ('pending', 'queued', 'none'):
+                    expected['spawnState'] = state
+                    if state == 'none' and isinstance(reason, str):
+                        expected['spawnReason'] = reason
+                listed = self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests'][0]
+                self.assertEqual((listed, self.sql('SELECT * FROM definition_requests')), (expected, before))
+
+    def test_legacy_spawn_outcomes_stay_unsupplied_after_migration_reapplication(self):
+        import asyncio
+        import service.db as db_module
+        request = self.created()
+        for column in ('spawn_state', 'spawn_reason'):
+            self.sql(f'ALTER TABLE definition_requests DROP COLUMN {column}')
+        columns = {row['name'] for row in self.sql('PRAGMA table_info(definition_requests)')}
+        self.assertTrue({'spawn_state', 'spawn_reason'}.isdisjoint(columns))
+        init = getattr(db_module, '_real_init_db', None) or db_module.init_db
+        for _ in range(2):
+            asyncio.run(init(self._db_path))
+        for sentence in ('spawn pending', 'spawn queued legacy-id', 'nothing spawned: legacy reason'):
+            with self.subTest(sentence=sentence):
+                self.sql('UPDATE definition_requests SET status=?,consequence=?', ('done', sentence))
+                before = self.sql('SELECT * FROM definition_requests')
+                listed = self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests']
+                self.assertEqual((listed, self.sql('SELECT * FROM definition_requests')),
+                                 ([{**request, 'status': 'done', 'consequence': sentence}], before))
+        self.assertEqual(self.sql('SELECT spawn_state,spawn_reason FROM definition_requests'),
+                         [{'spawn_state': '', 'spawn_reason': ''}])
+
+    def test_applied_creation_spawn_state_is_stored_not_read_from_its_sentence(self):
+        import asyncio
+        import service.db as db_module
+        request = self.created()
+        self.assertTrue({'spawnState', 'spawnReason'}.isdisjoint(request))
+        self.claim()
+        pending = self.report(request['id'])
+        self.assertEqual(pending.get('spawnState'), 'pending', 'an applied creation awaiting publication has stored spawn state')
+        self.assertNotIn('spawnReason', pending)
+        self.assertEqual(pending['consequence'], 'spawn pending')
+        self.assertEqual(self.sql('SELECT spawn_state,spawn_reason FROM definition_requests'),
+                         [{'spawn_state': 'pending', 'spawn_reason': ''}])
+        self.defined()
+        queued = self.report(request['id'])
+        self.assertEqual(queued['spawnState'], 'queued')
+        self.assertNotIn('spawnReason', queued)
+        self.assertEqual(queued['spawnRequestId'], self.sql('SELECT id FROM agent_lifecycle_requests')[0]['id'])
+        self.assertEqual(queued['consequence'], f"spawn queued {queued['spawnRequestId']}")
+        self.sql('UPDATE definition_requests SET consequence=?', ('a reworded consequence',))
+        expected = {**queued, 'consequence': 'a reworded consequence'}
+        init = getattr(db_module, '_real_init_db', None) or db_module.init_db
+        for _ in range(2):
+            asyncio.run(init(self._db_path))
+        self.assertEqual(self.report(request['id']), expected)
+        self.assertEqual(self.client.get('/api/v1/agent-definitions/newbie/requests').json()['requests'], [expected])
+        self.assertEqual(self.sql('SELECT spawn_state,spawn_reason FROM definition_requests'),
+                         [{'spawn_state': 'queued', 'spawn_reason': ''}])
+        self.assertEqual(len(self.sql('SELECT id FROM agent_lifecycle_requests')), 1)
+
     def test_a_definition_at_another_lifetime_spawns_nothing_and_says_so(self):
         request = self.created()
         self.claim()
         self.report(request["id"], incarnation=1)
         self.defined(incarnation=2)
         self.assertEqual(self.sql("SELECT * FROM agent_lifecycle_requests"), [])
-        self.assertTrue(self.consequence(request["id"]).startswith("nothing spawned: newbie is now defined by"))
+        reason = f"newbie is now defined by {A['machine']} at another lifetime"
+        self.assertEqual(self.consequence(request['id']), f'nothing spawned: {reason}')
+        reported = self.report(request['id'])
+        self.assertEqual((reported.get('spawnState'), reported.get('spawnReason'),
+                          self.sql('SELECT spawn_state,spawn_reason FROM definition_requests')),
+                         ('none', reason, [{'spawn_state': 'none', 'spawn_reason': reason}]))
 
     def test_the_brief_is_its_first_message_once_the_worker_attaches_and_only_once(self):
         request = self.created()
