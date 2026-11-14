@@ -123,7 +123,7 @@ async def _enforce_same_mode_bridge_gate(
             session_mode=normalized_session_mode,
             lease_seconds=settings_for_guard.get("resident_lease_seconds", 150),
         )
-        # SAME-SESSION RELAUNCH TAKEOVER (2026-06-13, the sc-manager stale+deaf
+        # SAME-SESSION RELAUNCH TAKEOVER (2026-06-13, the manager stale+deaf
         # incident): a quick close-and-relaunch of a resident wrapper ALWAYS hit this
         # guard — kill-prior killed the old session seconds before the new bridge
         # booted, but the dead bridge's heartbeat lease (150s) made it look like a

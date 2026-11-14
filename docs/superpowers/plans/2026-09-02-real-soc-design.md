@@ -34,7 +34,7 @@ Classified by whether a module references the aify-comms API at all (`httpCall`,
 | destination | lines | modules |
 |---|---|---|
 | **aify-env core** (generic) | **2,717** | `terminal-runtime` 981, `runtimes` 549, `claude-console-prompts` 350, `runtimes-exec` 341, `claude-console-spinner` 178, `delegated-stream` 131, `bridge-agent-state` 70, `launcher-file` 62, `env-term-shim` 55 |
-| **the comms plugin** | **1,023** | `dispatch-loop` 403, `terminal-manager` 206, `spawn-loop` 158, `managed-environment-sync` 141, `dispatch-execution` 115 |
+| **the comms plugin** | **1,023** | `dispatch-loop` 403, `terminal manager` 206, `spawn-loop` 158, `managed-environment-sync` 141, `dispatch-execution` 115 |
 
 **73% of "the bridge" is general host capability.** That is why the separation kept looking finished:
 the part that moved was visible, and the ~1,000 lines of protocol that did not move were hidden

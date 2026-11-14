@@ -1,6 +1,6 @@
 # 0.8.6 resubmission packet (2026-10-05)
 
-Answers comms-senior-dev's REVISE of wrapper 38f3e20 (1791170343120-349981e8) and the managed-spawn handoff
+Answers developer's REVISE of wrapper 38f3e20 (1791170343120-349981e8) and the managed-spawn handoff
 (1791174645897-97f09b60, 1791175190147-fc2429c5). Labels: PROVEN = run or read on the real object; PASSES IN
 TESTS = green, never run for real; ASSUMED / UNATTRIBUTED as stated.
 
@@ -90,7 +90,7 @@ was made.
 
 ## Steven's rulings this packet relies on
 
-Given in the comms-tech-lead session, 2026-10-05 about 03:40Z, answering a question whether overnight restarts
+Given in the lead session, 2026-10-05 about 03:40Z, answering a question whether overnight restarts
 were allowed: "No. other teams are working on 0.8.5 currently. but i guess you could move my claude code
 credentials and hermes credentials over to wsl and install stuff there and test there if needed. or container if
 you wish. but not this live work env." Credentials were not copied (a refresh elsewhere may rotate the shared

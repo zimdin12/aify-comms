@@ -1,7 +1,7 @@
 # 0.9 delta: configured model versus the model a lifetime actually runs (proposed, 2026-10-04)
 
 A proposed addition to `2026-10-02-aify-env-owns-agent-state.md` (approved at 51da6a38). It is NOT covered by
-that plan's P2 GO; comms-senior-dev asked for this measured delta first.
+that plan's P2 GO; developer asked for this measured delta first.
 
 ## The ask
 
@@ -15,16 +15,16 @@ Labels: OBSERVED = read from the real file or row; SOURCE = read in code; ASSUME
 
 | # | Fact | Label |
 |---|---|---|
-| M1 | 23 of 24 definitions (`~/.aify/agent-definitions/*.json`, `agent.model`) are `""`; sc-critic is `"sonnet"`. aify-comms' agent rows match. | OBSERVED |
+| M1 | 23 of 24 definitions (`~/.aify/agent-definitions/*.json`, `agent.model`) are `""`; critic is `"sonnet"`. aify-comms' agent rows match. | OBSERVED |
 | M2 | Harness defaults: `~/.claude/settings.json` `model: "opus"`, `effortLevel: "high"`; hermes `AppData/Local/hermes/config.yaml` `model.default: gpt-6.1-sol`, `reasoning_effort: high`. These are the CURRENT desired defaults, not what any running lifetime started with. | OBSERVED |
 | M3 | Claude: each assistant line of the session transcript (`~/.claude/projects/<cwd-slug>/<session-id>.jsonl`) carries `message.model`, the model that answered, with its `timestamp`. CORRECTED 2026-10-05: it also carries top-level `effort` and `perTurnEffort` (Claude Code 2.1.282 to 2.1.289, every assistant line in 27 recent transcripts). Every value seen is `high`, the settings default, so whether it reports a non-default effort is UNVERIFIED. | OBSERVED |
 | M4 | Claude binds per lifetime: aify-comms' `sessionHandle` for each claude agent equals its transcript's file name. 13 agents mapped to 13 transcripts written in the last 24 h. | OBSERVED |
-| M5 | Claude pins its model when a session starts. Three agents run `claude-opus-5` while the alias `opus` now resolves to `claude-opus-5-5` for new sessions: sc-lead (answering at 04:15 today), mc-manager, llama-manager. sc-critic (`sonnet`) runs `claude-sonnet-5-5`. | OBSERVED (the pinning cause is ASSUMED from the pattern) |
+| M5 | Claude pins its model when a session starts. Three agents run `claude-opus-5` while the alias `opus` now resolves to `claude-opus-5-5` for new sessions: lead (answering at 04:15 today), manager, manager. critic (`sonnet`) runs `claude-sonnet-5-5`. | OBSERVED (the pinning cause is ASSUMED from the pattern) |
 | M6 | Claude transcripts reach 1.6 GB (sand_castle 502989ba); one exceeded node's string limit when read whole. A producer reads the tail only. | OBSERVED |
 | M7 | Hermes: `state.db` `session_model_usage` holds rows per (session, model, task) with `first_seen` and `last_seen`. `task = ''` is the agent's own turns; `compression`, `title_generation`, `background_review` are side tasks on other models. | OBSERVED |
 | M8 | Hermes binds per lifetime: the agent's `sessionHandle` is the `state.db` session id. | OBSERVED |
-| M9 | Hermes follows the configured default as it changes: comms-senior-dev's one session ran gpt-5.5, 5.6, 6-astra, 6-sol, then 6.1-sol. graph-senior-dev's latest main-task row is gpt-6-sol at 2026-10-02 17:15, and it has not run since. | OBSERVED |
-| M10 | Hermes `sessions.model` is NOT the actual model: graph-senior-dev's reads gpt-6.1-sol while its latest usage is gpt-6-sol. | OBSERVED |
+| M9 | Hermes follows the configured default as it changes: developer's one session ran gpt-5.5, 5.6, 6-astra, 6-sol, then 6.1-sol. developer's latest main-task row is gpt-6-sol at 2026-10-02 17:15, and it has not run since. | OBSERVED |
+| M10 | Hermes `sessions.model` is NOT the actual model: developer's reads gpt-6.1-sol while its latest usage is gpt-6-sol. | OBSERVED |
 | M11 | Codex: rollout files (`~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread>.jsonl`) carry `model` and `effort` per turn; the app-server `thread/start` answer carries `model` and `reasoningEffort` (sealed probe, evidence/2026-10-01-p6). No codex agent is defined today. | OBSERVED once; binding to `sessionHandle` ASSUMED |
 
 ## Three values, kept apart
@@ -60,7 +60,7 @@ Read on turn end, not on a timer. A read failure is UNKNOWN with its cause.
 - No automatic definition rewrite, no automatic restart or resume, no in-session switch.
 - Bulk set: `aify-env agents set --model X` takes an explicit selection (`--harness`, `--ids`, or `--all`) and
   prints a preview of each agent's before/after; it writes only with `--yes`. Agents with their own model (today
-  sc-critic) are listed as exceptions and skipped unless named. Each write carries its expected revision, and a
+  critic) are listed as exceptions and skipped unless named. Each write carries its expected revision, and a
   definition changed meanwhile is refused for that agent (SOURCE: `DefinitionStore` define takes an `expect` {incarnation, revision} compare-and-set, aify-env lib/agent-definitions.mjs:206). From aify-comms
   the same goes through operator-gated change requests.
 - Switching a running lifetime is a separate operator action, "restart into its definition", per agent, with

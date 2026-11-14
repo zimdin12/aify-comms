@@ -191,7 +191,7 @@ async def _clear_console_terminal_binding(db, agent_id: str, terminal_id: str, *
     # The dashboard-start path writes the TOP-LEVEL runtime_state.terminalId (and the synth
     # path virtualTerminalId); leaving either pointing at a dead terminal made the dashboard
     # auto-mount an xterm over a stopped PTY's stale buffer with no Start affordance
-    # (graph-tech-lead incident, 2026-07-02).
+    # (lead incident, 2026-07-02).
     for key in ("terminalId", "virtualTerminalId"):
         if str(runtime_state.get(key) or "").strip() == terminal_id:
             runtime_state.pop(key, None)

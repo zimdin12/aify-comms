@@ -98,7 +98,7 @@ test('a skipped seq, or a restarted service, refetches everything once', async (
 });
 
 test('A FIRST OPEN RECOVERS: a change between the boot read and the subscription is not lost', () => {
-  // comms-senior-dev's review of c8692f10: the boot refresh reads before the socket subscribes, and a
+  // comms-fixturedeveloper's review of c8692f10: the boot refresh reads before the socket subscribes, and a
   // change committed in between (a host's definitions going stale, which no later write repeats) was
   // sent to no one. The first open, like a reconnect, refetches everything once.
   const { refresher, log } = rig();
@@ -298,7 +298,7 @@ test('A PARTIAL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its 
 });
 
 test('AN OLDER PARTIAL THAT PAINTS DURING A BUNDLE’S TAIL does not leave its older data on screen', async () => {
-  // comms-senior-dev's review of 83f928f8, executed against the real refresher: the bundle painted the
+  // comms-fixturedeveloper's review of 83f928f8, executed against the real refresher: the bundle painted the
   // newer environments, waited on its channels tail, an older partial painted over it, and the late
   // acknowledgement marked the bundle current. The slice was never fetched again.
   const r = racingRig({ tail: true });

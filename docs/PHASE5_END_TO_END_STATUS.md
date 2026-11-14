@@ -60,7 +60,7 @@ render guards, a wrapper defect shows up as an agent that will not start.
 
 - **The live two-session round-trip**, which no scripted suite replaces. It needs two real runtimes
   and therefore the same window.
-- **comms-senior-dev's review of the whole-release diff.** The plan is explicit that the tag comes
+- **developer's review of the whole-release diff.** The plan is explicit that the tag comes
   after that approval, and my standing instruction is that shipping past a verdict sha is unreviewed.
   The diff to review is `v0.5.7..HEAD`.
 

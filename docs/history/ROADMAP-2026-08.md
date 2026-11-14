@@ -51,13 +51,13 @@ to be false. That is the rule working, not the rule being expensive.
 
 | item | why now |
 |---|---|
-| **Audit triage** | `comms-senior-dev` is auditing four areas: the health-surface family, SSE/stdio parity, the reconciler seam read-only, and an adversarial pass on the v0.3 code. Findings get triaged against the rule; survivors get scheduled here. |
+| **Audit triage** | `developer` is auditing four areas: the health-surface family, SSE/stdio parity, the reconciler seam read-only, and an adversarial pass on the v0.3 code. Findings get triaged against the rule; survivors get scheduled here. |
 | **Agent health surfaces cannot answer "what did this agent produce?"** | AUDIT FINDING 1, source-cited. See below — the fix is an outbound-activity field, and a DEGRADED marker alone would not retire the artifact. |
 | ~~**Repair the 183 corrupted artifacts**~~ | **DONE.** 183 repaired, 0 still corrupted, 0 DB/disk size mismatches. Backups deleted only after `scripts/verify_crlf_repair.py` proved both facts below; manifest at `/data/crlf-repair-manifest.json`. |
 
 ### AUDIT FINDING 4 — adversarial pass on v0.3.0 + v0.3.1
 
-`comms-senior-dev`, source review plus read-only DB probes. Two evidence-surface bugs, both fixed
+`developer`, source review plus read-only DB probes. Two evidence-surface bugs, both fixed
 in v0.3.2; one recommendation measured and declined; one pre-delete guard built and satisfied.
 
 **F1 — `bridge-current` was green on no evidence. FIXED.** The check counts a live bridge that
@@ -83,7 +83,7 @@ not the aggregate: same statement, 42 agents → 37 ms and a temp B-tree; a low-
 
 But "the surviving caller is already index-covered" was wrong, and the reviewer caught it:
 `idx_dispatch_runs_target_status` does not include `finished_at`, so the single-agent cost scales
-with **that agent's** history — `sc-claude` (3,109 runs) 3.84 ms, `sc-manager` (7,383 runs)
+with **that agent's** history — `sc-claude` (3,109 runs) 3.84 ms, `manager` (7,383 runs)
 **13.19 ms**. Still declined, on the real distinction: 13 ms on a deliberately-opened detail view is
 fine; 13 ms on a 2-second poll across 42 agents is the lock class. Reversal conditions are recorded
 in the source — run detail returning to a hot path, or a latency target on a heavy agent's detail
@@ -108,7 +108,7 @@ overclaiming parity; the share multipart test guards construction only, as recor
 
 ### AUDIT FINDING 1 — health surfaces answer about the wrong path
 
-`comms-senior-dev`, source-only review at `22521f6`, every claim cited.
+`developer`, source-only review at `22521f6`, every claim cited.
 
 **The trace.** During an outage `comms_agent_info` kept answering normally, so a manager told the
 operator three times a lane was dead. It wasn't — the reply sat undelivered. Every field was
@@ -139,7 +139,7 @@ messages and exposes sent/seen/queued/working/answered/missing_reply. The move m
 
 ### AUDIT FINDING 2 — SSE/stdio parity: 20 duplicated tools, 9 divergences
 
-`comms-senior-dev`, source-only, every divergence cited. Motivated by `comms_search` existing in
+`developer`, source-only, every divergence cited. Motivated by `comms_search` existing in
 both transports where I fixed one and believed I was done.
 
 **Highest wrong-belief risk:**
@@ -167,7 +167,7 @@ for the duplicated status predicates.
 
 ### AUDIT FINDING 3 — the reconciler seam, before the extraction
 
-`comms-senior-dev`, read-only, with two read-only live DB probes.
+`developer`, read-only, with two read-only live DB probes.
 
 **Blocker 1 — FIXED (`4317117`).** `_replay_undelivered_channel_messages_on_env_recovery` gated on
 `datetime(m.timestamp)` where the column is epoch **milliseconds** — SQLite returns NULL, so the
@@ -433,7 +433,7 @@ not after — a pure-move refactor would carry them forward silently.
   grounded (`read_at is not None`; 2,176 of 29,960 messages genuinely unread), `[FAILED]`/
   `[CANCELLED]` come from terminal status, `[CRITICAL]` from quota severity.
 - **Thread-closure pilot.** Reviewed and ready, **not running** — it needs operator adoption, and
-  `sc-manager` applies it, not me. Roughly half of that team's threads stop with no recorded
+  `manager` applies it, not me. Roughly half of that team's threads stop with no recorded
   outcome and we cannot tell abandoned from concluded.
 
 ## Declined, with reasons

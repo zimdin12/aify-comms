@@ -294,7 +294,7 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     // `resumePolicy: "fresh_context"` reached the bridge correctly (a Reset set it, spawn-loop.mjs
     // carried it; since D8 a fresh-context lifecycle start sets the variable below) and until 2026-08-31
     // ONLY codex read it. Hermes resumed regardless,
-    // so `comms_restart freshContext=true` reported success and changed nothing: comms-senior-dev
+    // so `comms_restart freshContext=true` reported success and changed nothing: developer
     // stayed on a 5 JUNE conversation until it reached 1,122,638 tokens against a 900k window and
     // could no longer answer at all.
     freshContext = String(process.env.AIFY_HERMES_FRESH_CONTEXT || "").trim() === "1",

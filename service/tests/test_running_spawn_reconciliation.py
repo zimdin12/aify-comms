@@ -121,21 +121,21 @@ class SupersededSpawnReaperTests(FastApiTestCase):
         self._seed_env()
 
     def test_reconcile_preserves_running_spawn_with_live_worker(self):
-        self._register("mc-senior-dev")
-        self._seed_terminal("term-live", "mc-senior-dev", updated_ago=5)   # beat 5s ago → live
-        self._seed_spawn("spawn-old", "mc-senior-dev", created_ago=600)     # 10 min old, still running
+        self._register("mc-fixturedeveloper")
+        self._seed_terminal("term-live", "mc-fixturedeveloper", updated_ago=5)   # beat 5s ago → live
+        self._seed_spawn("spawn-old", "mc-fixturedeveloper", created_ago=600)     # 10 min old, still running
         self._run_reconcile()
         self.assertEqual(self._spawn_status("spawn-old"), "running")
 
     def test_reconcile_fails_only_older_spawn_superseded_by_current_live_session(self):
-        self._register("mc-senior-dev")
+        self._register("mc-fixturedeveloper")
         self._seed_terminal(
-            "term-current", "mc-senior-dev", updated_ago=5, session_id="session-current",
+            "term-current", "mc-fixturedeveloper", updated_ago=5, session_id="session-current",
         )
-        self._seed_spawn("spawn-older", "mc-senior-dev", created_ago=1200)
-        self._seed_spawn("spawn-current", "mc-senior-dev", created_ago=600)
+        self._seed_spawn("spawn-older", "mc-fixturedeveloper", created_ago=1200)
+        self._seed_spawn("spawn-current", "mc-fixturedeveloper", created_ago=600)
         self._seed_agent_session(
-            "session-current", "mc-senior-dev", "spawn-current", "term-current", started_ago=600,
+            "session-current", "mc-fixturedeveloper", "spawn-current", "term-current", started_ago=600,
         )
 
         self._run_reconcile()
@@ -144,14 +144,14 @@ class SupersededSpawnReaperTests(FastApiTestCase):
         self.assertEqual(self._spawn_status("spawn-current"), "running")
 
     def test_reverse_terminal_reference_must_point_back_to_the_same_session(self):
-        self._register("mc-senior-dev")
+        self._register("mc-fixturedeveloper")
         self._seed_terminal(
-            "term-current", "mc-senior-dev", updated_ago=5, session_id="session-real",
+            "term-current", "mc-fixturedeveloper", updated_ago=5, session_id="session-real",
         )
-        self._seed_spawn("spawn-older", "mc-senior-dev", created_ago=1200)
-        self._seed_spawn("spawn-stale", "mc-senior-dev", created_ago=600)
+        self._seed_spawn("spawn-older", "mc-fixturedeveloper", created_ago=1200)
+        self._seed_spawn("spawn-stale", "mc-fixturedeveloper", created_ago=600)
         self._seed_agent_session(
-            "session-stale", "mc-senior-dev", "spawn-stale", "term-current", started_ago=600,
+            "session-stale", "mc-fixturedeveloper", "spawn-stale", "term-current", started_ago=600,
         )
 
         self._run_reconcile()
@@ -160,17 +160,17 @@ class SupersededSpawnReaperTests(FastApiTestCase):
         self.assertEqual(self._spawn_status("spawn-stale"), "running")
 
     def test_reaper_revalidates_live_binding_at_update_time(self):
-        self._register("mc-senior-dev")
+        self._register("mc-fixturedeveloper")
         self._seed_terminal(
-            "term-current", "mc-senior-dev", updated_ago=5, session_id="session-current",
+            "term-current", "mc-fixturedeveloper", updated_ago=5, session_id="session-current",
         )
-        self._seed_spawn("spawn-older", "mc-senior-dev", created_ago=1200)
-        self._seed_spawn("spawn-current", "mc-senior-dev", created_ago=600)
+        self._seed_spawn("spawn-older", "mc-fixturedeveloper", created_ago=1200)
+        self._seed_spawn("spawn-current", "mc-fixturedeveloper", created_ago=600)
         self._seed_agent_session(
-            "session-current", "mc-senior-dev", "spawn-current", "term-current", started_ago=600,
+            "session-current", "mc-fixturedeveloper", "spawn-current", "term-current", started_ago=600,
         )
         self._seed_agent_session(
-            "session-rebound", "mc-senior-dev", "spawn-current", None, started_ago=1200,
+            "session-rebound", "mc-fixturedeveloper", "spawn-current", None, started_ago=1200,
         )
 
         failed = self._run_superseded_reaper_with_terminal_rebind("term-current")
@@ -180,9 +180,9 @@ class SupersededSpawnReaperTests(FastApiTestCase):
 
     def test_fresh_spawn_left_alone(self):
         # A spawn still inside the grace window is a legit in-progress boot — never failed.
-        self._register("mc-senior-dev")
-        self._seed_terminal("term-live", "mc-senior-dev", updated_ago=5)
-        self._seed_spawn("spawn-fresh", "mc-senior-dev", created_ago=30)
+        self._register("mc-fixturedeveloper")
+        self._seed_terminal("term-live", "mc-fixturedeveloper", updated_ago=5)
+        self._seed_spawn("spawn-fresh", "mc-fixturedeveloper", created_ago=30)
         self._run_reconcile()
         self.assertEqual(self._spawn_status("spawn-fresh"), "running")
 

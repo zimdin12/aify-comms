@@ -1,8 +1,8 @@
 // "Continue in CLI" — the resume command shown in the agent drawer, and the REASON when there
 // isn't one.
 //
-// Operator report 2026-07-28: "llama-manager does not have cli command that i can copy". Tracing it
-// found this is not a missing runtime mapping — llama-manager's `sessionHandle` is EMPTY, so there
+// Operator report 2026-07-28: "manager does not have cli command that i can copy". Tracing it
+// found this is not a missing runtime mapping — manager's `sessionHandle` is EMPTY, so there
 // is genuinely nothing to resume. Eleven agents on the live fleet are in that state.
 //
 // The defect was that the drawer rendered NOTHING in that case. An absent block is indistinguishable

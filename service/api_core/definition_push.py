@@ -257,7 +257,7 @@ async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict]
         # A FLIP TO RESIDENT IS FOLLOWED WHEN THE RESIDENT REGISTERS, not here (routers/agents/registration.py): that
         # registration commits the switch together with the bridge that drives it. Switched at the push, the record read
         # resident and not driving until the resident's bridge registered, and a resident hermes launch's delivery loop
-        # that claimed in that window was told to release and exited, stranding every run (dashboard-senior-dev,
+        # that claimed in that window was told to release and exited, stranding every run (developer,
         # 2026-10-13).
         # DEFINED AGAIN: the removal's tombstone goes with it, or the worker's registration is refused.
         await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ? COLLATE NOCASE", (entry["id"],))

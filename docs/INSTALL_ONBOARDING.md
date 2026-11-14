@@ -154,7 +154,7 @@ bash scripts/herdr-state.sh --probe  # explicit bounded --version, after checkin
 `installed` records a discovered executable file, not full package integrity. `runnable` is unknown
 until the opt-in version probe succeeds or fails; a timeout stays unknown. `version` is unknown
 unless the successful output identifies herdr's version. `onPath` describes this shell only.
-No hit in known locations is unknown because portable and package-manager installs can live
+No hit in known locations is unknown because portable and package manager installs can live
 elsewhere. With `HERDR_INSTALL_DIR` set, missing is scoped to that configured directory, never to
 all applications on the host. Inspect a broken install before replacing it.
 

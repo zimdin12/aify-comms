@@ -141,7 +141,7 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
         # whichever claimer last won arbitration, and aify-env mints a fresh one every time its
         # plugin starts. So after a restart EVERY existing terminal mismatched and was released as a
         # "stale Console owner" -- and a release means the next delivery cold-starts a terminal
-        # instead of reaching the live worker. Measured: sc-lead's terminal held ab14b870 while the
+        # instead of reaching the live worker. Measured: lead's terminal held ab14b870 while the
         # row said d908664d, its console sat at `starting` for four minutes, and every message to
         # that lane started a replacement.
         #

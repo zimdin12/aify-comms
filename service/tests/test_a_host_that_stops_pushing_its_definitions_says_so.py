@@ -59,7 +59,7 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
 
     def test_THE_SWEEP_tells_a_connected_dashboard_when_a_host_goes_stale(self):
         """Nothing is written when a host stops pushing, so a dashboard holding its socket heard nothing and
-        kept a fresh card for an hour (comms-senior-dev's review of cbcc26d0). The 60 s sweep reports the
+        kept a fresh card for an hour (comms-fixturedeveloper's review of cbcc26d0). The 60 s sweep reports the
         moment the stale set moves, as a change to `definition_stores`, which the environments slice reads."""
         import asyncio
         from unittest import mock
@@ -88,7 +88,7 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
         self.assertEqual(feed.moved, ["definition_stores"])
 
     def test_A_FIRST_SWEEP_THAT_FINDS_A_HOST_STALE_REPORTS_IT(self):
-        """comms-senior-dev's review of c8692f10: read fresh at +599, then the first successful sweep at +601
+        """comms-fixturedeveloper's review of c8692f10: read fresh at +599, then the first successful sweep at +601
         (after a start, or after failed sweeps) had no baseline and said nothing, at +601 and an hour later."""
         import asyncio
         from unittest import mock
@@ -134,7 +134,7 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
         self.assertEqual(forget(B["env"]).status_code, 200, "CONTROL: an environment no store pushes from is forgotten as before")
 
     def test_A_PUSH_THAT_COMMITS_WHILE_A_FORGET_WAITS_IS_SEEN(self):
-        """comms-senior-dev's review of 1f50175b: the governing check read before the forget took the write
+        """comms-fixturedeveloper's review of 1f50175b: the governing check read before the forget took the write
         lock, so a push committing between the check and the DELETE was forgotten with its environment."""
         import sqlite3
         import threading

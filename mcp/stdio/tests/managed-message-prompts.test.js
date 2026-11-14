@@ -4,7 +4,7 @@ const { buildSystemPrompt, buildUserPrompt } = await import("../runtimes.js");
 
 const agentInfo = { role: "coder", instructions: "Own frontend polish." };
 
-const dashboardSystem = buildSystemPrompt("sc-coder", agentInfo, {
+const dashboardSystem = buildSystemPrompt("sc-fixtureworker", agentInfo, {
   from: "dashboard",
   subject: "Can you check this?",
   requireReply: true,
@@ -28,53 +28,53 @@ assert.match(dashboardSystem, /not a lockstep protocol/);
 assert.match(dashboardSystem, /treat it as a small contract/);
 assert.match(dashboardSystem, /Managed visibility rule/);
 assert.match(dashboardSystem, /The team-visible answer is the comms_send reply you send/);
-assert.match(dashboardSystem, /comms_send\(to="sc-coder", type="request", queueIfBusy=true/);
-assert.doesNotMatch(dashboardSystem, /comms_send\(from="sc-coder", to="dashboard"/);
+assert.match(dashboardSystem, /comms_send\(to="sc-fixtureworker", type="request", queueIfBusy=true/);
+assert.doesNotMatch(dashboardSystem, /comms_send\(from="sc-fixtureworker", to="dashboard"/);
 assert.match(dashboardUser, /Reply to the dashboard user with comms_send\(type="response", to="dashboard"\)/);
 assert.match(dashboardUser, /Do not end silently/);
 assert.match(dashboardUser, /Answer the sender with comms_send/);
 assert.match(dashboardUser, /Parallel coordination is allowed/);
 assert.match(dashboardUser, /Self-continuation is allowed/);
 
-const channelSystem = buildSystemPrompt("sc-coder", agentInfo, {
-  from: "sc-manager",
+const channelSystem = buildSystemPrompt("sc-fixtureworker", agentInfo, {
+  from: "sc-fixtureowner",
   subject: "#sand-castle: Who can verify the dashboard?",
   requireReply: false,
 });
 const channelUser = buildUserPrompt({
-  from: "sc-manager",
+  from: "sc-fixtureowner",
   type: "request",
   subject: "#sand-castle: Who can verify the dashboard?",
-  body: "@sc-coder please verify the chat polish.",
+  body: "@sc-fixtureworker please verify the chat polish.",
   requireReply: false,
 });
 assert.match(channelSystem, /channel\/group message/);
 assert.match(channelSystem, /Reply in the channel only when you are named/);
 assert.match(channelSystem, /managed background run/);
-assert.match(channelSystem, /reply with comms_send\(type="response", to="sc-manager"\)/);
+assert.match(channelSystem, /reply with comms_send\(type="response", to="sc-fixtureowner"\)/);
 assert.match(channelSystem, /Final plain text is your working output, not the reply/);
-assert.match(channelUser, /reply with comms_send\(type="response", to="sc-manager"\)/);
+assert.match(channelUser, /reply with comms_send\(type="response", to="sc-fixtureowner"\)/);
 assert.match(channelUser, /Reply delivery: send your answer as a comms_send tool call/);
 assert.match(channelUser, /Do not create broad acknowledgement loops/);
 
-const directSystem = buildSystemPrompt("sc-coder", agentInfo, {
-  from: "sc-manager",
+const directSystem = buildSystemPrompt("sc-fixtureworker", agentInfo, {
+  from: "sc-fixtureowner",
   subject: "Review this",
   requireReply: true,
 });
-assert.match(directSystem, /Before you finish, send the reply with comms_send\(type="response", to="sc-manager"\)/);
+assert.match(directSystem, /Before you finish, send the reply with comms_send\(type="response", to="sc-fixtureowner"\)/);
 assert.match(directSystem, /that tool call is the team reply and closes the run/);
 assert.match(directSystem, /Your final plain text is your own working output, not the reply/);
 
 const nonReplyResponseRun = {
-  from: "sc-manager",
+  from: "sc-fixtureowner",
   type: "response",
   subject: "Ack",
   body: "Round-trip confirmed; nothing owed.",
   messageId: "msg-response-1",
   requireReply: false,
 };
-const nonReplyResponseSystem = buildSystemPrompt("sc-coder", agentInfo, nonReplyResponseRun);
+const nonReplyResponseSystem = buildSystemPrompt("sc-fixtureworker", agentInfo, nonReplyResponseRun);
 const nonReplyResponseUser = buildUserPrompt(nonReplyResponseRun);
 for (const prompt of [nonReplyResponseSystem, nonReplyResponseUser]) {
   assert.match(prompt, /Do not send an acknowledgement-only reply/);

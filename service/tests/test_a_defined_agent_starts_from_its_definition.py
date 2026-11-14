@@ -177,12 +177,12 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
     def test_a_withdrawn_agent_is_not_started_restarted_or_spawned(self):
         self.push("s1", 1, [valid("coder")])
         self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, status, started_at, last_seen) "
-                     "VALUES ('sess-coder', 'coder', ?, 'claude-code', 'stopped', 'now', 'now')", (A["env"],))
+                     "VALUES ('sess-fixtureworker', 'coder', ?, 'claude-code', 'stopped', 'now', 'now')", (A["env"],))
         self.push("s1", 2, [])
         why = 'Agent "coder" was withdrawn in aify-env on win32:host-a; define it again to start it'
         started = self.start("coder")
         self.assertEqual((started.status_code, started.json()["detail"]), (409, why))
-        restarted = self.client.post("/api/v1/sessions/sess-coder/control", json={"action": "restart", "from_agent": "dashboard"})
+        restarted = self.client.post("/api/v1/sessions/sess-fixtureworker/control", json={"action": "restart", "from_agent": "dashboard"})
         self.assertEqual((restarted.status_code, restarted.json()["detail"]), (409, why))
         spawned = self.client.post("/api/v1/spawn-requests", json={
             "agentId": "coder", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})

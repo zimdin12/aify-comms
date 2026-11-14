@@ -1,6 +1,6 @@
 // Editing a DEFINED agent: its definition fields change by ONE definition request its host applies (P0 C5), so a
 // Save either queues the whole change or nothing of it. The id is not offered: it names the definition file, the
-// host's stop record and the session folder, and no host renames it (env-senior-dev, aify-env e70321d). The display
+// host's stop record and the session folder, and no host renames it (developer, aify-env e70321d). The display
 // name is offered instead. A running agent keeps what it started with; the change applies at its next start.
 //
 // The form and the patch are pure; agent-session-actions.mjs submits it.

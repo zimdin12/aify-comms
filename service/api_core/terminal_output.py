@@ -307,7 +307,7 @@ async def _record_host_reported_alive(db, terminal) -> None:
     terminal whose `bridge_id` no longer matches the environment row -- and every aify-env start
     mints a fresh bridge id, so after a restart every terminal mismatches. The guard against that is
     "was this terminal REPORTED recently", read from `updated_at`. With nothing refreshing
-    `updated_at` the guard could never be true, so it released `sc-coder`'s terminal at 06:27:52
+    `updated_at` the guard could never be true, so it released `coder`'s terminal at 06:27:52
     while the host was running and streaming it. An ended terminal cannot go back to active by
     design, so the worker's own output could never undo it: a live claude session, unaddressable and
     unrestartable, and three refused restarts behind it.

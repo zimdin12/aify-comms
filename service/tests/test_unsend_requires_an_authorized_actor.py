@@ -6,7 +6,7 @@ agent B could delete an A->C message by id. Message ids are not secret: they app
 listings and in dispatch text. A canonical channel row additionally triggered a `LIKE '{id}-%'`
 fan-out delete of every per-recipient copy.
 
-Ruled by comms-senior-dev: sender-plus-operator, actor MANDATORY and service-enforced, absence FAILS
+Ruled by comms-fixturedeveloper: sender-plus-operator, actor MANDATORY and service-enforced, absence FAILS
 CLOSED — "an optional actor parameter is security theatre; absence must fail closed" — and "do not
 call it fixed until an old client that omits actor is proven refused rather than grandfathered."
 That proof is `test_an_actor_less_delete_is_REFUSED` below.

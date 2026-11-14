@@ -3,7 +3,7 @@
 // `claude-session-hook.js` writes the session id keyed by AIFY_AGENT_ID, and the bridge's discovery reads
 // it first. A `claude` run from an agent's own shell inherits AIFY_AGENT_ID, so IF it ran this hook it
 // would overwrite its parent's capture, and the parent's own, registered bridge would then report the
-// nested session (comms-senior-dev simulated exactly that). It cannot, because the hook is never in a
+// nested session (comms-fixturedeveloper simulated exactly that). It cannot, because the hook is never in a
 // settings file a bare `claude` loads: the launcher hands it over per launch, as `--settings`, and no
 // installer writes it into ~/.claude/settings.json or a project's settings. This holds that true; the
 // day an installer adds the hook to a shared settings file, the capture needs scoping to its own session.

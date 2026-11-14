@@ -98,7 +98,7 @@ async def _start_managed_backing_after_switch(db, agent_id: str, new_mode: str, 
                 # leftover RESIDENT agent_sessions row (a resident `*-aify --resume`,
                 # NOT a managed-warm worker), so no `managed-wrapper-child` bridge
                 # registers and the next 'channel' run is rejected
-                # `managed_wrapper_child_required` → queued forever (the lc-coder
+                # `managed_wrapper_child_required` → queued forever (the coder
                 # resident→managed strand). Instead: RETIRE the leftover non-terminal
                 # resident agent_sessions row(s) and cold-start a managed-warm
                 # spawn_request so a bridge spawns a real managed worker whose

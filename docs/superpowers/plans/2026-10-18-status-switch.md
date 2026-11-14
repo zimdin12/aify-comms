@@ -1,7 +1,7 @@
 # The status switch to aify-env: 0.9.8 (2026-10-18, revision 2)
 
 The 0.9 plan's P6-P8 (`2026-10-02-aify-env-owns-agent-state.md`; contracts C6-C8 in its P0 document). Revision 2
-answers comms-senior-dev's REVISE of 39125cbf, findings R1-R4.
+answers developer's REVISE of 39125cbf, findings R1-R4.
 
 ## Where it stands, measured 2026-10-18 16:20Z
 
@@ -96,7 +96,7 @@ Read from the live service (`/agent-state/shadow-report`), counted per observati
 re-evaluated every few seconds can therefore dominate a class.
 
 - **2026-10-18 19:00Z, build 88f3708c. `comms-only-stop` was ONE agent, and it was not an operator stop.**
-  - The class held 289 of 405 disagreements (71%), all of them ef-senior-dev. Its wake-disabled flag
+  - The class held 289 of 405 disagreements (71%), all of them developer. Its wake-disabled flag
     (`launch_mode='none'`, status `offline`) came from an April environment removal (`routers/environments.py`), not
     from the operator.
   - The operator ruled: make it startable. The comms resume cleared the stale flag (`launch_mode` detached, status
@@ -108,13 +108,13 @@ re-evaluated every few seconds can therefore dominate a class.
   - env `blocked` vs comms `working` or `online` on residents: aify-env sees awaiting input that comms does not. No
     class yet; which side is right is not established.
 - **2026-10-18 23:20Z, build 88f3708c. Two keys explained; an earlier B3 attribution withdrawn.**
-  - resident `offline` vs env `online` (4,529 of 6,243): pc-manager. comms reads `hermes-missing-handle`
+  - resident `offline` vs env `online` (4,529 of 6,243): manager. comms reads `hermes-missing-handle`
     (`liveness.py`): its bridge restarted at 19:50Z after my %TEMP% cleanup had deleted its
     `aify-hermes-gateway-` marker, which the bridge reads only at load (`hermes-gateway-config.mjs`). The gateway
     on 8868 was listening throughout. This is the Q3-ruled word, so the key needs the Q3 class, and comms' recorded
     inputs must carry the missing handle: `bridge_stale` alone cannot tell it from a dead bridge. The marker was
-    rewritten from the gateway's own token (control: comms-senior-dev's surviving marker reproduced byte-equal); it
-    takes effect at pc-manager's next bridge start.
-  - resident `offline` vs env `available` (60): llama-manager. comms keeps the session mode of its last run
+    rewritten from the gateway's own token (control: developer's surviving marker reproduced byte-equal); it
+    takes effect at manager's next bridge start.
+  - resident `offline` vs env `available` (60): manager. comms keeps the session mode of its last run
     (resident, 10-12 18:52Z); its definition became managed at 19:01Z. The definition is the authority: B3, no
-    operator decision needed. dashboard-senior-dev, named here earlier, is defined resident and is not in B3.
+    operator decision needed. developer, named here earlier, is defined resident and is not in B3.

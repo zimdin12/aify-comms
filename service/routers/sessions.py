@@ -148,7 +148,7 @@ async def list_sessions(
 
     Why the default changed (2026-07-26): the query filtered only on agentId/environmentId, so it
     returned every historical row and the dashboard's Sessions rail became an accidental history
-    dump — one entry per worker process ever started. mc-senior-dev showed 79, all of them the SAME
+    dump — one entry per worker process ever started. developer showed 79, all of them the SAME
     native conversation (`session_handle` 20260715_001441_960b8f) resumed by 75 successive boots,
     which is exactly why it read as "duplicates". Session HISTORY already has a home: the
     spawn-requests list under Environments.

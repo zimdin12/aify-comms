@@ -80,7 +80,7 @@ export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
     : '';
   // TWO SPANS, NOT ONE STRING. The metadata and the last message were joined with the SAME ' · '
   // that separates role from status, in one text run at one colour -- so the message read as a third
-  // field ABOUT the agent. Live on 2026-08-27 that produced `coder · available · Restart ef-manager`
+  // field ABOUT the agent. Live on 2026-08-27 that produced `coder · available · Restart manager`
   // on three rows at once: a message preview shaped exactly like a state, on the surface an operator
   // triages from. (Those rows came from a real defect, since fixed, which is how it was noticed --
   // but any message can take that shape, so the fix is here rather than upstream.) The metadata is
@@ -95,7 +95,7 @@ export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
   // AN EXPLICIT NAME, because this button's content includes ANOTHER control. A button with no
   // `aria-label` is named from its content, and this one contains the favourite star (a
   // `role="button"` span), the status dot's label, the unread count and the preview line -- so the
-  // row announced itself as "Unfavorite ef-manager available ef-manager 1 coder · available ·
+  // row announced itself as "Unfavorite manager available manager 1 coder · available ·
   // <whatever the last message said>". Measured from the live page's a11y tree, 2026-08-26: the
   // FIRST words of every conversation row were the star's verb, for a button whose action is
   // "open this conversation".
@@ -269,8 +269,8 @@ export function renderAnalyticsPanelHtml(agentId, data) {
  * of that were true at once, which is why the old wording was a state that lies by omission.
  *
  * The DM view filters the polled window to messages BETWEEN the selected identity and the peer, and
- * the default identity is `dashboard`. Measured that day: `comms-senior-dev <-> comms-tech-lead`
- * held 110 messages, while `dashboard <-> comms-tech-lead` held exactly ONE — and that one sat
+ * the default identity is `dashboard`. Measured that day: `developer <-> lead`
+ * held 110 messages, while `dashboard <-> lead` held exactly ONE — and that one sat
  * outside the fleet-wide newest-80 window the poll fetches. So the timeline was correctly empty for
  * the pair being viewed, while the conversation the operator had in mind was busy. Saying "no
  * messages" without saying WHOSE conversation invites exactly that reading.

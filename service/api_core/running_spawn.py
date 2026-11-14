@@ -94,7 +94,7 @@ async def _settle_running_spawn(
                     -- the moment a spawn went running. A worker that came up re-registered and put
                     -- it back within seconds, which is why only agents whose spawns FAILED were left
                     -- without one -- and an agent with no machine is invisible to aify-env's start
-                    -- menu, which offers only agents on its own machine. `mp-manager` sat there for
+                    -- menu, which offers only agents on its own machine. `manager` sat there for
                     -- two days. The blank is "the claimer did not say", never "it moved host".
                     machine_id = CASE WHEN excluded.machine_id != '' THEN excluded.machine_id ELSE agents.machine_id END,
                     launch_mode = excluded.launch_mode,
@@ -152,7 +152,7 @@ async def _settle_running_spawn(
                 effective_session_handle, started_at, now,
             )
             # Migrate a live terminal orphaned by this rotation (operator-reported
-            # 2026-05-31, sc-architect). A managed respawn's bridge can create the
+            # 2026-05-31, architect). A managed respawn's bridge can create the
             # visible-TUI/console terminal a few seconds BEFORE this running
             # transition mints the new session, so the live terminal stays bound to
             # the prior (about-to-be-ended) session and the new running session gets
@@ -165,7 +165,7 @@ async def _settle_running_spawn(
             # BOUNDED BY THIS SPAWN'S OWN AGE (2026-08-03). "A few seconds BEFORE this
             # transition" was the intent but never a constraint, so the same-bridge match also
             # adopted the PREVIOUS generation's terminal — and on a Restart that is precisely
-            # the terminal being killed. Live on ef-manager: the adopted terminal predated its
+            # the terminal being killed. Live on manager: the adopted terminal predated its
             # spawn request by 10h16m, the restart's own stop landed one second later, and
             # _close_active_terminal_runs_for_terminal (which keys on the CURRENT session's
             # terminal) then failed the replacement's queued brief. Every dashboard Restart
@@ -269,7 +269,7 @@ async def _migrate_bridge_id_onto_live_terminal(db, row, session_id, migrate_bri
                             -- Binding a LIVE terminal is the authoritative "backing (re)started"
                             -- event: promote a dead-state denorm back to running, else the row
                             -- keeps the PREVIOUS backing's 'stopped' and the Console label reads
-                            -- "Console stopped" for a live attached terminal forever (cms-manager,
+                            -- "Console stopped" for a live attached terminal forever (manager,
                             -- 2026-06-10; the display deriver deliberately never promotes).
                             status = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}
                                           THEN 'running' ELSE status END,

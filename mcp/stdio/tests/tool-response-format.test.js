@@ -218,7 +218,7 @@ test("the safety banner names the content as DATA, and is one shared string", ()
 // ── the ack must not claim a rung it did not observe ──────────────────────────────────────────────
 
 test("a fresh run says QUEUED, not delivered — the send API returns before anything claims", () => {
-  // sc-manager, 2026-08-18: two sends in one session, same tool. One to an online agent (claimed a
+  // sc-fixtureowner, 2026-08-18: two sends in one session, same tool. One to an online agent (claimed a
   // second later), one to an offline managed agent whose cold-start spawn never produced a worker and
   // which the 180s backstop then failed. BOTH produced the identical optimistic ack, so the text could
   // not discriminate at the moment it was printed — and they reported "Delivered" to the operator on
@@ -226,7 +226,7 @@ test("a fresh run says QUEUED, not delivered — the send API returns before any
   //
   // Every fresh run in the send response carries `status: "queued"`; nothing has claimed it yet. The
   // ack may therefore only report creation.
-  const fresh = formatQueuedRun({ targetAgentId: "sc-architect", runId: "run-1" });
+  const fresh = formatQueuedRun({ targetAgentId: "sc-fixtureplanner", runId: "run-1" });
   assert.match(fresh, /queued, not yet claimed/,
     "the ack still implies the run is being handled when nothing has claimed it");
   assert.doesNotMatch(fresh, /delivered|live handling/i,

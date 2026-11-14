@@ -490,7 +490,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   const emptyAttachCounter = new Map();
   // CONNECTS THE GATEWAY REJECTED IN A ROW, any way but "refused" (which re-ensures above). A gateway
   // answers a token it did not issue with `Unexpected server response: 403` (measured 2026-09-28 on
-  // pc-manager's gateway; its own loop left no log, so whether it was stuck here is not known), and no
+  // manager's gateway; its own loop left no log, so whether it was stuck here is not known), and no
   // retry changes that.
   // It proves nothing about the TUI, so it is counted apart from an empty session list.
   let rejectedConnects = 0;

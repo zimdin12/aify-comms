@@ -57,7 +57,7 @@ async def _upsert_bridge_liveness_beat(db, agent_id, bridge_id, bridge_kind, bod
                 # let that generic "resident" beat DEMOTE a 'managed-wrapper-child'
                 # (or 'channel-sidecar') back to 'resident' — after which
                 # _has_live_managed_wrapper_child / _has_live_channel_sidecar stop
-                # matching and the managed agent loses its claimer (the lc-coder /
+                # matching and the managed agent loses its claimer (the coder /
                 # codex-managed strand). Guard: an incoming '' or 'resident' can NEVER
                 # overwrite an existing 'managed-wrapper-child' or 'channel-sidecar';
                 # any other incoming kind still COALESCE-wins as before.

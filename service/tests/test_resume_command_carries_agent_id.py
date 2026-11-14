@@ -1,6 +1,6 @@
 """A resume command must never hand the operator an identity-less session.
 
-Regression guard for the general-manager incident (2026-07-14): the dashboard's
+Regression guard for the general-fixtureowner incident (2026-07-14): the dashboard's
 resume command was `claude-aify --resume <id>` with no `--aify-agent`. The wrapper
 only exports AIFY_AGENT_ID when the agent id is passed, and EVERY turn-state path
 is gated on that variable — the bridge's turn detector (server.js), the Stop /
@@ -27,7 +27,7 @@ class ResumeCommandCarriesAgentId(unittest.TestCase):
         This loop named its five runtimes as literals until 2026-08-16, which left the one case the
         guard is for uncovered: a runtime ADDED to `service/runtimes/_REGISTRY` would not join the
         list, so its adapter could ship a resume command with no `--aify-agent` and this test would
-        still pass. That is the general-manager incident's exact shape — a session launched without
+        still pass. That is the general-fixtureowner incident's exact shape — a session launched without
         an agent id has structurally unfixable status, and nothing errors.
 
         `supported_runtimes()` is the registry `adapter_for` itself dispatches on, so a new adapter
@@ -64,8 +64,8 @@ class ResumeCommandCarriesAgentId(unittest.TestCase):
 
     def test_claude_exact_form(self):
         self.assertEqual(
-            _resume_command_for("claude-code", "sess-AAA", "general-manager"),
-            "claude-aify --aify-agent general-manager --resume sess-AAA",
+            _resume_command_for("claude-code", "sess-AAA", "general-fixtureowner"),
+            "claude-aify --aify-agent general-fixtureowner --resume sess-AAA",
         )
 
     def test_falls_back_cleanly_when_agent_id_is_unknown(self):

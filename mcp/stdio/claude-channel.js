@@ -371,7 +371,7 @@ async function pollLoop(onParentGone) {
         }
         // Mode FSM release signal (Task 4.1): the operator switched this agent
         // to resident, so this managed sidecar is no longer the driver.
-        // DORMANT, NOT DEAD (2026-06-12, sc-manager strand): the old permanent
+        // DORMANT, NOT DEAD (2026-06-12, manager strand): the old permanent
         // `return` killed the poll loop forever — but for a resident claude this
         // sidecar IS the session's only delivery path, and a transient release
         // (the mode switch briefly clobbering driver_state before the server's

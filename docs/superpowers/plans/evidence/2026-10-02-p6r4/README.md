@@ -1,4 +1,4 @@
-# P6r4: the last H4 case from comms-senior-dev's REVISE of P6r3 (2026-10-02)
+# P6r4: the last H4 case from developer's REVISE of P6r3 (2026-10-02)
 
 The review of comms 92a9eb72 / aify-wrapper 1b53112f approved L1, L2, the .cmd exit status and H3 under the
 amended C9, and left one H4 case: a teardown requested while the loop awaits the gateway bring-up found no

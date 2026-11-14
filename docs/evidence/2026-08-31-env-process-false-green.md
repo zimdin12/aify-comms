@@ -2,7 +2,7 @@
 
 FROZEN 2026-08-31T19:47:49.702591+00:00. Read-only. Nothing was killed, reaped or restarted.
 
-Ordered by comms-senior-dev ahead of Row 1 on my report that the check read OK while eleven
+Ordered by developer ahead of Row 1 on my report that the check read OK while eleven
 orphans ran. **That report was wrong.** The `OK` came from a doctor run taken while aify-env had
 ZERO processes -- a correct result at that moment -- and I carried it forward as a statement about
 now. Re-run against this frozen population the check reports:
@@ -30,7 +30,7 @@ them. That is a defect in the SYSTEM, not in the instrument, and it is the thing
 
 | id | pid | label | service | startedAtMs |
 |---|---|---|---|---|
-| 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p1 | 60552 | sc-coder-2 | aify-comms | 1788200220959 |
+| 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p1 | 60552 | coder | aify-comms | 1788200220959 |
 | 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p2 | 32456 | apg-pilot-01 | aify-comms | 1788200413680 |
 | 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p3 | 128564 | apg-pilot-02 | aify-comms | 1788200545544 |
 | 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p4 | 218884 | apg-pilot-03 | aify-comms | 1788200551010 |
@@ -44,16 +44,16 @@ them. That is a defect in the SYSTEM, not in the instrument, and it is the thing
 | 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p12 | 37196 | apg-pilot-07 | aify-comms | 1788201032449 |
 | 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p13 | 153788 | sc-claude | aify-comms | 1788201137686 |
 | 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p14 | 187796 | sc-designer | aify-comms | 1788201155156 |
-| 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p15 | 60260 | graph-senior-dev | aify-comms | 1788201513892 |
-| 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p16 | 47636 | comms-senior-dev | aify-comms | 1788203681082 |
+| 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p15 | 60260 | developer | aify-comms | 1788201513892 |
+| 0e12251c-f0e0-43ed-b523-c302f5afbb0b-p16 | 47636 | developer | aify-comms | 1788203681082 |
 
 ### live terminals
 
 | id | agentId | processId | status |
 |---|---|---|---|
-| term_1788203679963_b5cec1fb | comms-senior-dev | 47636 | attached |
-| term_1788201512788_de9c155e | graph-senior-dev | 60260 | attached |
-| term_1788200220590_6dea073a | sc-coder-2 | 60552 | attached |
+| term_1788203679963_b5cec1fb | developer | 47636 | attached |
+| term_1788201512788_de9c155e | developer | 60260 | attached |
+| term_1788200220590_6dea073a | coder | 60552 | attached |
 | term_1788201154797_31842ce9 | sc-designer | 187796 | attached |
 | term_1788201136797_56b8492f | sc-claude | 153788 | attached |
 
@@ -71,8 +71,8 @@ them. That is a defect in the SYSTEM, not in the instrument, and it is the thing
 | apg-pilot-08 | **NO** |
 | apg-pilot-09 | **NO** |
 | apg-pilot-10 | **NO** |
-| comms-senior-dev | yes |
-| graph-senior-dev | yes |
+| developer | yes |
+| developer | yes |
 | sc-claude | yes |
-| sc-coder-2 | yes |
+| coder | yes |
 | sc-designer | yes |

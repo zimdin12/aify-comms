@@ -34,7 +34,7 @@ async def _select_orphaned_managed_runs(db, cutoff_param, ceiling_param, limit):
     #   1. status claimed/running
     #   2. claim_bridge_id is empty (no bridge took ownership) OR the
     #      named bridge_instance is gone/stale (operator-reported
-    #      2026-05-23: sc-coder's hermes managed run sat at "running"
+    #      2026-05-23: coder's hermes managed run sat at "running"
     #      for 50+ min because claim_bridge_id pointed at a bridge
     #      that had since gone stale — original "claim_bridge_id = ''"
     #      check missed this case. A bridge that hasn't heartbeated

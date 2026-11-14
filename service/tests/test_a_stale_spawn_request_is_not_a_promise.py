@@ -75,8 +75,8 @@ class StaleSpawnRequestTests(unittest.IsolatedAsyncioTestCase):
 
         Bounding only `queued` would move the strand rather than end it.
         """
-        await self._add("r1", "sc-coder", "claimed", age=3600)
-        self.assertFalse(await _has_claimable_spawn_request(self.db, "sc-coder"))
+        await self._add("r1", "sc-fixtureworker", "claimed", age=3600)
+        self.assertFalse(await _has_claimable_spawn_request(self.db, "sc-fixtureworker"))
         await self._add("r2", "sc-other", "claimed", age=5)
         self.assertTrue(await _has_claimable_spawn_request(self.db, "sc-other"))
 
@@ -95,15 +95,15 @@ class StaleSpawnRequestTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_touch_refreshes_it_because_something_is_still_working_on_it(self):
         """`updated_at` wins over `created_at`: an old request a bridge touched a moment ago IS live
         evidence, and ageing it from creation would refuse a spawn that is genuinely progressing."""
-        await self._add("r1", "sc-coder", "claimed", age=3600, updated=10)
-        self.assertTrue(await _has_claimable_spawn_request(self.db, "sc-coder"))
+        await self._add("r1", "sc-fixtureworker", "claimed", age=3600, updated=10)
+        self.assertTrue(await _has_claimable_spawn_request(self.db, "sc-fixtureworker"))
 
     async def test_other_statuses_and_other_agents_are_not_borrowed(self):
         """NEGATIVE CONTROLS. A predicate that answered yes too readily would hide the strand again."""
-        await self._add("r1", "sc-coder", "failed", age=5)
-        self.assertFalse(await _has_claimable_spawn_request(self.db, "sc-coder"))
+        await self._add("r1", "sc-fixtureworker", "failed", age=5)
+        self.assertFalse(await _has_claimable_spawn_request(self.db, "sc-fixtureworker"))
         await self._add("r2", "somebody-else", "queued", age=5)
-        self.assertFalse(await _has_claimable_spawn_request(self.db, "sc-coder"))
+        self.assertFalse(await _has_claimable_spawn_request(self.db, "sc-fixtureworker"))
         self.assertFalse(await _has_claimable_spawn_request(self.db, "nobody"))
 
     def test_the_window_matches_the_one_the_sibling_already_uses(self):

@@ -378,9 +378,9 @@ test("A LONG-DEAD AGENT READS DIFFERENTLY FROM A LIVE ONE", () => {
   // The whole point. `gov-tui` was 42 days silent and `available`; every visible row in the drawer
   // was the same as for an agent that answered a minute ago.
   const longAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
-  seed({ agents: [{ id: "ef-tech-lead", status: "available", lastSeen: longAgo }] });
+  seed({ agents: [{ id: "ef-fixtureguide", status: "available", lastSeen: longAgo }] });
   withDom(drawerEls(), (els) => {
-    openAgentDrawer("ef-tech-lead");
+    openAgentDrawer("ef-fixtureguide");
     assert.equal(lastSeenCell(els["inspector-content"].innerHTML), "120d ago");
   });
 });

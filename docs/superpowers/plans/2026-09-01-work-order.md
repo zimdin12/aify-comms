@@ -41,7 +41,7 @@ intent, so this is a ruling to revisit rather than a bug to patch. Adoption sati
 this one serves" without destroying work. Full chain in `2026-09-01-operator-decisions.md`.
 
 ### 1.4 managed-orphans — bridges that outlive their environment (CONFIRMED LIVE)
-Measured 2026-09-01 with aify-env DOWN: `comms-senior-dev`, `graph-senior-dev` and `sc-architect`
+Measured 2026-09-01 with aify-env DOWN: `developer`, `developer` and `architect`
 (all `managed`/hermes) heartbeating every second with ZERO live terminals. The service's own
 reconciler logged `orphan_workers_reaped: 4`, `orphan_workers_still_orphaned: 2`.
 **The sharp question: they survived aify-env's shutdown**, whose guarantee is "processes managed by
@@ -98,7 +98,7 @@ when unset. Fix before anything starts setting that flag, not after.
 
 - **API_KEY=banana + a dashboard login PROMPT.** Approved. Costs a 401 for every client until each is
   reinstalled AND its wrapper restarted — measured 2026-09-01 as 4 real resident sessions
-  (comms-tech-lead, mc-manager, sc-manager, graph-tech-lead), the other live bridges being 1.4's
+  (lead, manager, manager, lead), the other live bridges being 1.4's
   orphans. Build the prompt FIRST, then key + rebuild + reinstall in one window.
   **No loopback shortcut:** nothing in the service reads client IP, and with the port published on
   `0.0.0.0` behind a docker bridge, host and remote traffic almost certainly arrive identically.

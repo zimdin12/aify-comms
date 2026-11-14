@@ -73,7 +73,7 @@ const IS_MAIN =
 // NEVER attaches to THIS loop's gateway host (it ran its OWN tui_gateway instead,
 // or no TUI is running at all), active_list stays empty FOREVER and the old code
 // requeued the SAME run on every poll silently — the operator's message stranded
-// with no signal (the ci-senior-dev gateway-9136 active_list=0 incident). After
+// with no signal (the developer gateway-9136 active_list=0 incident). After
 // N CONSECUTIVE empty-active_list requeues for the SAME run, FAIL it with an
 // actionable "no visible TUI attached to gateway <url>; relaunch hermes-aify"
 // message (mirrored to the sender) instead of requeuing forever. A successful
@@ -436,7 +436,7 @@ function readBoundAgentId() {
 // TUI mints/switches sessions on its own (operator typing in the visible TUI), and the only prior
 // marker-update path (waitForActiveSession) runs ONLY on a delivery — so a directly-used agent kept
 // resuming a stale (often GC'd) key and started a FRESH "(untitled)" session on every restart,
-// losing the operator's thread (the next-tech-lead bug, with 26 resumable sessions stranded). This
+// losing the operator's thread (the lead bug, with 26 resumable sessions stranded). This
 // periodic best-effort beat reads the gateway's most-recent live session, takes its DURABLE key
 // (rowResumeKey — session.list/active_list rows expose it), and writes it to the marker + reports it
 // to aify, so the next launch resolves the live session. Pure READ of gateway truth + marker write;

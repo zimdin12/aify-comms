@@ -110,7 +110,7 @@ export function createChatController(deps) {
     );
     // Re-render guard (2026-06-19): re-setting innerHTML on every poll recreates every .status-dot,
     // which RESTARTS the `working` pulse animation each cycle — a steady `working` dot then visibly
-    // flickers ("sc-coder changes status all the time" while it was solidly working server-side).
+    // flickers ("coder changes status all the time" while it was solidly working server-side).
     // Only touch the DOM when the rendered rail actually changed; listeners are delegated, so
     // skipping an identical rebuild loses nothing. The dots then persist and the pulse runs smooth.
     if (host.__railHtml === html) return;

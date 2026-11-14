@@ -3,7 +3,7 @@
 // THE FAILURE THIS COMPLETES. On 2026-08-26 the operator asked why sc-claude had died, and
 // `comms_console_tail` answered "(nothing was recorded)" for the agent beside it. Two stores hold a
 // terminal's output -- the accumulated `terminal_sessions.output` column and the `terminal_events`
-// rows -- and the endpoint read only the first. sc-architect's column held exactly its own
+// rows -- and the endpoint read only the first. sc-fixtureplanner's column held exactly its own
 // `[terminal exited]` marker, eighteen characters, while 14,773 characters of its last screen sat in
 // the events of the same terminal.
 //
@@ -28,7 +28,7 @@ const { commsConsoleTailHandler } = await import("../console-tools.mjs");
 /** Drives the handler against a canned endpoint response. No server, no network. */
 async function tailWith(response) {
   const result = await commsConsoleTailHandler(
-    { agentId: "sc-architect", lines: 40 },
+    { agentId: "sc-fixtureplanner", lines: 40 },
     { httpCall: async () => response },
   );
   return result.content[0].text;

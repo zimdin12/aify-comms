@@ -77,7 +77,7 @@ absence state:
 - resident, bridge heartbeat gone → `offline`.
 No agent should sit `online` because a *detached/orphaned* heartbeat keeps beating —
 liveness must be tied to the OWNER process, not a survivor loop. (Exact reap paths +
-the sc-coder case from the wrapper/orphan audit.)
+the coder case from the wrapper/orphan audit.)
 
 ## Phasing
 

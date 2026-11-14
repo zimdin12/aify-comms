@@ -19,13 +19,13 @@ Two consequences:
   150 s bridge lease + 30 min turn backstop. A real transition can take **up to ~90 s**
   to surface.
 - **Messy / fragile.** Every status bug this cycle (managed→offline, hermes
-  online-while-working, sc-manager won't-go-working, the false-failed busy run) is one
+  online-while-working, manager won't-go-working, the false-failed busy run) is one
   branch of that derived matrix being wrong. The system **cannot distinguish
   "busy working a long turn" from "dead,"** because both are inferred from the same
   smeared signals.
 
-Concrete symptom (2026-06-04): run `run_1780569850270_00f85b01` (sc-manager →
-sc-architect, hermes) was claimed, the target was **legitimately busy for 30 min**
+Concrete symptom (2026-06-04): run `run_1780569850270_00f85b01` (manager →
+architect, hermes) was claimed, the target was **legitimately busy for 30 min**
 (every reminder logged "target is busy"), then the **1800 s wall-clock ceiling**
 failed it with a **misleading** "bridge crashed / controller died / PATCH dropped"
 reason. The handoff reply was killed before the agent could answer.

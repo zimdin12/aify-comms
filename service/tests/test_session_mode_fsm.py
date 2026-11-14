@@ -180,7 +180,7 @@ class SessionModeFsmTests(FastApiTestCase):
         self.assertTrue(hb.json().get("release"), f"expected release, got {hb.json()}")
 
     # ── release MUST NOT fire for a natively-resident agent's own delivery ─────
-    # Regression (operator-reported 2026-05-31, sc-manager): a NATIVELY resident
+    # Regression (operator-reported 2026-05-31, sc-fixtureowner): a NATIVELY resident
     # claude/hermes agent's channel sidecar (claude-channel.js / hermes-channel.js)
     # IS its sole delivery path and claims with bridgeKind="channel-sidecar". The
     # Task-4.1 release fired on the blunt `session_mode != managed` condition, so

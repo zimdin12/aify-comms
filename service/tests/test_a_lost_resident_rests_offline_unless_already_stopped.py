@@ -2,7 +2,7 @@
 
 A resident closing its own CLI is not an operator stop. aify-env publishes such a resident `offline`, and comms wrote
 `stopped` with `launch_mode='none'`, the operator's stop markers, so the two disagreed for every resident that ever
-exited (sc-manager and mc-manager, 2026-10-17/18). A stop already on the row predates the loss and is someone else's:
+exited (sc-fixtureowner and mc-fixtureowner, 2026-10-17/18). A stop already on the row predates the loss and is someone else's:
 it stays.
 
 THE STORED FIELDS ARE ASSERTED. Either marker reads as a stop, so a test that watched only a served word could not

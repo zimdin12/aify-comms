@@ -3,7 +3,7 @@
 `comms_run_status` is all renderer: "reply expected" and "reply pending" are different states (nothing
 sent yet, against still owed), and events and controls show the last ten each, so an old event missing
 here is not missing from the run. Its subject is another agent's text and goes through the quoter (an
-agent once restarted itself on reading `Restart lc-coder` out of a summary, 2026-08-11).
+agent once restarted itself on reading `Restart coder` out of a summary, 2026-08-11).
 
 The interrupts act as the CALLER, from the request's header. `comms_contracts` filters by sender with
 `fromAgent`, as `comms_inbox` and `comms_files` do.

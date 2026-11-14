@@ -110,7 +110,7 @@ was added so the check would survive a consumer prefixing a run id or clipping f
 made the guard survive its own rewording, which nobody claimed at the time. Verified by running the
 real predicate over the real stored text, not by reading it.
 
-### 6. The five Lows comms-senior-dev declined to promote (§4b)
+### 6. The five Lows developer declined to promote (§4b)
 
 Verdicts carried unchanged. One is now closed rather than carried: **"a failed require-reply run can
 double-mirror"** was to be promoted *only if* the already-mirrored gate did not close it. It does —

@@ -27,8 +27,8 @@ function serve() {
     }
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
       agents: {
-        "cc-coder": { runtime: "claude-code", sessionHandle: "sess-1" },
-        "cx-coder": { runtime: "codex", sessionHandle: "sess-1" },
+        "cc-fixtureworker": { runtime: "claude-code", sessionHandle: "sess-1" },
+        "cx-fixtureworker": { runtime: "codex", sessionHandle: "sess-1" },
       },
     }));
   });
@@ -53,7 +53,7 @@ test("with the key it can resolve, the owner of the handle is printed", async ()
     const url = `http://127.0.0.1:${server.address().port}`;
     const found = await run(url, "claude-code", "sess-1", { AIFY_API_KEY: KEY });
     assert.equal(found.code, 0);
-    assert.equal(found.stdout, "cc-coder", "the runtime must narrow the match too");
+    assert.equal(found.stdout, "cc-fixtureworker", "the runtime must narrow the match too");
     // THE DEFECT: without a key the service refuses, and the answer is nothing -- never a guess.
     const refused = await run(url, "claude-code", "sess-1", {});
     assert.equal(refused.code, 0, "a refusal must never fail the launch");
@@ -82,7 +82,7 @@ test("a key that only settings.local.json names is found, as every other bridge 
         (error, stdout) => resolve({ code: error ? error.code : 0, stdout }));
     });
     assert.equal(found.code, 0);
-    assert.equal(found.stdout, "cc-coder");
+    assert.equal(found.stdout, "cc-fixtureworker");
   } finally {
     server.close();
     rmSync(home, { recursive: true, force: true });
@@ -122,12 +122,12 @@ test("agentForHandle matches the handle AND the runtime, and sends the key it wa
   const fetchImpl = async (url, init) => {
     seen.push({ url, key: init.headers["X-API-Key"] });
     return { ok: true, json: async () => ({ agents: {
-      "cx-coder": { runtime: "codex", sessionHandle: "t-1" },
-      "cc-coder": { runtime: "claude-code", session_handle: "t-1" },
+      "cx-fixtureworker": { runtime: "codex", sessionHandle: "t-1" },
+      "cc-fixtureworker": { runtime: "claude-code", session_handle: "t-1" },
     } }) };
   };
   const found = await agentForHandle({ url: "http://svc/", runtime: "claude-code", handle: "t-1", fetchImpl, keyFor: () => "k" });
-  assert.equal(found, "cc-coder");
+  assert.equal(found, "cc-fixtureworker");
   assert.deepEqual(seen, [{ url: "http://svc/api/v1/agents", key: "k" }]);
   assert.equal(await agentForHandle({ url: "http://svc", runtime: "hermes", handle: "t-1", fetchImpl, keyFor: () => "" }), "");
 });

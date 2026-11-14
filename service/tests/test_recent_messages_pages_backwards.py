@@ -5,7 +5,7 @@ feels like upper messages get deleted. why is that. manager sent me lots of mess
 see them?" Nothing was deleted. The dashboard fetches ONE global window -- the newest 80 rows across
 every conversation -- and filters it per conversation for display, so a busy fleet pushes a single
 peer's older messages out of a window they were never individually allotted. Measured on the live
-database that day: 137 recent messages from `sc-manager`, of which 43 fell inside the newest 80.
+database that day: 137 recent messages from `sc-fixtureowner`, of which 43 fell inside the newest 80.
 
 The endpoint had no cursor at all, so the other 94 could not be requested by any caller. This gate
 covers the parameter that makes them reachable, and the two properties that make it safe.

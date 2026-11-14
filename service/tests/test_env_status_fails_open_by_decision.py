@@ -7,7 +7,7 @@ as reachable. Two branches do it, and both are in `service/env_status.py`:
   2. `except Exception: pass` around the `last_seen` parse — an unparsable timestamp leaves the
      status un-aged, so a dead `online` environment stays `online` forever.
 
-THE RULING (comms-senior-dev, 2026-08-18, verbatim): "confirm leave fail-open for this release, with
+THE RULING (comms-fixturedeveloper, 2026-08-18, verbatim): "confirm leave fail-open for this release, with
 a pinned latent-risk note... Fail-closed would turn classifier/data-corruption gaps into fleet-wide
 dispatch refusal. Without a reachable corrupt-row path or observed bad row, trying work and letting
 claim/reaper paths expose failure is the less dangerous default. Fix only with a real carrier
@@ -61,7 +61,7 @@ class EnvStatusFailsOpenByDecision(unittest.TestCase):
             with self.subTest(stored=repr(empty)):
                 self.assertEqual(
                     environment_effective_status(_row(empty, _iso(0))), "online",
-                    "the empty-status default changed. comms-senior-dev ruled 2026-08-18 to LEAVE "
+                    "the empty-status default changed. comms-fixturedeveloper ruled 2026-08-18 to LEAVE "
                     "this fail-open: 'do not silently flip legacy environments offline'. Flipping it "
                     "turns a data gap into fleet-wide dispatch refusal. If you have a real carrier "
                     "specimen, that is the bar the ruling set — say so and cite it.",

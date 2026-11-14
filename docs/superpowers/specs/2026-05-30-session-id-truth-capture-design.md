@@ -1,14 +1,14 @@
 # Session-ID Truth: in-session capture (claude + hermes)
 
 **Date:** 2026-05-30
-**Owner:** comms-tech-lead (Steven greenlit; claude first, then hermes)
+**Owner:** lead (Steven greenlit; claude first, then hermes)
 **Fixes:** #138 (claude managed session-handle cross-contamination), #135 (hermes shared visible-session collision)
 
 ## Problem (root cause, verified)
 
 Managed agents do not *capture* their own session id — they **guess** it from machine-global state:
-- **claude** `adapters/claude.js discoverSessionId()` returns the freshest `.jsonl` across ALL `~/.claude/projects/*` by mtime. Whatever claude session is most active on the box wins, so every managed claude bridge stamps it. Observed: sc-claude/sc-manager/graph-tech-lead all got the operator's `comms-tech-lead` id `651b895f`; when sc-manager became the active resident in sand_castle, sc-claude adopted *its* session and "thought it was sc-manager."
-- **hermes** discovery falls back to the gateway's single "most-recent" visible session, so multiple managed hermes agents converge on one id (sc-architect + sc-tester → `20260527_225730_b55c62` at bind-retry).
+- **claude** `adapters/claude.js discoverSessionId()` returns the freshest `.jsonl` across ALL `~/.claude/projects/*` by mtime. Whatever claude session is most active on the box wins, so every managed claude bridge stamps it. Observed: sc-claude/manager/lead all got the operator's `lead` id `651b895f`; when manager became the active resident in sand_castle, sc-claude adopted *its* session and "thought it was manager."
+- **hermes** discovery falls back to the gateway's single "most-recent" visible session, so multiple managed hermes agents converge on one id (architect + tester → `20260527_225730_b55c62` at bind-retry).
 
 **Why tweaking discovery cannot work:** the operator runs a whole team in ONE directory. Two fresh same-folder claude sessions produce two transcripts in the same project dir with no filesystem signal mapping transcript→bridge. cwd-scoping and "freshest" are both fundamentally insufficient. The id must come from INSIDE each session.
 
@@ -38,4 +38,4 @@ Analogous: the managed hermes worker must bind to the agent's OWN visible sessio
 
 ## Rollout
 
-Reinstall claude (+hermes) and **restart every `*-aify` agent** to load the hook. Live-verify: with sc-manager + sc-claude both resident in sand_castle, each reports its OWN id (no `651b895f` bleed, no shared hermes id). PID-mapping verified empirically before relying on it.
+Reinstall claude (+hermes) and **restart every `*-aify` agent** to load the hook. Live-verify: with manager + sc-claude both resident in sand_castle, each reports its OWN id (no `651b895f` bleed, no shared hermes id). PID-mapping verified empirically before relying on it.

@@ -27,7 +27,7 @@ General coordination pattern:
 ```
 Register as an aify-comms agent:
 - agentId: "manager"
-- role: "project-manager"
+- role: "manager"
 - description: "Project manager for <this project>. Owns routing, prioritization, unblocking. Ping me for work assignment or status questions."
 - instructions: "I coordinate the development team. I assign tasks, track progress, and ensure the project stays on schedule."
 
@@ -63,7 +63,7 @@ Familiarize yourself with the codebase — explore the project structure, recent
 ```
 Register as an aify-comms agent:
 - agentId: "tester"
-- role: "qa-tester"
+- role: "tester"
 - description: "QA tester on <this project>. Replace with your current focus — e.g. 'regression suite, integration tests, reproducing bugs from prod'."
 - instructions: "I test features, write and run tests, report bugs, and verify fixes."
 
@@ -81,7 +81,7 @@ Familiarize yourself with the test infrastructure and try building the project t
 ```
 Register as an aify-comms agent:
 - agentId: "architect"
-- role: "software-architect"
+- role: "architect"
 - description: "Architect on <this project>. Replace with your current focus — e.g. 'service boundaries, data model, auth/permissions'."
 - instructions: "I design the technical architecture, review code for structural quality, and guard architectural decisions."
 
@@ -99,7 +99,7 @@ Review architecture docs, tech decisions, and recent git history. Check the dev 
 ```
 Register as an aify-comms agent:
 - agentId: "reviewer"
-- role: "code-reviewer"
+- role: "reviewer"
 - description: "Code reviewer on <this project>. Replace with your current focus — e.g. 'security-sensitive paths, migrations, concurrency'."
 - instructions: "I review changes for bugs, regressions, risky assumptions, and missing tests."
 

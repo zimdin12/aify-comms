@@ -29,9 +29,9 @@ function mkTmp() {
 test("loopReadyFile: lives under the given dir with the sanitized agent name", () => {
   const dir = mkTmp();
   try {
-    const f = loopReadyFile("sc coder!", dir);
+    const f = loopReadyFile("sc fixtureworker!", dir);
     assert.equal(path.dirname(f), dir);
-    assert.equal(path.basename(f), "aify-hermes-loop-ready-sc-coder");
+    assert.equal(path.basename(f), "aify-hermes-loop-ready-sc-fixtureworker");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -40,9 +40,9 @@ test("loopReadyFile: lives under the given dir with the sanitized agent name", (
 test("writeLoopReady creates aify-hermes-loop-ready-<agent>", () => {
   const dir = mkTmp();
   try {
-    const ok = writeLoopReady("sc-coder", dir);
+    const ok = writeLoopReady("sc-fixtureworker", dir);
     assert.equal(ok, true);
-    const f = path.join(dir, "aify-hermes-loop-ready-sc-coder");
+    const f = path.join(dir, "aify-hermes-loop-ready-sc-fixtureworker");
     assert.ok(fs.existsSync(f), "marker file must exist after writeLoopReady");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -52,14 +52,14 @@ test("writeLoopReady creates aify-hermes-loop-ready-<agent>", () => {
 test("writeLoopReady refreshes the mtime on a re-write (claim keeps it live)", () => {
   const dir = mkTmp();
   try {
-    writeLoopReady("sc-coder", dir);
-    const f = path.join(dir, "aify-hermes-loop-ready-sc-coder");
+    writeLoopReady("sc-fixtureworker", dir);
+    const f = path.join(dir, "aify-hermes-loop-ready-sc-fixtureworker");
     const old = new Date(Date.now() - 5 * 60_000);
     fs.utimesSync(f, old, old);
     const ageMs = () => Date.now() - fs.statSync(f).mtimeMs;
     assert.ok(ageMs() > 60_000, "control: the marker was backdated");
     // Re-write refreshes mtime -> fresh again.
-    writeLoopReady("sc-coder", dir);
+    writeLoopReady("sc-fixtureworker", dir);
     assert.ok(ageMs() < 60_000, "re-write refreshes the marker's mtime");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -69,13 +69,13 @@ test("writeLoopReady refreshes the mtime on a re-write (claim keeps it live)", (
 test("clearLoopReady removes the marker (idempotent)", () => {
   const dir = mkTmp();
   try {
-    writeLoopReady("sc-coder", dir);
-    const f = path.join(dir, "aify-hermes-loop-ready-sc-coder");
+    writeLoopReady("sc-fixtureworker", dir);
+    const f = path.join(dir, "aify-hermes-loop-ready-sc-fixtureworker");
     assert.ok(fs.existsSync(f));
-    assert.equal(clearLoopReady("sc-coder", dir), true);
+    assert.equal(clearLoopReady("sc-fixtureworker", dir), true);
     assert.ok(!fs.existsSync(f), "marker removed");
     // Idempotent: clearing again does not throw.
-    assert.doesNotThrow(() => clearLoopReady("sc-coder", dir));
+    assert.doesNotThrow(() => clearLoopReady("sc-fixtureworker", dir));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

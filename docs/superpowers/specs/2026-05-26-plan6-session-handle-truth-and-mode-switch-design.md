@@ -149,7 +149,7 @@ Today the wrapper auto-detects via `[ -t 0 ]`. Operator wants explicit control.
 
 **Section D — Holistic + finish:**
 - D1. Full python + js test suites.
-- D2. Code-reviewer subagent over Plan 6 diff.
+- D2. Reviewer subagent over Plan 6 diff.
 - D3. DECISIONS.md entries.
 - D4. `aify-comms-debug` skill recipes for stale-handle detection.
 - D5. `finishing-a-development-branch`.

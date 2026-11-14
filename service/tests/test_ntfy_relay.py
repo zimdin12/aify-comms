@@ -93,7 +93,7 @@ class CoalesceTests(unittest.TestCase):
     def setUp(self):
         self.clock = Clock()
         self.relay = ntfy.NtfyRelay(URL, now=self.clock)
-        self.msg = {"from": "sc-manager", "to": ["dashboard"], "subject": "gate 3"}
+        self.msg = {"from": "sc-fixtureowner", "to": ["dashboard"], "subject": "gate 3"}
 
     def test_a_burst_collapses_to_one_queued_alert(self):
         self.assertEqual(self.relay.enqueue("message_sent", self.msg), "queued")
@@ -135,7 +135,7 @@ class CoalesceTests(unittest.TestCase):
 
     def test_fleet_chatter_is_not_queued(self):
         self.assertEqual(
-            self.relay.enqueue("message_sent", {"from": "a", "to": ["sc-coder"], "subject": "x"}),
+            self.relay.enqueue("message_sent", {"from": "a", "to": ["sc-fixtureworker"], "subject": "x"}),
             "not-for-operator",
         )
         self.assertEqual(self.relay.health()["queueDepth"], 0)
@@ -166,11 +166,11 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
 
         relay._post = fake_post
         relay.start()
-        relay.enqueue("message_sent", {"from": "sc-manager", "to": ["dashboard"], "subject": "hi"})
+        relay.enqueue("message_sent", {"from": "sc-fixtureowner", "to": ["dashboard"], "subject": "hi"})
         await asyncio.wait_for(relay._queue.join(), timeout=2)
         await relay.stop()
         self.assertEqual(len(posted), 1)
-        self.assertEqual(posted[0]["title"], "sc-manager → you")
+        self.assertEqual(posted[0]["title"], "sc-fixtureowner → you")
         self.assertEqual(relay.health()["sent"], 1)
         self.assertIsNotNone(relay.health()["lastSuccessAt"])
 
@@ -306,13 +306,13 @@ class RealHttpTests(unittest.IsolatedAsyncioTestCase):
             relay.start()
             relay.enqueue(
                 "message_sent",
-                {"from": "sc-manager", "to": ["dashboard"], "subject": "gate 3 is red"},
+                {"from": "sc-fixtureowner", "to": ["dashboard"], "subject": "gate 3 is red"},
             )
             await aio.wait_for(relay._queue.join(), timeout=5)
             await relay.stop()
 
         self.assertIn("POST /aify-test", received.get("headers", ""))
-        self.assertIn("Title: sc-manager -> you", received.get("headers", ""),
+        self.assertIn("Title: sc-fixtureowner -> you", received.get("headers", ""),
                       "the title is an HTTP header: it must be encodable, and readable")
         self.assertIn("gate 3 is red", received.get("body", ""))
         self.assertEqual(relay.health()["sent"], 1)
@@ -336,11 +336,11 @@ class RealHttpTests(unittest.IsolatedAsyncioTestCase):
 # ── header safety, which only a real socket revealed ─────────────────────────────────
 class HeaderSafetyTests(unittest.TestCase):
     """Every stubbed test passed while the real POST raised UnicodeEncodeError on our OWN default
-    title — `build_alert` renders "sc-manager → you" and U+2192 is not latin-1. The first live
+    title — `build_alert` renders "sc-fixtureowner → you" and U+2192 is not latin-1. The first live
     message would have been counted as a send failure and dropped without a retry."""
 
     def test_the_default_title_is_encodable(self):
-        title, _ = ntfy.build_alert("message_sent", {"from": "sc-manager", "subject": "hi"})
+        title, _ = ntfy.build_alert("message_sent", {"from": "sc-fixtureowner", "subject": "hi"})
         ntfy.header_safe(title).encode("latin-1")  # must not raise
 
     def test_a_non_ascii_agent_name_cannot_break_the_post(self):

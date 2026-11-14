@@ -7,7 +7,7 @@
 //
 // STATUS=ALL, NOT `live`, and that is the whole point of the panel. A row that reads `stopped` while
 // still holding a pid is precisely the orphan the operator went looking for -- aify-env owned a live
-// PTY for `ef-manager` (pid 155844) while every recent session read `stopped` and the dashboard
+// PTY for `manager` (pid 155844) while every recent session read `stopped` and the dashboard
 // showed nothing. Filtering to live would hide the case this exists to surface.
 //
 // THE PID IS THE JOIN KEY, which is why it gets a column rather than a tooltip. `/terminals`'s own
@@ -71,7 +71,7 @@ const ENDED = new Set(['stopped', 'failed']);
  * question; this is the same question one layer out.
  *
  * THE ERROR TEXT WINS over the numbers when both are present, because it is the half a person can
- * act on: "this host is already running a worker for sc-coder" tells them what happened, and
+ * act on: "this host is already running a worker for coder" tells them what happened, and
  * `exit 1` beside it adds nothing.
  *
  * AN ENDED ROW WITH NO REASON SAYS SO, rather than rendering blank. Three of the 36 had none, and a

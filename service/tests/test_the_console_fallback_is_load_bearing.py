@@ -1,7 +1,7 @@
 """Every managed console on this fleet resolves through the FALLBACK, and nothing tested it.
 
 MEASURED 2026-09-03 on the operator's service: **4 of 4** managed agents with a live terminal have a
-NULL `runtime_state.consoleTerminal` pointer -- sc-lead, sc-tester, sc-critic, sc-coder. So
+NULL `runtime_state.consoleTerminal` pointer -- sc-fixturechief, sc-fixtureprobe, sc-fixtureobserver, sc-fixtureworker. So
 `comms_console_tail`, `comms_console_input` and every read of "which console belongs to this agent"
 go through `_resolve_live_console_terminal`'s fallback branch, on every call, for every agent.
 
@@ -11,7 +11,7 @@ precisely so the MCP tools agree with the dashboard, which resolves via the live
 was missing is a test: `grep` for the function name across `service/tests` returned ZERO before this
 file. The single most-used resolution path in the console surface was held up by nobody.
 
-WHY IT IS WRITTEN NOW. sc-manager reported a console tail showing a line their worker never
+WHY IT IS WRITTEN NOW. sc-fixtureowner reported a console tail showing a line their worker never
 received, and I answered -- from a reading of this function -- that it is agent-scoped, live-only,
 and therefore cannot return another agent's terminal or a replaced one. That answer was right, and
 certifying my own claim by reading the code is the wrong way round. These are the assertions that
@@ -35,8 +35,8 @@ from service.db import get_db
 from service.tests._base import FastApiTestCase
 
 ENV = "windows:console-fallback:default"
-AGENT = "sc-coder"
-OTHER = "sc-lead"
+AGENT = "sc-fixtureworker"
+OTHER = "sc-fixturechief"
 
 
 class TheConsoleFallbackIsLoadBearingTests(FastApiTestCase):
@@ -141,7 +141,7 @@ class TheConsoleFallbackIsLoadBearingTests(FastApiTestCase):
         self.assertEqual(self._resolve()["id"], "term-live")
 
     def test_IT_CANNOT_RETURN_ANOTHER_AGENTS_TERMINAL(self):
-        """THE CLAIM I MADE TO sc-manager, asserted rather than read. They saw a console line their
+        """THE CLAIM I MADE TO sc-fixtureowner, asserted rather than read. They saw a console line their
         worker never received and asked whether the tail could have been attached to something else.
         The answer was no, because both the pointer lookup and the fallback carry `agent_id = ?` --
         and that answer should rest on this, not on my reading of the query."""

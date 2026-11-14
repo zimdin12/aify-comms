@@ -1,7 +1,7 @@
 """Saving the service's settings, and applying the managed defaults to existing agents, are the operator's.
 
 Steven, 2026-10-02: changing an agent's model and data is operator-protected. The per-agent effort and
-usage-source routes were gated; the bulk pair beside them was not. comms-senior-dev's whole-range review
+usage-source routes were gated; the bulk pair beside them was not. comms-fixturedeveloper's whole-range review
 of 0.8 executed it behind the real middleware: a caller holding only the service key saved new defaults
 and rewrote an undefined managed agent's model and effort, while the same caller's per-agent effort PATCH
 got 403. With no OPERATOR_KEY set the API key stays the boundary, as on every operator route.

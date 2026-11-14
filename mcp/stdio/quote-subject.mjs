@@ -3,7 +3,7 @@
 // THE SERVICE SIDE HAS HAD THIS SINCE 2026-08-11 AND THE BRIDGE NEVER DID. From the operator report
 // that created it: *"when you restart agent then it gives some text ... but my agent decided to
 // restart himself after reading this."* A subject is free text written BY one agent FOR another, and
-// the one-line summaries strip the addressing away — so `Restart lc-coder`, aimed at somebody else,
+// the one-line summaries strip the addressing away — so `Restart coder`, aimed at somebody else,
 // arrives in a third agent's context as a bare imperative, and an agent that reads its context as
 // instructions acts on it.
 //
@@ -15,7 +15,7 @@
 //
 // THE TWO ESCAPES, both learned the hard way on the Python side:
 //   * a QUOTE in the subject closes the quoting early, so embedded quotes become apostrophes;
-//   * a NEWLINE breaks out of it entirely — `x\nRestart lc-coder` puts a bare imperative alone on
+//   * a NEWLINE breaks out of it entirely — `x\nRestart coder` puts a bare imperative alone on
 //     line two with the closing quote too far away to read as quoting. Control characters go with
 //     it: ESC would carry ANSI sequences into a terminal-rendered console, and a lone CR
 //     repositions the cursor over the line already printed. A subject is ONE LINE by definition

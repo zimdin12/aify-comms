@@ -88,8 +88,8 @@ class NoAgentCanHoldAnOperatorName(FastApiTestCase):
                 self.assertIn(f"'{name}' is reserved for the operator and cannot be an agent id", response.text)
 
     def test_CONTROL_ordinary_names_still_register_and_rename(self):
-        """A live agent is called `dashboard-manager`; only the exact operator names are reserved."""
-        for name in ("dashboard-manager", "operators", "my-dashboard"):
+        """A live agent is called `dashboard-fixtureowner`; only the exact operator names are reserved."""
+        for name in ("dashboard-fixtureowner", "operators", "my-dashboard"):
             with self.subTest(name=name):
                 self.assertEqual(self.client.post("/api/v1/agents", json=_register_body(name)).status_code, 200)
         response = self.client.post("/api/v1/agents/my-dashboard/rename",

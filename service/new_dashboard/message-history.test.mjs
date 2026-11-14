@@ -12,7 +12,7 @@ import test from "node:test";
 
 import { MessageHistory, anchoredScrollTop, mergeById, oldestTimestamp } from "./message-history.mjs";
 
-const msg = (id, ts, extra = {}) => ({ id, timestamp: ts, from: "sc-manager", to: "dashboard", ...extra });
+const msg = (id, ts, extra = {}) => ({ id, timestamp: ts, from: "sc-fixtureowner", to: "dashboard", ...extra });
 
 /** A server holding `total` messages, answering exactly as `/messages/recent` does. */
 function server(total, limit = 10) {

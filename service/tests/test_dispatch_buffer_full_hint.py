@@ -33,13 +33,13 @@ def hint(row=None, **over):
         "has_active_run": True,
     }
     kwargs.update(over)
-    return _dispatch_buffer_full_hint("sc-coder", row, **kwargs)
+    return _dispatch_buffer_full_hint("sc-fixtureworker", row, **kwargs)
 
 
 # ── the payload the sender receives ──────────────────────────────────────────────────────────
 def test_the_hint_identifies_the_target_the_sender_and_the_reason():
     out = hint(Row({"runtime": "claude-code", "session_mode": "managed"}))
-    assert out["targetAgentId"] == "sc-coder"
+    assert out["targetAgentId"] == "sc-fixtureworker"
     assert out["fromAgent"] == "manager-bot"
     assert out["reason"] == "buffer_full", "callers branch on this string"
 
@@ -121,7 +121,7 @@ def test_no_row_at_all_still_produces_a_complete_hint():
     assert out["reason"] == "buffer_full"
     assert out["runtime"] == "generic"
     assert out["sessionMode"] == "resident"
-    assert out["targetAgentId"] == "sc-coder"
+    assert out["targetAgentId"] == "sc-fixtureworker"
     assert "comms_run_interrupt" in out["fix"]
 
 

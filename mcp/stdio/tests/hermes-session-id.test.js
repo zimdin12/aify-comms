@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { pinnedSessionId } from "../hermes-session-id.js";
 
 test("pinnedSessionId is deterministic for the same agentId", () => {
-  assert.equal(pinnedSessionId("sc-coder"), pinnedSessionId("sc-coder"));
+  assert.equal(pinnedSessionId("sc-fixtureworker"), pinnedSessionId("sc-fixtureworker"));
 });
 
 test("pinnedSessionId prefixes aify- and preserves safe characters", () => {

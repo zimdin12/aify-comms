@@ -131,7 +131,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             # `terminal_events` holds the same bytes as rows. Usually the column is the fuller of the
             # two, which is why it is read first and the events are not fetched at all on that path.
             #
-            # On 2026-08-26 sc-architect died mid-turn with `output` holding exactly its own exit
+            # On 2026-08-26 architect died mid-turn with `output` holding exactly its own exit
             # marker -- eighteen characters, non-empty, so the `.strip()` gate below said yes and the
             # tail rendered a line saying only THAT it ended. The operator asked why the agent died
             # and this endpoint said nothing was recorded, while 14,773 characters describing the
@@ -334,7 +334,7 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
             await ws.broadcast("terminal_control_requested", {"terminalId": terminal["id"], "action": "input"})
         # HONESTY (C8, 2026-07-26). `ok` here means the control was QUEUED — nothing more. It was
         # being read as "the input landed and the runtime acted on it", and that is not a claim this
-        # endpoint can make: an operator's sc-manager issued two text writes and three bare-Enter
+        # endpoint can make: an operator's manager issued two text writes and three bare-Enter
         # retries against a stuck managed-claude draft, ALL of which reached status='completed' with
         # handled_at set, while the draft never submitted. A completed control proves only that the
         # bridge wrote the bytes to the PTY; whether the TUI consumed them as a keypress is

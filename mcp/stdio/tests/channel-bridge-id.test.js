@@ -10,10 +10,10 @@ import { channelBridgeId } from "../claude-channel.js";
 
 test("channelBridgeId is agent-scoped (includes the agentId)", () => {
   const a = channelBridgeId("sc-claude");
-  const b = channelBridgeId("sc-manager");
+  const b = channelBridgeId("sc-fixtureowner");
   assert.notEqual(a, b, "different agents MUST get different bridge ids");
   assert.ok(a.includes("sc-claude"), `bridge id must contain the agentId; got ${a}`);
-  assert.ok(b.includes("sc-manager"), `bridge id must contain the agentId; got ${b}`);
+  assert.ok(b.includes("sc-fixtureowner"), `bridge id must contain the agentId; got ${b}`);
 });
 
 test("channelBridgeId is stable for the same agent (idempotent across polls)", () => {

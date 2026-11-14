@@ -62,7 +62,7 @@ test("computeInitialSessionHandle trims whitespace from discover result", async 
   assert.equal(result, "fresh-id");
 });
 
-// A `claude` an agent runs from its own shell (sc-manager, 2026-09-26). It inherits the agent's session, and
+// A `claude` an agent runs from its own shell (sc-fixtureowner, 2026-09-26). It inherits the agent's session, and
 // the capture store keyed by the agent's id still names the parent's session, so discovery answers the
 // PARENT's handle; a registration with it took the live agent over. Claude Code sets CLAUDE_PID in its
 // shells and CLAUDE_CODE_SESSION_ID in its MCP servers, so only such a bridge sees both.

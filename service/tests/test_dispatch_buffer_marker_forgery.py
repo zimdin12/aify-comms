@@ -58,7 +58,7 @@ def run(**over):
     return Row(base)
 
 
-def append(existing, *, body="second body", subject="second subject", from_agent="sc-coder"):
+def append(existing, *, body="second body", subject="second subject", from_agent="sc-fixtureworker"):
     return _append_pending_dispatch_body(
         existing,
         from_agent=from_agent,

@@ -166,7 +166,7 @@ class LifecyclePhase7Tests(FastApiTestCase):
     # first ONLINE environment that advertises the runtime, bind to it, and
     # queue a spawn_request. Without this, sending to an `available` managed
     # codex/hermes/pi agent that was only registered (never run) is rejected
-    # with "cannot start live work now" — the operator-reported sc-coder bug.
+    # with "cannot start live work now" — the operator-reported sc-fixtureworker bug.
     def test_coldstart_autobinds_first_online_env_when_no_prior_session(self):
         self._heartbeat_environment()  # advertises codex, online
         self._register("fresh", runtime="codex", sessionMode="managed")

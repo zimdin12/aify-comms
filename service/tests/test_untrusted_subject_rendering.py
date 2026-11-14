@@ -7,7 +7,7 @@ THE MECHANISM, and nothing about the routing was wrong. A subject is free text w
 FOR another. The pending-dispatch summaries echo it with the addressing stripped away, so a request
 aimed at somebody else —
 
-    Restart lc-coder
+    Restart lc-fixtureworker
     Please comms_restart me onto v0.6.1
 
 — arrives in a THIRD agent's context as a bare imperative line. An agent that reads its context as
@@ -74,7 +74,7 @@ from service.api_core.serialization import _quote_untrusted_subject
 
 # Subjects taken from the live DB: every one of these is a real message an agent sent.
 REAL_IMPERATIVE_SUBJECTS = [
-    "Restart lc-coder",
+    "Restart lc-fixtureworker",
     "Please comms_restart me onto v0.6.1",
     "Stop stale #113 review",
     "compact session and continue as menus still do not have",
@@ -111,22 +111,22 @@ class QuotingTests(unittest.TestCase):
 class RenderSiteTests(unittest.TestCase):
     def test_the_pending_item_renderer_quotes_the_subject(self):
         out = _render_pending_dispatch_item(
-            1, from_agent="graph-tech-lead", message_type="info",
-            subject="Restart lc-coder", body="context", priority="normal",
+            1, from_agent="graph-fixtureguide", message_type="info",
+            subject="Restart lc-fixtureworker", body="context", priority="normal",
             message_id="m1",
         )
-        self.assertIn('Subject: "Restart lc-coder"', out)
-        self.assertNotIn("Subject: Restart lc-coder", out)
+        self.assertIn('Subject: "Restart lc-fixtureworker"', out)
+        self.assertNotIn("Subject: Restart lc-fixtureworker", out)
 
     def test_the_merged_summary_quotes_the_latest_subject(self):
-        """The exact line the operator saw: `Pending updates (2); latest: Restart lc-coder`."""
-        out = _build_pending_dispatch_subject(2, "Restart lc-coder")
-        self.assertEqual(out, 'Pending updates (2); latest: "Restart lc-coder"')
+        """The exact line the operator saw: `Pending updates (2); latest: Restart lc-fixtureworker`."""
+        out = _build_pending_dispatch_subject(2, "Restart lc-fixtureworker")
+        self.assertEqual(out, 'Pending updates (2); latest: "Restart lc-fixtureworker"')
 
     def test_a_single_pending_item_is_quoted_too(self):
         # count<=1 takes a different branch, and it is the MORE common one — an unquoted imperative
         # there would be the whole bug with a smaller pile-up.
-        self.assertEqual(_build_pending_dispatch_subject(1, "Restart lc-coder"), '"Restart lc-coder"')
+        self.assertEqual(_build_pending_dispatch_subject(1, "Restart lc-fixtureworker"), '"Restart lc-fixtureworker"')
 
     def test_the_body_preview_is_still_readable(self):
         """Quoting the subject must not damage the rest — an operator still has to read these."""

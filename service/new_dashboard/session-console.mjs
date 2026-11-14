@@ -187,7 +187,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
   // button otherwise — the truly-fresh path is the Reset (recreate) lifecycle action.
   // `!hermesGatewayHttp` was in this gate, so a hermes agent could NEVER be offered a console —
   // it got an iframe of the hermes web page instead. Hermes gets a real PTY console like any
-  // other runtime (cms-tech-lead came up with 19KB of PTY output), so it may be started here too.
+  // other runtime (lead came up with 19KB of PTY output), so it may be started here too.
   const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !isResident && !codexAttachable;
   // Runtime-agnostic: with no saved native handle there's nothing to resume, so starting IS a
   // fresh start (and sending freshContext lets handle-required runtimes start without a 409).

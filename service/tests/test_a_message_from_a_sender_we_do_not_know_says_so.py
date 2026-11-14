@@ -114,10 +114,10 @@ class AnExternalSenderCanSayWhereItIs(FastApiTestCase):
         self._register(HOME)
 
     def test_an_external_sender_needs_no_row_here_and_its_origin_survives(self) -> None:
-        self._send(STRANGER, "from the other pc", origin="192.168.1.50:8800, manager mp-manager")
+        self._send(STRANGER, "from the other pc", origin="192.168.1.50:8800, manager mp-fixtureowner")
         [message] = [m for m in self._inbox() if m["subject"] == "from the other pc"]
         self.assertIs(message["fromRegistered"], False, "it must NOT have been registered by sending")
-        self.assertEqual(message["origin"], "192.168.1.50:8800, manager mp-manager")
+        self.assertEqual(message["origin"], "192.168.1.50:8800, manager mp-fixtureowner")
 
     def test_sending_does_not_create_an_agent_row(self) -> None:
         """The anomaly that started this: a second PC's agent appearing in the roster.
@@ -144,7 +144,7 @@ class AnExternalSenderCanSayWhereItIs(FastApiTestCase):
         self.assertFalse(message["origin"].startswith(" "))
 
 
-ORIGIN = "192.168.1.50:8800, manager mp-manager"
+ORIGIN = "192.168.1.50:8800, manager mp-fixtureowner"
 
 
 class EveryReaderSeesWhereAnExternalMessageCameFrom(FastApiTestCase):

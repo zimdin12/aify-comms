@@ -185,7 +185,7 @@ product, one command, subcommands underneath. `aify-env herdr` sits beside `tui`
 ## Stages
 
 **Stage 0 — PROBE. Half a day. Nothing else is worth planning until this answers.**
-*Partly de-risked already: the operator ran `aify-env attach sc-coder` against the live fleet on
+*Partly de-risked already: the operator ran `aify-env attach coder` against the live fleet on
 2026-09-07 and it worked. That proves the client and one PTY layer. herdr is NOT installed on this
 host, so the second layer is still unproven and Stage 0 still gates everything.*
 A throwaway Node script in the scratchpad: find the socket, connect, `ping`, `pane.list`, then open

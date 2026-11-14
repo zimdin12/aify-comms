@@ -86,7 +86,7 @@ export function supportedExecutionModes(info = {}, options = {}) {
 // reply. So: hermes wrapper children must NOT claim channel/resident.
 //
 // It is ALSO NOT correct for managed CLAUDE (operator-reported 2026-05-31,
-// run_1780205398406 sc-manager→sc-claude FAILED): claude's channel/resident
+// run_1780205398406 manager→sc-claude FAILED): claude's channel/resident
 // delivery is owned by the `claude-channel.js` CHANNEL-SIDECAR (loaded via
 // --dangerously-load-development-channels, claims as bridgeKind="channel-sidecar"
 // and delivers via MCP notification). Claude's `aify-comms` MCP — running in the

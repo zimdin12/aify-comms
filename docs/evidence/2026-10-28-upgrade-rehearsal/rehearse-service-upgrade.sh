@@ -30,13 +30,13 @@ wait_up || { docker logs aify-rehearse-old 2>&1 | tail -30; exit 1; }
 curl -s "$URL/version"; echo
 
 say "seed through the v0.5.7 API"
-for a in old-lead old-coder old-hermes; do
+for a in old-fixturechief old-fixtureworker old-hermes; do
   curl -s -o /dev/null -w "register $a %{http_code}\n" "${H[@]}" -X POST "$URL/api/v1/agents" -d "{\"agentId\":\"$a\",\"role\":\"coder\",\"name\":\"$a\",\"description\":\"seeded by the upgrade rehearsal\"}"
 done
 for i in 1 2 3; do
-  curl -s -o /dev/null -w "send $i %{http_code}\n" "${H[@]}" -X POST "$URL/api/v1/messages/send" -d "{\"from_agent\":\"old-lead\",\"to\":\"old-coder\",\"type\":\"info\",\"subject\":\"seed $i\",\"body\":\"body $i\"}"
+  curl -s -o /dev/null -w "send $i %{http_code}\n" "${H[@]}" -X POST "$URL/api/v1/messages/send" -d "{\"from_agent\":\"old-fixturechief\",\"to\":\"old-fixtureworker\",\"type\":\"info\",\"subject\":\"seed $i\",\"body\":\"body $i\"}"
 done
-curl -s -o /dev/null -w "channel %{http_code}\n" "${H[@]}" -X POST "$URL/api/v1/channels" -d '{"name":"rehearse","description":"seed","createdBy":"old-lead"}'
+curl -s -o /dev/null -w "channel %{http_code}\n" "${H[@]}" -X POST "$URL/api/v1/channels" -d '{"name":"rehearse","description":"seed","createdBy":"old-fixturechief"}'
 echo -n "CONTROL on v0.5.7: "; curl -s "${H[@]}" "$URL/api/v1/agents" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const m=j.agents||j;const ids=Array.isArray(m)?m.map(x=>x.id||x.agentId):Object.keys(m);console.log("seeded agents seen:",ids.filter(i=>String(i).startsWith("old-")).join(",")||"NONE","(of",ids.length,"total)")})'
 curl -s "${H[@]}" "$URL/api/v1/channels" | head -c 200; echo
 docker exec aify-rehearse-old python -c "
@@ -53,7 +53,7 @@ curl -s "$URL/version"; echo
 
 say "read back on today's service"
 curl -s "${H[@]}" "$URL/api/v1/agents" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const m=j.agents||j;const ids=Array.isArray(m)?m.map(x=>x.id||x.agentId):Object.keys(m);console.log("seeded agents seen:",ids.filter(i=>String(i).startsWith("old-")).join(",")||"NONE","(of",ids.length,"total)")})'
-curl -s "${H[@]}" "$URL/api/v1/messages/inbox/old-coder?filter=all&limit=10" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const m=j.messages||j;console.log("old-coder messages:",m.length,m.map(x=>x.subject).join(","))}catch{console.log("inbox read:",s.slice(0,200))}})'
+curl -s "${H[@]}" "$URL/api/v1/messages/inbox/old-fixtureworker?filter=all&limit=10" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const m=j.messages||j;console.log("old-fixtureworker messages:",m.length,m.map(x=>x.subject).join(","))}catch{console.log("inbox read:",s.slice(0,200))}})'
 curl -s "${H[@]}" "$URL/api/v1/channels" | head -c 300; echo
 say "errors in today's service log"
 docker logs aify-rehearse-new 2>&1 | grep -iE "error|traceback|migrat" | head -20

@@ -79,7 +79,7 @@ So, in this order:
 4. Only then does SW5 deploy, and only with the one-go-live gates still met: every 0.9.8 item done and every
    qualification green. Until then the switch waits.
 
-Found by dashboard-manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval. The checkout was
+Found by manager on 2026-10-22, when this host's aify-env (2ae603d) sent no interval. The checkout was
 fast-forwarded to main (ed9ebe5) the same day. The running daemons stay on what they loaded until that restart.
 
 ## The rollback (SW6)
@@ -99,7 +99,7 @@ Read from comms' routes and the dispatch tables at 15 min, 1 h and 4 h.
 
 | what | healthy reading |
 |---|---|
-| Hermes gateway agents (comms-senior-dev, pc-manager) | busy while working, idle after; 4009 requeues happen only at a turn boundary and drain on the next pass |
+| Hermes gateway agents (developer, manager) | busy while working, idle after; 4009 requeues happen only at a turn boundary and drain on the next pass |
 | resident claude panes (B1 launchers) | the word matches the pane; `unknown` only when that host's aify-env is silent |
 | agents at a Claude dialog (dev-channels, folder trust) | nothing delivered into the dialog |
 | a Claude agent sent a non-steer message while a turn it did not start is already active | the message is processed in a later turn, never inside the active one. Several messages accepted before that next turn may be processed together in it; that is healthy |

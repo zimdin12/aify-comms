@@ -28,7 +28,7 @@ import pydantic
 
 from service.models import SpawnRequestCreate
 
-BASE = {"environmentId": "windows:host:default", "agentId": "sc-tester", "runtime": "hermes"}
+BASE = {"environmentId": "windows:host:default", "agentId": "sc-fixtureprobe", "runtime": "hermes"}
 
 
 def _make(model):

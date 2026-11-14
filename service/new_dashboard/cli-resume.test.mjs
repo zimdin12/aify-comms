@@ -13,29 +13,29 @@ import {
 } from "./cli-resume.mjs";
 
 test('claude-code leaves permission defaults to the launcher in its resume command', () => {
-  const { command, reason } = continueCliInfo({ id: 'graph-tech-lead', runtime: 'claude-code', sessionHandle: 'd8ba8de3' });
+  const { command, reason } = continueCliInfo({ id: 'graph-fixtureguide', runtime: 'claude-code', sessionHandle: 'd8ba8de3' });
   assert.equal(reason, '');
-  assert.equal(command, 'claude-aify --aify-agent graph-tech-lead --resume d8ba8de3');
+  assert.equal(command, 'claude-aify --aify-agent graph-fixtureguide --resume d8ba8de3');
 });
 
 test('hermes builds the hermes-aify resume command', () => {
-  const { command } = continueCliInfo({ id: 'sc-coder', runtime: 'hermes', sessionHandle: 'abc123' });
-  assert.equal(command, 'hermes-aify --aify-agent sc-coder --resume abc123');
+  const { command } = continueCliInfo({ id: 'sc-fixtureworker', runtime: 'hermes', sessionHandle: 'abc123' });
+  assert.equal(command, 'hermes-aify --aify-agent sc-fixtureworker --resume abc123');
 });
 
 test('codex carries the env explicitly so a copied command is self-contained', () => {
-  const { command } = continueCliInfo({ id: 'ef-tech-lead', runtime: 'codex', sessionHandle: 'thr-9' });
+  const { command } = continueCliInfo({ id: 'ef-fixtureguide', runtime: 'codex', sessionHandle: 'thr-9' });
   assert.equal(command,
-    'AIFY_RUNTIME=codex AIFY_AGENT_ID=ef-tech-lead AIFY_SESSION_HANDLE=thr-9 CODEX_THREAD_ID=thr-9'
+    'AIFY_RUNTIME=codex AIFY_AGENT_ID=ef-fixtureguide AIFY_SESSION_HANDLE=thr-9 CODEX_THREAD_ID=thr-9'
     + ' codex --no-alt-screen resume --include-non-interactive thr-9');
 });
 
-// THE OPERATOR REPORT (2026-07-28): "llama-manager does not have cli command that i can copy".
+// THE OPERATOR REPORT (2026-07-28): "llama-fixtureowner does not have cli command that i can copy".
 // It is runtime claude-code with an EMPTY sessionHandle — there is nothing to resume. Eleven agents
 // on the live fleet are in that state. Rendering nothing made a legitimate "no session yet" look
 // like a broken feature.
 test('no session handle yields NO command but an explanatory reason', () => {
-  const { command, reason } = continueCliInfo({ id: 'llama-manager', runtime: 'claude-code', sessionHandle: '' });
+  const { command, reason } = continueCliInfo({ id: 'llama-fixtureowner', runtime: 'claude-code', sessionHandle: '' });
   assert.equal(command, '');
   assert.match(reason, /nothing to resume/i);
   assert.ok(reason.length > 20, 'the reason must actually explain, not just say "none"');
@@ -62,7 +62,7 @@ test('the handle can come from the SESSION when the agent row lacks it', () => {
 // pi is deliberately unsupported: install.sh does not install a pi/omp resident wrapper, so there is
 // no command to give. Inventing one would hand the operator something that cannot work.
 test('an unsupported runtime explains itself rather than fabricating a command', () => {
-  const { command, reason } = continueCliInfo({ id: 'graph-tester-pi', runtime: 'pi', sessionHandle: 'p-1' });
+  const { command, reason } = continueCliInfo({ id: 'graph-fixtureprobe-pi', runtime: 'pi', sessionHandle: 'p-1' });
   assert.equal(command, '', 'must NOT invent a pi-aify command — that wrapper is not installed');
   assert.match(reason, /not supported/i);
   assert.match(reason, /pi/, 'name the runtime so the message is actionable');
@@ -94,7 +94,7 @@ test('null/undefined inputs never throw', () => {
 
 test('N10: the machine that owns the session is carried out of the mapping', () => {
   const { command, machine } = continueCliInfo({
-    id: 'lc-coder', runtime: 'codex', sessionHandle: 'h1', machineId: 'linux:laputa',
+    id: 'lc-fixtureworker', runtime: 'codex', sessionHandle: 'h1', machineId: 'linux:laputa',
   });
   assert.ok(command, 'a command is still produced');
   assert.equal(machine, 'linux:laputa', 'the caller must be able to say WHERE this runs');

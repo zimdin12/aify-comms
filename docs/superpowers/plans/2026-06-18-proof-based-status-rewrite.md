@@ -52,7 +52,7 @@ Files: `service/routers/api_v2.py`, tests.
 - Remove `status_engine` old|new flag + disagreement logging.
 - Delete `TURN_BUSY_BACKSTOP_SECONDS` + remaining clamps; `_status_with_dispatch` (working now comes from the engine's in_turn); `_enforce_live_worker_gate` + `_enforce_env_reachable_gate` (refresh_after now liveness-keyed).
 - Queue-gate: keep a single busy signal via `agent_status_state.in_turn` + the short liveness window (retire `TURN_BUSY_STALE_SECONDS` if folded). Decide: keep `agent_turn_state.turn_busy` ONLY as the queue-gate bit, or migrate the gate to `agent_status_state`. (Prefer migrate → one event table.)
-- Orphan→absence: managed env-reachable + dead worker stays `available` (lazy-start) BUT confirm sc-coder's dead-delivery-loop maps as the operator expects; resident dead-bridge → `offline`. Reapers keep cleaning rows; no detached loop keeps an agent online (liveness tied to owner).
+- Orphan→absence: managed env-reachable + dead worker stays `available` (lazy-start) BUT confirm coder's dead-delivery-loop maps as the operator expects; resident dead-bridge → `offline`. Reapers keep cleaning rows; no detached loop keeps an agent online (liveness tied to owner).
 - Tests: prune the two-engine/parity/byproduct tests; keep matrix invariants.
 
 ## Phase 4 — Borders (dashboards + remaining tests). MEDIUM.

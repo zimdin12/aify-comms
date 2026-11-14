@@ -72,7 +72,7 @@ ALWAYS_SET = (
 #: the other half: this overlay writes `AIFY_AGENT_ROLE=""` for an unknown role, launch-identity reads
 #: `AIFY_AGENT_ROLE || AIFY_COMMS_AGENT_ROLE || "coder"`, and "" is falsy, so an inherited alias won.
 #:
-#: THE REGRESSION THIS CLOSES, reported 2026-09-14 by graph-tech-lead and confirmed by reading both
+#: THE REGRESSION THIS CLOSES, reported 2026-09-14 by lead and confirmed by reading both
 #: tiers: the strip lived in the bridge's `terminal-env.js`, whose only production caller was the
 #: environment bridge v0.6.2 deleted. aify-env merges `{...process.env, ...launch.env}` and named
 #: neither variable, so from then on a host started inside a Claude Code session launched every

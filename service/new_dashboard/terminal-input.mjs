@@ -3,7 +3,7 @@
 // viewer that types into it (aify-env control-viewer.mjs), and only `dashboard:*` names are that viewer:
 // a chat message, a Compact, and any input the service defaulted to "dashboard" are not a screen and
 // must not resize one (external review of 0.7.6, ST1). `:` because no agent id can contain it: the
-// names were `dashboard-*` first, the shape of a live agent's id (`dashboard-manager`).
+// names were `dashboard-*` first, the shape of a live agent's id (`manager`).
 export const CONSOLE_VIEWER = 'dashboard:console';
 
 // Input reaches the PTY IN ORDER, and a burst travels as one request.

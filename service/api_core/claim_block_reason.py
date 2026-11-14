@@ -144,7 +144,7 @@ async def _bridge_claim_block_reason(
     # wrapper-child claim by: (a) the request includes 'channel' in executionModes;
     # (b) the runtime is in _CHANNEL_CLAIM_RUNTIMES (managed-via-wrapper-eligible);
     # (c) the claimant bridge is registered for this agent (in bridge_instances).
-    # Operator-observed 2026-05-26 with graph-tester-pi before Pi was moved
+    # Operator-observed 2026-05-26 with tester before Pi was moved
     # back to native RPC: inner MCP bridge
     # `2e8b7d91-...` registered fine, but its claims were silently rejected
     # against the env bridge `e1ef4cae-...`.

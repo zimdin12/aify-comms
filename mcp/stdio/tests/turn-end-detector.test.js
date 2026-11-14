@@ -37,7 +37,7 @@ for (const summary of [null, undefined, {}]) assert.equal(classify(summary), "un
 //     auto-resumes via PostToolUse — so the turn has yielded and the agent is IDLE,
 //     not working. classify() must report "ended" (despite stop_reason "tool_use") so
 //     the Stop-gate posts /turn-end. Repro: a resident
-//     claude stuck at `working` for the ENTIRE human wait (comms-tech-lead, 2h).
+//     claude stuck at `working` for the ENTIRE human wait (comms-fixtureguide, 2h).
 {
   const yield_ = (name) => ({ lastRole: "assistant", lastStopReason: "tool_use", pendingToolUse: true, pendingToolNames: [name] });
   assert.equal(classify(yield_("AskUserQuestion")), "ended", "(k) pending AskUserQuestion -> yielded to human -> ended");

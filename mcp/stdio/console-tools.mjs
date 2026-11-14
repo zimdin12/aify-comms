@@ -40,7 +40,7 @@ export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: ca
       // terminal's output: the accumulated `terminal_sessions.output` column and the
       // `terminal_events` rows. The column is normal and needs no remark. Falling back to the events
       // means the column held nothing but the terminal's own exit marker -- which is the shape that
-      // made this tool answer "(nothing was recorded)" for sc-architect on 2026-08-26 while 14,773
+      // made this tool answer "(nothing was recorded)" for architect on 2026-08-26 while 14,773
       // characters of its last screen sat in the events. A reader deciding how much to trust a
       // reconstruction should know it is one.
       const store = r.recordedFrom === "events"
@@ -122,7 +122,7 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
     if (!r.ok) {
       return { content: [{ type: "text", text: r.message || `Could not send input to ${agentId}.` }], isError: true };
     }
-    // "Input sent" was the sentence an operator's sc-manager read as confirmation before burning
+    // "Input sent" was the sentence an operator's manager read as confirmation before burning
     // ~15 minutes retrying a lever that could not work (C8). The write is only QUEUED, and even a
     // completed control proves nothing beyond "bytes reached the PTY". Say that.
     return {

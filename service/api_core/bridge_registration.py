@@ -87,7 +87,7 @@ async def _record_bridge_registration(
     # presumed orphaned. Resident and wrapper-child carve-outs protect
     # parent/wrapper in-flight runs from duplicate same-owner registrations.
     # Heartbeat-aware carve-out (operator-reported 2026-05-23: 10+ leaked
-    # bridge_instances for comms-tech-lead from May 21–22 claude-aify
+    # bridge_instances for lead from May 21–22 claude-aify
     # restarts, never superseded). The resident-mode carve-out only
     # protects bridges whose heartbeat is FRESH — a same-identity bridge
     # whose last_seen is past the 5-min stale window is a dead process

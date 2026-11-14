@@ -112,7 +112,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                 # managed-warm worker), so no `managed-wrapper-child` bridge
                 # ever registers and the 'channel' run is rejected
                 # `managed_wrapper_child_required` → queued forever (the
-                # lc-coder strand). Only a LIVE managed-wrapper-child proves a
+                # coder strand). Only a LIVE managed-wrapper-child proves a
                 # managed worker is actually backing this agent; absent it,
                 # drop the leftover terminal so the coldstart branch below
                 # fires and a managed-warm worker is spawned.
@@ -135,7 +135,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
                 if not console_terminal:
                     # Phase 2 lazy-autostart: no live wrapper PTY to
                     # back this agent (it was only registered, never
-                    # run — the operator's `available` sc-coder case).
+                    # run — the operator's `available` coder case).
                     # Instead of rejecting, cold-start a spawn_request
                     # (auto-binding an online env when none is bound)
                     # so a bridge spawns the wrapper and claims this
@@ -244,7 +244,7 @@ async def _launch_recipients_for_dispatch(channel_backing_failed, console_recipi
             # terminal reuse / PTY-ensure above — there is STILL no live
             # managed-wrapper-child to run claude-channel.js AND no claimable
             # spawn request, cold-start one now so a bridge spawns the wrapper
-            # and claims this run on its next poll (the aicm-lc-manager
+            # and claims this run on its next poll (the manager
             # 'queued, never spawned' strand). Idempotent: a live claimer or a
             # pending spawn short-circuits it, so no duplicate workers.
             if recipient_id not in channel_backing_failed and (
@@ -304,7 +304,7 @@ async def _back_managed_claude_with_a_console(
                 existing = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                 # B2 parity (2026-06-12): a leftover non-managed terminal row must not
                 # suppress the cold start — only a LIVE managed-wrapper-child proves a
-                # worker actually backs this agent (same strand class as lc-coder).
+                # worker actually backs this agent (same strand class as coder).
                 if existing and not await _has_live_managed_wrapper_child(db, recipient_id):
                     existing = None
                 if not existing:
@@ -321,7 +321,7 @@ async def _back_managed_claude_with_a_console(
                     except Exception:
                         started = None
                     if not started:
-                        # ROOT-CAUSE-G PARITY (2026-06-12, graph-tech-lead strand):
+                        # ROOT-CAUSE-G PARITY (2026-06-12, lead strand):
                         # _ensure_managed_pty_for_dispatch returns None when the agent
                         # has no usable session row to launch into — exactly the state
                         # after an env-bridge restart retires every session. The native

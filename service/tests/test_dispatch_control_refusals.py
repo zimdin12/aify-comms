@@ -73,7 +73,7 @@ class DispatchControlRefusalTests(FastApiTestCase):
     def _update(self, control_id: str, body: dict):
         """Settle a control, supplying the ACTOR unless the caller states one.
 
-        The endpoint has required `handledBy` since 2026-08-18 (comms-senior-dev's ruling: the actor
+        The endpoint has required `handledBy` since 2026-08-18 (comms-fixturedeveloper's ruling: the actor
         is mandatory and service-enforced, and actor-absent callers fail closed). Every test in this
         file is about the STATUS allowlist and its normalisation, so each one supplies a valid actor
         by default rather than repeating it — otherwise they would all be measuring the new refusal

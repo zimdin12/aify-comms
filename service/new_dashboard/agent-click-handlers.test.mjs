@@ -314,8 +314,8 @@ test("after a 200 the button shows the acknowledged value and works again, with 
   // REVIEW of 896abb17: the button stayed disabled with the old choice until a roster fetch landed,
   // and a failed fetch keeps the old roster. Here `refreshSoon` fetches nothing, which is that case.
   return withFetch({ body: { ok: true, herdrSpace: false } }, async (calls) => {
-    state.agents = [{ id: "sc-lead", herdrSpace: true }];
-    const btn = { disabled: false, textContent: "Hide from herdr", dataset: { agentHerdrSpace: "sc-lead", show: "false" } };
+    state.agents = [{ id: "sc-fixturechief", herdrSpace: true }];
+    const btn = { disabled: false, textContent: "Hide from herdr", dataset: { agentHerdrSpace: "sc-fixturechief", show: "false" } };
     await setHerdrSpace(btn, () => {});
     assert.equal(btn.disabled, false, "the only toggle is dead until a later refresh");
     assert.equal(btn.textContent, "Show in herdr");

@@ -352,7 +352,7 @@ test("the default writer CREATES the parent directory", async () => {
 // MEASURED 2026-08-31, and it is why `comms_restart freshContext=true` had never once worked for a
 // hermes agent. A Reset (`session_restart.py`, deleted by D8) set `resume_policy="fresh_context"` and cleared
 // `agents.session_handle`; `spawn-loop.mjs` carries it; ONLY codex reads it. Hermes resumed anyway,
-// and comms-senior-dev sat on a 5 JUNE conversation until it hit 1,122,638 tokens against a 900k
+// and comms-fixturedeveloper sat on a 5 JUNE conversation until it hit 1,122,638 tokens against a 900k
 // window and could no longer answer anything.
 //
 // THREE INDEPENDENT PATHS LEAD BACK TO THE OLD SESSION, which is why clearing the marker is not a

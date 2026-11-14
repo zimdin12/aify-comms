@@ -32,7 +32,7 @@ test("an unexpanded ${...} placeholder becomes empty, not a literal agent id", (
 
 test("a real value is returned trimmed, and nothing else is discarded", () => {
   // The failure mode opposite to the one above: over-eager sanitizing that throws away a valid id.
-  assert.equal(cleanEnvPlaceholder("  comms-senior-dev  "), "comms-senior-dev");
+  assert.equal(cleanEnvPlaceholder("  comms-fixturedeveloper  "), "comms-fixturedeveloper");
   assert.equal(cleanEnvPlaceholder("agent-1"), "agent-1");
   // Only a WHOLE placeholder is a placeholder. A `${` inside a longer string is a legitimate — if odd —
   // id, and blanking it would lose an identity the operator did configure.

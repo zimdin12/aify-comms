@@ -17,7 +17,7 @@ on the STATE. A settlement can fail to arrive because the bridge died mid-apply,
 lost its controller, because the claim was refused, or — since the mandatory-actor change — because a
 pre-actor bridge sent no actor. A cleanup hooked to any one of those leaves the rest stranded.
 
-IT ALSO BOUNDS A DEPLOY WINDOW. comms-senior-dev's condition for release approval was to make the
+IT ALSO BOUNDS A DEPLOY WINDOW. comms-fixturedeveloper's condition for release approval was to make the
 pre-actor-bridge window "explicit and bounded" rather than weaken the actor guard. This is the bound,
 and it does not re-open the ownership hole: the sweep never accepts an unauthenticated settlement, it
 records that the control was never applied.

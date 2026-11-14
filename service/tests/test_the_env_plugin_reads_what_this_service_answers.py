@@ -38,7 +38,7 @@ from service.tests.test_the_env_plugin_addresses_routes_this_service_serves impo
     PLUGIN_DIR, env_repo,
 )
 
-AGENT_ID = "ef-tester"
+AGENT_ID = "ef-fixtureprobe"
 MACHINE_ID = "linux:test-host"
 ENVIRONMENT_ID = f"{MACHINE_ID}:default"
 BRIDGE_ID = "bridge-test-host"

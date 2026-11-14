@@ -21,7 +21,7 @@ const TERMINAL_STOP_REASONS = new Set(["end_turn", "stop_sequence", "max_tokens"
 // these never auto-resume via PostToolUse — so an assistant tail whose pending tool_use
 // is one of these has YIELDED and the agent is IDLE awaiting input, even though
 // stop_reason is "tool_use". Without this, such a tail reads as in-flight and strands
-// the agent at `working` for the ENTIRE human wait (the resident-claude / comms-tech-lead
+// the agent at `working` for the ENTIRE human wait (the resident-claude / lead
 // "stuck working while idle, 2h" bug, 2026-06-20). A GENERIC pending tool stays in-flight,
 // so this never reintroduces the premature-Stop working→online→working flicker.
 const YIELDING_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);

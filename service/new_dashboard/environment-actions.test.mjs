@@ -88,7 +88,7 @@ function withEnvActions({ confirm = true, prompt = "typed", fields = {} } = {}) 
 const COMPLETE = {
   "env-spawn-environment": "env-1",
   "env-spawn-runtime": "claude",
-  "env-spawn-agent-id": "new-coder",
+  "env-spawn-agent-id": "new-fixtureworker",
   "env-spawn-role": "coder",
   "env-spawn-workspace": "C:/work/proj",
   "env-spawn-prompt": "get started",
@@ -133,7 +133,7 @@ test("a COMPLETE spawn posts every field the operator typed", async () => {
     const body = JSON.parse(h.sent[0].body);
     assert.equal(body.environmentId, "env-1");
     assert.equal(body.runtime, "claude");
-    assert.equal(body.agentId, "new-coder");
+    assert.equal(body.agentId, "new-fixtureworker");
     assert.equal(body.role, "coder");
     assert.equal(body.workspace, "C:/work/proj");
     assert.equal(body.initialMessage, "get started");
@@ -144,7 +144,7 @@ test("a COMPLETE spawn posts every field the operator typed", async () => {
 
 test("THE OPTIONAL PROMPT MAY BE EMPTY, and then carries no subject", async () => {
   // The subject is derived from the prompt. An unconditional template would send the literal
-  // "Spawn new-coder" as the subject of a message that does not exist.
+  // "Spawn new-fixtureworker" as the subject of a message that does not exist.
   const h = withEnvActions({ fields: { ...COMPLETE, "env-spawn-prompt": "" } });
   try {
     await createSpawnRequest();
@@ -158,7 +158,7 @@ test("a spawn WITH a prompt gets a subject naming the agent", async () => {
   const h = withEnvActions({ fields: COMPLETE });
   try {
     await createSpawnRequest();
-    assert.match(JSON.parse(h.sent[0].body).subject, /new-coder/);
+    assert.match(JSON.parse(h.sent[0].body).subject, /new-fixtureworker/);
   } finally { h.restore(); }
 });
 
@@ -191,7 +191,7 @@ test("A SUCCESSFUL SPAWN SAYS SO IN A SENTENCE, not by taking over the drawer wi
   globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
   try {
     await createSpawnRequest();
-    assert.ok(created.some((el) => /Asked its host to define new-coder/.test(el.textContent)), "no toast named the spawn");
+    assert.ok(created.some((el) => /Asked its host to define new-fixtureworker/.test(el.textContent)), "no toast named the spawn");
   } finally { h.restore(); }
 });
 

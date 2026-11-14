@@ -113,7 +113,7 @@ test("a second run leaves the file byte-identical, so a reinstall does not move 
 // is non-fatal by design, so the install still reports success and the host simply has no registry
 // entry: a launcher then never learns this service exists.
 //
-// Reported by comms-senior-dev in pre-deploy review, reproduced, and fixed by routing both paths
+// Reported by comms-fixturedeveloper in pre-deploy review, reproduced, and fixed by routing both paths
 // through the installer's existing `path_for_node`. Its `cygpath -w` output survives argv untouched,
 // because backslashes are only re-interpreted inside quoted strings, not in an argument vector.
 //

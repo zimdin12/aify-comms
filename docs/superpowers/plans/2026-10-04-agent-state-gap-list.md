@@ -4,7 +4,7 @@ Measured 2026-10-04 16:50-17:20Z against env `next/0.9-agent-state` 8c15f29, com
 6bc9da68, wrapper `next/0.9-agent-state` 686d182. No code was written for this document.
 
 Labels: **PROVEN** = read or run here against the real object; **PASSES IN TESTS** = green in a suite, never run
-for real; **ASSUMED** = inferred, not checked. Review verdicts are quoted from comms-senior-dev's messages, by id.
+for real; **ASSUMED** = inferred, not checked. Review verdicts are quoted from developer's messages, by id.
 
 **The end-to-end test this list aims at** (the first thing Steven can run): with 0.9 installed and one resident
 claude and one managed hermes relaunched, aify-env shows each agent's derived state word (C3) from its own hooks
@@ -77,9 +77,9 @@ not needed for that test.
 
 | # | ruling | owed by | blocks |
 |---|---|---|---|
-| R1 | 0.8.5 source verdicts (deleg_d55ebdd9; no output since 10:17Z) | comms-senior-dev | G0, and so the installable 0.9 |
-| R2 | may `bin/aify-env.mjs` take the 3-line wiring, or must C10's ports migration land first? Memory records the ports migration as an assembly gate, but no ruling request was found in the inbox (searched "migration", "hooks route": none). So it is **not yet asked** | comms-senior-dev, once asked | G2 |
-| R3 | the loopback hook route takes no key, like every existing aify-env route; a same-user process can post a turn event naming a lifetime. C4/D3 accept the route; the plan does not say who may post. ASSUMED acceptable under the existing posture, to be stated in G3's review request rather than decided silently | comms-senior-dev (G3 review) | G3 |
+| R1 | 0.8.5 source verdicts (deleg_d55ebdd9; no output since 10:17Z) | developer | G0, and so the installable 0.9 |
+| R2 | may `bin/aify-env.mjs` take the 3-line wiring, or must C10's ports migration land first? Memory records the ports migration as an assembly gate, but no ruling request was found in the inbox (searched "migration", "hooks route": none). So it is **not yet asked** | developer, once asked | G2 |
+| R3 | the loopback hook route takes no key, like every existing aify-env route; a same-user process can post a turn event naming a lifetime. C4/D3 accept the route; the plan does not say who may post. ASSUMED acceptable under the existing posture, to be stated in G3's review request rather than decided silently | developer (G3 review) | G3 |
 | R4 | P-1 ruled by Steven in `1791194105933-54bcb728`: verified open turns have no wall-clock cap; unverifiable lifetimes retain strict fallback | env C3 implementation, not another operator choice | serving comms readers remain legacy; reader adoption and full C8 qualification are separate |
 | R5 | D8, D9, D12 (defaults he did not object to) | Steven | not the test; P9 |
 

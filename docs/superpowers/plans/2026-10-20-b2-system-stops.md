@@ -3,8 +3,8 @@
 Scope, from `2026-10-18-status-switch.md` (the 19:00Z entry): operator stops of DEFINED agents already go
 through aify-env's journal (D9c, `lifecycle_delegation.py:53`). B2 covers every other write that makes comms
 derive `stopped`/`disabled` (`status_inputs.py:239-242`: `status='stopped'` OR `launch_mode='none'`) with no
-journal entry. Revision 2 answers review REVISE 37434413 (R1-R5). The sc-manager and mc-manager rows are out of
-scope: ordinary registration replaced them live (sc-manager at 14:02:47Z), and console adoption is the one branch
+journal entry. Revision 2 answers review REVISE 37434413 (R1-R5). The manager and manager rows are out of
+scope: ordinary registration replaced them live (manager at 14:02:47Z), and console adoption is the one branch
 that preserves a stop (`agent_registration_writes.py:109-124`).
 
 ## The population

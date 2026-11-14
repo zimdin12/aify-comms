@@ -46,13 +46,13 @@ const CORPUS = [
     name: "the live shape: three collisions across eight agents",
     agents: {
       "guns-ab-planner": { sessionHandle: "20260715_001441_960b8f" },
-      "mc-senior-dev": { sessionHandle: "20260715_001441_960b8f" },
+      "mc-fixturedeveloper": { sessionHandle: "20260715_001441_960b8f" },
       "pathweaver-activation-auditor": { sessionHandle: "20260715_001441_960b8f" },
       "safety-gate-auditor": { sessionHandle: "20260715_001441_960b8f" },
       "comms-claude": { sessionHandle: "651b895f-a564-4d3a-8e0b-27f8429b1dd0" },
-      "comms-tech-lead": { sessionHandle: "651b895f-a564-4d3a-8e0b-27f8429b1dd0" },
+      "comms-fixtureguide": { sessionHandle: "651b895f-a564-4d3a-8e0b-27f8429b1dd0" },
       "mrg-agent": { sessionHandle: "8c106750-de4f-481c-b7d5-aa02d2b27273" },
-      "pc-manager": { sessionHandle: "8c106750-de4f-481c-b7d5-aa02d2b27273" },
+      "pc-fixtureowner": { sessionHandle: "8c106750-de4f-481c-b7d5-aa02d2b27273" },
       "alone": { sessionHandle: "solo" },
       "handleless": {},
     },
@@ -79,7 +79,7 @@ test("THE CORPUS ACTUALLY EXERCISES A COLLISION", () => {
   // that both return [] for everything agree perfectly while proving nothing.
   const live = CORPUS.find((c) => c.name.startsWith("the live shape")).agents;
   assert.equal(duplicateSessionHandles(live).length, 3, "the doctor found no collisions in the live shape");
-  assert.deepEqual(sessionSharers(live, "comms-claude"), ["comms-tech-lead"]);
+  assert.deepEqual(sessionSharers(live, "comms-claude"), ["comms-fixtureguide"]);
   assert.equal(sessionSharers(live, "alone").length, 0, "an agent with its own session reported sharers");
 });
 

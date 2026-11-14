@@ -2,7 +2,7 @@
 an INFERRED death but is provably alive again (live channel-sidecar + fresh output), so the agent
 recovers `online` instead of staying stranded `available` while it works headless.
 
-Regression for the next-manager incident (2026-06-08). Strictly scoped — every negative edge
+Regression for the next-fixtureowner incident (2026-06-08). Strictly scoped — every negative edge
 below must leave the row stopped.
 """
 
@@ -102,7 +102,7 @@ class ResurrectManagedConsoleTests(FastApiTestCase):
     def test_resurrection_promotes_a_dead_session_denorm(self):
         # The session row was downgraded to 'stopped' when the old backing died; re-binding the
         # resurrected live console must promote it back to 'running', else the Console label
-        # reads "Console stopped" over a live attached terminal (cms-manager, 2026-06-10).
+        # reads "Console stopped" over a live attached terminal (cms-fixtureowner, 2026-06-10).
         term, sess = self._seed(agent="rmc-promote", session_status="stopped")
         self.assertEqual(self._run(), 1)
         self.assertEqual(self._row(term)["status"], "attached")

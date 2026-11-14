@@ -78,7 +78,7 @@ test("wrapperChildExecutionModes: HERMES wrapper child does NOT add channel/resi
 });
 
 test("wrapperChildExecutionModes: CLAUDE wrapper child does NOT add channel/resident (claude-channel.js sidecar owns it)", () => {
-  // Regression (run_1780205398406 sc-manager→sc-claude FAILED): claude's
+  // Regression (run_1780205398406 sc-fixtureowner→sc-claude FAILED): claude's
   // aify-comms wrapper child raced the claude-channel.js channel-sidecar, won,
   // and routed the channel run to the removed `claude -p` path. Claude delivery
   // is owned by the channel-sidecar; the wrapper child is for comms_send replies.

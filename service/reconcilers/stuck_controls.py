@@ -20,7 +20,7 @@ others stranded. The run ending is the one condition common to all of them.
 
 WHY IT IS BEING WRITTEN NOW. The mandatory-actor change on `PATCH /dispatch/controls/{id}` refuses a
 settlement from a bridge running pre-actor code, and until every wrapper is relaunched that is a
-reachable state across the fleet. comms-senior-dev's condition for a release was to "make the
+reachable state across the fleet. developer's condition for a release was to "make the
 partial-deploy window explicit and BOUNDED" rather than weaken the guard — this is the bound. It does
 not re-open the ownership hole: the sweep never accepts an unauthenticated settlement, it records that
 the control was never applied.

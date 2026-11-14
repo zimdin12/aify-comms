@@ -1,7 +1,7 @@
-"""A `claude` an agent runs from its own shell does not leave that agent stopped (sc-manager, 2026-09-26).
+"""A `claude` an agent runs from its own shell does not leave that agent stopped (sc-fixtureowner, 2026-09-26).
 
-sc-manager ran `claude mcp list` and `claude -p` from its Bash tool. Each child inherited the agent's
-identity (`AIFY_AGENT_ID`, `CLAUDE_SESSION_ID`), so its aify-comms bridge registered as sc-manager with
+sc-fixtureowner ran `claude mcp list` and `claude -p` from its Bash tool. Each child inherited the agent's
+identity (`AIFY_AGENT_ID`, `CLAUDE_SESSION_ID`), so its aify-comms bridge registered as sc-fixtureowner with
 the same session handle and took over by the same-session relaunch rule. Seconds later the child exited,
 its bridge reported resident-lost as the current owner, and the service set the agent `stopped` with
 `launch_mode='none'`. The real bridge kept beating, was ignored as superseded, and 37 messages over

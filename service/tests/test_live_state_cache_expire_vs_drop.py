@@ -35,7 +35,7 @@ from service.reconcilers.status_cache import (
     _live_state_set,
 )
 
-AGENT = "sc-coder"
+AGENT = "sc-fixtureworker"
 
 
 @pytest.fixture(autouse=True)

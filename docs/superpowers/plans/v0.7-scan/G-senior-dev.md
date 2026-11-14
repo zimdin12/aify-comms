@@ -1,4 +1,4 @@
-# G: comms-senior-dev (independent lens)
+# G: developer (independent lens)
 
 Its reply to the lens request, 2026-09-25, saved verbatim. It read aify-comms at `b7fde7c8` and aify-env at `9a8642ae`.
 

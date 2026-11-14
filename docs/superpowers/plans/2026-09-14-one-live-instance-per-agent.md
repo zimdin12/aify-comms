@@ -24,11 +24,11 @@ replacement that then parked on a first-run dialog.
 
 ## What broke today, measured
 
-mc-senior-dev refused every message after the operator restarted `herdr-aify env`:
+developer refused every message after the operator restarted `herdr-aify env`:
 `Session 20260715_001441_960b8f already has a live owner (tui, pid 59544, running 3h43m)`.
 pid 59544 was the previous generation's `hermes dashboard --port 9272` host, detached, parent gone,
 holding hermes' own session lease (`%LOCALAPPDATA%\hermes\runtime\active_sessions.json`). Two more
-agents had the same leftover (graph-senior-dev 8822, comms-senior-dev 9341, one since 2026-09-12).
+agents had the same leftover (developer 8822, developer 9341, one since 2026-09-12).
 
 Why nothing reaped it, read from the code:
 
@@ -52,7 +52,7 @@ in-memory per daemon and blind to residents; no runtime has an agent -> live-pro
 resident or managed, starts through its launchers:
 
 ```json
-{ "version": 1, "agentId": "mc-senior-dev",
+{ "version": 1, "agentId": "developer",
   "instance": { "pid": 36200, "startedAtMs": 1789401902000, "runtime": "hermes",
                 "mode": "managed", "intent": "start",
                 "attached": [ { "pid": 113008, "startedAtMs": 1789398806000, "kind": "gateway" } ] } }
@@ -90,7 +90,7 @@ A launcher run by a person in a terminal is explicit: `intent = "replace"` unles
   `agent_sessions.spawn_request_id`. A session with no request -> `start`.
 
 The live data is why this needs its own field: `spawn_requests.created_by` holds `dashboard` (415),
-`sc-manager` (317), `queued-run-backstop` (67)... and a cold start records the SENDER's agent id, so a
+`manager` (317), `queued-run-backstop` (67)... and a cold start records the SENDER's agent id, so a
 message waking a lane is indistinguishable from that sender spawning it deliberately.
 
 ### Hermes, now, independent of the lease
@@ -157,10 +157,10 @@ Where the build differs from the design above, each measured or read rather than
   started from an agent's shell would otherwise make every start of that agent read as nested.
 - **Only a launch that NAMES its agent replaces a live one; a shell inside a session names nobody.**
   Found live on 2026-09-15, after this shipped: the resident Herdr server had been started from inside
-  comms-tech-lead's Claude Code session, so every pane carried `AIFY_AGENT_ID=comms-tech-lead` and its
+  lead's Claude Code session, so every pane carried `AIFY_AGENT_ID=lead` and its
   `CLAUDE_SESSION_ID` (read from the server's process environment). A bare `claude-aify` typed into a new
-  pane started as comms-tech-lead, was read as a person at a terminal, and replaced the live instance.
-  The operator then registered that window as general-manager, and two agents held one conversation.
+  pane started as lead, was read as a person at a terminal, and replaced the live instance.
+  The operator then registered that window as manager, and two agents held one conversation.
   The nested refusal above did not fire: the server predated the lease, so it carried no
   `AIFY_AGENT_LEASE`, and the instance it came from had long since restarted. Three changes in
   aify-wrapper: an identity that is not `--aify-agent`/`--agent-id` on the command line only starts
@@ -251,7 +251,7 @@ Where the build differs from the design above, each measured or read rather than
 - **A hermes gateway carries its agent's lease pid as `HERMES_PARENT_PID`**, which arms hermes' own
   parent-death watchdog, so it exits with the launcher. It is pid only: hermes' start-marker check needs
   millisecond equality and treats a mismatch as conclusive. Found live the same day: after every agent
-  was stopped, `hermes update` run from an Administrator terminal had relaunched mc-senior-dev's orphaned
+  was stopped, `hermes update` run from an Administrator terminal had relaunched developer's orphaned
   gateway ELEVATED. hermes relaunches serves whose spawner is dead; with a live parent pid it refuses to
   run instead (read in `update_cmd_windows.py`, not observed).
 - **An elevated process has no readable command line**, so `gateway-orphans` said no gateway ran while

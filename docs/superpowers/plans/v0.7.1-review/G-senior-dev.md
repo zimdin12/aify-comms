@@ -1,4 +1,4 @@
-# G: comms-senior-dev, independent whole-release review of 0.7.0
+# G: developer, independent whole-release review of 0.7.0
 
 Saved verbatim from two comms messages, 2026-09-26 (1790387169179-8d677374, partial;
 1790387906588-8330688d, final). Pins: aify-comms v0.6.22 b7fde7c8 -> v0.7.0 2daa3026, aify-env

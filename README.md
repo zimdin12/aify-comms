@@ -185,7 +185,7 @@ other machine send with it:
 ```bash
 curl -X POST http://<this-host>:8800/api/v1/messages/send -H "X-API-Key: <pc2 key>" \
   -H "Content-Type: application/json" \
-  -d '{"from_agent":"pc2-manager","to":"<local agent>","subject":"hi","body":"...","origin":"<its address>"}'
+  -d '{"from_agent":"manager","to":"<local agent>","subject":"hi","body":"...","origin":"<its address>"}'
 ```
 
 Its messages show `external: pc2`, and that name is proven by the key. The `origin` is what it said

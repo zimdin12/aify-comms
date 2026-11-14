@@ -129,7 +129,7 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
     if status not in {"completed", "failed"}:
         raise HTTPException(400, "Unsupported control status")
 
-    # WHO IS SETTLING THIS. Mandatory and service-enforced (comms-senior-dev, 2026-08-18): "the actor
+    # WHO IS SETTLING THIS. Mandatory and service-enforced (developer, 2026-08-18): "the actor
     # must be mandatory and service-enforced; actor-absent old callers must fail closed". Settling a
     # control is what closes it, so an unattributed settlement means an interrupt can be marked
     # `completed` by something that never interrupted anything, and the run continues as though the

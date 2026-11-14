@@ -47,14 +47,14 @@ test("a message addressed to the operator qualifies", () => {
 
 test("fleet chatter between agents does NOT qualify", () => {
   // The hazard this feature is shaped around: 3,883 messages in 14 days, almost all agent-to-agent.
-  assert.equal(isForOperator("message_sent", { to: ["sc-coder"] }), false);
-  assert.equal(isForOperator("message_sent", { to: ["sc-coder", "sc-architect"] }), false);
+  assert.equal(isForOperator("message_sent", { to: ["sc-fixtureworker"] }), false);
+  assert.equal(isForOperator("message_sent", { to: ["sc-fixtureworker", "sc-fixtureplanner"] }), false);
   assert.equal(isForOperator("message_sent", {}), false);
   assert.equal(isForOperator("message_sent", { to: null }), false);
 });
 
 test("a message to the operator AMONG others still qualifies", () => {
-  assert.equal(isForOperator("message_sent", { to: ["sc-coder", "dashboard"] }), true);
+  assert.equal(isForOperator("message_sent", { to: ["sc-fixtureworker", "dashboard"] }), true);
 });
 
 test("non-message socket events never qualify", () => {
@@ -70,7 +70,7 @@ test("non-message socket events never qualify", () => {
 test("a channel the operator is a member of qualifies", () => {
   const member = (c) => c === "sand-castle";
   assert.equal(
-    isForOperator("channel_message", { channel: "sand-castle", from: "sc-manager" }, { isChannelSubscribed: member }),
+    isForOperator("channel_message", { channel: "sand-castle", from: "sc-fixtureowner" }, { isChannelSubscribed: member }),
     true,
   );
 });
@@ -78,7 +78,7 @@ test("a channel the operator is a member of qualifies", () => {
 test("a channel the operator is NOT a member of does not qualify", () => {
   const member = (c) => c === "sand-castle";
   assert.equal(
-    isForOperator("channel_message", { channel: "echoes", from: "ef-manager" }, { isChannelSubscribed: member }),
+    isForOperator("channel_message", { channel: "echoes", from: "ef-fixtureowner" }, { isChannelSubscribed: member }),
     false,
   );
 });
@@ -105,9 +105,9 @@ test("a channel_message with no channel name never qualifies", () => {
 
 test("the notifier honours membership end to end", () => {
   const { n, api } = notifierWith({ isChannelSubscribed: (c) => c === "sand-castle" });
-  assert.equal(n.handle("channel_message", { channel: "echoes", from: "ef-manager", body: "x" }), "not-for-operator");
+  assert.equal(n.handle("channel_message", { channel: "echoes", from: "ef-fixtureowner", body: "x" }), "not-for-operator");
   assert.equal(api.raised.length, 0);
-  assert.equal(n.handle("channel_message", { channel: "sand-castle", from: "sc-manager", body: "y" }), "fired");
+  assert.equal(n.handle("channel_message", { channel: "sand-castle", from: "sc-fixtureowner", body: "y" }), "fired");
   assert.equal(api.raised.length, 1);
 });
 
@@ -172,30 +172,30 @@ test("a browser without the API degrades quietly", () => {
 
 test("fleet chatter is rejected even when everything else is permissive", () => {
   const { n, api } = notifierWith();
-  assert.equal(n.handle("message_sent", { to: ["sc-coder"], from: "sc-manager" }), "not-for-operator");
+  assert.equal(n.handle("message_sent", { to: ["sc-fixtureworker"], from: "sc-fixtureowner" }), "not-for-operator");
   assert.equal(api.raised.length, 0);
 });
 
 // ── the happy path ───────────────────────────────────────────────────────────────────
 test("an operator-addressed message on an unfocused tab fires exactly one notification", () => {
   const { n, api } = notifierWith();
-  assert.equal(n.handle("message_sent", { to: ["dashboard"], from: "sc-manager", subject: "gate PASS" }), "fired");
+  assert.equal(n.handle("message_sent", { to: ["dashboard"], from: "sc-fixtureowner", subject: "gate PASS" }), "fired");
   assert.equal(api.raised.length, 1);
-  assert.equal(api.raised[0].title, "sc-manager → you");
+  assert.equal(api.raised[0].title, "sc-fixtureowner → you");
   assert.equal(api.raised[0].body, "gate PASS");
 });
 
 test("a channel message renders with its channel", () => {
   const { n, api } = notifierWith({ isChannelSubscribed: () => true });
-  n.handle("channel_message", { channel: "sand-castle", from: "sc-manager", body: "lane picked" });
-  assert.equal(api.raised[0].title, "#sand-castle — sc-manager");
+  n.handle("channel_message", { channel: "sand-castle", from: "sc-fixtureowner", body: "lane picked" });
+  assert.equal(api.raised[0].title, "#sand-castle — sc-fixtureowner");
   assert.equal(api.raised[0].body, "lane picked");
 });
 
 // ── coalescing: the burst behaviour that decides whether this stays switched on ───────
 test("a burst on the same subject raises ONE notification", () => {
   const { n, api, tick } = notifierWith();
-  const msg = { to: ["dashboard"], from: "sc-manager", subject: "#178 take it now" };
+  const msg = { to: ["dashboard"], from: "sc-fixtureowner", subject: "#178 take it now" };
   assert.equal(n.handle("message_sent", msg), "fired");
   tick(30_000);
   assert.equal(n.handle("message_sent", msg), "coalesced");
@@ -206,7 +206,7 @@ test("a burst on the same subject raises ONE notification", () => {
 
 test("the same subject after the window fires again", () => {
   const { n, api, tick } = notifierWith();
-  const msg = { to: ["dashboard"], from: "sc-manager", subject: "#178" };
+  const msg = { to: ["dashboard"], from: "sc-fixtureowner", subject: "#178" };
   n.handle("message_sent", msg);
   tick(COALESCE_WINDOW_MS + 1);
   assert.equal(n.handle("message_sent", msg), "fired");
@@ -215,9 +215,9 @@ test("the same subject after the window fires again", () => {
 
 test("different subjects are not collapsed into each other", () => {
   const { n, api } = notifierWith();
-  n.handle("message_sent", { to: ["dashboard"], from: "sc-manager", subject: "one" });
-  n.handle("message_sent", { to: ["dashboard"], from: "sc-manager", subject: "two" });
-  n.handle("message_sent", { to: ["dashboard"], from: "sc-coder", subject: "one" });
+  n.handle("message_sent", { to: ["dashboard"], from: "sc-fixtureowner", subject: "one" });
+  n.handle("message_sent", { to: ["dashboard"], from: "sc-fixtureowner", subject: "two" });
+  n.handle("message_sent", { to: ["dashboard"], from: "sc-fixtureworker", subject: "one" });
   assert.equal(api.raised.length, 3, "sender AND subject distinguish");
 });
 

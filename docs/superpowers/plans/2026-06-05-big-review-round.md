@@ -58,10 +58,10 @@ Two audiences:
 Every finding tagged **CRITICAL** (breaks correctness / symmetry that bites / wrong docs that mislead) vs **OPTIONAL** (polish / nice-to-have / cosmetic). Only act on what we're SURE about; "don't break it too much." The fixes plan will sequence CRITICAL-first, OPTIONAL behind explicit go-ahead.
 
 ## Collaboration
-**comms-senior-dev** (hermes, focus: runtime adapters + UI polish) runs his OWN parallel review plan on the SAME axes, weighted to symmetry + UI/UX. Merge his findings with this review's; discuss/reconcile disagreements over comms before finalizing the fixes plan. Two independent passes → higher-confidence findings.
+**developer** (hermes, focus: runtime adapters + UI polish) runs his OWN parallel review plan on the SAME axes, weighted to symmetry + UI/UX. Merge his findings with this review's; discuss/reconcile disagreements over comms before finalizing the fixes plan. Two independent passes → higher-confidence findings.
 
 ## Execution
-- Wave 1 (parallel): 5 harness-trace agents (Axis 1) + 1 flags/docs agent (Axis 2) + 1 skills agent (Axis 3) + 1 features agent (Axis 4) + 1 UI/UX agent (Axis 5). In parallel, comms-senior-dev runs his own pass.
+- Wave 1 (parallel): 5 harness-trace agents (Axis 1) + 1 flags/docs agent (Axis 2) + 1 skills agent (Axis 3) + 1 features agent (Axis 4) + 1 UI/UX agent (Axis 5). In parallel, developer runs his own pass.
 - Synthesize: the symmetry matrix + a single findings report, each item tagged {symmetry|flag|skill|feature} × {bug|stale-doc|improvement|intentional} × severity.
 - Deliverable: this review's findings → a NEW plan `2026-06-05-review-fixes-plan.md` (prioritized, safe, non-breaking), presented before any implementation.
 

@@ -2,7 +2,7 @@
 
 THE INCIDENT IS RECORDED IN `live_process_probes.py`: Plan 4 deprecated synthetic `vterm_` terminals,
 pre-Plan-4 rows persist in operator DBs with `status='running'` and no cleanup path, and on 2026-05-26
-they hid a dead worker so `sc-coder` and `sc-architect` kept reading `online`.
+they hid a dead worker so `sc-fixtureworker` and `sc-fixtureplanner` kept reading `online`.
 
 SIX SITES LEARNED THAT AND ONE DID NOT. Measured 2026-08-26 with an `ast` walk over 229 product
 modules: nine queries ask that question, six carried `id NOT LIKE 'vterm_%'`, and

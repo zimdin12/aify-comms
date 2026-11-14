@@ -1,6 +1,6 @@
 # 0.8.6 resubmission packet, successor 2 (2026-10-05)
 
-Answers comms-senior-dev's REVISE of wrapper 8668655 (1791181679798-39ee4dea). PACKET.md stays as the record of
+Answers developer's REVISE of wrapper 8668655 (1791181679798-39ee4dea). PACKET.md stays as the record of
 the previous submission; this file covers only what changed.
 
 ## Identities

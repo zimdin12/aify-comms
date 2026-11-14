@@ -17,7 +17,7 @@ function harness({ list, marker, gatewayUrl = "ws://127.0.0.1:8926/api/ws?token=
   const writes = [];
   const patches = [];
   const stop = startResumeMarkerSync({
-    agentId: "next-tech-lead",
+    agentId: "next-fixtureguide",
     intervalMs: 1_000_000, // don't let the interval re-fire; we assert the immediate tick
     tempDir: "/tmp",
     openWs: async () => ({ request: async () => list, close() {} }),
@@ -34,9 +34,9 @@ function harness({ list, marker, gatewayUrl = "ws://127.0.0.1:8926/api/ws?token=
   const { stop, writes, patches } = harness({ list: liveList, marker: "20260605_054328_DEADKEY" });
   await tick();
   stop();
-  assert.deepEqual(writes, [["next-tech-lead", "20260605_161037_c57d9a"]], "marker set to the live durable key");
+  assert.deepEqual(writes, [["next-fixtureguide", "20260605_161037_c57d9a"]], "marker set to the live durable key");
   assert.equal(patches.length, 1, "aify handle PATCHed once");
-  assert.equal(patches[0][1], "/agents/next-tech-lead/session-handle");
+  assert.equal(patches[0][1], "/agents/next-fixtureguide/session-handle");
   assert.equal(patches[0][2].sessionHandle, "20260605_161037_c57d9a");
 }
 
@@ -110,7 +110,7 @@ function harness({ list, marker, gatewayUrl = "ws://127.0.0.1:8926/api/ws?token=
 {
   let opened = 0;
   const stop = startResumeMarkerSync({
-    agentId: "next-tech-lead",
+    agentId: "next-fixtureguide",
     tempDir: "/tmp",
     openWs: async () => { opened += 1; return { request: async () => liveList, close() {} }; },
     readGatewayUrl: () => ({ gatewayUrl: "ws://127.0.0.1:8926/api/ws?token=t" }),
@@ -136,7 +136,7 @@ function harness({ list, marker, gatewayUrl = "ws://127.0.0.1:8926/api/ws?token=
 {
   let opened = 0;
   const stop = startResumeMarkerSync({
-    agentId: "next-tech-lead",
+    agentId: "next-fixtureguide",
     intervalMs: 20,
     tempDir: "/tmp",
     openWs: async () => { opened += 1; return { request: async () => liveList, close() {} }; },

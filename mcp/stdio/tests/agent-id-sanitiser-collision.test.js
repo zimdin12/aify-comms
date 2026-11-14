@@ -4,8 +4,8 @@
 // `hermes-endpoint.js::sanitizeAgentId` folds runs of anything outside `[a-zA-Z0-9_-]` into a single
 // dash. The service admits `^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$` — dots included — so:
 //
-//     team.coder  ->  team-coder
-//     team-coder  ->  team-coder      <- the same string, and a DIFFERENT agent
+//     team.fixtureworker  ->  team-fixtureworker
+//     team-fixtureworker  ->  team-fixtureworker      <- the same string, and a DIFFERENT agent
 //
 // That name keys the hermes SESSION ID marker and the loop-ready marker in %TEMP% (until 0.9.10 the
 // gateway port, key, URL and daemon PID markers too). Two colliding agents therefore share the session they
@@ -36,7 +36,7 @@ import { pinnedSessionId } from "../hermes-session-id.js";
 const SERVICE_ACCEPTS = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 //: Distinct agent ids, all admitted by the service.
-const IDS = ["team.coder", "team-coder", "team_coder", "a.b.c", "a-b-c", "lc-coder"];
+const IDS = ["team.fixtureworker", "team-fixtureworker", "team_fixtureworker", "a.b.c", "a-b-c", "lc-fixtureworker"];
 
 function groupBy(ids, keyOf) {
   const groups = new Map();
@@ -62,7 +62,7 @@ function groupBy(ids, keyOf) {
   collisions.sort(([a], [b]) => a.localeCompare(b));
   assert.deepEqual(
     collisions,
-    [["a-b-c", ["a-b-c", "a.b.c"]], ["team-coder", ["team-coder", "team.coder"]]],
+    [["a-b-c", ["a-b-c", "a.b.c"]], ["team-fixtureworker", ["team-fixtureworker", "team.fixtureworker"]]],
     "the hermes sanitiser's collision set changed. If it GREW, more pairs of distinct agents now "
       + "share a gateway port, API key, daemon pid and hermes session. If it SHRANK, the fold was "
       + "changed — which repoints marker files on disk and is the migration both modules' notes "
@@ -85,16 +85,16 @@ function groupBy(ids, keyOf) {
   // The first version of this pin listed the five TEMP markers keyed by the sanitised name and
   // said the colliding agents therefore "share the session they resume". That was an inference
   // from a filename. Sweeping every exported agent-id derivation for injectivity showed the
-  // SESSION KEY ITSELF folds — `sessionKeyFor` and `pinnedSessionId` both answer `aify-team-coder`
+  // SESSION KEY ITSELF folds — `sessionKeyFor` and `pinnedSessionId` both answer `aify-team-fixtureworker`
   // for two different agents — so the sharing is direct, not merely via a marker file.
   for (const derive of [sessionKeyFor, pinnedSessionId, loopReadyFile]) {
     assert.equal(
-      derive("team.coder"), derive("team-coder"),
+      derive("team.fixtureworker"), derive("team-fixtureworker"),
       `${derive.name} still folds two distinct agents together — pinned as a fact; if this now `
         + `differs, the sanitiser was changed and that is the migration both modules' notes describe`,
     );
     assert.notEqual(
-      derive("team_coder"), derive("team-coder"),
+      derive("team_fixtureworker"), derive("team-fixtureworker"),
       `${derive.name}: underscores must stay distinct, or the collision set is wider than pinned`,
     );
   }
@@ -102,9 +102,9 @@ function groupBy(ids, keyOf) {
 
 // ── what the fold actually does, so the pin is readable ──────────────────────────────────────
 {
-  assert.equal(hermesSanitize("team.coder"), "team-coder");
-  assert.equal(hermesSanitize("team-coder"), "team-coder");
-  assert.equal(hermesSanitize("team_coder"), "team_coder", "underscores survive, so they do not fold");
+  assert.equal(hermesSanitize("team.fixtureworker"), "team-fixtureworker");
+  assert.equal(hermesSanitize("team-fixtureworker"), "team-fixtureworker");
+  assert.equal(hermesSanitize("team_fixtureworker"), "team_fixtureworker", "underscores survive, so they do not fold");
   assert.equal(hermesSanitize("a..b"), "a-b", "a RUN of unsafe characters folds to one dash");
   assert.equal(hermesSanitize(".lead."), "lead", "leading and trailing dashes are trimmed");
   assert.equal(hermesSanitize(""), "");

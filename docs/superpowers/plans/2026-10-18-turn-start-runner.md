@@ -1,6 +1,6 @@
 # Turn-start runner: the dashboard's rules reach an agent's turn (plan, 2026-10-18)
 
-Owner: comms-tech-lead (the code is aify-wrapper's). Approved: dashboard-manager (contract), comms-senior-dev
+Owner: lead (the code is aify-wrapper's). Approved: manager (contract), developer
 (plan, at 0feaccef, with the amendments below folded in).
 
 ## The problem
@@ -16,7 +16,7 @@ exit 0. It fell out of comms' finish-0.9 plan when that was re-planned on 2026-1
 
 Historical premise: claude-aify.sh.in:835 said a turn a channel wake starts runs no `UserPromptSubmit`. **It does,
 on the current Claude Code.** The `UserPromptSubmit` hook (claude-session-hook.js) rewrote its store file 0.8 s and
-0.7 s after two channel messages woke comms-tech-lead (1792275957621 and 1792276662997), with nothing typed. The
+0.7 s after two channel messages woke lead (1792275957621 and 1792276662997), with nothing typed. The
 store file did not change during that turn's tool calls. Claude's hook documentation agrees.
 
 The same command is also registered on SessionStart, so the file's mtime is not an event-specific receipt. The live
@@ -40,7 +40,7 @@ recovery.
 3. **Codex** (`UserPromptSubmit` through `-c hooks.*`, with Codex's trust hash kept stable) and **hermes**
    (`pre_llm_call` in the aify hermes plugin, which lib/hermes-herdr-state.py already registers for state).
 
-## Contract conditions (dashboard-manager APPROVE, 2026-10-18)
+## Contract conditions (manager APPROVE, 2026-10-18)
 
 - **No `isFirstTurn`.** The runner keeps no state. The dashboard counts turns per `sessionKey` and reads an absent
   field as "the harness didn't say" (e247257, live).
@@ -57,7 +57,7 @@ recovery.
   returns a projection that drops `turnStart`. The check is that adding the field leaves that projection
   unchanged. It does not require env to carry the field.
 
-## Implementation checks (comms-senior-dev, at plan approval)
+## Implementation checks (developer, at plan approval)
 
 - The context command is synchronous, unlike the adjacent async Herdr hooks. The generated settings parse, and the
   session capture and state reporting still run.
@@ -77,7 +77,7 @@ Steps 2-6 follow in this order, never sooner:
 2. The new env holds its residents role.
 3. The runner-bearing pin is installed and the launchers re-rendered.
 4. The residents relaunch into the new hooks. A relaunch into old settings does not pick the runner up.
-5. dashboard-manager adds `turnStart` to services.json (C4).
+5. manager adds `turnStart` to services.json (C4).
 
 There is no bootstrap waiver, and no generation is deleted or refilled. The comms advisory's consumed surface gains
 `render.sh` beside `bin/`, with a witness through the real advisory query that a render-only change is reported.

@@ -351,7 +351,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
                         execution_mode, dispatch_mode, requested_at)
                     VALUES (?,?,?,?,?,?,?,?)
                     """,
-                    ("run-A", "comms-tech-lead", agent_id, "hermes", "queued", "managed", "start_if_possible", now),
+                    ("run-A", "comms-fixtureguide", agent_id, "hermes", "queued", "managed", "start_if_possible", now),
                 )
                 await db.commit()
 
@@ -391,7 +391,7 @@ class HermesVisibleTuiDeliveryTests(FastApiTestCase):
                         execution_mode, dispatch_mode, requested_at)
                     VALUES (?,?,?,?,?,?,?,?)
                     """,
-                    ("run-B", "comms-tech-lead", agent_id, "hermes", "queued", "managed", "start_if_possible", now),
+                    ("run-B", "comms-fixtureguide", agent_id, "hermes", "queued", "managed", "start_if_possible", now),
                 )
                 await db.commit()
                 await _apply_channel_routing_to_claude_runs(

@@ -18,7 +18,7 @@ import test from "node:test";
 
 import { personalQuotaLine } from "../usage-predicates.mjs";
 
-const AGENT = "sc-coder";
+const AGENT = "sc-fixtureworker";
 
 test("the warning state reaches the line -- the case that was invisible", () => {
   // Verbatim from the live payload: 21 agents looked exactly like this.

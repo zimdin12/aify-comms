@@ -6,8 +6,8 @@
 //
 // TWO LIVE INSTANCES ON 2026-08-31, both found by hand hours apart, neither visible from any status:
 //
-//   651b895f-…  comms-claude, comms-tech-lead
-//   20260715_…  guns-ab-planner, mc-senior-dev, pathweaver-activation-auditor, safety-gate-auditor
+//   651b895f-…  comms-claude, lead
+//   20260715_…  guns-ab-planner, developer, pathweaver-activation-auditor, safety-gate-auditor
 //
 // The first cost most of a working day. One Claude Code session had been re-registered under a new
 // agent id; the old row kept the same session handle with nothing heartbeating for it, so it read

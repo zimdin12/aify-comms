@@ -35,7 +35,7 @@ test("A TERMINAL'S ID, STATUS AND PID ALL REACH THE PANEL", () => {
 });
 
 test("A STOPPED ROW STILL HOLDING A PID IS SHOWN, because that is the orphan", () => {
-  // The case this panel exists for. aify-env owned a live PTY for `ef-manager` (pid 155844) while
+  // The case this panel exists for. aify-env owned a live PTY for `ef-fixtureowner` (pid 155844) while
   // every recent session read `stopped` and the dashboard showed nothing. Filtering to live rows
   // would hide exactly that, which is why the loader asks for `status=all`.
   const html = renderAgentProcesses([terminal({ status: "stopped", processId: "155844" })]);
@@ -49,12 +49,12 @@ test("THE LOADER ASKS FOR status=all, and for this agent only", () => {
   // and filtered client-side would render identically here and be wrong at fleet scale.
   const asked = [];
   const host = { innerHTML: "" };
-  return loadAgentProcesses("sc-lead", {
+  return loadAgentProcesses("sc-fixturechief", {
     api: async (path) => { asked.push(path); return { terminals: [] }; },
     byId: () => host,
   }).then(() => {
     assert.equal(asked.length, 1);
-    assert.match(asked[0], /^\/terminals\?agentId=sc-lead&status=all$/, `asked: ${asked[0]}`);
+    assert.match(asked[0], /^\/terminals\?agentId=sc-fixturechief&status=all$/, `asked: ${asked[0]}`);
   });
 });
 
@@ -99,9 +99,9 @@ test("A FAILED READ IS NOT AN EMPTY LIST", () => {
 test("the loader turns a REJECTED read into that message, and never throws", () => {
   // Everything else in the drawer is still true whether this read succeeds or not, so a rejection
   // must not take the panel's neighbours down with it.
-  drawerOn("sc-lead");
+  drawerOn("sc-fixturechief");
   const host = { innerHTML: "" };
-  return loadAgentProcesses("sc-lead", {
+  return loadAgentProcesses("sc-fixturechief", {
     api: async () => { throw new Error("network down"); },
     byId: () => host,
   }).then(() => {
@@ -137,7 +137,7 @@ test("the loader does nothing when its container is absent", () => {
   // The drawer may have been closed, or another agent selected, before the read returned. Writing
   // into a missing node is a crash; fetching for a panel nobody is looking at is waste.
   const asked = [];
-  return loadAgentProcesses("sc-lead", {
+  return loadAgentProcesses("sc-fixturechief", {
     api: async (p) => { asked.push(p); return { terminals: [] }; },
     byId: () => null,
   }).then(() => assert.deepEqual(asked, [], "it fetched for a panel that is not on screen"));
@@ -159,7 +159,7 @@ test("the container id is shared, not spelled twice", () => {
 test("A STOPPED TERMINAL SAYS WHY, from its error text", () => {
   // The half a person can act on. These are real strings from the live service.
   const html = renderAgentProcesses([terminal({
-    status: "stopped", error: 'this host is already running a worker for "sc-coder"',
+    status: "stopped", error: 'this host is already running a worker for "sc-fixtureworker"',
   })]);
   assert.match(html, /already running a worker/);
 });
@@ -335,9 +335,9 @@ test("A CLIPPED LISTING SAYS IT SHOWS ONLY THE NEWEST, rather than presenting a 
 });
 
 test("the loader hands the service's truncated flag to the panel", async () => {
-  drawerOn("sc-lead");
+  drawerOn("sc-fixturechief");
   const host = { innerHTML: "" };
-  await loadAgentProcesses("sc-lead", {
+  await loadAgentProcesses("sc-fixturechief", {
     api: async () => ({ terminals: [{ id: "t1", status: "running" }], truncated: true }),
     byId: (id) => (id === AGENT_PROCESSES_ID ? host : null),
   });

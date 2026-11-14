@@ -16,17 +16,17 @@ const PROCS = [
   { pid: 100, ppid: 11, commandLine: `claude.exe server:aify-comms-channel --resume ${HANDLE}` },
   { pid: 200, ppid: 12, commandLine: `claude.exe --model opus --resume ${HANDLE}` },
   { pid: 300, ppid: 13, commandLine: `claude.exe --resume ${OTHER}` },
-  // The INCIDENT: two agents share SHARED handle — one managed (sc-coder), one
-  // the resident operator session (comms-tech-lead).
-  { pid: 400, ppid: 14, commandLine: `claude.exe --resume ${SHARED}` }, // managed sc-coder
+  // The INCIDENT: two agents share SHARED handle — one managed (sc-fixtureworker), one
+  // the resident operator session (comms-fixtureguide).
+  { pid: 400, ppid: 14, commandLine: `claude.exe --resume ${SHARED}` }, // managed sc-fixtureworker
   { pid: 500, ppid: 15, commandLine: `claude.exe --resume ${SHARED}` }, // RESIDENT operator
 ];
 const WRAPPERS = {
-  11: `bash claude-aify --aify-agent sc-coder --auto --resume ${HANDLE}`,
-  12: `bash claude-aify --aify-agent sc-coder --auto --resume ${HANDLE}`,
+  11: `bash claude-aify --aify-agent sc-fixtureworker --auto --resume ${HANDLE}`,
+  12: `bash claude-aify --aify-agent sc-fixtureworker --auto --resume ${HANDLE}`,
   13: `bash claude-aify --aify-agent other-agent --auto --resume ${OTHER}`,
-  14: `bash claude-aify --aify-agent sc-coder --auto --resume ${SHARED}`,
-  15: `bash claude-aify --aify-agent comms-tech-lead --resume ${SHARED}`, // resident, different agent
+  14: `bash claude-aify --aify-agent sc-fixtureworker --auto --resume ${SHARED}`,
+  15: `bash claude-aify --aify-agent comms-fixtureguide --resume ${SHARED}`, // resident, different agent
 };
 const getCmdline = (pid) => WRAPPERS[pid] || "";
 
@@ -40,38 +40,38 @@ const getCmdline = (pid) => WRAPPERS[pid] || "";
 
 // 2. parentBelongsToAgent matches --aify-agent (space + = forms), with boundary.
 {
-  assert.ok(parentBelongsToAgent("bash claude-aify --aify-agent sc-coder --auto", "sc-coder"));
-  assert.ok(parentBelongsToAgent("claude-aify --aify-agent=sc-coder", "sc-coder"));
-  assert.ok(!parentBelongsToAgent("claude-aify --aify-agent sc-coder-2", "sc-coder"), "boundary: longer id must not match");
-  assert.ok(!parentBelongsToAgent("", "sc-coder"));
-  assert.ok(!parentBelongsToAgent("claude-aify --aify-agent sc-coder", ""), "empty agent never matches");
+  assert.ok(parentBelongsToAgent("bash claude-aify --aify-agent sc-fixtureworker --auto", "sc-fixtureworker"));
+  assert.ok(parentBelongsToAgent("claude-aify --aify-agent=sc-fixtureworker", "sc-fixtureworker"));
+  assert.ok(!parentBelongsToAgent("claude-aify --aify-agent sc-fixtureworker-2", "sc-fixtureworker"), "boundary: longer id must not match");
+  assert.ok(!parentBelongsToAgent("", "sc-fixtureworker"));
+  assert.ok(!parentBelongsToAgent("claude-aify --aify-agent sc-fixtureworker", ""), "empty agent never matches");
 }
 
-// 3. THE INCIDENT REGRESSION: reaping sc-coder on the SHARED handle must kill
-//    ONLY sc-coder's claude (400), never the resident operator session (500),
+// 3. THE INCIDENT REGRESSION: reaping sc-fixtureworker on the SHARED handle must kill
+//    ONLY sc-fixtureworker's claude (400), never the resident operator session (500),
 //    even though both share --resume 651b895f.
 {
   const killed = [];
   const res = reapPriorManagedClaude(SHARED, {
-    agentId: "sc-coder",
+    agentId: "sc-fixtureworker",
     list: () => PROCS,
     getCmdline,
     kill: (pid) => { killed.push(pid); return true; },
   });
-  assert.deepEqual(killed, [400], "MUST kill only sc-coder's instance, NOT the resident operator (500)");
+  assert.deepEqual(killed, [400], "MUST kill only sc-fixtureworker's instance, NOT the resident operator (500)");
   assert.deepEqual(res.killed, [400]);
   assert.ok(res.skipped.some((s) => s.pid === 500), "the resident operator session is explicitly skipped");
   assert.ok(!killed.includes(500), "NEVER kill the operator's resident session on a handle collision");
 }
 
-// 4. Normal case: reaping sc-coder on its own handle kills its managed instances.
+// 4. Normal case: reaping sc-fixtureworker on its own handle kills its managed instances.
 {
   const killed = [];
   reapPriorManagedClaude(HANDLE, {
-    agentId: "sc-coder", keepPid: 200, list: () => PROCS, getCmdline,
+    agentId: "sc-fixtureworker", keepPid: 200, list: () => PROCS, getCmdline,
     kill: (pid) => { killed.push(pid); return true; },
   });
-  assert.deepEqual(killed, [100], "kills sc-coder instances except keepPid; 200 preserved, 300/other untouched");
+  assert.deepEqual(killed, [100], "kills sc-fixtureworker instances except keepPid; 200 preserved, 300/other untouched");
 }
 
 // 5. FAIL-SAFE: no agentId → kill nothing.
@@ -86,7 +86,7 @@ const getCmdline = (pid) => WRAPPERS[pid] || "";
 {
   const killed = [];
   reapPriorManagedClaude(HANDLE, {
-    agentId: "sc-coder", list: () => PROCS, getCmdline: () => "", // parent unknown
+    agentId: "sc-fixtureworker", list: () => PROCS, getCmdline: () => "", // parent unknown
     kill: (pid) => { killed.push(pid); return true; },
   });
   assert.deepEqual(killed, [], "unconfirmable parent → not killed (fail-safe)");
@@ -94,7 +94,7 @@ const getCmdline = (pid) => WRAPPERS[pid] || "";
 
 // 7. Throwing list() degrades safely.
 {
-  const res = reapPriorManagedClaude(HANDLE, { agentId: "sc-coder", list: () => { throw new Error("ps fail"); }, getCmdline, kill: () => true });
+  const res = reapPriorManagedClaude(HANDLE, { agentId: "sc-fixtureworker", list: () => { throw new Error("ps fail"); }, getCmdline, kill: () => true });
   assert.deepEqual(res.killed, []);
 }
 

@@ -23,9 +23,9 @@ REAL_DEAD_HERMES_OUTPUT = (
     "\x1b[?9001h\x1b[?1004h\x1b[?25l\x1b[2J\x1b[m\x1b[H\x1b]0;Windows PowerShell\x07\x1b[?25h"
     "[hermes-managed-host] fatal: hermes dashboard at http://127.0.0.1:9147/ did not"
     " become ready within 60000ms: fetch failed\r\n"
-    "[hermes-aify] FATAL: managed gateway host for 'sc-architect' did not come up.\r\n"
+    "[hermes-aify] FATAL: managed gateway host for 'sc-fixtureplanner' did not come up.\r\n"
     "[hermes-aify]   (node C:\\Users\\Administrator\\.aify-comms\\mcp\\stdio\\hermes-managed-host.js"
-    " ensure-host sc-architect failed -- see the error above)\r\n"
+    " ensure-host sc-fixtureplanner failed -- see the error above)\r\n"
     "\n[terminal exited]\n"
 )
 

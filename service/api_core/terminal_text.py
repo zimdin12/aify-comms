@@ -94,7 +94,7 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     # offers the very same options ("Resume from summary / Resume full session as-is / Don't ask
     # me again"), so an agent genuinely stuck on it matched the picker signature and was
     # suppressed — it rendered as `working` while doing nothing, with no way for an operator to
-    # see why (live: lc-manager, awaiting_input=0, sitting at the dialog).
+    # see why (live: manager, awaiting_input=0, sitting at the dialog).
     #
     # The suppression existed only to compensate for reading the raw byte LOG, where answered
     # scrollback is indistinguishable from a live dialog. Status callers now pass the

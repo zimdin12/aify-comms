@@ -1,12 +1,12 @@
 """`comms_search` must find what an agent SENT, and must never stay silent about what it skipped.
 
-REPORTED BY A TEAM USING IT (sc-manager, 2026-08-10), reproduced against the live DB before any
+REPORTED BY A TEAM USING IT (sc-fixtureowner, 2026-08-10), reproduced against the live DB before any
 change:
 
     messages containing "P0-Q"                        101
     search?query=P0-Q                                   0   <- messages never searched
-    search?query=P0-Q&agentId=sc-manager                5
-    ... of the 101: TO sc-manager 49 (findable), FROM sc-manager 52 (INVISIBLE)
+    search?query=P0-Q&agentId=sc-fixtureowner                5
+    ... of the 101: TO sc-fixtureowner 49 (findable), FROM sc-fixtureowner 52 (INVISIBLE)
 
 Two separate defects, and the reporter's own hypothesis (bodies not indexed / tokenisation) was
 wrong on both counts:

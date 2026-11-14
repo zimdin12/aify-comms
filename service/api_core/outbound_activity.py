@@ -176,7 +176,7 @@ async def _get_outbound_activity_map(db, agent_ids: list[str], *, include_runs: 
     #
     #     agent with ~0 completed runs      0.004 ms
     #     sc-claude,   3,109 completed       3.84 ms median /  4.83 ms p95
-    #     sc-manager,  7,383 completed      13.19 ms median / 16.20 ms p95
+    #     manager,  7,383 completed      13.19 ms median / 16.20 ms p95
     #
     # 13 ms on a detail view someone opened deliberately is acceptable; 13 ms on a 2-second poll
     # across 42 agents is the lock class. That is the whole distinction. Reverse this decision if

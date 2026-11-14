@@ -207,7 +207,7 @@ export function makeAutoRegister({ ensureDispatchLoop, active = () => true, onAt
     } catch (error) {
       const msg = String(error?.message || error || "");
       // Phase 4 race guard: a LIVE same-mode bridge already owns this identity.
-      // RETRY, DON'T GIVE UP (2026-06-13, the sc-manager stale+deaf incident): a quick
+      // RETRY, DON'T GIVE UP (2026-06-13, the manager stale+deaf incident): a quick
       // close-and-relaunch always trips this guard — kill-prior killed the prior session
       // seconds ago, but its heartbeat lease makes it look live for up to ~150s. A
       // one-shot refusal left the session permanently unbound (mute sidecar = no inbound

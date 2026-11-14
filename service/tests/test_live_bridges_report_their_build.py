@@ -35,18 +35,18 @@ class LiveBridgesReportTheirBuildTests(FastApiTestCase):
         return {row["id"]: row for row in response.json()["bridges"]}
 
     def test_a_registered_bridge_is_listed_with_the_build_it_sent(self):
-        self._register("bc-coder", "bridge-1", "577c7ca1b2c3")
+        self._register("bc-fixtureworker", "bridge-1", "577c7ca1b2c3")
         row = self._bridges()["bridge-1"]
-        self.assertEqual((row["agentId"], row["build"]), ("bc-coder", "577c7ca1b2c3"))
+        self.assertEqual((row["agentId"], row["build"]), ("bc-fixtureworker", "577c7ca1b2c3"))
 
     def test_an_unusable_build_is_dropped_not_refused(self):
         """Self-report: a registration never fails on it, and garbage is never shown as a build."""
-        self._register("bc-coder", "bridge-1", "577c7ca; rm -rf /")
+        self._register("bc-fixtureworker", "bridge-1", "577c7ca; rm -rf /")
         self.assertEqual(self._bridges()["bridge-1"]["build"], "")
 
     def test_a_bridge_that_sent_no_build_is_listed_with_none(self):
         """So the doctor can say which bridges are too old to report, rather than skip them."""
-        self._register("bc-coder", "bridge-1", None)
+        self._register("bc-fixtureworker", "bridge-1", None)
         self.assertEqual(self._bridges()["bridge-1"]["build"], "")
 
     def test_only_live_bridges_are_listed(self):
@@ -77,10 +77,10 @@ class LiveBridgesReportTheirBuildTests(FastApiTestCase):
         """v0.7.1 review (B7). A spawn report writes a `bridge_instances` row keyed by the CLAIMER's id,
         which is aify-env's, with no build. Until the worker's own bridge registered, `/bridges` listed
         it and the doctor told the operator the new agent ran a pre-0.7 bridge and should restart."""
-        self._register("bc-coder", "bridge-1", "577c7ca1b2c3")
+        self._register("bc-fixtureworker", "bridge-1", "577c7ca1b2c3")
         now = "2099-01-01T00:00:00Z"
         self._write("INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, "
-                    "last_seen, superseded_by) VALUES ('env-bridge', 'bc-coder', 'win:host', 'claude-code', "
+                    "last_seen, superseded_by) VALUES ('env-bridge', 'bc-fixtureworker', 'win:host', 'claude-code', "
                     "'managed', ?, ?, '')", (now, now))
         self.assertIn("env-bridge", self._bridges(), "control: the row is live and listed before it is known")
         self._write("INSERT INTO environments (id, bridge_id, registered_at, last_seen) "

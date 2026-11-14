@@ -1,7 +1,7 @@
 # Post-v0.6.4 handover — what moved while I was out, and what is still open
 
 **Written 2026-09-11.** I tagged v0.6.4 at `5b55ee3b` on 2026-09-09 and went idle. Another agent
-(comms-senior-dev, "dev") worked 2026-09-10 and left seven commits plus six unlanded worktree lanes.
+(developer, "dev") worked 2026-09-10 and left seven commits plus six unlanded worktree lanes.
 This file is the ANCHOR for the whole-stack review the operator asked for: that review covers
 `5b55ee3b..HEAD`, and this is the record of what I knew when I picked the work back up.
 

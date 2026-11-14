@@ -1,6 +1,6 @@
 """A session a nested `claude` took over goes back to its own bridge, on proof that bridge is still alive.
 
-THE INCIDENT, 2026-09-26 (sc-manager). An agent ran `claude mcp list` and `claude -p` from its own shell.
+THE INCIDENT, 2026-09-26 (manager). An agent ran `claude mcp list` and `claude -p` from its own shell.
 Each child `claude` inherited the agent's identity and session id, so its aify-comms bridge registered as
 that agent with the same session handle, and the same-session relaunch rule (`same_mode_bridge_gate.py`)
 let it supersede the real bridge. The child exited seconds later, its bridge reported resident-lost as the

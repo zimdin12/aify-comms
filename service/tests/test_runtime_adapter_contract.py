@@ -8,7 +8,7 @@ THE RESUME COMMAND CARRIES AN INCIDENT. It is what the dashboard hands an operat
 session, and it MUST include `--aify-agent <id>` when the agent is known. Every turn-state path in a
 wrapper-launched session is gated on AIFY_AGENT_ID, which the wrapper only exports when the id is
 passed — so a resume command without it produces a session that registers, messages and heartbeats
-normally while its status latches forever. That is the general-manager "always working" incident,
+normally while its status latches forever. That is the general-fixtureowner "always working" incident,
 and the command the product hands out must never be the one that breaks the agent.
 """
 

@@ -49,7 +49,7 @@ class ServiceDiscoveryEndpointTests(unittest.TestCase):
     `FastApiTestCase` mounts `api_v2` under /api/v1 and nothing else, so `/ready` and `/info` — which
     the health router serves at the ROOT — 404 there. Building the app here keeps the test about the
     two handlers rather than about how the production app happens to be assembled, and it means the
-    container-manager state cannot leak into any other suite.
+    container-fixtureowner state cannot leak into any other suite.
     """
 
     def setUp(self):

@@ -2,7 +2,7 @@
 
 The sender is the request's header, never an argument. The send returns before anything claims the
 work, so every reply says what was CREATED and names who was NOT started; an agent that reads a hopeful
-ack reports a delivery that never happened (sc-manager, 2026-08-18).
+ack reports a delivery that never happened (manager, 2026-08-18).
 
 `queueIfBusy=true` forces steer off: queueing and steering are opposite delivery choices. An unset
 optional field is left out of the request, as the JS bridge's JSON leaves out `undefined`.

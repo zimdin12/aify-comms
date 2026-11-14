@@ -33,7 +33,7 @@ from service.terminal_diagnostics import is_terminal_decoration, meaningful_fail
 
 #: The real line, reconstructed from the spawn_requests row of the incident above.
 LIVE_CHROME = (
-    "← aify-comms-channel: aify-comms message received [NORMAL] sc-manager→sc-claude "
+    "← aify-comms-channel: aify-comms message received [NORMAL] sc-fixtureowner→sc-claude "
     "The non-circular part is why that matters. This team is very good at producing evidence, "
     "and every evidence activity ▰9 ✢·✢ ✶10% ✻✽✻"
 )

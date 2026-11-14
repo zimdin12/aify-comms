@@ -102,7 +102,7 @@ which therefore still writes nothing.
   tui-model/high; `-m flag-model` on the TUI beat the app-server's model. The proxy answered the TUI's
   `account/read` as an API-key account, the only rewrite, because the sealed home has no credentials and
   the TUI otherwise stops at sign-in; no turn was sent. So codex-aify puts the pairs in
-  `CODEX_APP_SERVER_CONFIG` on the app-server lines (agreed with dashboard-manager, whose MCP pairs go
+  `CODEX_APP_SERVER_CONFIG` on the app-server lines (agreed with manager, whose MCP pairs go
   below), and none when the operator's own `-m`/`--model`/`-c` gives one.
 - hermes 0.21.5 (`hermes-model-probe-result.json`; the probe that produced it is retired, last at c4cd8765,
   because hermes writes the operator's Windows User PATH and no cleanup of that proved safe): a sealed `hermes dashboard`
@@ -127,7 +127,7 @@ gateway path starts a gateway host, and the two variables are exported before th
 `--check` lines in `a-launcher-takes-defaults-from-its-definition.test.js`; aify-comms
 `tests/hermes-session-effort.test.js` and the loop's call site in `tests/hermes-managed-host.test.js`.
 
-Also pinned, from dashboard-manager's measurement on Claude Code 2.1.286 that
+Also pinned, from manager's measurement on Claude Code 2.1.286 that
 `--dangerously-load-development-channels server:x PROMPT` swallows the prompt: the word after the
 channel's value is always `--settings`, a one-value flag
 (`claude-user-arguments-are-never-a-channel-name.test.js`). It does not happen today; nothing held it.

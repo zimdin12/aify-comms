@@ -5,11 +5,11 @@
 //   1. Operator clicks Restart. This module POSTed `/sessions/{id}/control` with
 //      `body: "Session {action} requested from Dashboard Next."`.
 //   2. `session_restart.py` (deleted by D8) stored that as the spawn request's `initial_message`, with
-//      `subject = f"{action.title()} {agent_id}"` -- "Restart mc-vulkan-manager".
+//      `subject = f"{action.title()} {agent_id}"` -- "Restart mc-vulkan-fixtureowner".
 //   3. The spawn settles to `running` and `_hand_settled_spawn_to_dispatch` turns a NON-EMPTY
 //      `initial_message` into a real `type=request` message plus a dispatch run, addressed to the
 //      agent that just came up.
-//   4. The agent gets "Restart mc-vulkan-manager / Session restart requested from Dashboard Next."
+//   4. The agent gets "Restart mc-vulkan-fixtureowner / Session restart requested from Dashboard Next."
 //      as a request owing a reply, reads it as an instruction, and calls comms_restart on itself.
 //   5. Go to 2.
 //
@@ -97,12 +97,12 @@ test('there is exactly ONE control POST, which is the only reason the BULK path 
   // 2026-08-27, self-issued spawn requests (`created_by = agent_id`) arrive in SIX bursts of two or
   // three agents within 1-48 seconds, separated by 38 to 229 minutes of quiet:
   //
-  //     12:02:17 mc-senior-dev  +17s comms-senior-dev
-  //     13:07:27 mc-senior-dev  +6s  comms-senior-dev  +31s mc-vulkan-manager
-  //     13:46:08 mc-senior-dev  +13s comms-senior-dev  +48s graph-senior-dev
-  //     14:52:46 graph-senior   +2s  comms-senior-dev  +22s mc-senior-dev
-  //     18:42:23 mc-senior-dev  +1s  comms-senior-dev  +4s  graph-senior-dev
-  //     19:08:16 comms-senior   +6s  graph-senior-dev
+  //     12:02:17 mc-fixturedeveloper  +17s comms-fixturedeveloper
+  //     13:07:27 mc-fixturedeveloper  +6s  comms-fixturedeveloper  +31s mc-vulkan-fixtureowner
+  //     13:46:08 mc-fixturedeveloper  +13s comms-fixturedeveloper  +48s graph-fixturedeveloper
+  //     14:52:46 graph-senior   +2s  comms-fixturedeveloper  +22s mc-fixturedeveloper
+  //     18:42:23 mc-fixturedeveloper  +1s  comms-fixturedeveloper  +4s  graph-fixturedeveloper
+  //     19:08:16 comms-senior   +6s  graph-fixturedeveloper
   //
   // Every one of those 16 follows a dashboard restart message addressed to that SAME agent, 33 to 76
   // seconds earlier. One bulk restart reached ELEVEN agents inside 48 seconds. The remaining seven

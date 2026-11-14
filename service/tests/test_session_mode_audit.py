@@ -100,19 +100,19 @@ class SessionModeAuditTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_the_run_body_records_the_transition_as_well_as_the_event(self):
         """The run is what a timeline reader sees first; a bare id there would say nothing."""
-        await self._record(agent_id="mc-coder", current_mode="managed", new_mode="resident",
+        await self._record(agent_id="mc-fixtureworker", current_mode="managed", new_mode="resident",
                            requested_by="steven")
         run = await self._run()
-        self.assertIn("mc-coder", run["body"])
+        self.assertIn("mc-fixtureworker", run["body"])
         self.assertIn("managed->resident", run["body"])
         self.assertIn("steven", run["body"])
         self.assertEqual("session-mode-switch", run["subject"])
 
     async def test_the_run_is_attributed_from_the_requester_to_the_agent(self):
-        await self._record(agent_id="mc-coder", requested_by="steven")
+        await self._record(agent_id="mc-fixtureworker", requested_by="steven")
         run = await self._run()
         self.assertEqual("steven", run["from_agent"])
-        self.assertEqual("mc-coder", run["target_agent"])
+        self.assertEqual("mc-fixtureworker", run["target_agent"])
 
     async def test_two_switches_do_not_collide(self):
         """The id carries a millisecond stamp AND random hex; only the second half saves it here."""

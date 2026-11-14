@@ -27,8 +27,8 @@ from service.api_core.authored_failures import (
 
 
 def test_the_interrupted_reason_names_who_and_when():
-    text = turn_interrupted("comms-tech-lead", "2026-08-25T02:49:40Z")
-    assert "comms-tech-lead" in text
+    text = turn_interrupted("comms-fixtureguide", "2026-08-25T02:49:40Z")
+    assert "comms-fixtureguide" in text
     assert "2026-08-25T02:49:40Z" in text
     assert "INTERRUPTED" in text
 
@@ -60,7 +60,7 @@ def test_it_is_recognised_as_service_authored():
 
 def test_it_survives_truncation_and_prefixing():
     # Consumers prefix a run id and clip for display; both happen on the notification path.
-    full = turn_interrupted("comms-tech-lead", "2026-08-25T02:49:40Z")
+    full = turn_interrupted("comms-fixtureguide", "2026-08-25T02:49:40Z")
     assert is_service_authored(f"run_123 failed: {full}")
     assert is_service_authored(full[:60])
 

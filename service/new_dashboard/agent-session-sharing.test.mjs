@@ -6,7 +6,7 @@
 // page, unread.
 //
 // LIVE ON THIS HOST while this was written: three handles claimed by eight agents, one of them the
-// very conversation that built it (`comms-claude` and `comms-tech-lead`). The fleet-wide form is the
+// very conversation that built it (`comms-claude` and `comms-fixtureguide`). The fleet-wide form is the
 // doctor's; the per-agent form is the one that explains a symptom somebody is looking at.
 
 import assert from "node:assert/strict";
@@ -16,8 +16,8 @@ import { AGENT_SHARING_ID, renderSessionSharing, sessionSharers } from "./agent-
 
 const LIVE = {
   "comms-claude": { sessionHandle: "651b895f-a564-4d3a-8e0b-27f8429b1dd0" },
-  "comms-tech-lead": { sessionHandle: "651b895f-a564-4d3a-8e0b-27f8429b1dd0" },
-  "mc-senior-dev": { sessionHandle: "20260715_001441_960b8f" },
+  "comms-fixtureguide": { sessionHandle: "651b895f-a564-4d3a-8e0b-27f8429b1dd0" },
+  "mc-fixturedeveloper": { sessionHandle: "20260715_001441_960b8f" },
   "guns-ab-planner": { sessionHandle: "20260715_001441_960b8f" },
   "safety-gate-auditor": { sessionHandle: "20260715_001441_960b8f" },
   alone: { sessionHandle: "solo" },
@@ -27,13 +27,13 @@ const LIVE = {
 test("IT NAMES THE OTHER AGENTS CLAIMING THIS SESSION", () => {
   // POSITIVE CONTROL for everything below, which is mostly about staying silent.
   const html = renderSessionSharing(LIVE, "comms-claude");
-  assert.match(html, /comms-tech-lead/);
+  assert.match(html, /comms-fixtureguide/);
   assert.match(html, /1 other agent\b/, "the count is wrong or absent");
   assert.ok(!/comms-claude/.test(html), "it listed the agent whose drawer this is");
 });
 
 test("it counts and lists ALL of them, not just the first", () => {
-  const html = renderSessionSharing(LIVE, "mc-senior-dev");
+  const html = renderSessionSharing(LIVE, "mc-fixturedeveloper");
   assert.match(html, /2 other agents/);
   assert.match(html, /guns-ab-planner/);
   assert.match(html, /safety-gate-auditor/);
@@ -90,7 +90,7 @@ test("it accepts the ARRAY shape state.agents actually holds", () => {
   // `/agents` returns a map; `state.agents` is an array of rows carrying `id`. A function that only
   // understood one would silently answer "no sharing" for the whole fleet.
   const list = Object.entries(LIVE).map(([id, agent]) => ({ id, ...agent }));
-  assert.deepEqual(sessionSharers(list, "comms-claude"), ["comms-tech-lead"]);
+  assert.deepEqual(sessionSharers(list, "comms-claude"), ["comms-fixtureguide"]);
 });
 
 test("a missing or malformed population is not an error", () => {

@@ -27,7 +27,7 @@ PC2_KEY = "pc2-key-for-this-file-000000001"
 LAPTOP_KEY = "laptop-key-for-this-file-0000001"
 OPERATOR_KEY = "operator-key-for-this-file-0001"
 HOME = "claimer"
-REMOTE = "pc2-manager"
+REMOTE = "pc2-fixtureowner"
 
 
 class _TwoMachinesAndOneLocalAgent(FastApiTestCase):

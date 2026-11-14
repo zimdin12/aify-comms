@@ -2,7 +2,7 @@
 
 Status: **DRAFT for operator decision.** No code/rewrite on this branch; the
 build happens on a dedicated next branch after approval. Co-authored:
-`comms-tech-lead` (service/dashboard) + `comms-senior-dev-pi` (bridge/runtime/MCP
+`lead` (service/dashboard) + `developer` (bridge/runtime/MCP
 — see §6, its independent critique).
 
 ## 0. Architecture (as-is) — canonical mental model
@@ -172,9 +172,9 @@ Decision points the operator owns: (a) approve Option B; (b) framework choice;
 (c) acceptable per-step verification bar; (d) whether bulk-actions wait for the
 componentized base (recommended) or get a stopgap on the monolith.
 
-## 6. Bridge / runtime / MCP (owned by comms-senior-dev-pi)
+## 6. Bridge / runtime / MCP (owned by developer)
 
-> _Pending comms-senior-dev-pi's independent critique + this section. Working
+> _Pending developer's independent critique + this section. Working
 > position: FREEZE MCP and the HTTP API — they are the stable, tested contract;
 > rebuilding them is high-risk with no demonstrated need. Bridge/runtime
 > (`mcp/stdio`) is already modular and test-covered (28 files) and does not

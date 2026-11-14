@@ -57,7 +57,7 @@ function refusingHttpCall() {
   // which in a test process is whatever the environment happens to hold. Passing it makes the case
   // the subject of the test rather than a property of the machine it runs on.
   const result = await commsConsoleInputHandler(
-    { agentId: "sc-coder", text: "hello", from: "" },
+    { agentId: "sc-fixtureworker", text: "hello", from: "" },
     { httpCall: refusingHttpCall() },
   );
   assert.strictEqual(result.isError, true, "an id-less call was not refused");
@@ -81,7 +81,7 @@ function refusingHttpCall() {
   // no-identity case, and the server would 403 it as an unregistered caller.
   for (const blank of ["", "   ", "\t"]) {
     const result = await commsConsoleInputHandler(
-      { agentId: "sc-coder", text: "x", from: blank },
+      { agentId: "sc-fixtureworker", text: "x", from: blank },
       { httpCall: refusingHttpCall() },
     );
     // THE MESSAGE, not just `isError`. The handler wraps a throwing httpCall into an isError
@@ -102,7 +102,7 @@ function refusingHttpCall() {
   // tool genuinely uncallable, which is the thing that was reported.
   let sent = null;
   const result = await commsConsoleInputHandler(
-    { agentId: "sc-coder", text: "hello", enter: true, from: "comms-tech-lead" },
+    { agentId: "sc-fixtureworker", text: "hello", enter: true, from: "comms-fixtureguide" },
     {
       httpCall: async (method, path, body) => {
         sent = { method, path, body };
@@ -113,7 +113,7 @@ function refusingHttpCall() {
   assert.strictEqual(result.isError, undefined, text(result));
   assert.strictEqual(sent.method, "POST");
   assert.ok(sent.path.includes("/console/input"), sent.path);
-  assert.strictEqual(sent.body.from, "comms-tech-lead", "the resolved caller was not sent");
+  assert.strictEqual(sent.body.from, "comms-fixtureguide", "the resolved caller was not sent");
   assert.strictEqual(sent.body.text, "hello");
   assert.strictEqual(sent.body.enter, true);
 }
@@ -122,7 +122,7 @@ function refusingHttpCall() {
   // The identity check must not swallow the OTHER guard. Remote-mode is checked first and has its
   // own message; an id-less call in local mode should still say that, not this.
   const result = await commsConsoleInputHandler(
-    { agentId: "sc-coder", text: "x", from: "comms-tech-lead" },
+    { agentId: "sc-fixtureworker", text: "x", from: "comms-fixtureguide" },
     { httpCall: async () => ({ ok: false, message: "no console" }) },
   );
   assert.strictEqual(result.isError, true);

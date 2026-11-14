@@ -273,7 +273,7 @@ class MessageSend(BaseModel):
     requireReply: Optional[bool] = None
     clientNonce: Optional[str] = None
     #: WHERE THIS CAME FROM, IN THE SENDER'S OWN WORDS -- an endpoint and whoever to answer, e.g.
-    #: "192.168.1.50:8800, manager mp-manager".
+    #: "192.168.1.50:8800, manager manager".
     #:
     #: DECLARED, NEVER MEASURED, and the difference matters. The service cannot see a remote
     #: sender's address: measured 2026-09-21, every peer it observes is 172.27.0.1, the Docker

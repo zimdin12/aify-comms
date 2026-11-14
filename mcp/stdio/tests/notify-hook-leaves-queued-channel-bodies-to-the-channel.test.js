@@ -64,7 +64,7 @@ function runHook({ url, scratch, env = {}, session = "s-1" }) {
   const childEnv = {
     PATH: process.env.PATH, SystemRoot: process.env.SystemRoot || "",
     HOME: scratch, USERPROFILE: scratch, TEMP: scratch, TMP: scratch,
-    AIFY_COMMS_URL: url, AIFY_AGENT_ID: "lead", CLAUDE_PROJECT_DIR: scratch,
+    AIFY_COMMS_URL: url, AIFY_AGENT_ID: "fixturechief", CLAUDE_PROJECT_DIR: scratch,
     AIFY_SERVICE_REGISTRY: path.join(scratch, "no-registry.json"),
     ...env,
   };
@@ -100,7 +100,7 @@ test("every message queued and nothing claims them: a cue names them, without a 
       assert.match(first, /\(2 unread in this agent's whole inbox\)/);
       assert.match(first, /Newly queued, 2 named here/, "the cue says how many it names");
       assert.deepEqual(namedIds(first), ["m-2", "m-1"]);
-      assert.match(first, /comms_inbox\(agentId="lead"\) lists every unread message/, "the cue says how to see them all");
+      assert.match(first, /comms_inbox\(agentId="fixturechief"\) lists every unread message/, "the cue says how to see them all");
 
       assert.equal(await poll(url, scratch), "", "the same runs were named twice");
       assert.ok(namedIds(await poll(url, scratch, "s-2")).length === 2, "a new session is told again");
@@ -142,7 +142,7 @@ test("a service older than version 2 keeps every body, names nothing and moves n
       const context = await poll(old.url, scratch);
       assert.deepEqual(shownIds(context), ["m-2", "m-1"], "a body was left out though nothing was excluded");
       assert.doesNotMatch(context, /queued for this session's channel/);
-      const record = JSON.parse(fs.readFileSync(path.join(scratch, "aify-notify-seen-lead.json"), "utf8"));
+      const record = JSON.parse(fs.readFileSync(path.join(scratch, "aify-notify-seen-fixturechief.json"), "utf8"));
       assert.deepEqual([record.namedSince, record.queued], [null, 0]);
     });
   } finally {
@@ -199,7 +199,7 @@ test("a hook that overlaps a slower one names nothing, and the slower one's mark
   const fast = await standIn(population);
   try {
     await withScratch(async (scratch) => {
-      fs.writeFileSync(path.join(scratch, "aify-notify-seen-lead.json"), JSON.stringify(
+      fs.writeFileSync(path.join(scratch, "aify-notify-seen-fixturechief.json"), JSON.stringify(
         { session: "s-1", ids: ordinary.map((m) => m.id), namedSince: [stamp(1), "run-old"], queued: 1 }));
       const events = [];
       const a = poll(slow.url, scratch).then((context) => { events.push("A"); return context; });
@@ -230,12 +230,12 @@ test("a hook whose lock was taken over while it walked prints nothing and leaves
     const slow = await standIn(population, { delayMs: 200, onRequest: () => started() });
     try {
       await withScratch(async (scratch) => {
-        const recordFile = path.join(scratch, "aify-notify-seen-lead.json");
+        const recordFile = path.join(scratch, "aify-notify-seen-fixturechief.json");
         const before = JSON.stringify({ session: "s-1", ids: population.slice(1).map((m) => m.id), namedSince: null, queued: 0 });
         fs.writeFileSync(recordFile, before);
         const walk = poll(slow.url, scratch);
         await firstRequest;
-        if (takenOver) fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "999999:another-holder");
+        if (takenOver) fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), "999999:another-holder");
         const context = await walk;
         if (takenOver) {
           assert.equal(context, "", "a holder that lost its lock printed");
@@ -259,12 +259,12 @@ test("a hook whose lock was taken over writes no record even when it has nothing
     const slow = await standIn(population, { delayMs: 200, onRequest: () => started() });
     try {
       await withScratch(async (scratch) => {
-        const recordFile = path.join(scratch, "aify-notify-seen-lead.json");
+        const recordFile = path.join(scratch, "aify-notify-seen-fixturechief.json");
         const before = JSON.stringify({ session: "s-1", ids: population.map((m) => m.id), namedSince: null, queued: 5 });
         fs.writeFileSync(recordFile, before);
         const walk = poll(slow.url, scratch);
         await firstRequest;
-        if (takenOver) fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "999999:another-holder");
+        if (takenOver) fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), "999999:another-holder");
         assert.equal(await walk, "", "control: there is nothing to print");
         const after = fs.readFileSync(recordFile, "utf8");
         if (takenOver) assert.equal(after, before, "a holder that lost its lock wrote the record");
@@ -281,13 +281,13 @@ test("a lock left by a hook that has exited is taken over", async () => {
   try {
     await withScratch(async (scratch) => {
       // A pid no process holds: the largest a 32-bit count allows, never handed out in a test run.
-      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "2147483646");
+      fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), "2147483646");
       assert.match(await poll(url, scratch), /body of 1/, "a dead holder's lock silenced the agent");
-      assert.ok(!fs.existsSync(path.join(scratch, "aify-notify-lead.lock")), "the lock outlived its holder");
+      assert.ok(!fs.existsSync(path.join(scratch, "aify-notify-fixturechief.lock")), "the lock outlived its holder");
 
       // CONTROL: a lock this test process holds is a live holder, and the hook stands aside.
-      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), String(process.pid));
-      fs.rmSync(path.join(scratch, "aify-notify-seen-lead.json"), { force: true });
+      fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), String(process.pid));
+      fs.rmSync(path.join(scratch, "aify-notify-seen-fixturechief.json"), { force: true });
       urls.length = 0;
       assert.equal(await poll(url, scratch), "", "the hook ran beside a live holder");
       assert.deepEqual(urls, [], "a hook standing aside still read the inbox");
@@ -295,31 +295,31 @@ test("a lock left by a hook that has exited is taken over", async () => {
       // A fresh lock with no token yet (created, not written) or an unreadable one is an unknown holder: stand aside.
       // A pid the probe rejects (past the 32-bit range: ERR_INVALID_ARG_TYPE, not ESRCH) is unknown too.
       for (const content of ["", "not-a-pid", "2147483648:token"]) {
-        fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), content);
+        fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), content);
         urls.length = 0;
         assert.equal(await poll(url, scratch), "", `a fresh lock holding ${JSON.stringify(content)} was taken over`);
         assert.deepEqual(urls, [], `a hook beside a fresh lock holding ${JSON.stringify(content)} read the inbox`);
       }
       // A lock it cannot read (here a directory: EISDIR) is unknown, not gone.
-      fs.rmSync(path.join(scratch, "aify-notify-lead.lock"), { force: true });
-      fs.mkdirSync(path.join(scratch, "aify-notify-lead.lock"));
+      fs.rmSync(path.join(scratch, "aify-notify-fixturechief.lock"), { force: true });
+      fs.mkdirSync(path.join(scratch, "aify-notify-fixturechief.lock"));
       urls.length = 0;
       assert.equal(await poll(url, scratch), "", "an unreadable lock was taken over");
       assert.deepEqual(urls, [], "a hook beside an unreadable lock read the inbox");
-      fs.rmSync(path.join(scratch, "aify-notify-lead.lock"), { recursive: true, force: true });
-      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), "not-a-pid");
+      fs.rmSync(path.join(scratch, "aify-notify-fixturechief.lock"), { recursive: true, force: true });
+      fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), "not-a-pid");
 
       // ...until it is older than any walk, when it is taken over like any other.
       const aged = new Date(Date.now() - 10 * 60_000);
-      fs.utimesSync(path.join(scratch, "aify-notify-lead.lock"), aged, aged);
+      fs.utimesSync(path.join(scratch, "aify-notify-fixturechief.lock"), aged, aged);
       assert.match(await poll(url, scratch), /body of 1/, "an old unreadable lock silenced the agent");
-      fs.writeFileSync(path.join(scratch, "aify-notify-lead.lock"), String(process.pid));
-      fs.rmSync(path.join(scratch, "aify-notify-seen-lead.json"), { force: true });
+      fs.writeFileSync(path.join(scratch, "aify-notify-fixturechief.lock"), String(process.pid));
+      fs.rmSync(path.join(scratch, "aify-notify-seen-fixturechief.json"), { force: true });
 
       // A live pid on a lock older than LOCK_STALE_MS: a reused pid, or a holder that hung, is taken over. If that
       // holder resumes, only its best-effort ownership check stands in its way (the test above).
       const old = new Date(Date.now() - 10 * 60_000);
-      fs.utimesSync(path.join(scratch, "aify-notify-lead.lock"), old, old);
+      fs.utimesSync(path.join(scratch, "aify-notify-fixturechief.lock"), old, old);
       assert.match(await poll(url, scratch), /body of 1/, "an ancient lock silenced the agent");
     });
   } finally {

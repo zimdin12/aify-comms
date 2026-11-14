@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Tests for sessions-list.mjs — collapsing an agent's superseded session rows in the list.
 //
-// Operator report 2026-07-28: "i see multiple sc-manager sessions why? (must be a bug)".
-// Measured: sc-manager has 10 rows in agent_sessions but only ONE live. The server already hides
+// Operator report 2026-07-28: "i see multiple sc-fixtureowner sessions why? (must be a bug)".
+// Measured: sc-fixtureowner has 10 rows in agent_sessions but only ONE live. The server already hides
 // pure history (ended/completed/cancelled), so the dashboard received the live `running` row plus a
 // `stopped` row from eight weeks earlier. That stopped row is served on PURPOSE — hiding
 // stopped/failed/lost once broke comms_restart / comms_compact / the drawer's Restart-Reset-Compact,
@@ -17,13 +17,13 @@ import { collapseSupersededSessions, countSupersededSessions, sessionDisplayStat
 const S = (agentId, status, id = `${agentId}-${status}`) => ({ id, agentId, status });
 
 test('THE REPORT: an old stopped row is hidden once the agent has a live one', () => {
-  const rows = [S('sc-manager', 'running', 'live'), S('sc-manager', 'stopped', 'old')];
+  const rows = [S('sc-fixtureowner', 'running', 'live'), S('sc-fixtureowner', 'stopped', 'old')];
   assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['live']);
 });
 
 test('an agent with NO live row keeps its stopped row — Restart must still work', () => {
   // This is the case that broke last time the list hid stopped rows. It must stay visible.
-  const rows = [S('ef-tech-lead', 'stopped', 'restartable')];
+  const rows = [S('ef-fixtureguide', 'stopped', 'restartable')];
   assert.deepEqual(collapseSupersededSessions(rows).map((r) => r.id), ['restartable']);
 });
 
@@ -88,7 +88,7 @@ test('a custom agentIdOf accessor is honoured (app.js injects sessionAgentId)', 
 });
 
 test('ONE AGENT = ONE ENTRY: with no live row, only the NEWEST dead row shows', () => {
-  // The operator's model: "for me i know only one sc-manager... seeing 2 makes me misunderstand."
+  // The operator's model: "for me i know only one sc-fixtureowner... seeing 2 makes me misunderstand."
   const rows = [
     { id: 'old', agentId: 'a', status: 'stopped', lastSeen: '2026-06-02T16:10:47Z' },
     { id: 'newer', agentId: 'a', status: 'failed', lastSeen: '2026-07-20T10:00:00Z' },

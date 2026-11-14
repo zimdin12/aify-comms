@@ -42,7 +42,7 @@ REMOVED_AT = "2026-06-03T12:00:00Z"
 
 
 class _Req:
-    def __init__(self, *, restore=False, auto=True, agent_id="lc-coder"):
+    def __init__(self, *, restore=False, auto=True, agent_id="lc-fixtureworker"):
         self.agentId = agent_id
         self.restoreDeleted = restore
         self.autoRegister = auto
@@ -71,7 +71,7 @@ class TombstoneRegistrationGateTests(unittest.TestCase):
         self.assertEqual(exc.status_code, 410)
         self.assertEqual(
             str(exc.detail),
-            f"Agent 'lc-coder' was intentionally removed at {REMOVED_AT}"
+            f"Agent 'lc-fixtureworker' was intentionally removed at {REMOVED_AT}"
             + "; auto re-registration is blocked.",
         )
 
@@ -83,7 +83,7 @@ class TombstoneRegistrationGateTests(unittest.TestCase):
         self.assertEqual(exc.status_code, 410)
         self.assertEqual(
             str(exc.detail),
-            "Agent 'lc-coder' was intentionally removed. "
+            "Agent 'lc-fixtureworker' was intentionally removed. "
             + "Pass restoreDeleted=true to register this ID again.",
         )
 

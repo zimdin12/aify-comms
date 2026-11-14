@@ -130,11 +130,11 @@ test("410 from claim is terminal: teardown + exit, not swallowed", async () => {
 ```js
 test("enumerate excludes resident sessions and other-env agents", () => {
   const procs = [
-    { pid: 100, cmd: "node hermes-managed-host.js run sc-coder" },
+    { pid: 100, cmd: "node hermes-managed-host.js run coder" },
     { pid: 200, cmd: "hermes --tui --resume aify-some-resident" },
     { pid: 300, cmd: "node hermes-managed-host.js run other-team-agent" },
   ];
-  const found = enumerateManagedSurvivors({ ownedAgentIds: ["sc-coder"], listProcesses: () => procs, readMarkers: () => [] });
+  const found = enumerateManagedSurvivors({ ownedAgentIds: ["coder"], listProcesses: () => procs, readMarkers: () => [] });
   assert.deepEqual(found.deliveryLoops.map(p => p.pid), [100]);
 });
 ```

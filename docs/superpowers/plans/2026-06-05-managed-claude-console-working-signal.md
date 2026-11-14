@@ -23,14 +23,14 @@
 
 - [ ] **Step 1: Capture two real console frames as fixtures**
 
-Capture a genuine managed-claude working frame and an idle frame so the regexes are validated against real ANSI output, not invented text. With a managed claude agent live (e.g. `mp-manager`):
+Capture a genuine managed-claude working frame and an idle frame so the regexes are validated against real ANSI output, not invented text. With a managed claude agent live (e.g. `manager`):
 
 ```bash
 mkdir -p mcp/stdio/tests/fixtures/claude-console
 # While the agent is mid-turn (spinner visible):
 node -e 'import("./mcp/stdio/server.js")' >/dev/null 2>&1 || true
 # Use the console tail tool / dashboard "copy console" to dump the raw tail. If you
-# have the MCP tool wired in this session, run comms_console_tail(agentId="mp-manager")
+# have the MCP tool wired in this session, run comms_console_tail(agentId="manager")
 # and paste its raw output (including escape codes) into the file below:
 $EDITOR mcp/stdio/tests/fixtures/claude-console/working-spinner.txt
 # Repeat at the idle prompt (no turn running):

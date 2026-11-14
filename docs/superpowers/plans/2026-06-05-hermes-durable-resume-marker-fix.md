@@ -6,7 +6,7 @@
 
 **Root cause (confirmed, 2026-06-05):** The durable-key fix (`9a71b72`) corrected the *resolve* path (`resolveManagedHermesSession`, hermes-managed-host.js:2432-2468 uses `rowResumeKey` → durable key), but left the *delivery loop* untouched — its own comment admits it: *"Delivery … stays on the ephemeral sid; that split lives in the loop's waitForActiveSession, untouched here"* (line 2438). `waitForActiveSession` (hermes-managed-host.js:1086-1101) resolves the fallback session via `pickMostRecentSession` (which returns `rowRealId` — the **ephemeral** runtime id, hermes-gateway-protocol.js:280-283) and writes *that* into the resume marker via `writeMarker(id, recent, { tempDir })` (line 1097). So after every delivery the marker is re-poisoned with the ephemeral sid. On the next aify-comms restart the gateway `active_list` is empty and the SessionDB (`session.list`) is keyed by the durable `session_key`, so an ephemeral-sid marker matches no DB row → `resolveManagedHermesSession` clears it → the agent starts fresh and abandons its history.
 
-**On-disk evidence:** `/tmp/aify-hermes-session-next-senior-dev` → `5af7c19c` (8-char ephemeral sid, written 2026-06-05 05:42, *after* the deployed fix), versus the correct `/tmp/aify-hermes-session-mp-senior-dev` → `20260603_004757_8d399a` (durable `YYYYMMDD_HHMMSS_hex` key). `next-tech-lead` (the reported symptom) has a port marker but no session marker at all.
+**On-disk evidence:** `/tmp/developer` → `5af7c19c` (8-char ephemeral sid, written 2026-06-05 05:42, *after* the deployed fix), versus the correct `/tmp/developer` → `20260603_004757_8d399a` (durable `YYYYMMDD_HHMMSS_hex` key). `lead` (the reported symptom) has a port marker but no session marker at all.
 
 **Architecture:** Single-line-class fix in the bridge: in the delivery loop's fallback, keep the ephemeral id for THIS delivery (`prompt.submit`/`steer` require it) but persist the DURABLE `rowResumeKey` to the marker. Add a restart-simulating regression test. The marker is the durable resume key everywhere; the ephemeral id never touches it.
 
@@ -49,7 +49,7 @@ const wsClient = {
 };
 
 const res = await waitForActiveSession({
-  id: "next-senior-dev",
+  id: "developer",
   wanted: "",            // no bound id yet → falls into the most-recent fallback
   wsClient,
   nextId: (() => { let n = 1; return () => n++; })(),
@@ -64,7 +64,7 @@ const res = await waitForActiveSession({
 // Delivery uses the ephemeral id (correct — prompt.submit needs the live id).
 assert.equal(res.sessionId ?? res, EPHEMERAL, "delivery binds the ephemeral live id");
 // THE BUG: the marker must receive the DURABLE key, not the ephemeral id.
-const lastMarker = markerWrites.filter((w) => w[0] === "next-senior-dev").pop();
+const lastMarker = markerWrites.filter((w) => w[0] === "developer").pop();
 assert.ok(lastMarker, "a marker was written for the fallback session");
 assert.equal(lastMarker[1], DURABLE, "marker must hold the DURABLE session_key, not the ephemeral id");
 
@@ -177,7 +177,7 @@ function clientReturning(frames) {
 {
   const writes = [];
   const res = await resolveManagedHermesSession({
-    id: "next-senior-dev",
+    id: "developer",
     marker: DURABLE,
     tempDir: "/tmp",
     openClient: async () => clientReturning([emptyActiveList, dbList]),
@@ -227,7 +227,7 @@ for f in /tmp/aify-hermes-session-*; do
 done
 ```
 
-Expected: lists e.g. `/tmp/aify-hermes-session-next-senior-dev -> 5af7c19c`.
+Expected: lists e.g. `/tmp/developer -> 5af7c19c`.
 
 - [ ] **Step 2: Clear the poisoned markers so resolve re-resolves from the DB**
 
@@ -270,12 +270,12 @@ Expected: the comment line prints (the native copy now carries Task 2).
 
 - [ ] **Step 3: The restart acid-test**
 
-With a hermes agent live and bound (e.g. `next-tech-lead`), verify its marker is durable, restart aify-comms, and confirm it resumes the SAME session (no fresh):
+With a hermes agent live and bound (e.g. `lead`), verify its marker is durable, restart aify-comms, and confirm it resumes the SAME session (no fresh):
 
 ```bash
-cat /tmp/aify-hermes-session-next-tech-lead   # expect a YYYYMMDD_HHMMSS_hex durable key
+cat /tmp/lead   # expect a YYYYMMDD_HHMMSS_hex durable key
 # (operator) restart aify-comms, then:
-cat /tmp/aify-hermes-session-next-tech-lead   # expect the SAME durable key, unchanged
+cat /tmp/lead   # expect the SAME durable key, unchanged
 ```
 
 Expected: the marker stays a durable key before AND after the restart; the agent's Console resumes its prior session instead of "session not found"/fresh. Watch the gateway-host log for the resolve line:

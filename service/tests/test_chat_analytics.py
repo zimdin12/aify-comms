@@ -140,7 +140,7 @@ class ChatAnalyticsTests(FastApiTestCase):
     def test_agent_analytics_excludes_reaped_long_spans(self):
         """Regression (2026-06-19): a run that was claimed, abandoned, and force-closed by the
         24h reaper has a completed row with a ~24h claimed→finished span that is NOT work.
-        Counting it inflated 'working total' to absurd values (sc-architect showed 909h).
+        Counting it inflated 'working total' to absurd values (sc-fixtureplanner showed 909h).
         WORKED_SPAN_CEILING_SECONDS (4h) must exclude such spans — they contribute 0 — while a
         normal sub-ceiling run still counts."""
         self._register("ca-reaped")

@@ -117,7 +117,7 @@ def _render_pending_dispatch_item(
 
 
 def _build_pending_dispatch_subject(count: int, latest_subject: str) -> str:
-    # QUOTED for the same reason as the item renderer: `Restart lc-coder` as a bare subject line
+    # QUOTED for the same reason as the item renderer: `Restart coder` as a bare subject line
     # reads as a command to whoever receives this summary, and at least one agent acted on exactly
     # that. A quoted string is plainly a quotation.
     latest = _quote_untrusted_subject(latest_subject, 80)

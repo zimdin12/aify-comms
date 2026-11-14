@@ -16,8 +16,8 @@ OLD = "20260715_085656_69c4dd"
 
 
 def _launch(resume_policy: str) -> dict[str, str]:
-    agent = {"id": "acma-coder", "sessionHandle": OLD, "runtimeState": {"resumePolicy": resume_policy}}
-    terminal = {"agentId": "acma-coder", "runtime": "hermes", "sessionHandle": OLD}
+    agent = {"id": "acma-fixtureworker", "sessionHandle": OLD, "runtimeState": {"resumePolicy": resume_policy}}
+    terminal = {"agentId": "acma-fixtureworker", "runtime": "hermes", "sessionHandle": OLD}
     return managed_launch_env(terminal=terminal, agent=agent, workspace="/home/dev/projects/x", terminal_id="term_1")
 
 

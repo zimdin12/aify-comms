@@ -2,7 +2,7 @@
 
 The query used to filter only on agentId/environmentId, so it returned every historical row and
 the dashboard's Sessions rail became an accidental history dump — one entry per worker process ever
-started. mc-senior-dev showed 79 entries that were all the SAME native conversation, resumed by 75
+started. mc-fixturedeveloper showed 79 entries that were all the SAME native conversation, resumed by 75
 successive boots, which is precisely why the operator read them as duplicates.
 
 Two latent bugs rode along, and they are the reason this is a correctness fix:

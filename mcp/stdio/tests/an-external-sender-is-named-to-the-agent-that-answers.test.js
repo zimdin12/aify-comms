@@ -10,7 +10,7 @@ import { dispatchContent } from "../claude-channel-content.js";
 import { buildSystemPrompt } from "../runtimes-prompts.js";
 import { describeSender, formatInboxHeaders, formatInboxMessage } from "../tool-response-format.mjs";
 
-const ORIGIN = "192.168.1.50:8800, manager mp-manager";
+const ORIGIN = "192.168.1.50:8800, manager mp-fixtureowner";
 const EXTERNAL = {
   id: "m1", messageId: "m1", from: "agent-from-another-pc", fromRegistered: false, origin: ORIGIN,
   type: "request", subject: "hello", body: "please answer", timestamp: 1790000000000,

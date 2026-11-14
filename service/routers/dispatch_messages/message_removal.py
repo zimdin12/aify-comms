@@ -56,7 +56,7 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
     id, and a channel row triggered a `LIKE '{id}-%'` fan-out delete of every recipient copy. Message
     ids are not secret: they appear in inbox listings and in dispatch text.
 
-    Ruled by comms-senior-dev: sender-plus-operator, actor MANDATORY and service-enforced, absence
+    Ruled by developer: sender-plus-operator, actor MANDATORY and service-enforced, absence
     FAILS CLOSED. An optional actor would be theatre — an attacker simply omits it.
 
     R5-H1 (2026-08-18): the operator exemption used to be granted on the ACTOR STRING alone, so any

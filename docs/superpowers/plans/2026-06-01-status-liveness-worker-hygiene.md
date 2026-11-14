@@ -224,7 +224,7 @@ These existed only because liveness was unreliable. Remove each behind its own t
 
 ## Workstream E — Collision-proof hermes gateway ports
 
-**Why (live incident):** `comms-senior-dev` and `graph-hermes-tl` both hash to base port 9341. `resolveGatewayPort` (hermes-endpoint.js) (a) returns a persisted port without re-checking it's free/uniquely-ours, and (b) probes only against instantaneous `portFree`, so two agents resolving before either gateway binds both persist 9341 → flapping "gateway websocket connection failed". (Worked around live by pinning comms-senior-dev to 9342.)
+**Why (live incident):** `developer` and `graph-hermes-tl` both hash to base port 9341. `resolveGatewayPort` (hermes-endpoint.js) (a) returns a persisted port without re-checking it's free/uniquely-ours, and (b) probes only against instantaneous `portFree`, so two agents resolving before either gateway binds both persist 9341 → flapping "gateway websocket connection failed". (Worked around live by pinning developer to 9342.)
 
 **Design:** make a persisted/assigned port valid only if it is **bindable now AND not already claimed by another agent's port file**. On conflict, re-probe forward for a port that is both free and unclaimed, then persist. This makes assignments stable AND globally unique across agents on the host.
 

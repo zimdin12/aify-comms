@@ -28,7 +28,7 @@ const wsClient = { request: async () => activeListResponse };
 let idc = 0;
 const sessionId = await waitForActiveSession({
   wsClient,
-  agentId: "next-senior-dev",
+  agentId: "next-fixturedeveloper",
   wantId: "", // no bound id → most-recent fallback
   nextId: () => ++idc,
   tempDir: "/tmp",
@@ -47,7 +47,7 @@ const sessionId = await waitForActiveSession({
 assert.equal(sessionId, EPHEMERAL, "delivery binds the ephemeral live id");
 
 // THE FIX: the marker must receive the DURABLE session_key, not the ephemeral id.
-const lastMarker = markerWrites.filter((w) => w[0] === "next-senior-dev").pop();
+const lastMarker = markerWrites.filter((w) => w[0] === "next-fixturedeveloper").pop();
 assert.ok(lastMarker, "a marker was written for the fallback session");
 assert.equal(
   lastMarker[1],

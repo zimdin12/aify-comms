@@ -1,7 +1,7 @@
 # RuntimeAdapter — Unified Runtime Abstraction Design Spec
 
 **Status:** Draft — pending operator review
-**Author:** comms-senior-dev (Claude Opus 4.7) + operator
+**Author:** developer (Claude Opus 4.7) + operator
 **Date:** 2026-05-25
 **Related branch:** `feature/dashboard-console-mode`
 
@@ -17,7 +17,7 @@ Today's pain points (Phase 1 systematic-debugging findings):
 
 | Symptom | Root cause |
 |---|---|
-| comms-senior-dev-pi has `sessionHandle: ""` after multiple turns | `managed_via_wrapper` flow bypasses PiSession's `extractPiSessionState`; nothing else captures pi's session id back to the server |
+| developer has `sessionHandle: ""` after multiple turns | `managed_via_wrapper` flow bypasses PiSession's `extractPiSessionState`; nothing else captures pi's session id back to the server |
 | Codex dashboard Console always launches fresh (no `--resume`) | Carve-out in `api_v2.py:6952-6966` protecting against `os error 2` from a bridge-level codex resume, which doesn't actually apply to the codex-aify wrapper path |
 | `pi --model unknown` failures (now patched) | No central place defines "what is a placeholder model value" — fix landed only in pi-session.js + runtimes.js |
 | Hermes empty-runtimeConfig until config.yaml was hand-patched | The `RUNTIME_SESSION_ENV_VARS` map and the env-resolution logic live in three files; nothing enforces consistency |
@@ -453,7 +453,7 @@ Every adapter must pass:
 ## Success criteria
 
 - After Plan 1 lands and ships, opening Console on any managed-via-wrapper or resident agent that has run at least one turn produces a command with `--resume <handle>` for every runtime that supports resume.
-- `comms-senior-dev-pi` (current example of the bug) shows non-empty `sessionHandle` within 60s of its next bridge launch.
+- `developer` (current example of the bug) shows non-empty `sessionHandle` within 60s of its next bridge launch.
 - Codex dashboard Console launches with `--resume <handle>` instead of always-fresh.
 - `node --test mcp/stdio/tests/adapters/` runs to completion with all green.
 - `pytest service/tests/test_api_v2_regressions.py` runs to completion with all green.

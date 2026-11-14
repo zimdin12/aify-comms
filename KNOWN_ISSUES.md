@@ -7,34 +7,34 @@ kept as evidence. Last reviewed 2026-10-13.
 
 - Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.
 - Deferred diagnostic privacy: fatal-line forwarding to spawn_requests.error is bounded but does not redact secrets or distinguish conversation text; inherited behavior, not a privacy guarantee.
-- A send to a WORKING managed hermes can be refused "Cannot start managed hermes for this agent: a spawn for this agent is ALREADY IN FLIGHT" (sc-coder-gpt, 2026-10-06 22:30Z, twice); the message is stored, `queueIfBusy=true` queued normally. The send tried to cold-start a busy agent. Reported by sc-manager, not yet traced; the lane was also calling the HTTP API directly at the time (possible confounder). Follow-up: that lane's hermes session (~47 h, 83 context compressions) had lost the comms MCP tools ("not available in this session"), which is why it fell back to raw HTTP. A `comms_restart` without fresh context brought the worker back; whether it restored the tools is unconfirmed. A long-lived hermes session losing its MCP tools after compression is its own defect to trace.
+- A send to a WORKING managed hermes can be refused "Cannot start managed hermes for this agent: a spawn for this agent is ALREADY IN FLIGHT" (coder, 2026-10-06 22:30Z, twice); the message is stored, `queueIfBusy=true` queued normally. The send tried to cold-start a busy agent. Reported by manager, not yet traced; the lane was also calling the HTTP API directly at the time (possible confounder). Follow-up: that lane's hermes session (~47 h, 83 context compressions) had lost the comms MCP tools ("not available in this session"), which is why it fell back to raw HTTP. A `comms_restart` without fresh context brought the worker back; whether it restored the tools is unconfirmed. A long-lived hermes session losing its MCP tools after compression is its own defect to trace.
 - **A hermes TUI pane loops "gateway websocket closed (1006)" once its session is too big (upstream Hermes, a
   documented limit).** The TUI resumes through the cold path (`_resume_cold` in `tui_gateway/methods_session.py`),
   which sends the whole display history in one websocket message, and undici refuses a message over 128 MiB.
   `%LOCALAPPDATA%\hermes\logs\gui.log` shows it as `client_disconnect(code=1009, reason=Max decompressed message size
-  exceeded)`, and the TUI reports that as 1006. Seen 2026-10-20 on comms-senior-dev: a 321 MB session of 69,052
-  messages. golf-senior-dev's session was 156 MB the same day. **Only the pane is blind:** the agent keeps working
+  exceeded)`, and the TUI reports that as 1006. Seen 2026-10-20 on developer: a 321 MB session of 69,052
+  messages. developer's session was 156 MB the same day. **Only the pane is blind:** the agent keeps working
   through its gateway, and comms shows it reading and replying. Restarting it or changing its model does not help.
   The operator's ruling: do not reset or hand off the agent for this. A fix belongs in Hermes, whose desktop app
   already pages its resume (`defer_history`) where the TUI does not. Reporting it upstream is the operator's call.
-- **A hermes TUI stays disconnected when its gateway is recovered onto another port by aify-env** (comms-senior-dev,
+- **A hermes TUI stays disconnected when its gateway is recovered onto another port by aify-env** (developer,
   2026-10-26). A recovery reuses the TUI's token, and without aify-env its port (aify-wrapper b4b0d8f), so the
   TUI's retries reach the replacement. When aify-env must give a different port because the old one is busy, delivery
   recovers but the TUI keeps retrying its launch URL and shows the connection lost; a relaunch reattaches it. Kept
   deliberately: refusing that recovery would report a working agent lost.
-- A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (sc-coder-gpt, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
+- A managed hermes's own `response` came back to it as a buffered item carrying "Reply THIS turn" for that response id (coder, 2026-10-06). A reply contract should never attach to a response delivered to its sender. Reported, not yet traced.
 - **A resident claude with background shells reads `online`, not `shell`** (the operator's ask of 2026-10-01). Its
   bridge counted background work from the transcript and posted the count to comms only; since the 0.9.8 switch the
   word is aify-env's, which lists `backgroundShells` as waiting on Herdr forwarding (D10). 0.9.9 S3b deleted the
   unread count route and the reporter S2b had already unwired. Managed agents keep `shell`: aify-env reads it from
   their screen. Restoring it for residents is aify-env's (the count would have to reach its record).
-- **A usage-limited `blocked` assumes one account per runtime on the service** (dashboard-manager's 0.9.9 review,
+- **A usage-limited `blocked` assumes one account per runtime on the service** (manager's 0.9.9 review,
   F1). The pool is chosen by runtime alone (`usage_cache.usage_source_of`) and read with the service host's own
   credentials, so once that account hits its limit every agent of that runtime reads `blocked`: an agent on another
   account (its own `CLAUDE_CONFIG_DIR`) or, under the multi-PC goal, on another PC included. Harmless while each PC
   runs its own service on one account. Before agents of several accounts or PCs share a service, scope the word to
   agents on the account the pool was read for.
-- **14 of aify-wrapper's Linux-only launcher tests fail in a plain container** (dashboard-manager's 0.9.10 review).
+- **14 of aify-wrapper's Linux-only launcher tests fail in a plain container** (manager's 0.9.10 review).
   `a-launcher-holds-the-agent-lease` and `a-launcher-reports-its-runtimes-exit` drive the claude launcher, which
   exits 78 there ("no aify-comms-channel server is configured for the development route"). They fail identically
   on wrapper main and on the 0.9.10 branch, and Windows skips them, so they gate nothing until the test environment
@@ -44,7 +44,7 @@ kept as evidence. Last reviewed 2026-10-13.
 
 - **A Claude agent with the channel received one message twice** (narrowed in 0.9.14): the PostToolUse unread notice
   (`notify-check.js`) and the channel's dispatch event both carried it when it arrived mid-turn (message
-  1793142198531-dcb60c55, to comms-tech-lead). Now a Claude session on a channel route asks the inbox to leave out
+  1793142198531-dcb60c55, to lead). Now a Claude session on a channel route asks the inbox to leave out
   every message whose newest attempt for it is exactly one queued channel or resident run
   (`service/api_core/queued_for_channel.py`), and is told how many are queued, naming the newest twenty by sender and
   id, without bodies. Naming is LOSSY BY DESIGN and counted instead: the hook names each queued run once per session,
@@ -134,7 +134,7 @@ or provider API call.
 
 Removing a managed hermes agent stops its triad and deletes its record, but leaves the id's hermes session marker
 (`%TEMP%\aify-hermes-session-<id>`), loop-ready marker and the service's read history keyed by that id. Respawned
-under the same id 2026-10-05, sc-tester-gpt2's TUI resumed the removed incarnation's conversation, and its new
+under the same id 2026-10-05, tester's TUI resumed the removed incarnation's conversation, and its new
 delivery loop never completed a claim. The loop's log stayed empty, so whether the cause was these leftovers or the
 keyless loop below is unattributed. A fresh id is the workaround. Fix owed: removal clears the id's markers, and a
 loop that cannot claim says why in its log.
@@ -177,7 +177,7 @@ to matter.
   `PI_COMMAND`) for an UNDEFINED agent; with a key set it needs the operator (DECISIONS.md, 2026-10-04).
 - **Registration rewrites an undefined agent's mode, effort and usage source without the operator key.** The
   dedicated routes refuse it (DECISIONS.md, 2026-10-02), but `POST /agents` is how a bridge reports its own
-  state, and re-register is a full refresh. Found by comms-senior-dev (review of 5e2e3205). A definition-bound
+  state, and re-register is a full refresh. Found by developer (review of 5e2e3205). A definition-bound
   start takes its model and effort from its bound spec (720b4221); its usage source still comes from the
   record. 0.9 moves agent state to aify-env.
 - **A refused terminal-control report waits for the write lock.** `PATCH /terminals/controls/{id}` now judges the
@@ -189,7 +189,7 @@ to matter.
 - **The bridge's virtual-terminal control handler has had no caller since 779099d7** (`handleVirtualTerminalControl`,
   `mcp/stdio/virtual-terminals.mjs`, and four test files): dead code to remove. UNVERIFIED, not measured: a
   control queued against a virtual terminal's row may sit pending, since nothing claims that bridge id now.
-- **A hermes agent whose TUI is gone can still read online** (2026-10-05, pc-manager): its gateway host and
+- **A hermes agent whose TUI is gone can still read online** (2026-10-05, manager): its gateway host and
   delivery loop outlived the TUI, and the aify-comms bridge inside the gateway kept heartbeating as the agent.
   `managed-orphans` names the loop; `gateway-orphans` passes the gateway, whose lifetime still holds its
   record. Liveness for hermes should need the session, not the gateway's bridge: 0.9 agent state.
@@ -221,7 +221,7 @@ to matter.
   refused (`start-spec.mjs`, 422); the dashboard plugin's git skips relative entries.
 - **Every worker inherits aify-env's own environment.** `launchEnv` keeps the daemon's `process.env`, minus a
   launch's `unsetEnv`, so any key the daemon was started with reaches every agent it starts. Found by
-  dashboard-manager while designing project secrets (aify-dashboard `docs/DESIGN-SECRETS-INJECTION.md`); the
+  manager while designing project secrets (aify-dashboard `docs/DESIGN-SECRETS-INJECTION.md`); the
   dashboard's provider runner already passes its child a minimal environment. Matters when aify-env is started
   from a shell holding a key an agent should not have.
 
@@ -296,7 +296,7 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   the deploy, the service log should not say "terminal output still queued after".
 - **`test_turn_end_event_flips_managed_hermes_off_working_immediately` failed some of the reviewer's
   Linux runs.** It passed 30 of 30 serial runs here; the failure output was not available.
-- **Ten Windows process-control tests fail in comms-senior-dev's isolated harness and pass on this
+- **Ten Windows process-control tests fail in developer's isolated harness and pass on this
   host, at the same code.** That harness gives each suite a private HOME/APPDATA/TMP and sealed AIFY
   endpoints, and runs it with `subprocess.run`; whether those runs sat in a Windows Job, and with which
   limits, was not recorded and is unknown. Bridge: `a-default-argument-is-evaluated-in-production` (process enumeration
@@ -385,7 +385,7 @@ These were left on purpose:
   successful claim, rather than reading the lease's process table.
 - **Launchers rendered before v0.6.8 have no lease** until `install.sh` is re-run for that client.
 - **A terminal host started inside an agent's session keeps that session until it is restarted.**
-  Found live on 2026-09-15: a Herdr server started from comms-tech-lead's Claude Code session gave
+  Found live on 2026-09-15: a Herdr server started from lead's Claude Code session gave
   every pane that agent's id and conversation, and a bare `claude-aify` in one replaced the live
   agent. Since then only `--aify-agent` replaces, a launcher ignores an inherited session, and
   `herdr-aify` starts its server clean (aify-wrapper `lib/inherited-session.mjs`). A server started
@@ -464,10 +464,10 @@ and a recorded gateway whose own `session.active_list` is empty (no TUI). The le
 its agent; the first is reported by neither. The measurements and the chain that made a hard kill of the
 host tier orphan every gateway are in the archive.
 
-A fourth, found 2026-09-28: pc-manager's resident gateway (started 2026-09-25) carried no
+A fourth, found 2026-09-28: manager's resident gateway (started 2026-09-25) carried no
 `AIFY_AGENT_LEASE`, so it had no `HERMES_PARENT_PID` and its launcher's death stopped nothing; what
 started it without a lease is not known. Found on 2026-09-28 with no TUI (its session list was empty),
-the agent still reading `online` through the gateway's own MCP bridge; pc-manager had sent nothing
+the agent still reading `online` through the gateway's own MCP bridge; manager had sent nothing
 since 2026-09-10. Its delivery loop left no log, so which path it was on is not known. Two holes are
 closed. A connect the gateway rejects any way but "refused" (a stale token answers 403) used to be
 retried for ever; the loop now reports the agent undeliverable after a bounded run of them and ends,
@@ -518,7 +518,7 @@ pseudo-console and fails with each part removed. Close this once a live herdr pa
 `service/reconcilers/sessions.py`). For a managed session it reads `stopped` whenever the agent has no
 live console, including a session still starting that has no terminal row yet. The conditional restart
 guard (`_live_session_for`) correctly counts that session as live and refuses a second start with 409,
-so the list and the guard disagree for that window. Reproduced offline by comms-senior-dev in review of
+so the list and the guard disagree for that window. Reproduced offline by developer in review of
 fbb4776a. The guard stays as it is: weakening it to match the list would allow a double start. Fix the
 display on its own; its caller that matters is aify-env's start, which reads the list and then asks the
 guard.
@@ -595,13 +595,13 @@ aify-comms' bridge and a per-session one (`sessionInject`) alike, sees whatever 
 holds, and that would include another service's key if something exported one there. The per-session
 document itself never carries a key: aify-wrapper's `sessionMcpEntriesFor` binds each `endpointEnv` name to
 the entry's endpoint and reads no environment (lib/registry.mjs at 1498037, asserted in
-tests/session-mcp.test.js and in comms-senior-dev's review of 1498037). Measured by dashboard-manager. NOT
+tests/session-mcp.test.js and in developer's review of 1498037). Measured by manager. NOT
 traced: whether any path exports a service key into a launcher's environment today; aify-comms' own entry
 carries no `keyEnv`. One path checked: `HARNESS_EXTRA_ENV`, which every launcher exports line by line (since aify-wrapper
 0.8.1, every name but an `AIFY_` or `HARNESS_` one, in any case: external review of 0.8.1), is read by
 the four aify-wrapper templates and spelled by nothing else in aify-comms, aify-env or aify-wrapper source
 (searched 2026-10-01 for the literal name, the templates found as the positive control). That search could
-not see a generic path, and two carry it (comms-senior-dev's gap audit of 0.8, 2026-10-02): an agent
+not see a generic path, and two carry it (developer's gap audit of 0.8, 2026-10-02): an agent
 definition's `env` admits any name outside the `AIFY_` prefix, and a spawn's `envVars` any name aify does not
 own. Either is copied to the spawn's `env_vars`, kept by `managed_launch_env` under the aify-owned names,
 merged by aify-env's `launchEnv`, and exported by the launcher. So the operator's shell is not the only
@@ -611,7 +611,7 @@ applies to every MCP server Claude starts.
 
 ## What the review of 0.8's model and effort left as follow-ups (2026-10-01)
 
-comms-senior-dev's review of P6r (3ada3809 / aify-wrapper 9455583) blocked on ten findings, repaired on
+developer's review of P6r (3ada3809 / aify-wrapper 9455583) blocked on ten findings, repaired on
 next; it disclosed these beside them, not as blockers:
 
 - **Who may change an agent's effort: ruled 2026-10-02.** Steven: changing an agent's model and data is

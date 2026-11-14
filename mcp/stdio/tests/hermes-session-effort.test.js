@@ -27,7 +27,7 @@ function gateway({ sessions = live("s1"), marker = "", refuse = () => null } = {
     },
     close() {},
   });
-  const start = (opts = {}) => startSessionEffort({ agentId: "hermes-lead", effort: "high", intervalMs: 20, tempDir: "/tmp", openWs,
+  const start = (opts = {}) => startSessionEffort({ agentId: "hermes-fixturechief", effort: "high", intervalMs: 20, tempDir: "/tmp", openWs,
     readGatewayUrl: () => ({ gatewayUrl: "ws://127.0.0.1:1/api/ws?token=secret" }), readMarker: () => state.marker,
     log: (m) => state.logs.push(m), ...opts });
   const sets = () => state.sent.filter((f) => f.method === "config.set").map((f) => f.params);
@@ -65,7 +65,7 @@ function gateway({ sessions = live("s1"), marker = "", refuse = () => null } = {
     { id: "s2", session_key: "durable-s2", started_at: "2026-10-01T00:05:00Z" },
   ] } };
   const deliveryPicks = (marker) => waitForActiveSession({
-    wsClient: { request: async () => rows }, agentId: "hermes-lead", readMarker: () => marker, writeMarker: () => {},
+    wsClient: { request: async () => rows }, agentId: "hermes-fixturechief", readMarker: () => marker, writeMarker: () => {},
     nextId: () => 1, since: 0, graceMs: 0, deadlineMs: 0, sleepImpl: async () => {}, log: () => {} });
   for (const [label, marker] of [["an ephemeral marker on the older session", "s1"], ["a durable marker on the older session", "durable-s1"],
     ["a durable marker on the newer session", "durable-s2"], ["no marker", ""], ["a marker naming no live session", "gone"]]) {

@@ -6,7 +6,7 @@ for `aify-comms doctor`, not for anything. Measured against the live OpenAPI doc
 written: ten terminal paths, none of them a listing.
 
 WHAT THAT COST, the same evening. aify-env owned a live PTY, pid 155844, running
-`claude-aify --aify-agent ef-manager --auto --resume ...`. The control plane's terminal row for that
+`claude-aify --aify-agent ef-fixtureowner --auto --resume ...`. The control plane's terminal row for that
 pid read `stopped`; all 80 most recent sessions read `stopped`; the agent read `available` with a
 fresh `lastSeen`, because the orphan was heartbeating on its own behalf. The operator saw a process on
 one screen and nothing on the other and asked for exactly this: "aify-env side running process

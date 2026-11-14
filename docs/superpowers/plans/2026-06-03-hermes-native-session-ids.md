@@ -4,7 +4,7 @@
 
 **Goal:** Make resident hermes use its **own native session id** as the `sessionHandle` (symmetric with claude's UUID / codex's thread id), eliminate the synthetic `aify-<agentId>` session, and let `comms_register` be a first-class on-ramp by always bringing up the WebSocket gateway-host.
 
-**Why:** The synthetic `aify-<agentId>` session is the source of most hermes fragility this project hit (placeholder gateway URL, cwd-keyed marker collisions, `--aify-agent` vs `--resume` confusion, "wtf is aify-mp-senior-dev"), and it's asymmetric — only hermes invents a name; claude/codex store the real session. Native ids make `sessionHandle` mean the same thing everywhere and remove the pre-seed/rename dance.
+**Why:** The synthetic `aify-<agentId>` session is the source of most hermes fragility this project hit (placeholder gateway URL, cwd-keyed marker collisions, `--aify-agent` vs `--resume` confusion, "wtf is developer"), and it's asymmetric — only hermes invents a name; claude/codex store the real session. Native ids make `sessionHandle` mean the same thing everywhere and remove the pre-seed/rename dance.
 
 **Architecture:** `hermes-aify` always starts a per-agent WebSocket gateway-host (`hermes dashboard --tui`) and attaches the visible TUI to it. Identity is bound at launch (`--aify-agent X` → resume X's stored real session id, or fresh first time) OR mid-session (`comms_register(X)` captures the current real session id). The delivery loop targets the agent's session by its **stored real id**, not a derived `aify-<id>` key. WS primitives (`prompt.submit` / `session.steer` / `session.interrupt`) give deliver/steer/interrupt; queue stays aify-side.
 

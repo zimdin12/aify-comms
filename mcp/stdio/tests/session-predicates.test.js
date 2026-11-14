@@ -68,15 +68,15 @@ test("absent, empty and non-string values are inactive rather than throwing", ()
 
 test("a resident with an id AND channels does NOT need its own loop", () => {
   // The channel wakes it; a second poller is redundant work against the service.
-  assert.equal(localAgentNeedsDispatchHosting({ agentId: "sc-lead", channelsEnabled: true }), false);
+  assert.equal(localAgentNeedsDispatchHosting({ agentId: "sc-fixturechief", channelsEnabled: true }), false);
 });
 
 test("EVERY OTHER COMBINATION NEEDS ONE, because nothing else would wake it", () => {
   for (const args of [
-    { agentId: "sc-lead", channelsEnabled: false },
+    { agentId: "sc-fixturechief", channelsEnabled: false },
     { agentId: "", channelsEnabled: true },
     { agentId: "   ", channelsEnabled: true },
-    { agentId: "sc-lead" },
+    { agentId: "sc-fixturechief" },
     {},
     undefined,
   ]) {
@@ -92,7 +92,7 @@ test("channels must be LITERALLY true, not merely truthy", () => {
   // meaning what it says; the predicate compares identity for that reason.
   for (const channelsEnabled of ["true", "1", 1, {}]) {
     assert.equal(
-      localAgentNeedsDispatchHosting({ agentId: "sc-lead", channelsEnabled }), true,
+      localAgentNeedsDispatchHosting({ agentId: "sc-fixturechief", channelsEnabled }), true,
       `a ${typeof channelsEnabled} was accepted as channels being enabled`,
     );
   }

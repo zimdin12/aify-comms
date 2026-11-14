@@ -4,8 +4,8 @@
 > `service/new_dashboard/` and its tests for current behavior, and `AGENTS.md` for the
 > canonical six-state status/lifecycle contract.
 
-Status: **HISTORICAL GATE.** Co-owned: comms-tech-lead (service/dashboard) +
-comms-senior-dev (driving the slices). Derived from
+Status: **HISTORICAL GATE.** Co-owned: lead (service/dashboard) +
+developer (driving the slices). Derived from
 [DASHBOARD_ARCHITECTURE_PLAN.md](DASHBOARD_ARCHITECTURE_PLAN.md) and the
 2026-05 codebase analysis. The old dashboard remains **authoritative and
 default** until a flow passes its assertions here.

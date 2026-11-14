@@ -22,30 +22,30 @@ import { spawnRecordLineage } from './inspector-forms.mjs';
 
 // Verbatim from `spawn_requests` on the operator's live database, 2026-08-26T18:41-18:42Z. Keeping the
 // real pair means this test fails if the shape it was built from is ever misread again.
-const OPERATOR_START = { agentId: 'mc-senior-dev', createdBy: 'dashboard', createdAt: '2026-08-26T18:41:33Z' };
-const SELF_RESTART = { agentId: 'mc-senior-dev', createdBy: 'mc-senior-dev', createdAt: '2026-08-26T18:42:23Z' };
+const OPERATOR_START = { agentId: 'mc-fixturedeveloper', createdBy: 'dashboard', createdAt: '2026-08-26T18:41:33Z' };
+const SELF_RESTART = { agentId: 'mc-fixturedeveloper', createdBy: 'mc-fixturedeveloper', createdAt: '2026-08-26T18:42:23Z' };
 
 test('the operator start and the self-restart are told apart', () => {
   assert.equal(spawnRecordLineage(OPERATOR_START).requestedBy, 'dashboard');
   assert.equal(spawnRecordLineage(OPERATOR_START).selfRequested, false);
 
-  assert.equal(spawnRecordLineage(SELF_RESTART).requestedBy, 'mc-senior-dev');
+  assert.equal(spawnRecordLineage(SELF_RESTART).requestedBy, 'mc-fixturedeveloper');
   assert.equal(spawnRecordLineage(SELF_RESTART).selfRequested, true);
 });
 
 test('a third party is named, not folded into either bucket', () => {
-  // Real row: comms-tech-lead spawned comms-senior-dev at 15:23:16Z. Neither the operator nor the
+  // Real row: comms-fixtureguide spawned comms-fixturedeveloper at 15:23:16Z. Neither the operator nor the
   // agent itself, and reporting it as either would be a lie about who is driving the fleet.
-  const byPeer = spawnRecordLineage({ agentId: 'comms-senior-dev', createdBy: 'comms-tech-lead' });
-  assert.equal(byPeer.requestedBy, 'comms-tech-lead');
+  const byPeer = spawnRecordLineage({ agentId: 'comms-fixturedeveloper', createdBy: 'comms-fixtureguide' });
+  assert.equal(byPeer.requestedBy, 'comms-fixtureguide');
   assert.equal(byPeer.selfRequested, false);
 });
 
 test('snake_case rows work too', () => {
   // `/spawn-requests` is read through a serialiser that has flattened both ways in this file's
   // history; the sibling fields here are already read both ways for that reason.
-  const r = spawnRecordLineage({ agent_id: 'sc-coder', created_by: 'sc-coder' });
-  assert.equal(r.requestedBy, 'sc-coder');
+  const r = spawnRecordLineage({ agent_id: 'sc-fixtureworker', created_by: 'sc-fixtureworker' });
+  assert.equal(r.requestedBy, 'sc-fixtureworker');
   assert.equal(r.selfRequested, true);
 });
 
@@ -60,19 +60,19 @@ test('an unrecorded requester is not reported as a self-request', () => {
 });
 
 test('whitespace does not hide a self-request', () => {
-  assert.equal(spawnRecordLineage({ agentId: ' sc-coder ', createdBy: 'sc-coder' }).selfRequested, true);
+  assert.equal(spawnRecordLineage({ agentId: ' sc-fixtureworker ', createdBy: 'sc-fixtureworker' }).selfRequested, true);
 });
 
 test('the lineage fields it already carried are unchanged', () => {
   // The panel's original job. Adding a field must not disturb the vocabulary fix that preceded it.
   const compaction = {
-    agentId: 'mc-senior-dev',
-    createdBy: 'mc-senior-dev',
-    spawnSpec: { metadata: { compactMode: 'handoff', compactedFromAgentId: 'mc-senior-dev', compactedFromSessionId: 's-9' } },
+    agentId: 'mc-fixturedeveloper',
+    createdBy: 'mc-fixturedeveloper',
+    spawnSpec: { metadata: { compactMode: 'handoff', compactedFromAgentId: 'mc-fixturedeveloper', compactedFromSessionId: 's-9' } },
   };
   const r = spawnRecordLineage(compaction);
   assert.equal(r.mode, 'Compact');
-  assert.equal(r.fromAgentId, 'mc-senior-dev');
+  assert.equal(r.fromAgentId, 'mc-fixturedeveloper');
   assert.equal(r.fromSessionId, 's-9');
   assert.equal(r.selfRequested, true);
 });

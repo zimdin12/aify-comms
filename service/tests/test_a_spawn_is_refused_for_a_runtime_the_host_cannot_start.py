@@ -406,7 +406,7 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
 class TheColdStartRefusalCarriesTheReasonTests(unittest.TestCase):
     """The path two real agents are on.
 
-    `graph-tester-pi` and `comms-senior-dev-pi` are managed, offline and bound to no environment, so a
+    `graph-fixtureprobe-pi` and `comms-fixturedeveloper-pi` are managed, offline and bound to no environment, so a
     send to either falls back to "pick any online environment that advertises the runtime". That
     fallback used to pick the Windows environment -- which claimed pi was available while `pi-aify` is
     not installed -- and the cold start then failed somewhere else entirely. The environment is now

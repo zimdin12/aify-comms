@@ -38,7 +38,7 @@ def run(**over):
         "status": "completed",
         "subject": "Ship the thing",
         "from_agent": "manager-bot",
-        "target_agent": "sc-coder",
+        "target_agent": "sc-fixtureworker",
         "message_id": "msg-1",
         "summary": "did the thing",
         "error_text": "",

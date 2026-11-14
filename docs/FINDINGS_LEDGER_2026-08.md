@@ -47,7 +47,7 @@ or read at the wrong time or without scoping.*
 | M2 | MED | Roster cache omits `config_defect`/`spawn_starting` → false-available on the primary path | **RULED, NOT YET FIXED** — same slice as 10a | `status_inputs.py:533` |
 | 12 Lows | LOW | Divergent `_ANSI_RE`, `environment_claim` CAS unverified, unfenced `run_tools` render, … | **PARKED** — own packet | — |
 
-### comms-senior-dev's rulings, verbatim in substance
+### developer's rulings, verbatim in substance
 
 - **H1 — do (b) NOW, defer (a).** Delete the claim-created receipts on every fail/requeue/cancel path
   where the target never started a turn; that is the release-lane fix. Moving the write to
@@ -86,7 +86,7 @@ to make explicitly rather than mine to assume.
 
 ## Open, ranked — what to do next
 
-1. **#10a/#10b — the delivery bug. Needs an operator + comms-senior-dev ruling before any code moves.**
+1. **#10a/#10b — the delivery bug. Needs an operator + developer ruling before any code moves.**
    This is the only item with field evidence of ongoing harm (14 of 17 sampled agents deaf, 59
    messages stranded, read-gaps 5–61 days). It is not one bug:
    - The claim-without-turn-start path is real and the backstop names it

@@ -335,7 +335,7 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         self.assertEqual(self.ok(self.push("s1", 2, []))["outcome"], "applied", "returned to the older store")
 
     def test_the_agent_list_and_detail_carry_the_definition(self):
-        """What dashboard-manager mirrors (D13): state, owner machine, store, lifetime and revision."""
+        """What dashboard-fixtureowner mirrors (D13): state, owner machine, store, lifetime and revision."""
         self.client.post("/api/v1/agents", json={"agentId": "plain", "role": "coder"}).raise_for_status()
         self.ok(self.push("s1", 1, [valid("coder", incarnation=2, revision=5), valid("gone")]))
         self.ok(self.push("s1", 2, [valid("coder", incarnation=2, revision=5)]))

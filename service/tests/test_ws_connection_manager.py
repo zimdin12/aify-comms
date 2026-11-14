@@ -72,8 +72,8 @@ class ConnectionManagerTests(unittest.TestCase):
 
     def test_an_agent_socket_is_reachable_by_id(self):
         ws = FakeWebSocket("a")
-        run(self.manager.connect(ws, "lc-coder"))
-        self.assertEqual(self.manager.online_agents(), {"lc-coder"})
+        run(self.manager.connect(ws, "lc-fixtureworker"))
+        self.assertEqual(self.manager.online_agents(), {"lc-fixtureworker"})
 
     def test_a_connection_with_no_agent_id_is_counted_but_anonymous(self):
         """The dashboard connects without an agent id. It must receive broadcasts and must not
@@ -87,7 +87,7 @@ class ConnectionManagerTests(unittest.TestCase):
         written to on every broadcast, and a dead socket in the map makes an offline agent look
         online forever."""
         ws = FakeWebSocket("a")
-        run(self.manager.connect(ws, "lc-coder"))
+        run(self.manager.connect(ws, "lc-fixtureworker"))
         self.manager.disconnect(ws)
         self.assertEqual(self.manager.active_count(), 0)
         self.assertEqual(self.manager.online_agents(), set())
@@ -109,7 +109,7 @@ class ConnectionManagerTests(unittest.TestCase):
     def test_a_broadcast_reaches_every_connection_in_the_documented_envelope(self):
         a, b = FakeWebSocket("a"), FakeWebSocket("b")
         run(self.manager.connect(a))
-        run(self.manager.connect(b, "lc-coder"))
+        run(self.manager.connect(b, "lc-fixtureworker"))
         run(self.manager.broadcast("terminal_output", {"terminalId": "t-1"}))
         for ws in (a, b):
             self.assertEqual(len(ws.sent), 1, f"{ws.name} missed the broadcast")
@@ -156,7 +156,7 @@ class ConnectionManagerTests(unittest.TestCase):
         self.assertEqual(third.events(), ["terminal_output"])
 
     def test_broadcasting_with_no_connections_is_a_no_op(self):
-        run(self.manager.broadcast("agent_status", {"agentId": "lc-coder"}))
+        run(self.manager.broadcast("agent_status", {"agentId": "lc-fixtureworker"}))
         self.assertEqual(self.manager.active_count(), 0)
 
     # ── notify_agent ─────────────────────────────────────────────────────────────────────────
@@ -169,9 +169,9 @@ class ConnectionManagerTests(unittest.TestCase):
         # against exactly that. Verified by mutation.
         other = FakeWebSocket("other")
         target = FakeWebSocket("target")
-        run(self.manager.connect(other, "lc-tester"))
-        run(self.manager.connect(target, "lc-coder"))
-        run(self.manager.notify_agent("lc-coder", "message", {"id": "m-1"}))
+        run(self.manager.connect(other, "lc-fixtureprobe"))
+        run(self.manager.connect(target, "lc-fixtureworker"))
+        run(self.manager.notify_agent("lc-fixtureworker", "message", {"id": "m-1"}))
         self.assertEqual(json.loads(target.sent[0]), {"event": "message", "data": {"id": "m-1"}})
         self.assertEqual(other.sent, [], "another agent was woken for someone else's message")
 
@@ -181,15 +181,15 @@ class ConnectionManagerTests(unittest.TestCase):
 
     def test_a_failed_notify_disconnects_the_agent(self):
         dead = FakeWebSocket("dead", fail_after=0)
-        run(self.manager.connect(dead, "lc-coder"))
-        run(self.manager.notify_agent("lc-coder", "message"))
+        run(self.manager.connect(dead, "lc-fixtureworker"))
+        run(self.manager.notify_agent("lc-fixtureworker", "message"))
         self.assertEqual(self.manager.online_agents(), set())
         self.assertEqual(self.manager.active_count(), 0)
 
     def test_notify_with_no_data_carries_an_object_too(self):
         ws = FakeWebSocket("a")
-        run(self.manager.connect(ws, "lc-coder"))
-        run(self.manager.notify_agent("lc-coder", "dispatch_queued"))
+        run(self.manager.connect(ws, "lc-fixtureworker"))
+        run(self.manager.notify_agent("lc-fixtureworker", "dispatch_queued"))
         self.assertEqual(json.loads(ws.sent[0]), {"event": "dispatch_queued", "data": {}})
 
 

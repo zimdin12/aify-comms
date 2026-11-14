@@ -1,4 +1,4 @@
-# P6r2: the repair of comms-senior-dev's REVISE of P6r (2026-10-01)
+# P6r2: the repair of developer's REVISE of P6r (2026-10-01)
 
 The review bound comms 3ada3809 and aify-wrapper 9455583 and blocked on ten findings
 (`C:/Users/Administrator/AppData/Local/hermes/cache/scratch/9455583-3ada3809-P6r-review/PARENT-REVIEW.md`).

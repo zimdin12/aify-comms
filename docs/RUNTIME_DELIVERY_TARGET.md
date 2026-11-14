@@ -1,7 +1,7 @@
 # Runtime Delivery — Target Architecture
 
 Status: **TARGET MODEL — DELIVERED ACROSS ALL RUNTIMES (2026-05-25).**
-Captured from operator + comms-senior-dev-pi conversation (2026-05-20).
+Captured from operator + developer conversation (2026-05-20).
 Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 (correctness gate) and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md)
 (UX direction).
@@ -93,11 +93,11 @@ refactor. Surviving items:
 
 ## Lane split
 
-- **Runtime/bridge convergence to this target** — comms-senior-dev-pi
-  (with comms-senior-dev where it touches service). Their lane: items
+- **Runtime/bridge convergence to this target** — developer
+  (with developer where it touches service). Their lane: items
   1–5 above, against `mcp/stdio/`, runtime wrappers, and the
   service-side status aggregator.
-- **Dashboard adoption** — comms-tech-lead + comms-senior-dev. The
+- **Dashboard adoption** — lead + developer. The
   dashboard side does NOT block on the runtime migration. As wrappers
   start emitting explicit status events, the F2 canonical resolver
   reads them through the same path; no UI redesign required. Per-flow

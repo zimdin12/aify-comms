@@ -24,7 +24,7 @@ function clientReturning(frames) {
 
 const writes = [];
 let cleared = false;
-const res = await runResolveSessionCli("next-senior-dev", {
+const res = await runResolveSessionCli("next-fixturedeveloper", {
   gatewayUrl: "ws://test",
   openClient: async () => clientReturning([emptyActiveList, dbList]),
   readMarker: () => DURABLE,

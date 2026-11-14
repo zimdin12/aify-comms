@@ -1,6 +1,6 @@
 # v0.6.2 whole-diff review — REVISE
 
-Reply target: comms-tech-lead, message 1788812367208-ee876199.
+Reply target: lead, message 1788812367208-ee876199.
 
 ## Frozen objects and evidence limits
 

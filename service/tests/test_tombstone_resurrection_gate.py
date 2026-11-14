@@ -37,7 +37,7 @@ AFTER = "2026-06-03T13:00:00Z"
 
 
 class _Req:
-    def __init__(self, *, restore=True, auto=True, started=None, agent_id="lc-coder"):
+    def __init__(self, *, restore=True, auto=True, started=None, agent_id="lc-fixtureworker"):
         self.agentId = agent_id
         self.restoreDeleted = restore
         self.autoRegister = auto
@@ -72,7 +72,7 @@ def _run(req, tombstone):
 
 
 def _tombstone(removed_at=REMOVED_AT):
-    return _Tombstone(agent_id="lc-coder", removed_at=removed_at)
+    return _Tombstone(agent_id="lc-fixtureworker", removed_at=removed_at)
 
 
 class TombstoneResurrectionGateTests(unittest.TestCase):
@@ -123,7 +123,7 @@ class TombstoneResurrectionGateTests(unittest.TestCase):
         sql, params = db.executed[0]
         self.assertIn("DELETE FROM agent_tombstones", sql)
         self.assertIn("COLLATE NOCASE", sql, "the clear must match the case-insensitive lookup")
-        self.assertEqual(params, ("lc-coder",))
+        self.assertEqual(params, ("lc-fixtureworker",))
 
     def test_an_explicit_operator_restore_is_honoured_however_old_the_bridge(self):
         """`autoRegister=false` is a person asking, not a stale beat."""

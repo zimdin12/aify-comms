@@ -25,7 +25,7 @@ def test_ignores_ordinary_errors():
         assert not _is_provider_rate_limit_error(s), s
 
 
-def _row(error_text, target="next-senior-dev", frm="cms-manager", status="failed"):
+def _row(error_text, target="next-fixturedeveloper", frm="cms-fixtureowner", status="failed"):
     return {
         "status": status, "from_agent": frm, "target_agent": target,
         "error_text": error_text, "summary": "",
@@ -34,7 +34,7 @@ def _row(error_text, target="next-senior-dev", frm="cms-manager", status="failed
 
 def test_rate_limit_failure_body_is_actionable_and_names_the_agent():
     body = _auto_handoff_body_for_run(_row("API Error: Server is temporarily limiting requests"))
-    assert "next-senior-dev" in body
+    assert "next-fixturedeveloper" in body
     assert "retry" in body.lower()
     assert "rate-limit" in body.lower() or "usage" in body.lower()
 

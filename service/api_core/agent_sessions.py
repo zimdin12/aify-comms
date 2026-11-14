@@ -120,7 +120,7 @@ async def _session_handle_live_owner(db, handle: str, *, exclude_agent_id: str, 
 
     Cross-agent session-id collision guard (root cause of the 2026-05-31
     incident): a runtime session id must be owned by at most ONE live agent.
-    When graph-tech-lead (a managed launch) adopted comms-tech-lead's live
+    When lead (a managed launch) adopted lead's live
     resident session id 651b895f, the kill-prior reaper then turned that
     collision fatal. This detects the collision at the source — before a handle
     is adopted — so it can be parked instead of bound.
@@ -236,7 +236,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
 
 async def _adopt_live_resident_driver(db, agent_id: str) -> bool:
     """SELF-HEAL for the launch-terminal-first / switch-second ordering (2026-06-12,
-    sc-manager strand): a channel sidecar claiming/beating for a RESIDENT-mode agent with
+    manager strand): a channel sidecar claiming/beating for a RESIDENT-mode agent with
     driver_state != 'driving' is only a DISPLACED MANAGED driver when no live resident
     session exists. When a FRESH resident bridge row is beating, this sidecar IS that live
     resident session's own delivery path — the operator launched the resident terminal

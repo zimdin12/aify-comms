@@ -45,10 +45,10 @@ Additionally, the wrapper should emit a more visible warning when it falls back 
 - `service/routers/api_v2.py:260` defines `_CHANNEL_MANAGED_RUNTIMES = {"claude-code"}` — the whitelist of runtimes whose bridges may claim `execution_mode='channel'`.
 - `service/routers/api_v2.py:11163` gates each claim: `channel_claim = agent_runtime in _CHANNEL_MANAGED_RUNTIMES and "channel" in supported_modes`. Codex/hermes/pi bridges are rejected even if they ask for "channel".
 - `mcp/stdio/dispatch-execution.js:13-41` returns `[]` for `sessionMode='managed'` + wrapper-backed (line 22-31 explicitly excludes wrapper-backed from the managed branch). The bridge never even requests "channel" in its claim poll.
-- Live evidence: `dispatch_runs.run_1779737289805_4ad68eb5` for graph-senior-dev (codex managed): `status=queued, execution_mode=channel, claim_bridge_id=''`. The bridge `4fc0e4a2-...` for graph-senior-dev is alive (last_seen 19:47:51 Z) but never claims this run.
+- Live evidence: `dispatch_runs.run_1779737289805_4ad68eb5` for developer (codex managed): `status=queued, execution_mode=channel, claim_bridge_id=''`. The bridge `4fc0e4a2-...` for developer is alive (last_seen 19:47:51 Z) but never claims this run.
 
 Plan 4 set the server route but not the bridge claim. Three symptoms collapse here:
-- Bug 2 (graph-senior-dev no answer)
+- Bug 2 (developer no answer)
 - Bug 3 (pi managed never answers)
 - Bug 4 (hermes managed never answers)
 
@@ -73,7 +73,7 @@ Architectural property: the bridge running inside a wrapper-backed managed PTY i
 - BUT the resulting status is written to `agent_live_state` and the cache's `refresh_after` (line 2454-2462) is keyed off heartbeat freshness via `_status_refresh_after(agent_last_seen, env_last_seen, ...)` — NOT worker presence.
 - When the wrapper PTY exits but a parallel heartbeat keeps the agent alive (e.g., the operator's claude-aify session's bridge polling on its own), `refresh_after` stays in the future and the cache is never re-validated.
 - `_refresh_expired_agent_live_states` at `api_v2.py:2760` recomputes only when `refresh_after <= now`. With fresh heartbeats, `refresh_after` is always in the future. Stale `status='online'` persists indefinitely.
-- Live evidence: graph-senior-dev `agent_live_state.terminal_id=''` but `status='online'` (`updated_at=19:29:10 Z`, `refresh_after=19:30:28 Z` was 18+ min ago — past but still no re-validation triggered on the actual read).
+- Live evidence: developer `agent_live_state.terminal_id=''` but `status='online'` (`updated_at=19:29:10 Z`, `refresh_after=19:30:28 Z` was 18+ min ago — past but still no re-validation triggered on the actual read).
 
 Implementer of Plan 4 Task 10 claimed "the live-state cache already implements Plan 4 status taxonomy correctly." That claim is false — they only patched the db-less fallback path.
 
@@ -96,7 +96,7 @@ This is a single check at the API boundary — cheap and self-correcting on ever
 
 ## Success criteria
 
-- `comms_send` from one agent to `graph-senior-dev` (codex managed) gets a real answer back in chat.
+- `comms_send` from one agent to `developer` (codex managed) gets a real answer back in chat.
 - Same for any pi-managed and any hermes-managed agent (assuming hermes has API keys — config issue is the operator's, not ours).
 - Operator launches a fresh `hermes-aify` after the install fix: `AIFY_HERMES_GATEWAY_URL` is set in the hermes shell env; `comms_agent_info <hermes-resident>` reports `wakeMode='hermes-live'`.
 - Dashboard agent list does NOT show `online` for any managed agent that has no live `terminal_sessions` row.
@@ -120,7 +120,7 @@ This is a single check at the API boundary — cheap and self-correcting on ever
 - B4. Implement: extend `_CHANNEL_MANAGED_RUNTIMES` in `api_v2.py` to include codex/hermes/pi.
 - B5. (TDD) failing controller test: when channel-claim returns for codex managed wrapper-backed, the controller route lands on `CodexLegacyController` (or whichever existing controller does the inject — implementer's recon decision).
 - B6. Implement: ensure `controllers/codex-controller.js`, `controllers/hermes-controller.js`, `controllers/pi-controller.js` route `executionMode='channel' + sessionMode='managed' + wrapper-backed` to the same inject path they already use for resident-channel.
-- B7. Smoke: rebuild container, hand-send a message to graph-senior-dev, verify response.
+- B7. Smoke: rebuild container, hand-send a message to developer, verify response.
 
 **Section C — `has_live_worker` gate in read path:**
 - C1. (TDD) failing test: `GET /api/v1/agents` for a managed agent with no live `terminal_sessions` row returns `status != 'online'` even when `agent_live_state.status='online'` is cached.
@@ -129,7 +129,7 @@ This is a single check at the API boundary — cheap and self-correcting on ever
 
 **Section D — Holistic review + docs:**
 - D1. Run full python + js test suites.
-- D2. Dispatch code-reviewer subagent across the full Plan 5 diff.
+- D2. Dispatch reviewer subagent across the full Plan 5 diff.
 - D3. Update `DECISIONS.md` with the three root cause writeups + fix rationale (so future-me doesn't re-introduce these gaps).
 - D4. Update `.claude/skills/aify-comms-debug/SKILL.md` with detection recipes for each (so a debug-skill reader recognises the symptoms).
 - D5. `superpowers:finishing-a-development-branch` — present 4 options to operator.

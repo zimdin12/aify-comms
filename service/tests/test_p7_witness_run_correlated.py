@@ -146,7 +146,7 @@ class StrandedReplyGuardWitness(_RunWorld):
 
     def setUp(self):
         super().setUp()
-        self._register("sc-manager")
+        self._register("sc-fixtureowner")
 
     def _register(self, agent_id: str) -> None:
         answer = self.client.post("/api/v1/agents", json={"agentId": agent_id, "role": "coder"})
@@ -156,7 +156,7 @@ class StrandedReplyGuardWitness(_RunWorld):
         """One target per run, so an earlier case's run never answers for this one. `record` as in `_remind`."""
         target = f"arch-{run_id}"
         self._register(target)
-        self._reply_owed(run_id, sender="sc-manager", target=target, age=3600)
+        self._reply_owed(run_id, sender="sc-fixtureowner", target=target, age=3600)
         if record != "none":
             env_records.report(self, target, busy=record == "busy")
 

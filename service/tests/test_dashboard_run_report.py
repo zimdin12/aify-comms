@@ -36,8 +36,8 @@ from service.api_core.dashboard_run_report import (
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
 
-MANAGER = "drr-manager"
-CODER = "drr-coder"
+MANAGER = "drr-fixtureowner"
+CODER = "drr-fixtureworker"
 
 
 class DashboardReportTestCase(FastApiTestCase):

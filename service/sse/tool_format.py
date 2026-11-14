@@ -40,7 +40,7 @@ def format_dispatch_state(info: dict) -> str:
 
 def format_queued_run(run: dict) -> str:
     """One dispatch run as the sender should read it. Only a steer is an observed delivery; a fresh run is
-    "queued, not yet claimed" (sc-manager reported "Delivered" on an ack that could not tell, 2026-08-18)."""
+    "queued, not yet claimed" (manager reported "Delivered" on an ack that could not tell, 2026-08-18)."""
     text = f"{run.get('targetAgentId')} ({run.get('runId')})"
     if run.get("steered") or run.get("status") == "steered":
         target = run.get("steeredIntoActiveRun") or {}

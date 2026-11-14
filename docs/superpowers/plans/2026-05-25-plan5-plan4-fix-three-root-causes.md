@@ -265,7 +265,7 @@ if (
 // claude-channel.js does — via executionModes=['channel']. The service
 // routes wrapper-backed managed dispatches as execution_mode='channel'
 // (api_v2.py:1047); without this branch, the bridge claims [] and the
-// run sits queued forever (observed 2026-05-25, graph-senior-dev).
+// run sits queued forever (observed 2026-05-25, developer).
 if (
   sessionMode === "managed" &&
   isWrapperBacked &&
@@ -505,7 +505,7 @@ cannot detect wrapper-backed status and the bridge falls back to []."
 
 ---
 
-### Task B5: Live smoke — graph-senior-dev round-trip
+### Task B5: Live smoke — developer round-trip
 
 **Files:**
 - No code changes; this is a verification step.
@@ -527,7 +527,7 @@ Expected: healthy.
 
 Expected: 4 wrappers refreshed (claude/codex/hermes/pi).
 
-- [ ] **Step 3: From this conversation, send a message to graph-senior-dev**
+- [ ] **Step 3: From this conversation, send a message to developer**
 
 ```bash
 # Operator can do this themselves via comms_send, or the implementer
@@ -728,7 +728,7 @@ writeback (one UPDATE) keeps the cache honest."
 - [ ] Run `node --test mcp/stdio/test/test-*.js` — must be green.
 - [ ] Rebuild container + smoke `/health`.
 
-### Task D2: Code-reviewer subagent over Plan 5 diff
+### Task D2: Reviewer subagent over Plan 5 diff
 
 Dispatch `superpowers:requesting-code-review` against `git diff 1c8d1c8..HEAD`. Address Critical and Important findings. Note Minor findings for follow-up.
 

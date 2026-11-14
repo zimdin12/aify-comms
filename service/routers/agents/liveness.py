@@ -133,7 +133,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # claim path: a DISPLACED managed sidecar (bridgeKind="channel-sidecar")
         # pulsing turn_busy via heartbeat is told to RELEASE once the agent has
         # been switched to resident, so it stops driving even between claims.
-        # driver_state guard (2026-05-31, sc-manager): see the claim-path comment.
+        # driver_state guard (2026-05-31, manager): see the claim-path comment.
         # A live resident driver (driver_state='driving') keeps its own delivery
         # sidecar; only a displaced managed driver (not 'driving') is released.
         if bridge_kind == "channel-sidecar":

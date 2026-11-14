@@ -10,7 +10,7 @@ One record per agent per publishing instance: the observations and the **one** d
 
 ```json
 {
-  "agentId": "comms-tech-lead", "lifetime": "7f3c9e2a-...", "mode": "resident", "harness": "claude",
+  "agentId": "lead", "lifetime": "7f3c9e2a-...", "mode": "resident", "harness": "claude",
   "state": "working", "stateCause": "turn-open",
   "busy": true,
   "process": {"state": "running", "verified": "yes", "pid": 41236, "createdAt": 1790950000101},
@@ -173,7 +173,7 @@ turn because the screen has read idle for a sustained time.
 The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 ```json
-{"agentId": "comms-tech-lead", "lifetime": "7f3c9e2a-...", "instance": "default", "harness": "claude",
+{"agentId": "lead", "lifetime": "7f3c9e2a-...", "instance": "default", "harness": "claude",
  "pid": 41236, "launcher": "/c/Users/.../claude-aify", "writtenAtUs": 1790950000500123, "herdrPane": "w1:p3"}
 ```
 
@@ -201,7 +201,7 @@ The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 No tolerance, and no equality. A reused pid is created after the original wrote its record, and the original existed
 before writing. Pinning a first sighting proves nothing on its own, so a creation time that cannot be ordered against
-the write is `unknown`, not `yes` (comms-senior-dev, reviews of eda03a3d and 6e79bcac, N3). The original is never
+the write is `unknown`, not `yes` (developer, reviews of eda03a3d and 6e79bcac, N3). The original is never
 removed on an `unknown`, so a live one is never lost.
 
 **More than one verified lifetime** for one agent, or one agentId from two instances: that agent's record is

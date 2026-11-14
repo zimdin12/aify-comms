@@ -132,7 +132,7 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
     below argues a stale `running` row is harmless because "the coldstart idempotency gate only
     inspects queued/claimed spawns". That argument inverts for `claimed`: a stuck one is exactly what
     the gate reads, so every send to that agent is refused with "a spawn for this agent is ALREADY IN
-    FLIGHT". Measured on the operator's fleet: `sc-coder` unreachable for fifteen minutes and
+    FLIGHT". Measured on the operator's fleet: `coder` unreachable for fifteen minutes and
     permanently, because this query said `status = 'running'` and the live-bridge carve-out would
     have held the row for thirty minutes even once it did not.
 
@@ -199,7 +199,7 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
         # argument is that a stale `running` row is harmless because "the coldstart idempotency gate
         # only inspects queued/claimed spawns". That INVERTS here: a stuck `claimed` row is precisely
         # what the gate reads, so it refuses every send to that agent as ALREADY IN FLIGHT.
-        # `sc-coder` was unreachable for fifteen minutes on the operator's fleet and would have
+        # `coder` was unreachable for fifteen minutes on the operator's fleet and would have
         # stayed so -- its row was claimed by the LIVE bridge, so the carve-out would have sheltered
         # it for another thirty even once `claimed` was covered at all.
         if stuck_status != "claimed" and bid and bid in live_bridge_ids:

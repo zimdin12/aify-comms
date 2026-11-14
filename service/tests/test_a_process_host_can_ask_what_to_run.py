@@ -30,7 +30,7 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
 
     ENV = "linux:launch-host:default"
 
-    def _register(self, agent_id="sc-lead", runtime="claude-code", role="coder", **extra):
+    def _register(self, agent_id="sc-fixturechief", runtime="claude-code", role="coder", **extra):
         heartbeat = self._client.post("/api/v1/environments/heartbeat", json={
             "id": self.ENV, "machineId": "linux:launch-host", "os": "linux", "kind": "linux",
             "bridgeId": "bridge-launch", "cwdRoots": ["/work"],
@@ -47,7 +47,7 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
         self.assertEqual(registered.status_code, 200, registered.text)
         return agent_id
 
-    def _terminal(self, agent_id="sc-lead", *, argv=None, terminal_id="term-1"):
+    def _terminal(self, agent_id="sc-fixturechief", *, argv=None, terminal_id="term-1"):
         """Seeded directly, as this suite's siblings do: a terminal row is created by the control
         plane in the course of a spawn, and reproducing that whole path would test the spawn rather
         than this endpoint."""
@@ -100,7 +100,7 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
         which is the quoting bug this design avoids."""
         self._register()
         launch = self._launch(self._terminal())
-        self.assertEqual(launch["argv"], ["claude-aify", "--aify-agent", "sc-lead"])
+        self.assertEqual(launch["argv"], ["claude-aify", "--aify-agent", "sc-fixturechief"])
         self.assertTrue(launch["command"], "the string form must still travel for a human to read")
         self.assertEqual(launch["cwd"], "/work")
 
@@ -123,7 +123,7 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
         self._register(role="tester", sessionHandle="sess-abc")
         launch = self._launch(self._terminal())
         env = launch["env"]
-        self.assertEqual(env["AIFY_AGENT_ID"], "sc-lead")
+        self.assertEqual(env["AIFY_AGENT_ID"], "sc-fixturechief")
         self.assertEqual(env["AIFY_SESSION_MODE"], "managed")
         self.assertEqual(env["AIFY_ENVIRONMENT_BRIDGE"], "0")
         self.assertEqual(env["AIFY_TERMINAL_ID"], launch["terminalId"])

@@ -8,7 +8,7 @@ bridge id every time its plugin starts -- so after a restart EVERY existing term
 was released as a "stale Console owner". A release means the next delivery COLD-STARTS a terminal
 instead of reaching the live worker, and the new one begins from nothing.
 
-Measured: sc-lead's terminal carried `ab14b870` while the environment row said `d908664d`; its
+Measured: sc-fixturechief's terminal carried `ab14b870` while the environment row said `d908664d`; its
 console sat at `starting` for four minutes with a live process behind it, and every message to that
 lane started a replacement. Four working sessions were lost in ten minutes, including a lead
 mid-design-note.
@@ -37,7 +37,7 @@ from service.tests._base import FastApiTestCase
 class AReportingHostOwnsItsTerminalTests(FastApiTestCase):
     DB_NAME = "aify-test-terminal-ownership.db"
     ENV = "windows:ownership-host:default"
-    AGENT = "sc-lead"
+    AGENT = "sc-fixturechief"
     SESSION = "sess-ownership"
     TERMINAL = "term-ownership"
 
@@ -76,7 +76,7 @@ class AReportingHostOwnsItsTerminalTests(FastApiTestCase):
                     "environment_id, runtime, bridge_id, command, workspace, status, output, error, "
                     "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (self.TERMINAL, self.AGENT, self.SESSION, self.ENV, "claude-code",
-                     terminal_bridge, "claude-aify --aify-agent sc-lead", "C:/work", "attached",
+                     terminal_bridge, "claude-aify --aify-agent sc-fixturechief", "C:/work", "attached",
                      "", "", stamp, stamp),
                 )
                 await db.commit()

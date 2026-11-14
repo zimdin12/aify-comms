@@ -1,9 +1,9 @@
 """A dead terminal's console tail reads whichever store actually recorded the output.
 
-THE FAILURE, from the live fleet on 2026-08-26. sc-architect died mid-turn. The operator asked why,
+THE FAILURE, from the live fleet on 2026-08-26. sc-fixtureplanner died mid-turn. The operator asked why,
 and `comms_console_tail` answered "(nothing was recorded)". Measured against the running service:
 
-    store                                        sc-claude    sc-architect
+    store                                        sc-claude    sc-fixtureplanner
     terminal_sessions.output                        63,423              18
     terminal_events (terminal_output rows)          10,913          14,773
 
@@ -39,7 +39,7 @@ from service.terminal_diagnostics import (
 )
 from service.tests._base import FastApiTestCase
 
-#: The exact bytes sc-architect's `output` column held when it died.
+#: The exact bytes sc-fixtureplanner's `output` column held when it died.
 EXIT_MARKER_ONLY = "\n[terminal exited]\n"
 
 #: Stand-in for what its events held: a TUI's last frame, ending on real work.
@@ -77,7 +77,7 @@ class RecordingSelectionTests(unittest.TestCase):
 
 
 class ConsoleTailServesTheEventsTests(FastApiTestCase):
-    """End to end through the endpoint, against a terminal shaped like sc-architect's."""
+    """End to end through the endpoint, against a terminal shaped like sc-fixtureplanner's."""
 
     AGENT = "console-store-agent"
     TERMINAL = "term_console_store_probe"

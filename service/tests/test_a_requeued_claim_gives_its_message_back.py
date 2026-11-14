@@ -1,6 +1,6 @@
 """A requeued claim gives back the read receipt its claim wrote, so the message is unread until delivered.
 
-v0.7.1 review (comms-senior-dev, W02). A claim writes a read receipt for each source message with
+v0.7.1 review (comms-fixturedeveloper, W02). A claim writes a read receipt for each source message with
 `read_at = claimed_at`. Both requeue paths cleared `claimed_at` and left the receipt, so:
 
     claim at t1 (receipt t1) -> requeue (claimed_at cleared, receipt t1 kept)

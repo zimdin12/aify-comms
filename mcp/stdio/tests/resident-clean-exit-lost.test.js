@@ -57,7 +57,7 @@ import { reportResidentLost } from "../resident-lost.mjs";
 
   const posted = await reportResidentLost({
     httpCall,
-    agentId: "sc-coder",
+    agentId: "sc-fixtureworker",
     bridgeId: "bridge-xyz",
     sessionMode: "managed",
     runtime: "claude-code",

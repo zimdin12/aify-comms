@@ -122,7 +122,7 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
             ts,
         ),
     )
-    # H2 (external review 2026-08-18), ruled by comms-senior-dev: "an auto-mirrored/system failure
+    # H2 (external review 2026-08-18), ruled by developer: "an auto-mirrored/system failure
     # notice may NOT satisfy a require_reply contract. result_message_id is reserved for an actual
     # answer by the obligated target, an explicit operator closure, or another intentionally-authored
     # reply with a real actor. A synthetic notice that says the target never ran is evidence of

@@ -61,7 +61,7 @@ async def _apply_session_mode_switch_to_agent(
                 # the 'driving' the just-registered resident session had set, so its OWN
                 # channel sidecar was told to RELEASE on its next claim/heartbeat and
                 # resident delivery silently died — sends said "sent", runs queued forever
-                # (sc-manager, 2026-06-12: launch terminal first, click switch second).
+                # (manager, 2026-06-12: launch terminal first, click switch second).
                 ("driving" if (new_mode == "resident" and str(resident_candidate.get("bridgeId") or "").strip()) else "idle"),
                 f"Manually switched from {current_mode} to {new_mode} by {requested_by}"
                 + (f" (runtime {runtime}->{effective_runtime})" if effective_runtime != runtime else "")

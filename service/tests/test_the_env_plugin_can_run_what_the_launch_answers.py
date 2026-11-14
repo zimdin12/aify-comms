@@ -46,7 +46,7 @@ from service.tests.test_the_env_plugin_addresses_routes_this_service_serves impo
 
 MACHINE_ID = "linux:launch-host"
 ENVIRONMENT_ID = f"{MACHINE_ID}:default"
-AGENT_ID = "sc-lead"
+AGENT_ID = "sc-fixturechief"
 RUNTIME = "claude-code"
 ROLE = "coder"
 WORKSPACE = "/work"

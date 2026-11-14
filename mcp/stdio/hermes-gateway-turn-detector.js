@@ -160,7 +160,7 @@ export function startHermesGatewayTurnDetector({
     // dispatch re-pulse only refreshes for REPULSE_WINDOW_MS (~15min) after a submit — so a
     // LONGER or AUTONOMOUS turn stops being refreshed, the server expires turn_busy after
     // TURN_BUSY_STALE_SECONDS (120s) / in_turn after the 30-min backstop, and the agent reads
-    // `online` while STILL working (the next-senior-dev long-refactor incident). While the
+    // `online` while STILL working (the developer long-refactor incident). While the
     // gateway reports WORKING, re-stamp turn-busy every workingRefreshMs (< 120s). This is
     // gateway-truth-driven (not the server's derived status), so the anti-feedback invariant
     // holds; a non-working tick resets the accumulator so it never refreshes a finished turn.

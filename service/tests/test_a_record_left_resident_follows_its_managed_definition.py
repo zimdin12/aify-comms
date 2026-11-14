@@ -1,6 +1,6 @@
 """A defined-managed agent whose record was left resident follows its definition once no resident drives it (B3).
 
-llama-manager, 2026-10-19: its definition said managed, its record still said resident from an earlier resident run,
+llama-fixtureowner, 2026-10-19: its definition said managed, its record still said resident from an earlier resident run,
 so it read offline while its host offered it as startable. aify-env re-sends an unchanged snapshot every minute, and
 an unchanged definition never applies again, so the follow has to run on a replayed push too. Only the record moves:
 nothing is started, since a start is the host's. Every case that keeps the record names what keeps it.
@@ -97,7 +97,7 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
         return entry
 
     def test_the_followed_record_is_served_at_once_not_after_its_cache_times_out(self):
-        """llama-manager, 2026-10-20 10:36Z: the record followed its definition at the push, but the cached resident
+        """llama-fixtureowner, 2026-10-20 10:36Z: the record followed its definition at the push, but the cached resident
         answer ("Resident bridge heartbeat is gone") was served until the entry's own refresh time, ~2.5 min later.
         The switch must expire the entry, so the next read rebuilds it from the managed record."""
         from service.reconcilers import status_cache
@@ -161,7 +161,7 @@ class ARecordLeftResidentFollowsItsManagedDefinition(FastApiTestCase):
                  (ENV["environment_id"], now(), now()))
         self.assert_kept("a resident with a live session was switched under it")
         self.sql("UPDATE agent_sessions SET status = 'stopped' WHERE id = 'sess-1'")
-        self.assert_follows_once_gone("CONTROL: a stopped session, as llama-manager's is, still held the record")
+        self.assert_follows_once_gone("CONTROL: a stopped session, as llama-fixtureowner's is, still held the record")
 
     def test_a_fresh_resident_bridge_keeps_the_resident(self):
         self.bridge("resident-1", "")

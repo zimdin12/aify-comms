@@ -1,7 +1,7 @@
 # Plan 2 — Runtime Capabilities + Pi Delivery Flip Design Spec
 
 **Status:** Draft — pending operator review
-**Author:** comms-senior-dev (Claude Opus 4.7) + operator
+**Author:** developer (Claude Opus 4.7) + operator
 **Date:** 2026-05-25
 **Related branch:** `feature/dashboard-console-mode`
 **Builds on:** [Plan 1 spec](2026-05-25-runtime-adapter-design.md), [Plan 1 implementation plan](../plans/2026-05-25-plan1-runtime-adapter-session-handle.md)
@@ -241,7 +241,7 @@ None at design time — all 4 of the operator's brainstorm answers are integrate
 - `adapter_for("pi").supports_resident == false` in both languages.
 - `_managed_via_wrapper_for_runtime("pi") == True` in `api_v2.py`.
 - Cross-language consistency test passes.
-- Manual e2e: register a pi agent. Wait. Pi resident is rejected with a clean explanation; pi managed delivers messages through the wrapper PTY. The `comms-senior-dev-pi` failure pattern (`Model "unknown" not found`) doesn't reproduce.
+- Manual e2e: register a pi agent. Wait. Pi resident is rejected with a clean explanation; pi managed delivers messages through the wrapper PTY. The `developer` failure pattern (`Model "unknown" not found`) doesn't reproduce.
 - Existing pi resident agents auto-migrate. Their `session_handle` is preserved; their dashboard listing flips from "resident" to "managed" within ~5s of the bridge picking up the deregistration → re-registration cycle (or whenever the drain helper runs).
 - The codex follow-up (#118 — `--remote` + `resume` ordering) is unblocked by Plan 2 since Plan 2 doesn't touch the codex-aify wrapper.
 

@@ -1,6 +1,6 @@
 # Review Fixes Plan — from the big review round (2026-06-05)
 
-Synthesis of the 8-agent review pass (see `2026-06-05-big-review-round.md`). comms-senior-dev's parallel pass merges in below once his reply lands (section "Merged from comms-senior-dev"). Every item tagged **CRITICAL** / **MEDIUM** / **OPTIONAL** with file:line + a SAFE, non-breaking fix. "Don't break it too much" — CRITICAL first, the rest behind explicit go-ahead.
+Synthesis of the 8-agent review pass (see `2026-06-05-big-review-round.md`). developer's parallel pass merges in below once his reply lands (section "Merged from developer"). Every item tagged **CRITICAL** / **MEDIUM** / **OPTIONAL** with file:line + a SAFE, non-breaking fix. "Don't break it too much" — CRITICAL first, the rest behind explicit go-ahead.
 
 ## Headline
 The system is in good shape. After the recent fixes, **all 5 runtimes feed `working` into BOTH status engines** (the `/heartbeat`→`_apply_status_event` bridge is generic), **all 31 `comms_*` tools are wired**, **flags match docs** (no stale/mismatched docs), and **session-resume + bash/PS1 parity** hold. The findings are a handful of real-but-bounded bugs and consistency/polish items — nothing systemic.
@@ -59,7 +59,7 @@ All 5 runtimes feed BOTH engines; all 31 tools wired end-to-end; flags/settings 
 
 ---
 
-## Merged from comms-senior-dev (received 2026-06-05, reconciled — zero disagreements)
+## Merged from developer (received 2026-06-05, reconciled — zero disagreements)
 
 His pass converged with mine + ADDED the root cause of C2 and one new critical:
 
@@ -86,7 +86,7 @@ His pass converged with mine + ADDED the root cause of C2 and one new critical:
 7. **MC5(b) — debug-skill split into `references/`:** separate, careful, mirror-verified (both .claude + .agents).
 8. **OPTIONAL batch** behind explicit go-ahead.
 
-Each step: implement → test → (service→rebuild / bridge→reinstall / install.sh→relaunch) → separate commit → push. comms-senior-dev to verify the MC1 active-removal doesn't break working-derivation.
+Each step: implement → test → (service→rebuild / bridge→reinstall / install.sh→relaunch) → separate commit → push. developer to verify the MC1 active-removal doesn't break working-derivation.
 
 ---
 

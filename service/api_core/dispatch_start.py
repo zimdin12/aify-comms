@@ -182,7 +182,7 @@ async def _coldstart_spawn_request_for_dispatch(
     if binding is None:
         return _coldstart_refusal(warnings, undefined_refusal(agent_id))
     # A LIVE WORKER IS NOT STARTED AGAIN (2026-10-27). Its host refuses a second worker beside a live one, and
-    # settling that refused spawn ended the live session's row: comms-senior-dev's bridge stopped reporting while
+    # settling that refused spawn ended the live session's row: developer's bridge stopped reporting while
     # its terminal and session stayed live. The same answer, given here, creates and ends nothing.
     if _agent_row is not None and await live_managed_worker(db, _agent_row):
         live = await (await db.execute(
@@ -249,7 +249,7 @@ async def _coldstart_spawn_request_for_dispatch(
     # that advertises the runtime so an `available` agent can be woken on first
     # message — mirroring comms_spawn's env-omission auto-select. Without this
     # the send path rejects with "cannot start live work now" (operator-reported
-    # sc-coder bug). No online env supports the runtime → decline (caller
+    # coder bug). No online env supports the runtime → decline (caller
     # surfaces a clear "no environment available" rejection).
     #
     # NOTE: an agent whose SPECIFIC bound env is merely offline does NOT reach
@@ -308,7 +308,7 @@ async def _coldstart_spawn_request_for_dispatch(
 
     # G3 (2026-06-03): warn (do NOT block) when the handle we're about to bind is
     # already owned by a DIFFERENT live agent — two live agents must not share one
-    # native session id (e.g. lc-coder + lc-tech-lead on one codex thread). The
+    # native session id (e.g. coder + lead on one codex thread). The
     # caller surfaces this via the returned warning; cold-start still proceeds.
     if coldstart_session_handle:
         _settings_g3 = settings if isinstance(settings, dict) else await _load_settings(db)

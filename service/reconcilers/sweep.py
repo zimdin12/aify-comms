@@ -251,7 +251,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         closed_orphaned_managed = await _commit_step(await _close_orphaned_managed_runs(db, limit=200))
         # A delivered require_reply run whose worker turn DIED without replying (model 429 /
         # mid-turn interrupt / stall) sits `delivered` forever — looks idle, strands the
-        # contract (sc-manager live repro 2026-07-10). Past a staleness window well beyond the
+        # contract (manager live repro 2026-07-10). Past a staleness window well beyond the
         # reminder cycle, FAIL it with a clear cause. MUST run BEFORE the failed-handoff sweep
         # below so the SAME pass mirrors the failure notice to the sender.
         failed_stranded_replies = await _commit_step(await _fail_stranded_delivered_reply_runs(db, limit=200))
@@ -284,7 +284,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # Self-heal the inverse: a console ghost-reaped on an INFERRED death (heartbeat lapse /
         # host starvation) whose worker is provably alive again (live channel-sidecar + fresh
         # output) is re-activated so the agent recovers `online` instead of staying stranded
-        # `available` while it works headless (the next-manager incident, 2026-06-08). Runs AFTER
+        # `available` while it works headless (the manager incident, 2026-06-08). Runs AFTER
         # the reaper — they never fight in one pass (the reaper only reaps when signals are stale;
         # this only resurrects when they are fresh). Strictly scoped to the ghost-reap reason.
         resurrected_consoles = await _commit_step(await _reconcile_resurrected_managed_consoles(db))

@@ -26,7 +26,7 @@ class NameValidationTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 400)
 
     def test_accepts_ordinary_names(self):
-        for name in ["a", "agent", "mc-senior-dev", "team.lead", "worker_1", "A1", "x" * 128]:
+        for name in ["a", "agent", "mc-fixturedeveloper", "team.lead", "worker_1", "A1", "x" * 128]:
             with self.subTest(name=name):
                 validate_name(name)
 

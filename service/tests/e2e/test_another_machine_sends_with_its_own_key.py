@@ -18,7 +18,7 @@ from service.tests.e2e.harness import E2EStack
 SERVICE_KEY = "e2e-service-key-0123456789"
 PC2_KEY = "e2e-pc2-key-0123456789abcdef"
 HOME = "home-agent"
-REMOTE = "pc2-manager"
+REMOTE = "pc2-fixtureowner"
 
 
 @pytest.fixture(scope="module")

@@ -1,8 +1,8 @@
 # Dashboard v2 — Re-architecture Design
 
-**Status:** DRAFT (brainstorming → for review by operator + comms-senior-dev)
+**Status:** DRAFT (brainstorming → for review by operator + developer)
 **Date:** 2026-05-31
-**Authors:** comms-tech-lead (+ comms-senior-dev, co-design)
+**Authors:** lead (+ developer, co-design)
 
 ## Goal
 

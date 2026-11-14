@@ -275,10 +275,10 @@ test("title stays as well -- it is the hover affordance, not the name", () => {
 test("railItemHtml keeps the metadata in its own element, not run together with the message", () => {
   // WHY THIS IS AN ESCAPING-FILE CONCERN. The sub-line used to be `[role · status, preview].join(' · ')`
   // rendered in ONE span at ONE colour, so the last message read as a third field ABOUT the agent.
-  // Live on 2026-08-27 three rows read `coder · available · Restart ef-manager` -- a message shaped
+  // Live on 2026-08-27 three rows read `coder · available · Restart ef-fixtureowner` -- a message shaped
   // exactly like a state, on the surface an operator triages from.
-  const html = railItemHtml(item({ role: "coder", status: "available", preview: "Restart ef-manager" }), "none");
-  assert.match(html, /<span class="chat-rail-meta">coder · available · <\/span>Restart ef-manager/);
+  const html = railItemHtml(item({ role: "coder", status: "available", preview: "Restart ef-fixtureowner" }), "none");
+  assert.match(html, /<span class="chat-rail-meta">coder · available · <\/span>Restart ef-fixtureowner/);
 });
 
 test("railItemHtml still escapes the preview now that the sub-line is HTML", () => {
@@ -314,11 +314,11 @@ test("railItemHtml omits the separator when there is no message to introduce", (
 import { emptyConversationHtml } from './chat-render.mjs';
 
 test('the empty state names the identity being viewed, because that is the likeliest cause', () => {
-  const html = emptyConversationHtml({ identity: 'dashboard', peer: 'comms-tech-lead', canLoadOlder: false });
-  assert.match(html, /No messages between dashboard and comms-tech-lead/);
+  const html = emptyConversationHtml({ identity: 'dashboard', peer: 'comms-fixtureguide', canLoadOlder: false });
+  assert.match(html, /No messages between dashboard and comms-fixtureguide/);
   // It must point at the setting that fixes it rather than leaving the operator to guess.
   assert.match(html, /Switch identity to <strong>all<\/strong>/);
-  assert.match(html, /comms-tech-lead/);
+  assert.match(html, /comms-fixtureguide/);
 });
 
 test('viewing as `all` drops the identity advice, which would then be nonsense', () => {
@@ -352,9 +352,9 @@ test("a message from a sender this instance never registered says so, and where 
   // is any way to see that it came from outside, or who to answer.
   const html = messageHtml({
     id: "m1", from: "agent-from-another-pc", fromRegistered: false,
-    origin: "192.168.1.50:8800, manager mp-manager", body: "hi",
+    origin: "192.168.1.50:8800, manager mp-fixtureowner", body: "hi",
   });
-  assert.match(html, /external: 192\.168\.1\.50:8800, manager mp-manager/);
+  assert.match(html, /external: 192\.168\.1\.50:8800, manager mp-fixtureowner/);
   assert.match(html, /agent-from-another-pc/, "the id is still shown, not replaced by the badge");
   // DECLARED, NOT MEASURED, and the chip must not imply otherwise.
   assert.match(html, /sender SAID/);
@@ -364,7 +364,7 @@ test("a message sent with another machine's key names that machine, and keeps th
   // The machine is PROVEN (the service wrote it from the external key); the origin is still only
   // what the sender said, and the hover text keeps the two apart.
   const html = messageHtml({
-    id: "m5", from: "pc2-manager", fromRegistered: false, externalMachine: "pc2",
+    id: "m5", from: "pc2-fixtureowner", fromRegistered: false, externalMachine: "pc2",
     origin: "10.0.0.9:8800", body: "hi",
   });
   assert.match(html, />from pc2 · by key</);

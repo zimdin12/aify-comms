@@ -14,9 +14,9 @@ import test from "node:test";
 import { isStartHotkey, startDialogAct, startDialogActor, startDialogRows } from "./start-dialog.mjs";
 
 const AGENTS = [
-  { id: "sc-manager", status: "stopped", sessionMode: "managed", role: "manager", runtime: "claude-code" },
-  { id: "sc-coder", status: "working", sessionMode: "managed", runtime: "codex" },
-  { id: "pc-manager", status: "available", sessionMode: "resident" },
+  { id: "sc-fixtureowner", status: "stopped", sessionMode: "managed", role: "manager", runtime: "claude-code" },
+  { id: "sc-fixtureworker", status: "working", sessionMode: "managed", runtime: "codex" },
+  { id: "pc-fixtureowner", status: "available", sessionMode: "resident" },
   { id: "boot", status: "starting", sessionMode: "managed" },
   { id: "dashboard", status: "online" },
 ];
@@ -25,22 +25,23 @@ test("every agent is a row, with the action that fits it", () => {
   const rows = startDialogRows(AGENTS, "");
   const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
   assert.ok(!byId.dashboard, "the dashboard's own identity is not an agent to start");
-  assert.equal(byId["sc-manager"].action, "start");
-  assert.equal(byId["sc-coder"].action, "console", "a live agent opens its console");
-  assert.equal(byId["pc-manager"].action, "none");
-  assert.match(byId["pc-manager"].why, /resident/, "a resident says why it is not offered Start");
+  assert.equal(byId["sc-fixtureowner"].action, "start");
+  assert.equal(byId["sc-fixtureworker"].action, "console", "a live agent opens its console");
+  assert.equal(byId["pc-fixtureowner"].action, "none");
+  assert.match(byId["pc-fixtureowner"].why, /resident/, "a resident says why it is not offered Start");
   assert.equal(byId.boot.action, "none");
   assert.match(byId.boot.why, /starting/);
 });
 
 test("the search matches name, role, runtime and status", () => {
-  assert.deepEqual(startDialogRows(AGENTS, "MANAGER").map((r) => r.id), ["pc-manager", "sc-manager"]);
-  assert.deepEqual(startDialogRows(AGENTS, "codex").map((r) => r.id), ["sc-coder"]);
-  assert.deepEqual(startDialogRows(AGENTS, "stopped").map((r) => r.id), ["sc-manager"]);
+  assert.deepEqual(startDialogRows(AGENTS, "FIXTUREOWNER").map((r) => r.id), ["pc-fixtureowner", "sc-fixtureowner"]);
+  assert.deepEqual(startDialogRows(AGENTS, "MANAGER").map((r) => r.id), ["sc-fixtureowner"], "the role matches independently of the neutral ID");
+  assert.deepEqual(startDialogRows(AGENTS, "codex").map((r) => r.id), ["sc-fixtureworker"]);
+  assert.deepEqual(startDialogRows(AGENTS, "stopped").map((r) => r.id), ["sc-fixtureowner"]);
 });
 
 test("a name that matches no agent offers Create, and only then", () => {
-  assert.deepEqual(startDialogRows(AGENTS, "  new-coder "), [{ id: "new-coder", status: "", action: "create", why: "" }]);
+  assert.deepEqual(startDialogRows(AGENTS, "  new-fixtureworker "), [{ id: "new-fixtureworker", status: "", action: "create", why: "" }]);
   assert.ok(!startDialogRows(AGENTS, "sc").some((r) => r.action === "create"), "CONTROL: a query with matches offers no Create");
 });
 
@@ -59,34 +60,34 @@ function doubles({ answer = { ok: true }, fail = null } = {}) {
 
 test("Enter on a startable agent starts it through the control route and closes", async () => {
   const d = doubles();
-  await startDialogAct({ id: "sc-manager", action: "start" }, d);
+  await startDialogAct({ id: "sc-fixtureowner", action: "start" }, d);
   assert.deepEqual(d.calls.map((c) => c[0]), ["say", "post", "started", "close"]);
-  assert.equal(d.calls[1][1], "sc-manager");
+  assert.equal(d.calls[1][1], "sc-fixtureowner");
 });
 
 test("a refusal from the route is shown in the dialog, which stays open", async () => {
   const d = doubles({ fail: "no environment bridge is available to run it" });
-  await startDialogAct({ id: "sc-manager", action: "start" }, d);
+  await startDialogAct({ id: "sc-fixtureowner", action: "start" }, d);
   assert.ok(d.calls.some(([k, t]) => k === "say" && /no environment bridge/.test(t)), JSON.stringify(d.calls));
   assert.ok(!d.calls.some(([k]) => k === "close"), "a refused start closed the dialog and hid the reason");
 });
 
 test("an agent already running is said so, not reported as started", async () => {
   const d = doubles({ answer: { ok: true, alreadyRunning: true } });
-  await startDialogAct({ id: "sc-manager", action: "start" }, d);
+  await startDialogAct({ id: "sc-fixtureowner", action: "start" }, d);
   assert.ok(d.calls.some(([k, t]) => k === "started" && /already running/.test(t)));
 });
 
 test("a live agent opens its console, Create opens the spawn form, and a refused row explains", async () => {
   const live = doubles();
-  await startDialogAct({ id: "sc-coder", action: "console" }, live);
-  assert.deepEqual(live.calls, [["close"], ["console", "sc-coder"]]);
+  await startDialogAct({ id: "sc-fixtureworker", action: "console" }, live);
+  assert.deepEqual(live.calls, [["close"], ["console", "sc-fixtureworker"]]);
   const create = doubles();
-  await startDialogAct({ id: "new-coder", action: "create" }, create);
-  assert.deepEqual(create.calls, [["close"], ["create", "new-coder"]]);
+  await startDialogAct({ id: "new-fixtureworker", action: "create" }, create);
+  assert.deepEqual(create.calls, [["close"], ["create", "new-fixtureworker"]]);
   const none = doubles();
-  await startDialogAct({ id: "pc-manager", action: "none", why: "resident: …" }, none);
-  assert.deepEqual(none.calls, [["say", "pc-manager: resident: …"]]);
+  await startDialogAct({ id: "pc-fixtureowner", action: "none", why: "resident: …" }, none);
+  assert.deepEqual(none.calls, [["say", "pc-fixtureowner: resident: …"]]);
 });
 
 test("a second Enter while a start is in flight posts nothing; a refusal lets the operator retry", async () => {
@@ -95,10 +96,10 @@ test("a second Enter while a start is in flight posts nothing; a refusal lets th
   let posts = 0;
   d.post = (id) => { posts += 1; d.calls.push(["post", id]); return new Promise((resolve, reject) => { settle = { resolve, reject }; }); };
   const act = startDialogActor(d);
-  const row = { id: "sc-manager", action: "start" };
+  const row = { id: "sc-fixtureowner", action: "start" };
   const first = act(row);
   act(row);
-  act({ id: "sc-coder", action: "console" });
+  act({ id: "sc-fixtureworker", action: "console" });
   assert.equal(posts, 1, `two starts were posted inside one round trip: ${JSON.stringify(d.calls)}`);
   assert.ok(!d.calls.some(([k]) => k === "console"), "an action ran while a start was in flight");
   settle.reject(new Error("refused"));

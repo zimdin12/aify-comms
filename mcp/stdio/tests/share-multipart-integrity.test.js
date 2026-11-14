@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A shared file must arrive byte-identical. It did not: every binary upload gained a leading CRLF.
 //
-// REPORTED WITH BYTE EVIDENCE by graph-senior-dev-hermes, 2026-08-10: a 23,620-byte `.log` was
+// REPORTED WITH BYTE EVIDENCE by graph-fixturedeveloper-hermes, 2026-08-10: a 23,620-byte `.log` was
 // stored as 23,622 bytes, with `stored[2:] == original` exactly, so recipient hash verification
 // failed for every shared file.
 //

@@ -117,7 +117,7 @@ def header_safe(value: str) -> str:
 
     FOUND BY A REAL SOCKET, and it could not have been found any other way. Every queue-contract
     test stubs `_post`, so they all passed while the actual POST raised `UnicodeEncodeError` on our
-    own default title: `build_alert` renders "sc-manager → you", and U+2192 is not encodable in the
+    own default title: `build_alert` renders "manager → you", and U+2192 is not encodable in the
     latin-1 that HTTP headers use. The first live message would have failed, been counted as a send
     failure, and dropped — silently, since C4 does not retry.
 

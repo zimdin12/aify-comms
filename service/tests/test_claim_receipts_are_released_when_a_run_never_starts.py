@@ -1,6 +1,6 @@
 """A message must come back when the run that claimed it died without ever being read.
 
-H1, reported by an external review 2026-08-18 and ruled by comms-senior-dev the same day: do the
+H1, reported by an external review 2026-08-18 and ruled by comms-fixturedeveloper the same day: do the
 delete-on-terminal fix now, defer moving the receipt write to turn-start to its own packet.
 
 THE LOSS. `dispatch_claim.py` writes a read receipt for every source message of a run at CLAIM time —

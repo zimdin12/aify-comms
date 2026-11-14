@@ -98,7 +98,7 @@ const TEMPLATES = Object.fromEntries(MODULES.map((name) => [name, prefixTemplate
 
 // ── and the two callable ones do not collide for a real agent ────────────────────────────────
 {
-  for (const agentId of ["lc-coder", "sc-manager", "a"]) {
+  for (const agentId of ["lc-fixtureworker", "sc-fixtureowner", "a"]) {
     assert.notEqual(
       claudeChannelBridgeId(agentId), hermesHostBridgeId(agentId),
       `the claude channel sidecar and the hermes managed host produced the same bridge id for `
@@ -113,9 +113,9 @@ const TEMPLATES = Object.fromEntries(MODULES.map((name) => [name, prefixTemplate
 // ── each is still agent-scoped and stable (true of both, and not what makes them safe) ────────
 {
   for (const make of [claudeChannelBridgeId, hermesHostBridgeId]) {
-    assert.notEqual(make("lc-coder"), make("lc-tester"), "bridge ids must be per-agent");
-    assert.equal(make("lc-coder"), make("lc-coder"), "and stable across polls");
-    assert.equal(make("  lc-coder  "), make("lc-coder"), "padding must not fork an identity");
+    assert.notEqual(make("lc-fixtureworker"), make("lc-fixtureprobe"), "bridge ids must be per-agent");
+    assert.equal(make("lc-fixtureworker"), make("lc-fixtureworker"), "and stable across polls");
+    assert.equal(make("  lc-fixtureworker  "), make("lc-fixtureworker"), "padding must not fork an identity");
   }
 }
 

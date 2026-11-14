@@ -94,7 +94,7 @@ class MessageIdempotencyTests(FastApiTestCase):
         # A nonce names ONE logical send. Before 0.7.0 the replay lookup keyed only on
         # (from_agent, client_nonce) and never compared the payload, so a second, DIFFERENT send
         # carrying a reused nonce answered ok:true/replayed:true with the first message's id and
-        # was silently dropped (comms-senior-dev, v0.7 scan G2).
+        # was silently dropped (comms-fixturedeveloper, v0.7 scan G2).
         self._register("third")
         parent = self._send(from_agent="recipient", to="sender", body="a parent", type="message").json()["messageId"]
         first = self._send(from_agent="sender", to="recipient", body="the first send",

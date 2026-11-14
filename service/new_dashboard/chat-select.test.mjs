@@ -118,17 +118,17 @@ test("chatConversationItems honors sortMode=unread and open-only/working-up togg
 test("chatConversationItems honors the search filter and liveOnly", () => {
   const state = {
     agents: [
-      { id: "sc-coder", status: "online" },
-      { id: "ef-tester", status: "offline" },
+      { id: "sc-fixtureworker", status: "online" },
+      { id: "ef-fixtureprobe", status: "offline" },
     ],
     messages: [],
-    chat: { identity: "dashboard", filter: "coder", liveOnly: false, channels: [] },
+    chat: { identity: "dashboard", filter: "fixtureworker", liveOnly: false, channels: [] },
   };
   const filtered = chatConversationItems(state);
-  assert.deepEqual(filtered.map((i) => i.id), ["sc-coder"]);
+  assert.deepEqual(filtered.map((i) => i.id), ["sc-fixtureworker"]);
 
   const live = chatConversationItems({ ...state, chat: { ...state.chat, filter: "", liveOnly: true } });
-  assert.deepEqual(live.map((i) => i.id), ["sc-coder"], "offline agent hidden under liveOnly");
+  assert.deepEqual(live.map((i) => i.id), ["sc-fixtureworker"], "offline agent hidden under liveOnly");
 });
 
 test("chatConversationItems honors scope, unreadOnly, and the status filter set", () => {

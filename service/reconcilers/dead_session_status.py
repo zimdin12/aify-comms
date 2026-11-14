@@ -27,7 +27,7 @@ async def managed_sessions_with_dead_terminals(db, agent_id: str = "") -> list:
     ONE RULE, TWO READERS. The sweep settles these rows about once a minute; the conditional
     restart asks the same question for one agent at decision time. Before it did, a worker the
     operator had just stopped read as a live session until the next sweep, and every start in
-    that window was refused with a 409 (2026-09-29, comms-senior-dev, 44 s).
+    that window was refused with a 409 (2026-09-29, developer, 44 s).
 
     A session with NO terminal rows is not matched: that is a worker still starting, and calling
     it dead is how one agent gets two workers.
@@ -68,9 +68,9 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
     "Stopped … running" / "Stale … running". The ghost-console / managed-worker
     hygiene reconcile marks the TERMINAL dead but never updates the SESSION row, and
     a resident session is never downgraded when its OWNING bridge dies. Verified
-    live: mp-senior-dev (managed-warm session 'running' but terminal 'failed',
+    live: developer (managed-warm session 'running' but terminal 'failed',
     error='reconciled_managed_ghost_console_dead_worker', agent 'stopped', no live
-    worker) and lc-manager (resident session 'running' but the operator closed the
+    worker) and manager (resident session 'running' but the operator closed the
     console and its owning resident bridge is stale/gone).
 
     Marks a live-status row 'stopped' (+ ended_at) for three dead-backing cases:
@@ -81,7 +81,7 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
          agent_sessions.terminal_status denorm. The worker-hygiene reaper only
          updates that denorm for terminals that are STILL active, so a terminal
          that went stopped/failed on its OWN left the denorm frozen at 'attached'
-         and case (a) MISSED it (cms-manager/lc-coder/lc-tech-lead live showed
+         and case (a) MISSED it (manager/coder/lead live showed
          status='running' + terminal_status='attached'/'' while their actual
          terminal_sessions row was stopped/failed). Joining the live table catches
          them.
@@ -97,7 +97,7 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
     whose owning bridge IS fresh stays — case (c) is keyed ONLY on the bridge
     heartbeat (mirroring _owner_bridge_is_fresh in
     _reconcile_duplicate_resident_sessions), never on the live-state engine's
-    derived 'stale' (ci-manager/ci-senior-dev read 'stale' there but HAVE a fresh
+    derived 'stale' (manager/developer read 'stale' there but HAVE a fresh
     bridge + live session and must NOT be stopped). Returns rows changed."""
     # SEAM NORMALIZATION, v0.5 slice 3a (declared). One key, `resident_lease_seconds`,
     # now supplied by the caller from its pass settings — same key, same default, same
@@ -184,8 +184,8 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
         # AGENT-LEVEL liveness (NOT the session's recorded owner_bridge_id): a
         # relaunch leaves the session row pointing at the OLD (now superseded)
         # bridge while the agent registers a NEW fresh one — so keying on the
-        # specific owner_bridge_id FALSE-POSITIVED live agents (ci-manager/
-        # mp-manager have a fresh channel-sidecar / managed-wrapper-child but a
+        # specific owner_bridge_id FALSE-POSITIVED live agents (manager/
+        # manager have a fresh channel-sidecar / managed-wrapper-child but a
         # stale owner_bridge_id on the session). The session is live iff the AGENT
         # has ANY fresh, non-superseded bridge, regardless of which bridge the row
         # recorded.

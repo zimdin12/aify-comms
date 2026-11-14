@@ -153,7 +153,7 @@ async def _adopt_console_terminal_on_register(db, req, console_terminal, termina
                     -- A live console PTY attaching IS the authoritative "backing (re)started"
                     -- event: promote a dead-state denorm back to running, else the session row
                     -- stays 'stopped' from the PREVIOUS backing's death and the Console label
-                    -- reads "Console stopped" for a live attached terminal forever (cms-manager,
+                    -- reads "Console stopped" for a live attached terminal forever (manager,
                     -- 2026-06-10 — the display deriver deliberately never promotes, so the bind
                     -- moment must). Operator disable is enforced on agents.status, not here.
                     status = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')

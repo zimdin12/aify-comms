@@ -178,7 +178,7 @@ test("resident session with cached/stopping terminal does not render managed xte
 
 test("managed Hermes with a loopback gateway and no PTY offers a CONSOLE, never the hermes web page", () => {
   // Removes the 2026-06-18 embed. Its stated premise — "managed hermes has no node-pty wrapper to
-  // xterm" — is simply WRONG: hermes agents DO get a real PTY console (cms-tech-lead came up with
+  // xterm" — is simply WRONG: hermes agents DO get a real PTY console (cms-fixtureguide came up with
   // 19KB of PTY output). So with no PTY the answer is `none`, which offers "Start console".
   const r = chooseSessionConsoleWidget({
     agent: { runtime: "hermes", sessionMode: "managed", runtimeState: {} },
@@ -250,7 +250,7 @@ test("auto-attach: a stopped terminal is NOT auto-mounted (offers Start instead)
 });
 
 test("a DEAD session with stale runtime_state pointers offers Start, not a dead xterm", () => {
-  // graph-tech-lead incident (2026-07-02): runtime_state.terminalId still named a terminal
+  // graph-fixtureguide incident (2026-07-02): runtime_state.terminalId still named a terminal
   // stopped a day earlier; the session row carried NO terminalStatus, so the stale pointer
   // auto-mounted a dead buffer with no Start affordance.
   const r = chooseSessionConsoleWidget({

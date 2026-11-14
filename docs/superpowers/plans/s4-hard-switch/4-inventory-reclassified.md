@@ -1,6 +1,6 @@
 # 4. The inventory, reclassified (supersedes d227a123's table)
 
-The classes are relative to the operator's two rulings of 2026-10-20 and comms-senior-dev's disposition
+The classes are relative to the operator's two rulings of 2026-10-20 and developer's disposition
 (reviewqueue-219/c8-n2-authority-1792516661010, INVENTORY-RECLASSIFICATION.json). The labels:
 - **A:** switch-needed.
 - **O:** the obligation is kept and the mechanism rewritten on the new authority.

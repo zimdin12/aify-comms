@@ -1,6 +1,6 @@
 """A defined agent whose definition is flipped to resident becomes resident (0.9.2 status fix A).
 
-Steven, 2026-10-13: dashboard-manager's definition was flipped to resident three times and its record stayed
+Steven, 2026-10-13: dashboard-fixtureowner's definition was flipped to resident three times and its record stayed
 managed, then the resident he started in herdr-aify was parked as a candidate, so it read `available` throughout.
 The definition flip is the operator's deliberate switch, so the record follows it, unless a managed worker still
 runs: then two drivers would share the agent, and the resident is parked as before.
@@ -50,7 +50,7 @@ class ADefinitionFlippedToResidentIsFollowed(FastApiTestCase):
         return answer.json()
 
     def test_a_push_does_not_switch_so_a_launch_loop_claiming_before_its_resident_registers_keeps_running(self):
-        # dashboard-senior-dev, 2026-10-13: the push switched the record to resident and not driving, the launcher's
+        # dashboard-fixturedeveloper, 2026-10-13: the push switched the record to resident and not driving, the launcher's
         # hermes delivery loop beat before the TUI's bridge registered, was told to release, and exited for good.
         self.define(mode="resident", revision=2)
         self.assertEqual(self.mode(), "managed", "the push switched the record before any resident registered")

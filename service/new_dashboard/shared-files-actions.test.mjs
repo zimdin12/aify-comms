@@ -172,7 +172,7 @@ async function withDialog(elements, answer, run, until = null) {
       //
       // It is timing, not logic, which is why it is not reliably visible: whether the continuation's
       // next turn lands before or after `dom.restore()` depends on the machine. It passed here twice
-      // and failed in comms-senior-dev's detached worktree, which is what blocked the v0.5.6 tag.
+      // and failed in comms-fixturedeveloper's detached worktree, which is what blocked the v0.5.6 tag.
       //
       // So the DOM stays installed until the action is QUIESCENT: no request in flight, and no new
       // request appearing across two further turns. Driven by the work (the request count and the

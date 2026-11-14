@@ -985,7 +985,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             bridgeId="env-bridge",
             machineId="wsl-Ubuntu:test-host",
         )
-        spawn = self._spawn("dual-mode-coder", environment_id="wsl:test-host:default",
+        spawn = self._spawn("dual-mode-fixtureworker", environment_id="wsl:test-host:default",
                             machine_id="wsl-ubuntu:test-host", bridge_id="env-bridge")
         updated = self.client.patch(
             f"/api/v1/spawn-requests/{spawn['id']}",
@@ -999,10 +999,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(updated.status_code, 200, updated.text)
         # Running before D8 with no definition: its mode is the operator's to switch, not a definition's.
-        undefine(self, "dual-mode-coder")
+        undefine(self, "dual-mode-fixtureworker")
 
         self._register(
-            "dual-mode-coder",
+            "dual-mode-fixtureworker",
             role="coder",
             runtime="codex",
             machineId="linux:test-host",
@@ -1014,14 +1014,14 @@ class ApiV2RegressionTests(FastApiTestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:9"},
         )
-        switched_resident = self.client.patch("/api/v1/agents/dual-mode-coder/session-mode", json={"mode": "resident"})
+        switched_resident = self.client.patch("/api/v1/agents/dual-mode-fixtureworker/session-mode", json={"mode": "resident"})
         self.assertEqual(switched_resident.status_code, 200, switched_resident.text)
-        resident = self.client.get("/api/v1/agents/dual-mode-coder").json()
+        resident = self.client.get("/api/v1/agents/dual-mode-fixtureworker").json()
         self.assertEqual(resident["agent"]["sessionMode"], "resident")
         self.assertEqual(resident["agent"]["wakeMode"], "codex-live")
 
         lost = self.client.post(
-            "/api/v1/agents/dual-mode-coder/resident-lost",
+            "/api/v1/agents/dual-mode-fixtureworker/resident-lost",
             json={"bridgeId": "resident-bridge", "runtime": "codex", "reason": "connect ECONNREFUSED 127.0.0.1:9"},
         )
         self.assertEqual(lost.status_code, 200, lost.text)
@@ -1038,13 +1038,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         # As its definition switches it: since 2026-11-02 the route refuses an undefined agent's switch to
         # managed (service/tests/_definition_switch.py).
         from service.tests._definition_switch import switch_as_definition
-        self.assertTrue(switch_as_definition("dual-mode-coder", "managed")["changed"])
-        restored = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("dual-mode-coder",))
+        self.assertTrue(switch_as_definition("dual-mode-fixtureworker", "managed")["changed"])
+        restored = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("dual-mode-fixtureworker",))
         self.assertEqual(restored["session_mode"], "managed")
         self.assertEqual(restored["launch_mode"], "managed")
 
         heartbeat = self.client.post(
-            "/api/v1/agents/dual-mode-coder/heartbeat",
+            "/api/v1/agents/dual-mode-fixtureworker/heartbeat",
             json={"bridgeId": "resident-bridge"},
         )
         self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
@@ -1052,7 +1052,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         dispatched = self._dispatch(
             from_agent="dashboard",
-            to="dual-mode-coder",
+            to="dual-mode-fixtureworker",
             type="request",
             subject="managed after resident close",
             body="use managed backing",
@@ -1064,7 +1064,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["execution_mode"], "managed")
 
     def _seed_managed_coder_with_a_stale_running_run(self):
-        """managed-coder (role coder) on an environment gone stale, holding running run 'run-stale'. A woken
+        """managed-fixtureworker (role coder) on an environment gone stale, holding running run 'run-stale'. A woken
         send to it makes the preflight fail that run, which is the side effect an early refusal must not cause."""
         self._heartbeat_environment(
             id="wsl:test-host:default",
@@ -1073,7 +1073,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             machineId="wsl-Ubuntu:test-host",
         )
         self._register(
-            "managed-coder",
+            "managed-fixtureworker",
             role="coder",
             runtime="codex",
             machineId="wsl-Ubuntu:test-host",
@@ -1095,7 +1095,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                     "environmentId": "wsl:test-host:default",
                     "threadId": "thread-1",
                 }),
-                "managed-coder",
+                "managed-fixtureworker",
             ),
         )
         self._execute(
@@ -1104,7 +1104,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen
             ) VALUES (?,?,?,?,?,?,?)
             """,
-            ("bridge-stale", "managed-coder", "wsl-Ubuntu:test-host", "codex", "managed", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
+            ("bridge-stale", "managed-fixtureworker", "wsl-Ubuntu:test-host", "codex", "managed", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
         )
         self._execute(
             """
@@ -1118,7 +1118,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "run-stale",
                 None,
                 "manager",
-                "managed-coder",
+                "managed-fixtureworker",
                 "start_if_possible",
                 "managed",
                 "codex",
@@ -1141,21 +1141,21 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         sent = self._send_message(
             from_agent="manager",
-            to="managed-coder",
+            to="managed-fixtureworker",
             type="request",
             subject="new work",
             body="please do this",
             trigger=True,
         )
 
-        assert_stored_unwoken(self, sent, "managed-coder")  # 0.9.8, flipped from a refusal
+        assert_stored_unwoken(self, sent, "managed-fixtureworker")  # 0.9.8, flipped from a refusal
         stale_run = self._fetchone("SELECT status, summary, error_text FROM dispatch_runs WHERE id = ?", ("run-stale",))
         self.assertEqual(stale_run["status"], "failed")
         self.assertIn("environment", stale_run["summary"])
         self.assertIn("offline", stale_run["error_text"])
         controls = self._fetchall("SELECT * FROM dispatch_controls WHERE run_id = ?", ("run-stale",))
         self.assertEqual(controls, [])
-        rows = self._fetchall("SELECT body FROM messages WHERE to_agent = ?", ("managed-coder",))
+        rows = self._fetchall("SELECT body FROM messages WHERE to_agent = ?", ("managed-fixtureworker",))
         self.assertEqual([r["body"] for r in rows], ["please do this"])
 
     def test_dispatch_rejects_managed_agent_when_environment_is_offline(self):
@@ -1166,7 +1166,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             machineId="wsl-Ubuntu:test-host",
         )
         self._register(
-            "managed-coder",
+            "managed-fixtureworker",
             role="coder",
             runtime="codex",
             machineId="wsl-Ubuntu:test-host",
@@ -1184,13 +1184,13 @@ class ApiV2RegressionTests(FastApiTestCase):
             "UPDATE agents SET runtime_state = ? WHERE id = ?",
             (
                 json.dumps({"environmentId": "wsl:test-host:default", "bridgeInstanceId": "bridge-stale"}),
-                "managed-coder",
+                "managed-fixtureworker",
             ),
         )
 
         dispatched = self._dispatch(
             from_agent="manager",
-            to="managed-coder",
+            to="managed-fixtureworker",
             type="request",
             subject="strict work",
             body="do not queue into offline env",
@@ -1201,13 +1201,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(dispatched["ok"])
         self.assertEqual(dispatched["runs"], [])
         self.assertIn("managed environment", dispatched["notStarted"][0]["reason"])
-        messages = self._fetchall("SELECT * FROM messages WHERE to_agent = ?", ("managed-coder",))
+        messages = self._fetchall("SELECT * FROM messages WHERE to_agent = ?", ("managed-fixtureworker",))
         self.assertEqual(messages, [])
 
     def test_runs_listing_repairs_offline_environment_active_run(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-stale")
         self._register(
-            "managed-coder",
+            "managed-fixtureworker",
             role="coder",
             runtime="codex",
             machineId="wsl-Ubuntu:test-host",
@@ -1229,7 +1229,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                     "environmentId": "wsl:test-host:default",
                     "threadId": "thread-1",
                 }),
-                "managed-coder",
+                "managed-fixtureworker",
             ),
         )
         self._execute(
@@ -1243,7 +1243,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             (
                 "run-stale",
                 "manager",
-                "managed-coder",
+                "managed-fixtureworker",
                 "start_if_possible",
                 "managed",
                 "codex",
@@ -2392,15 +2392,15 @@ class ApiV2RegressionTests(FastApiTestCase):
         # (turn_busy fresh) must be CLAIMED immediately and injected, not held
         # behind the turn for up to 120s. This is the steer behavior — claude
         # queues multiple injects safely and in order.
-        self._register_resident_channel_claude("sc-manager", bridge_id="bridge-sc-manager")
+        self._register_resident_channel_claude("sc-fixtureowner", bridge_id="bridge-sc-fixtureowner")
         # He is mid-turn, turn_busy anchored on the very message that was sent TO him.
-        self._seed_fresh_turn_busy("sc-manager", "run_inbound_365680", "channel-linux:test-host-sc-manager")
+        self._seed_fresh_turn_busy("sc-fixtureowner", "run_inbound_365680", "channel-linux:test-host-sc-fixtureowner")
         # A 2nd send queues. A resident channelEnabled claude's dispatches resolve
         # to execution_mode='resident' (see _agent_execution_mode) — the exact
         # shape of the two deadlocked sends in the live evidence.
         self._seed_queued_dispatch_run(
             "run_queued_306769",
-            "sc-manager",
+            "sc-fixtureowner",
             execution_mode="resident",
             require_reply=0,
             steer_if_busy=1,
@@ -2409,8 +2409,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
-                "agentId": "sc-manager",
-                "bridgeId": "channel-linux:test-host-sc-manager",
+                "agentId": "sc-fixtureowner",
+                "bridgeId": "channel-linux:test-host-sc-fixtureowner",
                 "bridgeKind": "channel-sidecar",
                 "machineId": "linux:test-host",
                 "executionModes": ["channel", "resident"],
@@ -2424,24 +2424,24 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_ordinary_send_to_busy_managed_hermes_routes_steer_through_channel_claim(self):
         self._register("lead", runtime="codex", sessionMode="managed")
-        self._seed_managed_hermes_with_attached_terminal("hermes-coder", "term_hermes_steer")
-        self._stamp_live_channel_sidecar("hermes-coder", runtime="hermes")
+        self._seed_managed_hermes_with_attached_terminal("hermes-fixtureworker", "term_hermes_steer")
+        self._stamp_live_channel_sidecar("hermes-fixtureworker", runtime="hermes")
         self.client.post(
-            "/api/v1/agents/hermes-coder/claimer-lease",
-            json={"action": "acquire", "bridgeId": "channel-linux:test-host-hermes-coder"},
+            "/api/v1/agents/hermes-fixtureworker/claimer-lease",
+            json={"action": "acquire", "bridgeId": "channel-linux:test-host-hermes-fixtureworker"},
         )
         self._seed_queued_dispatch_run(
             "run_hermes_active",
-            "hermes-coder",
+            "hermes-fixtureworker",
             execution_mode="channel",
             require_reply=1,
             from_agent="lead",
         )
         self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (_now(), "run_hermes_active"))
         self._seed_fresh_turn_busy(
-            "hermes-coder",
+            "hermes-fixtureworker",
             "run_hermes_active",
-            "channel-linux:test-host-hermes-coder",
+            "channel-linux:test-host-hermes-fixtureworker",
             runtime="hermes",
         )
 
@@ -2451,7 +2451,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                 runs = await _create_dispatch_runs(
                     db,
                     from_agent="lead",
-                    recipients=["hermes-coder"],
+                    recipients=["hermes-fixtureworker"],
                     message_type="info",
                     subject="mid-turn guidance",
                     body="apply this now",
@@ -2782,7 +2782,7 @@ class ApiV2RegressionTests(FastApiTestCase):
     def test_requeue_does_not_overwrite_a_run_delivered_after_it_was_selected(self):
         # The candidate is SELECTed, then requeued by a later UPDATE. A delivery that commits in
         # between must win: before 0.7.0 the UPDATE matched on the id alone and put a delivered run
-        # back in the queue, so it was delivered twice (comms-senior-dev, v0.7 scan G1). The proxy
+        # back in the queue, so it was delivered twice (comms-fixturedeveloper, v0.7 scan G1). The proxy
         # makes the interleaving deterministic by delivering the run just before the UPDATE runs.
         self._register("race-claim-hermes", runtime="hermes", sessionMode="managed")
         self._seed_claimed_run("run_race_claim", "race-claim-hermes", claim_bridge_id="dead-bridge", claimed_minutes_ago=5)
@@ -3749,7 +3749,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         """Console delivery TYPES the message into the agent's terminal, with its own `From:` line.
         An agent on another PC sends without registering and declares where it is; the agent at
         this console is the one that has to answer, so the typed line must say so."""
-        origin = "192.168.1.50:8800, manager mp-manager"
+        origin = "192.168.1.50:8800, manager mp-fixtureowner"
         session_id = self._create_running_session(
             agent_id="external-console", terminal=True, runtime="claude-code",
             terminal_runtimes=["claude-code"], session_handle="claude-session-1",
@@ -4831,7 +4831,7 @@ class ApiV2RegressionTests(FastApiTestCase):
     def test_assign_agent_environment_adopts_resident_agent_with_session_record(self):
         self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])
         self._register(
-            "resident-manager",
+            "resident-fixtureowner",
             role="manager",
             runtime="codex",
             cwd="/newroot/project",
@@ -4841,14 +4841,14 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
         assigned = self.client.post(
-            "/api/v1/agents/resident-manager/environment",
+            "/api/v1/agents/resident-fixtureowner/environment",
             json={"environmentId": "linux:new-host:default", "runtime": "codex", "workspace": "/newroot/project"},
         )
         self.assertEqual(assigned.status_code, 200, assigned.text)
 
-        agent = self._fetchone("SELECT cwd, launch_mode, session_mode, session_handle, status FROM agents WHERE id = ?", ("resident-manager",))
-        session = self._fetchone("SELECT id, environment_id, runtime, workspace, status, session_handle, spawn_spec_id FROM agent_sessions WHERE agent_id = ?", ("resident-manager",))
-        spec = self._fetchone("SELECT environment_id, runtime, workspace FROM spawn_specs WHERE agent_id = ?", ("resident-manager",))
+        agent = self._fetchone("SELECT cwd, launch_mode, session_mode, session_handle, status FROM agents WHERE id = ?", ("resident-fixtureowner",))
+        session = self._fetchone("SELECT id, environment_id, runtime, workspace, status, session_handle, spawn_spec_id FROM agent_sessions WHERE agent_id = ?", ("resident-fixtureowner",))
+        spec = self._fetchone("SELECT environment_id, runtime, workspace FROM spawn_specs WHERE agent_id = ?", ("resident-fixtureowner",))
         self.assertEqual(agent["session_mode"], "managed")
         self.assertEqual(agent["launch_mode"], "none")
         self.assertEqual(agent["session_handle"], "thread-old")
@@ -4867,11 +4867,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         # from the adopted spec, resuming thread-old) and nothing is queued.
         restarted = self.client.post(
             f"/api/v1/sessions/{session['id']}/control",
-            json={"action": "restart", "from_agent": "dashboard", "subject": "restart resident-manager"},
+            json={"action": "restart", "from_agent": "dashboard", "subject": "restart resident-fixtureowner"},
         )
         self.assertEqual(restarted.status_code, 409, restarted.text)
-        self.assertIn('no host defines "resident-manager", so it cannot be started', restarted.json()["detail"])
-        self.assertEqual(self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("resident-manager",)), [])
+        self.assertIn('no host defines "resident-fixtureowner", so it cannot be started', restarted.json()["detail"])
+        self.assertEqual(self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("resident-fixtureowner",)), [])
 
     def test_rename_agent_identity_cascades_history_and_blocks_stale_old_id(self):
         self._heartbeat_environment(cwdRoots=["/workspace"])
@@ -5181,7 +5181,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_spawn_request_running_auto_registers_agent_session_and_initial_dispatch(self):
         self._heartbeat_environment()
-        spawn_id = self._spawn("spawned-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("spawned-fixtureworker", workspace="/workspace/repo")["id"]
         # A spawn request carrying a brief: since D8 none is made (a new agent's brief rides its lifecycle
         # spawn), so this is one queued before the upgrade.
         self._execute("UPDATE spawn_requests SET initial_message = ? WHERE id = ?", ("Implement a small task", spawn_id))
@@ -5205,7 +5205,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.json()["spawnRequest"]["status"], "running")
         self.assertTrue(running.json()["spawnRequest"]["sessionId"])
 
-        agent = self.client.get("/api/v1/agents/spawned-coder")
+        agent = self.client.get("/api/v1/agents/spawned-fixtureworker")
         self.assertEqual(agent.status_code, 200, agent.text)
         agent_payload = agent.json()["agent"]
         self.assertEqual(agent_payload["sessionMode"], "managed")
@@ -5213,7 +5213,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(agent_payload["cwd"], "/workspace/repo")
         self.assertEqual(agent_payload["runtimeState"]["bridgeInstanceId"], "bridge-current")
 
-        sessions = self.client.get("/api/v1/sessions?agentId=spawned-coder")
+        sessions = self.client.get("/api/v1/sessions?agentId=spawned-fixtureworker")
         self.assertEqual(sessions.status_code, 200, sessions.text)
         self.assertEqual(len(sessions.json()["sessions"]), 1)
         self.assertEqual(sessions.json()["sessions"][0]["spawnRequestId"], spawn_id)
@@ -5222,18 +5222,18 @@ class ApiV2RegressionTests(FastApiTestCase):
         after_heartbeat = self.client.get("/api/v1/spawn-requests")
         self.assertEqual(after_heartbeat.status_code, 200, after_heartbeat.text)
         self.assertEqual(after_heartbeat.json()["spawnRequests"][0]["id"], spawn_id)
-        sessions_after_heartbeat = self.client.get("/api/v1/sessions?agentId=spawned-coder")
+        sessions_after_heartbeat = self.client.get("/api/v1/sessions?agentId=spawned-fixtureworker")
         self.assertEqual(sessions_after_heartbeat.status_code, 200, sessions_after_heartbeat.text)
         self.assertEqual(len(sessions_after_heartbeat.json()["sessions"]), 1)
 
-        runs = self._fetchall("SELECT target_agent, status, body FROM dispatch_runs WHERE target_agent = ?", ("spawned-coder",))
+        runs = self._fetchall("SELECT target_agent, status, body FROM dispatch_runs WHERE target_agent = ?", ("spawned-fixtureworker",))
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["status"], "queued")
         self.assertEqual(runs[0]["body"], "Implement a small task")
 
     def test_session_stop_interrupts_active_run_and_marks_session_stopped(self):
         self._heartbeat_environment()
-        spawn_id = self._spawn("session-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("session-fixtureworker", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -5245,22 +5245,22 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(running.status_code, 200, running.text)
         # Running before D8 with no definition: the session stop is the service's own, not its host's.
-        undefine(self, "session-coder")
+        undefine(self, "session-fixtureworker")
         session_id = running.json()["spawnRequest"]["sessionId"]
 
         dispatched = self._dispatch(
             from_agent="dashboard",
-            to="session-coder",
+            to="session-fixtureworker",
             type="request",
             subject="work",
             body="do it",
             mode="start_if_possible",
             createMessage=True,
         )
-        env_records.report(self, "session-coder")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
+        env_records.report(self, "session-fixtureworker")  # the 0.9.8 claim gate delivers to an agent aify-env reports idle
         claim_run = self.client.post(
             "/api/v1/dispatch/claim",
-            json={"agentId": "session-coder", "machineId": "linux:test-host", "bridgeId": "bridge-current", "executionModes": ["managed"]},
+            json={"agentId": "session-fixtureworker", "machineId": "linux:test-host", "bridgeId": "bridge-current", "executionModes": ["managed"]},
         )
         self.assertEqual(claim_run.status_code, 200, claim_run.text)
         self.assertEqual(claim_run.json()["run"]["id"], dispatched["runs"][0]["runId"])
@@ -5274,7 +5274,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(payload["session"]["status"], "stopped")
         # A stop starts nothing: no spawn is queued behind it.
         self.assertEqual(self._fetchall(
-            "SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued', 'claimed')", ("session-coder",)), [])
+            "SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued', 'claimed')", ("session-fixtureworker",)), [])
         self.assertTrue(payload["interruptControlId"])
 
         controls = self._fetchall(
@@ -5291,7 +5291,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # defines is started (a defined one's go to its host's lifecycle queue,
         # test_legacy_routes_delegate_defined_agents.py), so for one running from before D8 both are refused,
         # and the refusal leaves the session, the agent's native handle and the spawn requests as they were.
-        session_id = self._create_running_session(agent_id="restart-coder", session_handle="thread-old", defined=False)
+        session_id = self._create_running_session(agent_id="restart-fixtureworker", session_handle="thread-old", defined=False)
         for action in ("restart", "recreate"):
             with self.subTest(action=action):
                 answered = self.client.post(
@@ -5299,12 +5299,12 @@ class ApiV2RegressionTests(FastApiTestCase):
                     json={"action": action, "from_agent": "dashboard", "subject": f"{action} worker", "body": "go"},
                 )
                 self.assertEqual(answered.status_code, 409, answered.text)
-                self.assertIn('no host defines "restart-coder", so it cannot be started', answered.json()["detail"])
+                self.assertIn('no host defines "restart-fixtureworker", so it cannot be started', answered.json()["detail"])
                 session = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", (session_id,))
                 self.assertEqual(session["status"], "running")
-                agent = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("restart-coder",))
+                agent = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("restart-fixtureworker",))
                 self.assertEqual(agent["session_handle"], "thread-old")
-                spawns = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("restart-coder",))
+                spawns = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("restart-fixtureworker",))
                 self.assertEqual(len(spawns), 1)
 
     def test_operator_can_set_agent_session_handle_for_each_runtime(self):
@@ -5444,7 +5444,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_recovered_session_running_ends_previous_recovering_session(self):
         self._heartbeat_environment()
-        spawn_id = self._spawn("recover-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("recover-fixtureworker", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -5460,7 +5460,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # The worker is recovering, and the agent's next start (since D8 a defined agent's cold start; the
         # session restart that used to make it goes to the host's lifecycle queue) brings up its successor.
         self._execute("UPDATE agent_sessions SET status = 'recovering' WHERE id = ?", (old_session_id,))
-        recover_spawn_id = self._respawn("recover-coder")
+        recover_spawn_id = self._respawn("recover-fixtureworker")
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -5483,7 +5483,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_runtime_state_update_refreshes_current_managed_session(self):
         self._heartbeat_environment()
-        spawn_id = self._spawn("fresh-backed-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("fresh-backed-fixtureworker", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -5510,7 +5510,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
 
         updated = self.client.patch(
-            "/api/v1/agents/fresh-backed-coder/runtime-state",
+            "/api/v1/agents/fresh-backed-fixtureworker/runtime-state",
             json={
                 "runtimeState": {
                     "bridgeInstanceId": "bridge-current",
@@ -5532,9 +5532,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self._execute(
             "UPDATE agents SET last_seen = ? WHERE id = ?",
-            ("2026-04-29T00:00:00Z", "fresh-backed-coder"),
+            ("2026-04-29T00:00:00Z", "fresh-backed-fixtureworker"),
         )
-        listed = self.client.get("/api/v1/sessions?agentId=fresh-backed-coder")
+        listed = self.client.get("/api/v1/sessions?agentId=fresh-backed-fixtureworker")
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["sessions"][0]["lastSeen"], "2026-04-29T00:00:00Z")
         self.assertEqual(listed.json()["sessions"][0]["sessionHandle"], "thread-current")
@@ -5544,7 +5544,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         lifecycle is its host's (test_cli_takeover_of_a_defined_agent_is_refused.py holds the whole contract, and an
         undefined agent's legacy takeover)."""
         self._heartbeat_environment()
-        spawn_id = self._spawn("takeover-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("takeover-fixtureworker", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -5565,7 +5565,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("flip its definition to resident", takeover.json()["detail"])
         session = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["status"], "running")
-        agent = self.client.get("/api/v1/agents").json()["agents"]["takeover-coder"]
+        agent = self.client.get("/api/v1/agents").json()["agents"]["takeover-fixtureworker"]
         self.assertNotEqual(agent["launchMode"], "none")
 
     def test_resident_register_requires_manual_switch_from_managed_agent(self):
@@ -5693,7 +5693,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["status"], "running", f"in-flight resident run was killed by a rejected re-register: {dict(run)}")
 
     def test_same_session_relaunch_takeover_when_idle(self):
-        """2026-06-13 (sc-manager stale+deaf incident): a quick close-and-relaunch of a
+        """2026-06-13 (sc-fixtureowner stale+deaf incident): a quick close-and-relaunch of a
         resident wrapper resumes the SAME session handle while the killed prior bridge
         still looks live (heartbeat lease). With NO in-flight run, the re-register must
         SUCCEED and supersede the prior bridge — the one-shot 409 left the session
@@ -5859,7 +5859,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # older than the 5-min stale window is a dead process — its row
         # should be superseded so the table doesn't accumulate zombie
         # entries across restarts. Operator-reported 2026-05-23:
-        # comms-tech-lead had 10+ leaked bridge_instances from May 21-22
+        # comms-fixtureguide had 10+ leaked bridge_instances from May 21-22
         # claude-aify restarts, all sharing the same session_handle and
         # session_mode='resident', none superseded because the pre-fix
         # carve-out unconditionally protected same-handle resident rows.
@@ -5935,7 +5935,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_managed_same_logical_owner_reregister_supersedes_old_bridge(self):
         # Operator-reported 2026-05-22: 22+ leaked managed bridge_instances
-        # for sc-manager, all sharing the same (runtime, session_mode='managed',
+        # for sc-fixtureowner, all sharing the same (runtime, session_mode='managed',
         # session_handle), none ever superseded. They piled up as the
         # operator opened/closed claude-aify sessions across the day, and
         # the pre-fix carve-out preserved them all. Older zombies running
@@ -6563,7 +6563,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_list_sessions_repairs_superseded_recovering_rows(self):
         self._heartbeat_environment()
-        spawn_id = self._spawn("repair-recover-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("repair-recover-fixtureworker", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6590,7 +6590,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             """,
             (
                 "sess_newer_running",
-                "repair-recover-coder",
+                "repair-recover-fixtureworker",
                 "linux:test-host:default",
                 "codex",
                 "/workspace/repo",
@@ -6614,7 +6614,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # not liveness — give it a genuinely-live console).
         self._seed_terminal_for_session(
             tid="term_newer_running", sid="sess_newer_running",
-            agent_id="repair-recover-coder", status="attached", runtime="codex",
+            agent_id="repair-recover-fixtureworker", status="attached", runtime="codex",
         )
         # Bind the session to its console terminal (the production shape) so the
         # GET-path orphan-terminal repair does not stop an unreferenced terminal.
@@ -6628,7 +6628,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # the repaired row is only observable through the explicit history view. The repair itself
         # is unchanged; only where we look for it is.
         listed = self.client.get(
-            "/api/v1/sessions?agentId=repair-recover-coder&includeEnded=true"
+            "/api/v1/sessions?agentId=repair-recover-fixtureworker&includeEnded=true"
         )
         self.assertEqual(listed.status_code, 200, listed.text)
         by_id = {session["id"]: session for session in listed.json()["sessions"]}
@@ -6637,7 +6637,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         # ...and the DEFAULT view must not carry the superseded row at all — that pile is exactly
         # what made the Sessions rail read as duplicate sessions.
-        current = self.client.get("/api/v1/sessions?agentId=repair-recover-coder")
+        current = self.client.get("/api/v1/sessions?agentId=repair-recover-fixtureworker")
         self.assertEqual(current.status_code, 200, current.text)
         current_ids = {session["id"] for session in current.json()["sessions"]}
         self.assertIn("sess_newer_running", current_ids)
@@ -6645,7 +6645,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_session_stop_cancels_pending_recovery_and_late_bridge_running_is_rejected(self):
         self._heartbeat_environment()
-        spawn_id = self._spawn("cancel-recover-coder", workspace="/workspace/repo")["id"]
+        spawn_id = self._spawn("cancel-recover-fixtureworker", workspace="/workspace/repo")["id"]
         claim = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6659,7 +6659,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         session_id = running.json()["spawnRequest"]["sessionId"]
 
         # A successor spawn is claimed (since D8 a defined agent's cold start makes it) ...
-        pending_spawn_id = self._respawn("cancel-recover-coder")
+        pending_spawn_id = self._respawn("cancel-recover-fixtureworker")
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6667,7 +6667,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(claim_recover.status_code, 200, claim_recover.text)
         self.assertEqual(claim_recover.json()["spawnRequest"]["id"], pending_spawn_id)
         # ... for an agent running from before D8 with no definition, whose session stop is the service's own.
-        undefine(self, "cancel-recover-coder")
+        undefine(self, "cancel-recover-fixtureworker")
 
         stopped = self.client.post(
             f"/api/v1/sessions/{session_id}/control",
@@ -6683,7 +6683,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             json={"status": "running", "bridgeId": "bridge-current", "processId": "5678"},
         )
         self.assertEqual(late_running.status_code, 409, late_running.text)
-        sessions = self._fetchall("SELECT id FROM agent_sessions WHERE agent_id = ?", ("cancel-recover-coder",))
+        sessions = self._fetchall("SELECT id FROM agent_sessions WHERE agent_id = ?", ("cancel-recover-fixtureworker",))
         self.assertEqual(len(sessions), 1)
 
     def test_resident_agent_stop_control_interrupts_active_and_disables_wake(self):
@@ -6959,7 +6959,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal=True,
             runtime="codex",
             terminal_runtimes=["codex"],
-            session_handle="thread-manager",
+            session_handle="thread-fixtureowner",
         )
 
         active = self._dispatch(
@@ -7746,7 +7746,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal=True,
             runtime="codex",
             terminal_runtimes=["codex"],
-            session_handle="thread-manager",
+            session_handle="thread-fixtureowner",
         )
         self._register("coder", runtime="codex", sessionMode="managed")
 
@@ -9537,7 +9537,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             await db.close()
 
     def test_idle_resident_with_live_sidecar_is_not_stale(self):
-        # holistic-review (operator-reported 2026-05-31, sc-manager): an IDLE
+        # holistic-review (operator-reported 2026-05-31, sc-fixtureowner): an IDLE
         # resident claude's MCP bridge isn't heartbeated (turn-busy heartbeat only
         # fires mid-turn; session-handle heartbeat only POSTs on a handle change),
         # so it goes stale after the lease and the dashboard shows it dead. Its
@@ -9608,7 +9608,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotIn("b-old-sup-noat", remaining)
 
     def test_managed_session_rotation_migrates_live_terminal(self):
-        # holistic-review (operator-reported 2026-05-31, sc-architect): a managed
+        # holistic-review (operator-reported 2026-05-31, sc-fixtureplanner): a managed
         # respawn mints a NEW running session and ends the prior one. The bridge
         # can create the visible-TUI/console terminal a few seconds BEFORE this
         # rotation, so the live terminal stays bound to the about-to-be-ended
@@ -9664,7 +9664,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(sess_a["status"], "ended", "the prior session is still ended by the rotation")
 
     def test_rotation_does_not_adopt_the_predecessor_terminal_a_restart_is_killing(self):
-        # RESTART BUG, live-reproduced on ef-manager 2026-08-03 (dispatch run
+        # RESTART BUG, live-reproduced on ef-fixtureowner 2026-08-03 (dispatch run
         # run_1785749311405_220effc1). Every dashboard Restart destroyed its own brief:
         #
         #   09:28:30  restart -> spawn_request queued, carrying the brief as initial_message
@@ -9680,7 +9680,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # The migration (2026-05-31) is meant to adopt the terminal THIS respawn's bridge just
         # created — its own comment says "a few seconds BEFORE this transition". It had no lower
         # bound on age, so it also adopted the previous generation's terminal, which on a restart
-        # is precisely the one being killed. ef-manager's adopted terminal predated its spawn
+        # is precisely the one being killed. ef-fixtureowner's adopted terminal predated its spawn
         # request by 10h16m.
         #
         # Asserts the OPERATOR-VISIBLE outcome (the brief survives the old PTY's death), not just
@@ -9689,7 +9689,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
             session_handle="aify-console-agent",
         )
-        # The predecessor's PTY has been up for a while — ef-manager's had been up 10h16m when
+        # The predecessor's PTY has been up for a while — ef-fixtureowner's had been up 10h16m when
         # its restart adopted it. _now() is second-resolution, so the bound cannot separate a
         # terminal born in the SAME second as the spawn request; it does not need to, because the
         # worker a restart replaces is by construction older than the restart that replaces it.
@@ -10028,7 +10028,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(row["claim_bridge_id"] or "", "")
 
     def test_queued_channel_run_fails_when_current_wrapper_terminal_exits_before_claim(self):
-        # Operator-reported (2026-05-28): sending to managed sc-manager
+        # Operator-reported (2026-05-28): sending to managed sc-fixtureowner
         # started claude-aify, the PTY exited immediately on a stale
         # --resume handle, and the dispatch stayed queued forever because
         # the wrapper child bridge never got far enough to claim it.
@@ -10211,7 +10211,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run_row["status"], "running")
 
     def test_orphaned_managed_runs_closed_when_claim_bridge_is_stale(self):
-        # Operator-reported (2026-05-23): sc-coder hermes managed run sat
+        # Operator-reported (2026-05-23): sc-fixtureworker hermes managed run sat
         # in 'running' state for 50+ minutes because its claim_bridge_id
         # pointed at a bridge_instance that had since gone stale
         # (last_seen 8+ min ago) when the owning claude-aify wrapper was
@@ -10372,7 +10372,7 @@ class ApiV2RegressionTests(FastApiTestCase):
                          f"dead-target reason must not be the generic crash catch-all; got {reason!r}")
 
     def test_orphaned_managed_runs_closed_despite_reply_reminder_events(self):
-        # Operator-reported (2026-05-23): sc-coder's stuck run had a
+        # Operator-reported (2026-05-23): sc-fixtureworker's stuck run had a
         # 'reply_reminder_skipped' dispatch_event firing every minute
         # (service-side reminder loop), which kept resetting the reaper's
         # "NOT EXISTS dispatch_events" cutoff and prevented reaping even
@@ -11485,7 +11485,7 @@ class ApiV2RegressionTests(FastApiTestCase):
     def test_agent_console_input_appends_control_with_caller_recorded(self):
         self._seed_managed_claude_with_attached_terminal("console-inputee", "term_console_in")
         # The caller must be a registered agent.
-        self._register("console-manager", runtime="claude-code", sessionMode="managed")
+        self._register("console-fixtureowner", runtime="claude-code", sessionMode="managed")
         # Explicit console control is the recovery path when semantic delivery breaks. It is
         # deliberately independent from the legacy automatic PTY-delivery setting.
         setting = self.client.put(
@@ -11495,7 +11495,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(setting.json()["insert_messages_via_console"])
         resp = self.client.post(
             "/api/v1/agents/console-inputee/console/input",
-            json={"text": "/status", "enter": True, "from": "console-manager"},
+            json={"text": "/status", "enter": True, "from": "console-fixtureowner"},
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         data = resp.json()
@@ -11507,7 +11507,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(control["action"], "input")
         self.assertEqual(control["body"], "/status\r")
-        self.assertEqual(control["requested_by"], "console-manager")
+        self.assertEqual(control["requested_by"], "console-fixtureowner")
         # Audit event records who sent the input.
         events = self._fetchall(
             "SELECT event_type, body FROM terminal_events WHERE terminal_id = ?",
@@ -11515,7 +11515,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         audit = [e for e in events if e["event_type"] == "agent_console_input"]
         self.assertTrue(audit, f"expected an agent_console_input audit event; got {[e['event_type'] for e in events]}")
-        self.assertIn("console-manager", audit[-1]["body"])
+        self.assertIn("console-fixtureowner", audit[-1]["body"])
 
     async def _append_control(self, terminal_id: str, *, action: str) -> str:
         db = await get_db()
@@ -11856,18 +11856,18 @@ class ApiV2RegressionTests(FastApiTestCase):
         self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
         # (a) Phase 3 (2026-06-03): managed session with a STALE 'attached' denorm
         # but a LIVE terminal_sessions row that went 'failed' -> session stopped.
-        # This is the live-reproduced cms-manager/lc-coder/lc-tech-lead shape:
+        # This is the live-reproduced cms-fixtureowner/lc-fixtureworker/lc-fixtureguide shape:
         # agent_sessions.terminal_status frozen at 'attached' while the real
         # terminal is dead. case (a) must JOIN the live terminal table to catch it.
-        self._seed_agent_row("mp-senior-dev", "active")
+        self._seed_agent_row("mp-fixturedeveloper", "active")
         self._seed_dead_session(
-            sid="sess_managed_failed_term", agent_id="mp-senior-dev",
+            sid="sess_managed_failed_term", agent_id="mp-fixturedeveloper",
             mode="managed-warm", owner_mode="managed", status="running",
             terminal_status="attached",
         )
         self._seed_terminal_for_session(
             tid="term_managed_failed", sid="sess_managed_failed_term",
-            agent_id="mp-senior-dev", status="failed",
+            agent_id="mp-fixturedeveloper", status="failed",
         )
         # (a-live) managed session whose terminal is genuinely LIVE -> stays running
         # (false-positive guard: the live-truth join must not stop a healthy console).
@@ -11889,18 +11889,18 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminal_status="attached",
         )
         # (c-fresh) resident session with a FRESH owning bridge -> NOT stopped.
-        self._seed_agent_row("ci-manager", "active")
-        self._seed_owner_bridge("bridge-fresh", "ci-manager", last_seen_delta_seconds=-10)
+        self._seed_agent_row("ci-fixtureowner", "active")
+        self._seed_owner_bridge("bridge-fresh", "ci-fixtureowner", last_seen_delta_seconds=-10)
         self._seed_dead_session(
-            sid="sess_resident_fresh", agent_id="ci-manager",
+            sid="sess_resident_fresh", agent_id="ci-fixtureowner",
             mode="resident", owner_mode="resident", status="running",
             owner_bridge_id="bridge-fresh",
         )
         # (c-stale) resident session with a stale owning bridge -> stopped.
-        self._seed_agent_row("lc-manager", "active")
-        self._seed_owner_bridge("bridge-stale", "lc-manager", last_seen_delta_seconds=-3600)
+        self._seed_agent_row("lc-fixtureowner", "active")
+        self._seed_owner_bridge("bridge-stale", "lc-fixtureowner", last_seen_delta_seconds=-3600)
         self._seed_dead_session(
-            sid="sess_resident_stale", agent_id="lc-manager",
+            sid="sess_resident_stale", agent_id="lc-fixtureowner",
             mode="resident", owner_mode="resident", status="running",
             owner_bridge_id="bridge-stale",
         )
@@ -11967,7 +11967,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # session instead of losing it. An agent with NO stored handle yields an
         # empty handle (the worker starts a fresh session — nothing to resume).
         self._online_codex_env_for_coldstart()
-        for agent_id, stored_handle in (("g1-coder", "codex-thread-g1"), ("g1-fresh", "")):
+        for agent_id, stored_handle in (("g1-fixtureworker", "codex-thread-g1"), ("g1-fresh", "")):
             with self.subTest(stored_handle=stored_handle):
                 self._register(agent_id, runtime="codex", sessionMode="managed")
                 define(self, agent_id, environment_id="env_g1", machine_id="linux:g1", bridge_id="bridge-g1",

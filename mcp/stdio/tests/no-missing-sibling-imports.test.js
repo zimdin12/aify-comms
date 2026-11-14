@@ -225,7 +225,7 @@ test("the wider scan finds a deleted import line, and not a parameter with neste
   // A use INSIDE a parameter's default is still a use: hermes-prior-reap.mjs's `listeners = () =>
   // listListeners(...)` with its import deleted is the mutation this gate was checked against.
   assert.deepEqual(at("export function f({ listeners = () => listListeners({}) } = {}) {\n  return listeners();\n}\n"), ["listListeners"]);
-  // comms-senior-dev's probe of v0.7.2: a default with NO nested parentheses, which the shared
+  // comms-fixturedeveloper's probe of v0.7.2: a default with NO nested parentheses, which the shared
   // parameter pattern in `moduleBindings` matches and read whole, so `listListeners` counted as bound
   // and both rules stayed silent while `f()` throws ReferenceError.
   const probe = 'import { other } from "./sib.js";\nexport function f({listeners = listListeners} = {}) { return listeners + other; }\n';
@@ -240,7 +240,7 @@ test("the wider scan finds a deleted import line, and not a parameter with neste
 });
 
 test("the wide rule finds a use inside an arrow default that is itself an arrow", () => {
-  // comms-senior-dev's second probe of v0.7.2, in its own test so it is judged on its own:
+  // comms-fixturedeveloper's second probe of v0.7.2, in its own test so it is judged on its own:
   // arrowParameterNames read every token of the list, so the wide rule alone missed it.
   const known = new Map([["mcp/stdio/sib.js", new Set(["other", "listListeners"])]]);
   const src = "import { other } from './sib.js';\nexport const f = ({listeners = () => listListeners()}) => listeners();\n";

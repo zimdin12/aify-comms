@@ -6,7 +6,7 @@
 // with `limit=80`, the newest 80 rows across the WHOLE FLEET -- into `state.messages`, and the DM
 // view filters that window down to one peer. So a conversation's visible depth is not 80; it is
 // however many of its messages happen to fall inside the fleet's newest 80. Measured that day: 137
-// messages from `sc-manager`, 43 of them inside the window.
+// messages from `manager`, 43 of them inside the window.
 //
 // KEPT SEPARATE FROM `state.messages` ON PURPOSE. The poll REPLACES that array every cycle, which is
 // what makes deleted and edited messages disappear correctly. Merging history into it would either

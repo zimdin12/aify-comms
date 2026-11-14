@@ -86,7 +86,7 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         return response.json()["launch"]["env"]["AIFY_START_INTENT"]
 
     def test_THE_REQUESTS_OWN_TERMINAL_carries_its_intent_into_the_launch(self):
-        for created_by, want in (("dashboard", REPLACE), ("sc-manager", START)):
+        for created_by, want in (("dashboard", REPLACE), ("sc-fixtureowner", START)):
             with self.subTest(created_by):
                 agent_id = f"up-{created_by}"
                 self._bring_up(self._spawn(agent_id, intent=want))
@@ -238,7 +238,7 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
             db = await get_db()
             try:
                 started = await _coldstart_spawn_request_for_dispatch(
-                    db, agent_id, runtime="claude-code", settings=await _load_settings(db), requested_by="sc-manager")
+                    db, agent_id, runtime="claude-code", settings=await _load_settings(db), requested_by="sc-fixtureowner")
                 await db.commit()
                 return started
             finally:

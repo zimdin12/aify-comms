@@ -46,7 +46,7 @@ export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, sess
   // supplies this from the session row, which is where a terminal status actually lives.
   const normalizedTerminalStatus = String(terminalStatus || '').trim().toLowerCase();
   // A DEAD session with no explicit live terminal status must not mount an xterm from
-  // leftover runtime_state pointers (graph-tech-lead incident 2026-07-02: rs.terminalId
+  // leftover runtime_state pointers (lead incident 2026-07-02: rs.terminalId
   // still named a terminal stopped a day earlier — the dashboard rendered its stale 65KB
   // buffer as if live, dead input, and never offered Start). An explicitly-live
   // terminalStatus (attached/active/starting) still wins — a console freshly started on
@@ -100,7 +100,7 @@ export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, sess
   // action in the session header; that is where it belongs.
   //
   // So: hermes with a live PTY shows its xterm (handled above — hermes DOES get a real console;
-  // cms-tech-lead came up with 19KB of PTY output). Hermes with no PTY now falls through to
+  // lead came up with 19KB of PTY output). Hermes with no PTY now falls through to
   // `kind: 'none'`, which offers "Start console" / "Start agent" — the thing that was being
   // silently withheld.
   if (normalizedSessionMode === 'resident' && runtime === 'codex' && codexAttachable) {

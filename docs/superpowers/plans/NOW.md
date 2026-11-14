@@ -95,7 +95,7 @@ the separation-of-concerns work the release is named for.
 | the install is correct | `redeploy.sh` end to end, 3 clients, exit 0; `service`, `bridge-installed`, `skills-installed`, `spawn-delegation`, `env-bridge`, `env-processes` all green |
 | the deployed build IS the tag | `service` reads `b7d77fdf == repo HEAD` |
 | the update path proves itself | the delta reported 4 pre-existing failures as "was already", 0 broken, 0 falsely fixed |
-| the fleet survived it | sc-lead, sc-tester, sc-critic, sc-coder still running, liveness 1-49s fresh |
+| the fleet survived it | lead, tester, critic, coder still running, liveness 1-49s fresh |
 
 **Deferred out of T4 with the reason, not simulated:** the installer has never been exercised on a
 host LACKING all three components. This machine has all three, so the missing-component path is
@@ -107,7 +107,7 @@ bumped; tagging them is a separate release decision on repos the operator versio
 aify-env carries real work from tonight (`1c5af7c`, `ec243e9`, `067e399`) that is INERT until it is
 restarted.
 
-## sc-coder: RECOVERED 07:07, and what it cost to get there
+## coder: RECOVERED 07:07, and what it cost to get there
 
 **Found while verifying the orphan fix, on the operator's own fleet.** It is a deadlock, and every
 step in it is a component behaving as designed:
@@ -129,12 +129,12 @@ step in it is a component behaving as designed:
 5. Result: a running claude worker nobody can reach, restart or address. Three failed restart
    terminals from 06:27, 06:33 and 06:39 are the operator hitting exactly this.
 
-**RECOVERED, on sc-manager's request and their evidence.** They measured the same deadlock from
+**RECOVERED, on manager's request and their evidence.** They measured the same deadlock from
 three views independently and confirmed the work was committed and nothing lost. The launch command
 carries `--resume e306ffe9-...`, so a replacement worker rejoins the SAME claude session rather than
 starting cold -- which is what made replacing it safe rather than merely acceptable. Stopped the
 orphaned process, cancelled `spawn_1788417654124_877f439c` through `PATCH /spawn-requests/{id}`,
-verified zero in-flight rows, and sc-manager's retry was accepted. The other three lanes untouched.
+verified zero in-flight rows, and manager's retry was accepted. The other three lanes untouched.
 
 **THE RE-BINDING IS BUILT** (aify-env `067e399`), and it turned out to be host-side only -- no
 service change at all. A start control for an agent this host already runs a worker for now asks the

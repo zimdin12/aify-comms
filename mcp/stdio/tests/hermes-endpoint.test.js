@@ -30,7 +30,7 @@ function cleanup(dir) {
 
 test("isUsableSessionId: accepts real ids, rejects placeholders/empty", () => {
   assert.equal(isUsableSessionId("20260604_050351_21531a"), true);
-  assert.equal(isUsableSessionId("aify-sc-tester"), true);
+  assert.equal(isUsableSessionId("aify-sc-fixtureprobe"), true);
   assert.equal(isUsableSessionId("8b821120"), true);
   assert.equal(isUsableSessionId("${HERMES_SESSION_ID}"), false, "unexpanded placeholder must be rejected");
   assert.equal(isUsableSessionId(""), false);

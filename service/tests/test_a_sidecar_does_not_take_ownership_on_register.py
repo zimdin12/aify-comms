@@ -8,9 +8,9 @@ service's own `bridge_not_current` guards. For a MANAGED agent it means the ENVI
 the delivery loop. Observed live on 2026-08-29::
 
     live environment bridge          e720826b-741c-455f-b8bd-e4659777e0c7
-    comms-senior-dev, 03:44          cd17b4c8-ebdb-4980-9492-b2a69435b590
-    comms-senior-dev, minutes later  a0897fff-a6c4-4c99-8349-8b9d750dd22a
-    ef-manager (just spawned)        e720826b-741c-455f-b8bd-e4659777e0c7
+    comms-fixturedeveloper, 03:44          cd17b4c8-ebdb-4980-9492-b2a69435b590
+    comms-fixturedeveloper, minutes later  a0897fff-a6c4-4c99-8349-8b9d750dd22a
+    ef-fixtureowner (just spawned)        e720826b-741c-455f-b8bd-e4659777e0c7
 
 Doctor then reported that agent as an orphaned delivery loop "bound to no live bridge" while it was
 answering messages, advising a bridge relaunch -- which reaps the managed fleet.

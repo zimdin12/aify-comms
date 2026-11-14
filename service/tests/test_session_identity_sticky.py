@@ -195,7 +195,7 @@ class SessionIdentityStickyTests(FastApiTestCase):
         # Resume command surfaced from the runtime adapter. It MUST carry --aify-agent:
         # a resume without it leaves the wrapper unable to export AIFY_AGENT_ID, which
         # silently disables the turn detector AND every turn hook, latching the agent's
-        # status forever (the general-manager incident, 2026-07-14).
+        # status forever (the general-fixtureowner incident, 2026-07-14).
         self.assertEqual(
             body.get("resumeCommand"),
             "claude-aify --aify-agent claude-1 --resume sess-AAA",

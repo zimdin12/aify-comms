@@ -66,7 +66,7 @@ class AColdStartKeepsTheAgentsRole(FastApiTestCase):
         from service.api_core.settings import _load_settings
         from service.db import get_db
 
-        agent_id = "the-reviewer"
+        agent_id = "the-fixturereader"
         # Since D8 an agent starts only from its host's definition, which carries its role and name.
         created = spawn_defined(self, agent_id, environment_id=self.ENV, machine_id="linux:role-host",
                                 bridge_id=self.BRIDGE, workspace="/work", role="reviewer", name="The Reviewer")
@@ -83,7 +83,7 @@ class AColdStartKeepsTheAgentsRole(FastApiTestCase):
             db = await get_db()
             try:
                 started = await _coldstart_spawn_request_for_dispatch(
-                    db, agent_id, runtime="claude-code", settings=await _load_settings(db), requested_by="sc-manager")
+                    db, agent_id, runtime="claude-code", settings=await _load_settings(db), requested_by="sc-fixtureowner")
                 await db.commit()
                 return started
             finally:

@@ -16,7 +16,7 @@ DIALOG'S OWN distinctive text. Any rule of that shape will misfire on new claude
 
 **Design principle (the non-hackfix):** a rule may fire only on text that exists ONLY in its
 dialog (the warning line + its literal option strings, from the fixtures), and NO rule may fire
-while the agents-manager chrome is visible (the manager means claude is orchestrating, never
+while the manager chrome is visible (the manager means claude is orchestrating, never
 stuck at a boot prompt).
 
 ## Tasks
@@ -25,7 +25,7 @@ stuck at a boot prompt).
   "WARNING: Claude Code running in Bypass Permissions mode … ❯ Yes, I accept / No, exit".
   New match: `/bypass permissions mode[\s\S]{0,200}yes, i accept/i`. The footer chrome
   ("bypass permissions on (shift+tab…") has neither "mode" nor "Yes, I accept".
-- [x] **2. Global agents-manager suppression** in `matchConsolePrompt`:
+- [x] **2. Global manager suppression** in `matchConsolePrompt`:
   `/← for agents|↑\/↓ to select|↓ to manage/` in the visible tail → return null for ALL rules.
 - [ ] **3. Same-class audit of the sibling rules:**
   - compaction: drop the loose `compact[\s\S]{0,80}continue` alternative (matches prose like
@@ -33,7 +33,7 @@ stuck at a boot prompt).
   - channel-enter: tighten `enter channel|join channel` (prose-able) to the fixture's
     distinctive `enter channel to receive`; keep `development-channels` (plugin name).
   - resume rule: already dialog-shaped (requires BOTH option strings + cursor math) — no change.
-- [ ] **4. Regression tests** (`claude-console-prompts.test.js`): real agents-manager footer
+- [ ] **4. Regression tests** (`claude-console-prompts.test.js`): real manager footer
   (+ subagent title containing "continue") fires NOTHING; the three fixtures still fire their
   rules; prose "compact … continue" / "join channel" no longer fire.
 - [ ] **5. Deploy:** reinstall bridge (native copy) — wrapper restart is the operator's.

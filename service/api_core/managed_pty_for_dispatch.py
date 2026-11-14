@@ -55,7 +55,7 @@ async def _ensure_managed_pty_for_dispatch(
         agent status           = available
         the operator            looking at a session that says stopped
 
-    `ef-manager` sat in exactly that state today after `graph-tech-lead` restarted it, and it took a
+    `manager` sat in exactly that state today after `lead` restarted it, and it took a
     cold-start send to recover. The v0.2.0 dead-terminal finalizer cannot clean it up either,
     because that keys on a terminal being DEAD and here none was ever created.
 
@@ -198,7 +198,7 @@ async def _ensure_managed_pty_for_dispatch(
             -- Spawning a NEW managed PTY for this session IS the "backing (re)started" event:
             -- promote a dead-state denorm back to running, else the row keeps the previous
             -- backing's 'stopped' and the Console label reads "Console stopped" for a live
-            -- attached terminal forever (cms-manager, 2026-06-10 — the lazy auto-start-on-send
+            -- attached terminal forever (manager, 2026-06-10 — the lazy auto-start-on-send
             -- bound a fresh PTY to a session left 'stopped' by the old backing's death; the
             -- display deriver deliberately never promotes, so the bind moment must).
             status = CASE WHEN status IN {ENDED_AGENT_SESSION_STATUS_SQL}

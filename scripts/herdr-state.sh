@@ -2,7 +2,7 @@
 # Optional upstream app discovery, never installation or server startup.
 # Default: files only. --probe: bounded `--version` on the discovered executable.
 # `missing` is scoped to HERDR_INSTALL_DIR, not a claim about the whole machine.
-# No hit in standard locations is UNKNOWN: portable/package-manager installs may live elsewhere.
+# No hit in standard locations is UNKNOWN: portable/package manager installs may live elsewhere.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/report-json.sh"
@@ -21,7 +21,7 @@ if [ -n "${HERDR_INSTALL_DIR:-}" ]; then
   installed=missing
   directories=("$HERDR_INSTALL_DIR")
 else
-  # Official v0.9.0 distribution/install.{sh,ps1}; custom/package-manager installs use PATH.
+  # Official v0.9.0 distribution/install.{sh,ps1}; custom/package manager installs use PATH.
   directories=("$HOME/.local/bin" "${HERDR_HOME:-$HOME/.herdr}/packages/standalone/current")
   [ -z "${LOCALAPPDATA:-}" ] || directories+=("${LOCALAPPDATA//\\//}/Programs/Herdr/bin")
 fi

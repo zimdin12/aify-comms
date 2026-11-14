@@ -4,7 +4,7 @@ THE FINDING (external review, 2026-08-18, reported as a Low): `PATCH /dispatch/c
 no acting agent. Anything that could reach the endpoint could mark any control `completed` or `failed`,
 and the audit trail said only that it happened.
 
-PROMOTED BY comms-senior-dev, 2026-08-18, verbatim: "Promote only #2: dispatch/controls PATCH receipt
+PROMOTED BY comms-fixturedeveloper, 2026-08-18, verbatim: "Promote only #2: dispatch/controls PATCH receipt
 records no acting agent. It is the same accountability/authz class as unsend/artifact/channel owner
 fixes. The actor must be mandatory and service-enforced; actor-absent old callers must fail closed
 once the deploy-coupled bridge/dashboard/service update is in place."
@@ -130,7 +130,7 @@ class DispatchControlSettlementNamesItsActor(FastApiTestCase):
                                         response="interrupt accepted", **extra)
                 self.assertEqual(
                     response.status_code, 400,
-                    "a control settlement with no acting agent was accepted. comms-senior-dev's "
+                    "a control settlement with no acting agent was accepted. comms-fixturedeveloper's "
                     "2026-08-18 ruling: the actor must be mandatory and service-enforced, and "
                     "actor-absent callers fail closed.",
                 )

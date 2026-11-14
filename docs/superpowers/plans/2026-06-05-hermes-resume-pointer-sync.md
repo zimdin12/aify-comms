@@ -5,7 +5,7 @@
 
 **Symptom:** A managed hermes agent starts a FRESH "(untitled)" session on every stop+start instead of resuming the previous one. The sessions are NOT lost — the hermes TUI shows them all ("1 live · 26 resumable", incl. the user's "Context Retention Banana Test" etc.). Only the *resume pointer* is wrong.
 
-## Root cause (fully traced, 2026-06-05, next-tech-lead)
+## Root cause (fully traced, 2026-06-05, lead)
 
 Hermes has TWO ids per session: a DURABLE `session_key` (e.g. `20260605_161037_c57d9a`, what `--resume`/`session.resume` need, persisted in `~/.hermes/state.db`) and an EPHEMERAL runtime id (e.g. `02299e31`, dead after a restart). Three on-disk pointers, all out of sync:
 
@@ -64,8 +64,8 @@ Probing the live gateway directly:
 ## Immediate stopgap (no code)
 Manually point the marker + handle at a real session from the screenshot (e.g. the banana test) so ONE restart resumes it:
 ```bash
-echo -n 20260605_161037_c57d9a > /tmp/aify-hermes-session-next-tech-lead
-curl -s -X PATCH http://localhost:8800/api/v1/agents/next-tech-lead/session-handle \
+echo -n 20260605_161037_c57d9a > /tmp/lead
+curl -s -X PATCH http://localhost:8800/api/v1/agents/lead/session-handle \
   -H 'content-type: application/json' -d '{"sessionHandle":"20260605_161037_c57d9a"}'
 ```
 Then restart the wrapper — it should resume that session. (Still re-drifts until the periodic sync lands.)

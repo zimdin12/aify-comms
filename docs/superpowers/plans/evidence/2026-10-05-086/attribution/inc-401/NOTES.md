@@ -19,9 +19,9 @@
   Differences: hm-3/4 have AIFY_MANAGED_MODEL, lack AIFY_SESSION_HANDLE + AIFY_EXPLICIT_SESSION_HANDLE (fresh vs --resume). Not on the key path.
 - Replay (resolve.mjs, read-only) of keyForEndpoint now: 127.0.0.1:8800 -> key, hash matches file (50 ms); localhost:8800 -> key (678 ms, icacls variance); :8801 / "" -> none. custody now "". Empty icacls text -> refuses (negative control).
 - Memory scan (memscan.ps1, read-only, counts only): key bytes count — graph 37, dashboard 41, comms 88; hm-3 1, hm-4 1; unrelated node controls 44296/71744/106980: 1 each (baseline: the 6-char key is a dictionary word present in node itself). Random 6-char control: 0 everywhere. => hm-3/4 loops never hold the key (baseline only), working loops hold many per-request copies.
-- bridge_instances: graph has `hermes-managed-host-win32:stevenz-l-graph-senior-dev` registered 03:29:44Z, last_seen 04:56:36Z. No hermes-managed-host-* row for hm-3/4 => loop never made one authenticated call.
+- bridge_instances: graph has `hermes-managed-host-win32:developer` registered 03:29:44Z, last_seen 04:56:36Z. No hermes-managed-host-* row for hm-3/4 => loop never made one authenticated call.
 - Loop logs: hm-3 1061 lines, 1060 are 401, last 'fetch failed'; hm-4 1052/1052 401. All other loop logs 0 401s.
-- Loop start (nohup / node, UTC): pc-manager 21:35:24 (pre-0.8.5), golf 23:44:11, sc-lead 23:44:27, sc-coder 23:48:56, comms 01:43:54, dashboard 02:13:46, graph 03:29:42, hm-3 03:57:36.8/03:57:38.6 (1.7 s), hm-4 03:58:01.3/03:58:02.3 (1.0 s). Others' nohup->node gap 0.05-0.7 s.
+- Loop start (nohup / node, UTC): manager 21:35:24 (pre-0.8.5), golf 23:44:11, lead 23:44:27, coder 23:48:56, comms 01:43:54, dashboard 02:13:46, graph 03:29:42, hm-3 03:57:36.8/03:57:38.6 (1.7 s), hm-4 03:58:01.3/03:58:02.3 (1.0 s). Others' nohup->node gap 0.05-0.7 s.
 - terminal created -> loop start: comms 20 s, dashboard 23 s, graph 2m09s, hm-3 4m31s, hm-4 4m55s (that interval includes ensure-host gateway bring-up).
 - All five spawns claimed by aify-env bridge bc96a8dc (process 47240); spawn specs env_vars empty for all.
 - Odd side row: bridge_instances id bc96a8dc-... (aify-env's claimer id) attributed agent apgtest-hm-4, registered 03:53:06Z, bridge_build ''. Not explained.

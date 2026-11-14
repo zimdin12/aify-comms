@@ -1,8 +1,8 @@
 # Pilot — thread closure labels (sand-castle only)
 
-**Status:** NOT RUNNING. Reviewed by `comms-senior-dev` (APPROVE pilot shape, wording fixes
+**Status:** NOT RUNNING. Reviewed by `developer` (APPROVE pilot shape, wording fixes
 applied). Needs **operator adoption** before it touches the team's files — and after 2026-08-10,
-`sc-manager`'s custody to apply it.
+`manager`'s custody to apply it.
 
 **The instrument was deleted in 0.7.0** (`6ad8ab13`, with the other one-off scripts). If the pilot is
 adopted, restore it first: `git show v0.6.22:scripts/comms_baseline.py > scripts/comms_baseline.py`.
@@ -10,7 +10,7 @@ Every `scripts/comms_baseline.py` below means that file.
 
 > **2026-08-10 — I applied this to `sand_castle/AGENTS.md` + `CLAUDE.md` and it did not stick.**
 > The edit landed (verified at the time: block at `AGENTS.md:604`, 22 insertions each, staged after
-> the TH-4 hook rejected the commit) and was gone within the hour — `sc-manager` measured
+> the TH-4 hook rejected the commit) and was gone within the hour — `manager` measured
 > `grep` = 0 and worktree blobs identical to HEAD, with no reset in the reflog. Most likely one of
 > the six agents working in that repo cleaned an unexpected staged change, which is a reasonable
 > thing for them to have done.
@@ -18,11 +18,11 @@ Every `scripts/comms_baseline.py` below means that file.
 > **Two lessons, both mine.** I told the operator "the pilot is live on disk either way, since
 > agents read files not git" — false, and stated without re-checking. And the upstream error was
 > worse: I edited a POLICY file in a repo with six active agents and asked permission afterwards.
-> `sc-manager`'s ruling stands and is correct — `AGENTS.md`/`CLAUDE.md` bind every lane on that
+> `manager`'s ruling stands and is correct — `AGENTS.md`/`CLAUDE.md` bind every lane on that
 > team, adoption is the operator's call, and there is prior history of an unauthorised edit to
 > these exact two files costing them a long forensic investigation.
 >
-> **If adopted: `sc-manager` applies it**, as its own commit through its own gate. Not me.
+> **If adopted: `manager` applies it**, as its own commit through its own gate. Not me.
 
 ## Why this and nothing else
 
@@ -45,7 +45,7 @@ corrected, agreed definition:
 | **7d (pre-pilot basis)** | **44.5%** | **48.7%** | 6.8% |
 
 **So we cannot currently tell whether the deliberation is productive.** Two readings fit: the
-work concludes but nobody labels it, or threads genuinely decay. `comms-senior-dev` withdrew
+work concludes but nobody labels it, or threads genuinely decay. `developer` withdrew
 its own earlier "productive, not circular" verdict on exactly this point — its 57% had counted
 bare `ACK`/`agree` as closure.
 
@@ -91,7 +91,7 @@ The label list is **exactly** `TERMINAL_LABELS` in `scripts/comms_baseline.py`. 
 measurement must not diverge — if they do, the metric credits labels nobody was told to use, or
 misses the ones they were. That is the `ORDER BY` bug one layer up.
 
-## Acceptance gate (set by `comms-senior-dev`)
+## Acceptance gate (set by `developer`)
 
 Measure after **7 days** with `scripts/comms_baseline.py --days 7`, compared against the
 **7-day pre-pilot snapshot** `docs/baselines/2026-08-09-comms-baseline-7d.json` — *not* the 14d

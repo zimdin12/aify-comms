@@ -27,7 +27,7 @@ const assistantDone = line({
 });
 const userSays = (text) => line({ type: "user", message: { role: "user", content: text } });
 
-// Verbatim from the live transcript that stuck general-manager.
+// Verbatim from the live transcript that stuck general-fixtureowner.
 const RENAME_INJECTION =
   '<system-reminder>\nThe user named this session "General Manager". This may indicate the session\'s focus or intent.\n</system-reminder>';
 

@@ -125,7 +125,7 @@ LIVE_SESSION_STATUSES = {
 # claimed but then abandoned/stuck is force-closed by a 24h reaper, leaving a completed row
 # whose claimed→finished span is ~24h of NON-work. Counting COALESCE(started_at, claimed_at)→
 # finished for those (a regression in 93f44df) inflated "working total" to absurd values
-# (sc-architect showed 909h). A real worked span — even a long autonomous run — never
+# (architect showed 909h). A real worked span — even a long autonomous run — never
 # approaches this; anything above it is a reaped/stuck run and contributes 0 worked minutes.
 WORKED_SPAN_CEILING_SECONDS = 4 * 3600
 

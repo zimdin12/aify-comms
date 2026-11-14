@@ -6,7 +6,7 @@ DELEGATED aify-env process, the piped child and a forced stop. `terminal-manager
 only an output marker and a status, so both numbers died one hop short of this table, and
 `TerminalOutputRequest` had nowhere to put them anyway.
 
-WHAT IT COST, in the open. sc-claude and sc-architect died mid-turn on 2026-08-26. The operator asked
+WHAT IT COST, in the open. sc-claude and sc-fixtureplanner died mid-turn on 2026-08-26. The operator asked
 why. Every record said `status='stopped'`, an empty `error`, and nothing else: the console tail could
 show what the agent had been DOING and nothing whatsoever about the stopping. A terminal that dies
 took its reason with it.

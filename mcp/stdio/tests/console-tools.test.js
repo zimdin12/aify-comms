@@ -109,7 +109,7 @@ assert.match(COMMS_SEND_TOOL_DESCRIPTION, /set requireReply=false/i,
   assert.equal(calls[0].endpoint, "/agents/stuck-agent/console/input");
   assert.deepEqual(calls[0].body, { text: "/status", enter: true, from: "manager-bot" });
   // C8 (2026-07-26): this asserted /Input sent to stuck-agent/, and "Input sent" is the exact
-  // sentence an operator's sc-manager read as confirmation before burning ~15 minutes retrying a
+  // sentence an operator's sc-fixtureowner read as confirmation before burning ~15 minutes retrying a
   // lever that could not work. The write is only QUEUED; even a completed control proves nothing
   // beyond "bytes reached the PTY". Pin the honest wording AND the absence of the old claim, so a
   // future edit cannot quietly restore a success message this call cannot justify.
@@ -157,7 +157,7 @@ const HERMES_FATAL_LINE =
     lines: 2,
     output: [HERMES_FATAL_LINE, "[hermes-aify] FATAL: managed gateway host did not come up."].join("\n"),
   });
-  const res = await commsConsoleTailHandler({ agentId: "sc-architect" }, { httpCall: fakeHttp });
+  const res = await commsConsoleTailHandler({ agentId: "sc-fixtureplanner" }, { httpCall: fakeHttp });
   assert.ok(!res.isError, "a historical read is a successful answer, not an error");
   const text = res.content[0].text;
   assert.match(text, /NOT LIVE/, "must not be readable as the state of a running session");

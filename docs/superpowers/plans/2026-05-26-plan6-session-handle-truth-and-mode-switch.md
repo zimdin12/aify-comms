@@ -706,7 +706,7 @@ document.addEventListener("click", async (ev) => {
 - [ ] `python -m pytest service/tests/ --ignore=service/tests/test_new_dashboard_app.py -x`
 - [ ] All JS tests: `for f in mcp/stdio/tests/*.test.js; do node --test "$f"; done`
 
-### Task D2: Code-reviewer subagent
+### Task D2: Reviewer subagent
 
 Dispatch over `git diff <base>..HEAD`. Address Critical and Important; note Minor for follow-up.
 

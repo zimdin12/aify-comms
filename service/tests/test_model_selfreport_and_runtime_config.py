@@ -95,11 +95,11 @@ def test_the_same_value_is_rejected_by_a_request_and_dropped_by_a_registration(v
 
 def test_a_registration_with_a_bad_model_keeps_everything_else():
     registered = AgentRegister(
-        agentId="sc-coder", role="coder", model="opus; rm -rf /",
+        agentId="sc-fixtureworker", role="coder", model="opus; rm -rf /",
         name="SC Coder", description="still here",
     )
     assert registered.model is None
-    assert registered.agentId == "sc-coder"
+    assert registered.agentId == "sc-fixtureworker"
     assert registered.role == "coder"
     assert registered.name == "SC Coder"
     assert registered.description == "still here"

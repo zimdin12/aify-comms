@@ -1,6 +1,6 @@
 """A send never cold-starts a managed agent whose worker is still live.
 
-Live 2026-10-27: comms-senior-dev's hermes worker kept its attached terminal and running session while its comms
+Live 2026-10-27: comms-fixturedeveloper's hermes worker kept its attached terminal and running session while its comms
 bridge stopped reporting. A send cold-started a second worker; aify-env refused it (it never starts a second worker
 beside a live one), and settling that refused spawn ended the live session's row. The host's refusal is the right
 answer, so the service gives it first: a live managed session with a live console refuses the cold start whether or

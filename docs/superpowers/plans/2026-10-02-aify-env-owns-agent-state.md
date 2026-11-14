@@ -5,7 +5,7 @@ the v0.8.0 tags (comms 3811a66f, env df319ad, wrapper 5f3d3018).
 
 ## The operator's rulings this plan follows
 
-Given in the comms-tech-lead session on 2026-10-02. They are quoted here so the review is against them, not against
+Given in the lead session on 2026-10-02. They are quoted here so the review is against them, not against
 a summary.
 
 - Direction, unprompted: "sends when changes or something like that. basically broadcasts. aify-dashboard might
@@ -26,7 +26,7 @@ a summary.
   The separate D8 and D12 slices follow their later rulings, not this historical default.
 
 The previous revision (eda03a3d) kept aify-comms' status laws as the destination. Under the ruling that is only a
-stage on the way, so this revision restates the end state. It keeps what comms-senior-dev's review of 7ca834ae
+stage on the way, so this revision restates the end state. It keeps what developer's review of 7ca834ae
 (R1-R5) produced: the typed facts, the reader ledger, lifetime identity, publication order, and the lifecycle
 semantics.
 

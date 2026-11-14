@@ -151,7 +151,7 @@ class ValidatorAnchorTests(unittest.TestCase):
         """The tightening must remove exactly one shape and nothing else."""
         from fastapi import HTTPException
 
-        for name in ("a", "agent", "mc-senior-dev", "team.lead", "worker_1", "A1", "x" * 128):
+        for name in ("a", "agent", "mc-fixturedeveloper", "team.lead", "worker_1", "A1", "x" * 128):
             with self.subTest(accepted=name):
                 validate_name(name)
         for name in ("", "-lead", ".hidden", "../etc", "a/b", "a b", "a;rm", "a\tb", "agenté",

@@ -18,7 +18,7 @@ So this test is the guard on that trade. It asserts the boundary the path set as
 container executes reaches into excluded code. If someone makes the service import `mcp.stdio`,
 this fails and forces the rebuild contract to be revisited rather than silently broken.
 
-Requested by `comms-senior-dev` in the review that rejected the first, broader path set.
+Requested by `comms-fixturedeveloper` in the review that rejected the first, broader path set.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""An agent's definition, as the agent list and detail carry it (P0 D13: dashboard-manager's mirror).
+"""An agent's definition, as the agent list and detail carry it (P0 D13: manager's mirror).
 
 `definitionState` comes from the agents row on every serialized agent; the owner, store, lifetime and
 revision come from `agent_definitions`, read once for a whole list.

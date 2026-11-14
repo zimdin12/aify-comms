@@ -66,7 +66,7 @@ export function registerArtifactTools(server, z) {
         // multipart treats everything after the FIRST blank line as body — so every binary upload
         // was stored with two extra leading bytes.
         //
-        // Reported 2026-08-10 by graph-senior-dev-hermes with byte evidence: a 23,620-byte .log
+        // Reported 2026-08-10 by developer with byte evidence: a 23,620-byte .log
         // arrived as 23,622 bytes, `stored[2:] == original`, and recipient hash verification
         // therefore failed for every shared file. Reproduced exactly from this code before
         // changing it: payload began `0d0a`, and dropping the byte after it recovered the original.

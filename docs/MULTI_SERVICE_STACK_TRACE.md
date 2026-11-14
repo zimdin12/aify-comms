@@ -193,7 +193,7 @@ fleet depend on.
 
 ## Reviewed
 
-comms-senior-dev attacked all four conclusions at the frozen tree and returned **APPROVE**, having read
+developer attacked all four conclusions at the frozen tree and returned **APPROVE**, having read
 `terminal-env.js`, `terminal-control-loop.mjs`, the wrappers, the launcher/template tests and
 `launch-identity.mjs`, and run the focused wrapper suite (39 pass / 0 fail).
 

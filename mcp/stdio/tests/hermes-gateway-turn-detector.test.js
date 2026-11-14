@@ -185,7 +185,7 @@ test("startHermesGatewayTurnDetector: no-op with invalid params", () => {
 test("startHermesGatewayTurnDetector: re-stamps turn-busy while WORKING (long turn never goes stale)", async () => {
   // The bug: turn-start is edge-triggered (once), so a turn longer than the dispatch
   // re-pulse window let the server expire turn_busy → `online` while still working
-  // (next-senior-dev long refactor). While the gateway stays WORKING, the detector must
+  // (next-fixturedeveloper long refactor). While the gateway stays WORKING, the detector must
   // keep re-stamping turn-busy so last_event_at never crosses the server stale window.
   const source = counted(async () => "working");
   let starts = 0;

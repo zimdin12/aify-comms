@@ -1,7 +1,7 @@
 """A managed agent whose workspace its environment will not start reads misconfigured, not available (0.9.2 fix C).
 
 Steven, 2026-10-13: "should not be available if env does not allow running". aify-env starts work only below the
-folder it was started in and advertises that as `advertisedCwdRoots`; dashboard-manager's workspace was outside it,
+folder it was started in and advertises that as `advertisedCwdRoots`; dashboard-fixtureowner's workspace was outside it,
 read `available`, and every start was refused.
 
 AFTER THE 0.9.8 SWITCH the served word is aify-env's. The rule is aify-env's to apply: an outside-roots definition

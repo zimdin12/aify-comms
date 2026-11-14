@@ -109,7 +109,7 @@ test("fillSessionHandleFromAdapter is a no-op with null adapter", async () => {
   assert.deepStrictEqual(out, args);
 });
 
-// ─── The llama-manager defect, 2026-08-19 ────────────────────────────────────
+// ─── The llama-fixtureowner defect, 2026-08-19 ────────────────────────────────────
 //
 // A resident claude agent registered by hand, then showed "No pinned session handle yet"
 // in the dashboard forever — re-registering never helped. Cause: this helper asked
@@ -129,13 +129,13 @@ test("fillSessionHandleFromAdapter discovers a claude handle when the env var is
   delete process.env.CLAUDE_SESSION_ID;
   const dir = tmpDir("aify-register-discover-");
   fs.writeFileSync(
-    path.join(dir, "aify-claude-session-llama-manager.json"),
-    JSON.stringify({ sessionId: "d0147165-c9cd-42ab-9464-f5d147ca3ca8", agentId: "llama-manager" }),
+    path.join(dir, "aify-claude-session-llama-fixtureowner.json"),
+    JSON.stringify({ sessionId: "d0147165-c9cd-42ab-9464-f5d147ca3ca8", agentId: "llama-fixtureowner" }),
   );
   try {
     const adapter = adapterFor("claude-code");
     const out = await fillSessionHandleFromAdapter(
-      { agentId: "llama-manager" },
+      { agentId: "llama-fixtureowner" },
       adapter,
       { dir, homeDir: dir, cwd: path.join(dir, "nowhere") },
     );
@@ -146,7 +146,7 @@ test("fillSessionHandleFromAdapter discovers a claude handle when the env var is
 });
 
 test("fillSessionHandleFromAdapter discovers a claude handle from the agent's own transcript dir", async () => {
-  // Path (c) of the adapter's precedence — the one that would have saved llama-manager,
+  // Path (c) of the adapter's precedence — the one that would have saved llama-fixtureowner,
   // whose capture store was empty because it launched without AIFY_AGENT_ID.
   delete process.env.CLAUDE_SESSION_ID;
   const home = tmpDir("aify-register-transcripts-");
@@ -157,7 +157,7 @@ test("fillSessionHandleFromAdapter discovers a claude handle from the agent's ow
   try {
     const adapter = adapterFor("claude-code");
     const out = await fillSessionHandleFromAdapter(
-      { agentId: "llama-manager", cwd: workspace },
+      { agentId: "llama-fixtureowner", cwd: workspace },
       adapter,
       { dir: home, homeDir: home },
     );

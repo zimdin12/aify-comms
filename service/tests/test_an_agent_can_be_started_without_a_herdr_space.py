@@ -14,7 +14,7 @@ from service.tests._base import FastApiTestCase
 # The module, not the class: a class imported by name is collected here and runs twice.
 from service.tests import test_a_process_host_can_ask_what_to_run as launch_fixture
 
-AGENT = "sc-lead"
+AGENT = "sc-fixturechief"
 
 
 class AnAgentCanBeStartedWithoutAHerdrSpaceTests(FastApiTestCase):
@@ -92,6 +92,6 @@ class AnAgentCanBeStartedWithoutAHerdrSpaceTests(FastApiTestCase):
     def test_a_rename_keeps_the_setting(self):
         self._register()
         self._set(False)
-        renamed = self._client.post(f"/api/v1/agents/{AGENT}/rename", json={"newAgentId": "sc-lead-2"})
+        renamed = self._client.post(f"/api/v1/agents/{AGENT}/rename", json={"newAgentId": "sc-fixturechief-2"})
         self.assertEqual(renamed.status_code, 200, renamed.text)
-        self.assertIs(self._record("sc-lead-2")["herdrSpace"], False)
+        self.assertIs(self._record("sc-fixturechief-2")["herdrSpace"], False)

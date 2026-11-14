@@ -8,7 +8,7 @@
 //
 // THE PER-AGENT FORM IS THE ACTIONABLE ONE. The doctor reports the fleet-wide list, which is right
 // for a fleet-wide report and useless when you are looking at one agent wondering why its replies
-// go missing. "This session is also claimed by comms-tech-lead" is the sentence that explains it.
+// go missing. "This session is also claimed by lead" is the sentence that explains it.
 //
 // WHAT IT COSTS TO NOT KNOW, measured 2026-08-31 and STILL TRUE on 2026-09-03: three handles claimed
 // by eight agents. One Claude Code session had been re-registered under a new agent id; the old row

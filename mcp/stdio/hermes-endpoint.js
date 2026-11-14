@@ -48,7 +48,7 @@ function sessionIdMarkerPath(agentId, tempDir) {
 // config.yaml MCP-env template (`HERMES_SESSION_ID: "${HERMES_SESSION_ID}"`) or a
 // wrapper var is UNSET, and if written they POISON the agent→session binding so the
 // next launch resumes a nonexistent id and silently starts fresh (the 2026-06-04
-// sc-tester incident). Guarding the marker read+write boundary makes a poison value
+// tester incident). Guarding the marker read+write boundary makes a poison value
 // a no-op regardless of which caller produced it (defense-in-depth).
 export function isUsableSessionId(value) {
   const v = String(value || "").trim();

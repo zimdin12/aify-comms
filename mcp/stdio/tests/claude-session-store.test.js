@@ -12,8 +12,8 @@ import {
 
 test("claudeSessionStorePath uses agentId-keyed filename in the given dir", () => {
   assert.strictEqual(
-    claudeSessionStorePath("coder-1", "/tmp/x"),
-    path.join("/tmp/x", "aify-claude-session-coder-1.json"),
+    claudeSessionStorePath("fixtureworker-1", "/tmp/x"),
+    path.join("/tmp/x", "aify-claude-session-fixtureworker-1.json"),
   );
 });
 
@@ -27,8 +27,8 @@ test("claudeSessionStorePath sanitizes unsafe agentId chars", () => {
 test("store write -> read round trip returns the session id", () => {
   const dir = tmpDir("aify-claude-store-");
   try {
-    writeClaudeSessionId({ sessionId: "651b895f-aaaa", agentId: "coder-1", dir });
-    assert.strictEqual(readClaudeSessionId({ agentId: "coder-1", dir }), "651b895f-aaaa");
+    writeClaudeSessionId({ sessionId: "651b895f-aaaa", agentId: "fixtureworker-1", dir });
+    assert.strictEqual(readClaudeSessionId({ agentId: "fixtureworker-1", dir }), "651b895f-aaaa");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

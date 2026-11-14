@@ -327,7 +327,7 @@ async def search_messages(
         if scope in ("inbox", "all"):
             if agentId:
                 # BOTH DIRECTIONS. This was `to_agent = ?` only, so an agent could not find
-                # messages it had SENT. Reported 2026-08-10 by sc-manager, who searched for a term
+                # messages it had SENT. Reported 2026-08-10 by manager, who searched for a term
                 # it had dispatched itself and got nothing: of 101 messages containing "P0-Q", 49
                 # were TO it (findable) and 52 were FROM it (invisible). "My own record" plainly
                 # includes what I said, not just what I was told.

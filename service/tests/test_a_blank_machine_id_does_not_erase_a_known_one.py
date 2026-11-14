@@ -1,6 +1,6 @@
 """A write that does not name a machine must not erase the machine already on the agent row.
 
-MEASURED ON THE OPERATOR'S HOST, 2026-09-21. `mp-manager` was missing from `aify-env`'s start menu
+MEASURED ON THE OPERATOR'S HOST, 2026-09-21. `mp-fixtureowner` was missing from `aify-env`'s start menu
 for two days. Not refused -- invisible: `startabilityOf` offers only agents whose `machineId` equals
 this host's, and `notOffered` scopes the same way, so an agent with NO machine is offered by nobody
 and explained by nothing. Its `agents.machine_id` was the empty string while every other signal
@@ -103,14 +103,14 @@ class ABlankMachineIdDoesNotEraseAKnownOne(FastApiTestCase):
     # --- the spawn path ----------------------------------------------------------------------
 
     def test_a_spawn_CLAIMED_WITHOUT_A_MACHINE_leaves_the_agents_own_machine_alone(self):
-        """This is `mp-manager`. The agent already belongs to a host; the claimer just did not say."""
-        self._register("mp-manager", machine_id=HOST_MACHINE)
-        self.assertEqual(self._machine_id("mp-manager"), HOST_MACHINE, "setup did not take")
+        """This is `mp-fixtureowner`. The agent already belongs to a host; the claimer just did not say."""
+        self._register("mp-fixtureowner", machine_id=HOST_MACHINE)
+        self.assertEqual(self._machine_id("mp-fixtureowner"), HOST_MACHINE, "setup did not take")
 
-        self._spawn_and_run("mp-manager")
+        self._spawn_and_run("mp-fixtureowner")
 
         self.assertEqual(
-            self._machine_id("mp-manager"), HOST_MACHINE,
+            self._machine_id("mp-fixtureowner"), HOST_MACHINE,
             "a claim that named no machine erased the one the agent belonged to -- which is what "
             "took it out of aify-env's start menu for two days",
         )

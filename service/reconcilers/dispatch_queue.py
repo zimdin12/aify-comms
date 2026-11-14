@@ -140,7 +140,7 @@ async def _replay_undelivered_channel_messages_on_env_recovery(
     ``dispatch_requested=1`` but NO ``dispatch_run`` is created. The env-recovery
     heartbeat only invalidates the status cache — nothing turns that stored
     message into a wake. So a cold team that recovers stays silent (the
-    "sc-manager's broadcasts left targets available, no answers" class, #191).
+    "manager's broadcasts left targets available, no answers" class, #191).
 
     This reconciler closes the gap: for each stored-but-un-dispatched channel
     inbox message whose member's env is now AVAILABLE, it creates the queued

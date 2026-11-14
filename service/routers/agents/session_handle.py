@@ -112,8 +112,8 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         # ── Cross-agent collision guard (root-cause fix, 2026-05-31) ──
         # A runtime session id must be owned by at most ONE live agent. Never let
         # agent X ADOPT a session id that a DIFFERENT LIVE agent already owns —
-        # the resident<->managed invariant. (Incident: graph-tech-lead adopted
-        # comms-tech-lead's live resident id 651b895f at 06:07; the kill-prior
+        # the resident<->managed invariant. (Incident: lead adopted
+        # lead's live resident id 651b895f at 06:07; the kill-prior
         # reaper then turned that collision fatal.) This fires for ANY source
         # (capture, heartbeat, manual set) and covers the first-id case too. Park
         # the colliding id as `pending_session_id` and KEEP this agent's own

@@ -79,7 +79,7 @@ export class ChangeDrivenRefresh {
     this.stopPolling();
     // EVERY OPEN RECOVERS, a first one too. A reconnect may have missed any number of changes, and so
     // may a first open: the boot refresh read before this socket subscribed, and a change committed in
-    // between was sent to no one. comms-senior-dev's review of c8692f10 reproduced it with a host whose
+    // between was sent to no one. developer's review of c8692f10 reproduced it with a host whose
     // definitions went stale in that gap, a transition no later write repeats. One full refresh per
     // page load is the price. `reconnected` is kept for the caller's log.
     void reconnected;
@@ -143,7 +143,7 @@ export class ChangeDrivenRefresh {
       if (failed.includes(slice)) continue;
       // AN OLDER PARTIAL THAT PAINTED WHILE THIS BUNDLE RAN may have painted over what the bundle had
       // already written: a bundle paints each slice early and is acknowledged here only after its slow
-      // tail (comms-senior-dev's review of 83f928f8 executed it, an older fresh environments row left on
+      // tail (developer's review of 83f928f8 executed it, an older fresh environments row left on
       // screen over a newer stale one). Whether the partial painted before or after the bundle's write
       // cannot be told from here, so the slice is fetched again. A conservative, EVENTUAL repair: until
       // that fetch lands the older row can still be on screen, and its success depends on the fetch.

@@ -214,7 +214,7 @@ Expected: each resident's `gatewayUrl` is a `ws://…/api/ws?token=…` pointing
 
 ## Self-Review
 
-**1. Spec coverage:** The reported symptom ("wrote to ci-senior-dev, he started working, nothing arrived in resident terminal") is the resident REST/no-loop path → Tasks 1+2 replace it with the rendering gateway-host path. "Why can't re-register fix it" is answered upstream of this plan (re-register re-reads the wrapper-frozen env; relaunch with the fixed wrapper is what binds correctly) — Task 3 installs that fixed wrapper. No service change needed (evidence table).
+**1. Spec coverage:** The reported symptom ("wrote to developer, he started working, nothing arrived in resident terminal") is the resident REST/no-loop path → Tasks 1+2 replace it with the rendering gateway-host path. "Why can't re-register fix it" is answered upstream of this plan (re-register re-reads the wrapper-frozen env; relaunch with the fixed wrapper is what binds correctly) — Task 3 installs that fixed wrapper. No service change needed (evidence table).
 
 **2. Placeholder scan:** No TBD/TODO-as-work/"handle edge cases". The retained `aify_hermes_ensure_daemon` is explicitly noted as no-longer-default, not a placeholder.
 

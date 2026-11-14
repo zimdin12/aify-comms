@@ -148,7 +148,7 @@ const ACTIVE_LIST_RESULT = {
 const SAMPLE_RUN = {
   id: "run-1",
   messageId: "msg-1",
-  from: "sc-manager",
+  from: "sc-fixtureowner",
   subject: "status?",
   body: "What is the build status?",
   priority: "normal",
@@ -308,7 +308,7 @@ test("deliverRun: renders the inbound notice box (#3) BEFORE prompt.submit, same
 
   const notice = ws.sent[noticeIdx];
   assert.equal(notice.params.session_id, "live-sid-ab12", "notice targets the visible TUI sid");
-  assert.ok(notice.params.notice.includes("sc-manager"), "notice names the sender");
+  assert.ok(notice.params.notice.includes("sc-fixtureowner"), "notice names the sender");
   assert.ok(notice.params.notice.includes("build status"), "notice carries the message body");
 });
 
@@ -1426,7 +1426,7 @@ test("runResolveSessionCli: marker in the DB (session.list) but NOT in active_li
     ] } },
   });
   let cleared = null;
-  const res = await runResolveSessionCli("sc-coder", {
+  const res = await runResolveSessionCli("sc-fixtureworker", {
     gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
     openClient: async () => ws,
     readMarker: () => "20260603_114935_8f7b7a", // the durable session_key
@@ -1447,7 +1447,7 @@ test("runResolveSessionCli: marker GONE from the DB → clears it + fresh (only 
     "session.list": { result: { sessions: [ { id: "other", session_key: "20260101_000000_aaaaaa" } ] } }, // marker absent
   });
   let cleared = null;
-  const res = await runResolveSessionCli("sc-coder", {
+  const res = await runResolveSessionCli("sc-fixtureworker", {
     gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
     openClient: async () => ws,
     readMarker: () => "20260603_114935_8f7b7a", // not in DB
@@ -1458,7 +1458,7 @@ test("runResolveSessionCli: marker GONE from the DB → clears it + fresh (only 
     err: () => {},
   });
   assert.equal(res.resolved, "", "no resumable session → fresh");
-  assert.equal(cleared, "sc-coder", "clears the marker only when the DB positively confirms it's gone");
+  assert.equal(cleared, "sc-fixtureworker", "clears the marker only when the DB positively confirms it's gone");
 });
 
 test("runResolveSessionCli: session.list UNAVAILABLE → does NOT clear the marker (can't prove it's dead)", async () => {
@@ -1467,7 +1467,7 @@ test("runResolveSessionCli: session.list UNAVAILABLE → does NOT clear the mark
     "session.list": new Error("rpc failed"),
   });
   let cleared = null;
-  await runResolveSessionCli("sc-coder", {
+  await runResolveSessionCli("sc-fixtureworker", {
     gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
     openClient: async () => ws,
     readMarker: () => "20260603_114935_8f7b7a",
@@ -1641,7 +1641,7 @@ test("runResolveSessionCli --explicit: when REAL (in SessionDB), wins over a sta
   const emptyActive = { result: { sessions: [] } };
   const dbList = { result: { sessions: [{ id: "eph123", session_key: "20260529_071302_ea65af", last_active: "2026-05-29T07:13:02.000Z" }] } };
   let i = 0;
-  const res = await runResolveSessionCli("ci-senior-dev", {
+  const res = await runResolveSessionCli("ci-fixturedeveloper", {
     explicitId: "20260529_071302_ea65af",
     gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
     openClient: async () => ({ request: async () => [emptyActive, dbList][i++], close() {} }),
@@ -1667,7 +1667,7 @@ test("runResolveSessionCli --explicit: a DEAD explicit id (GC'd, not in SessionD
   let cleared = false;
   const empty = { result: { sessions: [] } };
   let i = 0;
-  const res = await runResolveSessionCli("next-tech-lead", {
+  const res = await runResolveSessionCli("next-fixtureguide", {
     explicitId: "20260605_054328_970d9c", // GC'd empty session — not in the DB
     gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
     openClient: async () => ({ request: async () => [empty, empty][i++], close() {} }),
@@ -1690,7 +1690,7 @@ test("runResolveSessionCli --explicit: NO gateway to validate → seeds the expl
   let stdout = "";
   let wroteMarker = null;
   let wroteActive = null;
-  const res = await runResolveSessionCli("ci-senior-dev", {
+  const res = await runResolveSessionCli("ci-fixturedeveloper", {
     explicitId: "20260529_071302_ea65af",
     gatewayUrl: "",
     readMarker: () => "20260603_034413_8480e3",
@@ -1702,7 +1702,7 @@ test("runResolveSessionCli --explicit: NO gateway to validate → seeds the expl
   });
   assert.equal(res.resolved, "20260529_071302_ea65af", "explicit id authoritative with no gateway");
   assert.equal(res.source, "explicit-resume");
-  assert.deepEqual(wroteMarker, { a: "ci-senior-dev", v: "20260529_071302_ea65af" });
+  assert.deepEqual(wroteMarker, { a: "ci-fixturedeveloper", v: "20260529_071302_ea65af" });
   assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "20260529_071302_ea65af" });
 });
 
@@ -1710,7 +1710,7 @@ test("runResolveSessionCli --explicit: works even with NO gateway and NO active-
   let stdout = "";
   let wroteMarker = null;
   let wroteActive = false;
-  const res = await runResolveSessionCli("ci-senior-dev", {
+  const res = await runResolveSessionCli("ci-fixturedeveloper", {
     explicitId: "20260529_071302_ea65af",
     gatewayUrl: "",
     readMarker: () => "",
@@ -1721,7 +1721,7 @@ test("runResolveSessionCli --explicit: works even with NO gateway and NO active-
     err: () => {},
   });
   assert.equal(res.resolved, "20260529_071302_ea65af");
-  assert.deepEqual(wroteMarker, { a: "ci-senior-dev", v: "20260529_071302_ea65af" });
+  assert.deepEqual(wroteMarker, { a: "ci-fixturedeveloper", v: "20260529_071302_ea65af" });
   assert.equal(wroteActive, false, "no active-file path → does not attempt to seed it");
   assert.equal(stdout.trim(), "20260529_071302_ea65af");
 });
@@ -1802,7 +1802,7 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the co
   assert.ok(toreDown, "teardown (clearReady) must run so the orphaned gateway is reaped");
 });
 
-// 2026-09-28, pc-manager: a resident agent read `online` long after it last sent anything (2026-09-10),
+// 2026-09-28, pc-fixtureowner: a resident agent read `online` long after it last sent anything (2026-09-10),
 // through a gateway started 2026-09-25 that listed ZERO sessions. Its loop left no log. One path that
 // never ends: a connect the gateway rejects any way but "refused" -- that gateway answers a stale token
 // with `Unexpected server response: 403`, and isGatewayConnectRefused says it is not refused.
@@ -1817,7 +1817,7 @@ async function runLoop({ openWs, maxIterations = 20, noTuiTeardownCycles = 3 }) 
   const { httpCall, calls } = makeAifyHttp();
   let readyCleared = false;
   let clock = 0;
-  const result = await runDeliveryLoop("pc-manager", {
+  const result = await runDeliveryLoop("pc-fixtureowner", {
     httpCall,
     gatewaySource: fakeGateway,
     fetchImpl: makeFakeFetch(),
@@ -1833,7 +1833,7 @@ async function runLoop({ openWs, maxIterations = 20, noTuiTeardownCycles = 3 }) 
     now: () => { const t = clock; clock += 1000; return t; },
     maxIterations,
   });
-  const lost = calls.filter((c) => c.method === "POST" && c.endpoint === "/agents/pc-manager/resident-lost");
+  const lost = calls.filter((c) => c.method === "POST" && c.endpoint === "/agents/pc-fixtureowner/resident-lost");
   return { result, lost, readyCleared };
 }
 

@@ -4,7 +4,7 @@
 > `.agents/skills/aify-comms/references/teamwork.md` (mirrored under `.claude/skills/`).
 > Old status examples below predate the proof-based six-state engine.
 
-Operating rules for how this team (operator + `comms-tech-lead` + `comms-senior-dev-pi`
+Operating rules for how this team (operator + `lead` + `developer`
 + spawned managed agents) runs multi-day, multi-agent work without drift.
 
 Distilled from Factory's "Missions" talk and **mapped to friction we actually hit
@@ -73,7 +73,7 @@ Every worker handoff states, in the commit message and the comms status line:
 - issues discovered + whether a reply/wake is owed.
 
 A bare "done" is not a handoff. Checkpoint-commit per item with a one-line
-status — the discipline `comms-senior-dev-pi` adopted after two silent-gap
+status — the discipline `developer` adopted after two silent-gap
 lapses; codify it for everyone. Silent multi-hour work with no checkpoint is a
 process failure even if the code is fine.
 

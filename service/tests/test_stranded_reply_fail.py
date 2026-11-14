@@ -66,7 +66,7 @@ class StrandedReplyFailTests(FastApiTestCase):
                 await db.close()
         return asyncio.run(_run())
 
-    def _seed_run(self, run_id, *, target, from_agent="sc-manager", status="delivered",
+    def _seed_run(self, run_id, *, target, from_agent="sc-fixtureowner", status="delivered",
                   require_reply=1, result_message_id="", requested_at=None):
         self._execute(
             """
@@ -82,8 +82,8 @@ class StrandedReplyFailTests(FastApiTestCase):
 
     def setUp(self):
         super().setUp()
-        self._register("sc-manager")
-        self._register("sc-architect")
+        self._register("sc-fixtureowner")
+        self._register("sc-fixtureplanner")
 
     def _seed_interrupt(self, run_id):
         self._execute(
@@ -92,8 +92,8 @@ class StrandedReplyFailTests(FastApiTestCase):
         )
 
     def test_a_run_nothing_alive_can_answer_is_failed_with_the_observed_cause(self):
-        self._seed_run("run_dead", target="sc-architect", requested_at=_minutes_ago(10))
-        env_records.report(self, "sc-architect")
+        self._seed_run("run_dead", target="sc-fixtureplanner", requested_at=_minutes_ago(10))
+        env_records.report(self, "sc-fixtureplanner")
         out = self._run_reaper()
         self.assertEqual(len(out), 1, f"a run with no live claimer should be failed: {out}")
         r = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id='run_dead'")
@@ -129,15 +129,15 @@ class StrandedReplyFailTests(FastApiTestCase):
         self.assertIn("interrupt", self._fetchone("SELECT summary FROM dispatch_runs WHERE id='run_stopped'")["summary"].lower())
 
     def test_a_run_inside_the_grace_is_not_failed(self):
-        self._seed_run("run_fresh", target="sc-architect", requested_at=_minutes_ago(1))
+        self._seed_run("run_fresh", target="sc-fixtureplanner", requested_at=_minutes_ago(1))
         self.assertEqual(self._run_reaper(), [], "a worker between restarts must not read as gone")
         self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_fresh'")["status"], "delivered")
 
     def test_run_with_reply_not_failed(self):
-        self._seed_run("run_replied", target="sc-architect", requested_at=_minutes_ago(60),
+        self._seed_run("run_replied", target="sc-fixtureplanner", requested_at=_minutes_ago(60),
                        result_message_id="msg-123")
         self.assertEqual(self._run_reaper(), [])
 
     def test_non_reply_run_not_failed(self):
-        self._seed_run("run_norr", target="sc-architect", requested_at=_minutes_ago(60), require_reply=0)
+        self._seed_run("run_norr", target="sc-fixtureplanner", requested_at=_minutes_ago(60), require_reply=0)
         self.assertEqual(self._run_reaper(), [])

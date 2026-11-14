@@ -90,7 +90,7 @@ class OrphanedRunsQueryTests(unittest.IsolatedAsyncioTestCase):
     # ---- branch 1: no live owning bridge, no progress ------------------------
 
     async def test_a_run_whose_bridge_is_STALE_is_orphaned(self):
-        """The 2026-05-23 operator report: sc-coder's run sat 'running' 50+ minutes because
+        """The 2026-05-23 operator report: sc-fixtureworker's run sat 'running' 50+ minutes because
         claim_bridge_id pointed at a bridge that had since gone stale, and the original
         `claim_bridge_id = ''` check could not see it."""
         await self._bridge("b-dead", last_seen=OLD)

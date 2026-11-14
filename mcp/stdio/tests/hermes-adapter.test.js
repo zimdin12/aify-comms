@@ -184,7 +184,7 @@ test("discoverSessionId never returns a synthetic aify-<id> name", async () => {
     delete process.env.HERMES_SESSION_ID;
     delete process.env.HERMES_SESSION;
     const id = await adapter.discoverSessionId({
-      agentId: "sc-coder",
+      agentId: "sc-fixtureworker",
       env: { AIFY_HERMES_GATEWAY_URL: "ws://127.0.0.1:9999" },
     });
     // No active file, no env session, no marker → falsy, and NEVER `aify-...`.

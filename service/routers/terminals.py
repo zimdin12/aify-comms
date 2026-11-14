@@ -116,7 +116,7 @@ async def list_terminals(
     at all -- so nothing, not the dashboard and not `aify-comms doctor`, could ask "which terminals
     are live?" and compare that against what is actually running on a host.
 
-    The operator hit the consequence the same day: aify-env owned a live PTY for `ef-manager`
+    The operator hit the consequence the same day: aify-env owned a live PTY for `manager`
     (pid 155844) while all 80 most recent sessions read `stopped` and the dashboard showed nothing.
     They asked for exactly this -- "aify-env side running process visibility, to catch orphans like
     that" -- and the join needs both sides listable. `process_id` on these rows is the OS pid,
@@ -523,7 +523,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         # agent (e.g., aify-comms restarted between dispatches) need to
         # write to the SAME terminal_session row so the operator's Console
         # view stays continuous. Operator-reported 2026-05-22:
-        # graph-tester-pi's synth terminal stopped updating at the
+        # tester's synth terminal stopped updating at the
         # timestamp of the bridge that originally created it — every later
         # dispatch was rejected with 409.
         new_bridge_id = str(req.bridgeId or "").strip()

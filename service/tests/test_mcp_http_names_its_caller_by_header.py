@@ -2,7 +2,7 @@
 
 0.9.11 slice 2: one service process serves every agent's tools, so the caller can no longer come from the
 process environment. These drive real MCP requests through the mount `setup_mcp_server` builds, with the
-session-manager lifetime the service enters, rather than calling tool functions directly: what is under
+session-fixtureowner lifetime the service enters, rather than calling tool functions directly: what is under
 test is the path a header takes from an HTTP request to the tool.
 """
 

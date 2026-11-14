@@ -97,7 +97,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             return await queued_for_its_host(db, agent_id, {"mode": new_mode}, operator, _now())
         # AN UNDEFINED AGENT IS NOT SWITCHED TO MANAGED (2026-11-02). It used to be: comms recorded
         # managed while no host could start it, so it read `unknown` and was in no start list
-        # (terraria-manager). Refused before anything is written, and 422 rather than 409, because no
+        # (manager). Refused before anything is written, and 422 rather than 409, because no
         # `force` makes a definition exist. Managed -> resident needs none and is unchanged.
         if new_mode == "managed" and _normalize_session_mode(row["session_mode"] or "resident") != "managed":
             raise HTTPException(422, undefined_managed_refusal(agent_id))

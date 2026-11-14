@@ -2,7 +2,7 @@
 
 THE RULING THIS ENFORCES. Registration stores `status='idle'` by default, and `idle` is not
 in `VALID_STATUSES` — it was removed when the proof-based engine replaced time-decay ("an
-alive-not-in-turn agent is `online`, never `idle`"). Reported as a finding on 2026-08-18. comms-senior-dev
+alive-not-in-turn agent is `online`, never `idle`"). Reported as a finding on 2026-08-18. comms-fixturedeveloper
 ruled: do NOT widen the public vocabulary to bless a stored legacy value; keep the writers, on the
 condition that **the consuming boundary normalizes it**. That condition is currently met by
 `_LEGACY_RAW_STATUS_TO_CANONICAL` in `service/api_core/records.py`, which maps `idle`/`active` to
@@ -124,7 +124,7 @@ class StoredStatusesAreCanonicalOrNormalized(unittest.TestCase):
             unhandled, {},
             "these values can be stored in `agents.status` but are neither in VALID_STATUSES nor in "
             f"_LEGACY_RAW_STATUS_TO_CANONICAL: {unhandled}. They will be published RAW to the "
-            "dashboard, comms_agent_info and every roster consumer. comms-senior-dev's 2026-08-18 "
+            "dashboard, comms_agent_info and every roster consumer. comms-fixturedeveloper's 2026-08-18 "
             "ruling on stored `idle` was explicit: a legacy stored value is acceptable only while the "
             "consuming boundary normalizes it, and the public vocabulary is NOT to be widened to "
             "bless one. So the fix is a normalization entry in records.py, not a new VALID_STATUSES "
@@ -141,7 +141,7 @@ class StoredStatusesAreCanonicalOrNormalized(unittest.TestCase):
         )
         self.assertNotIn(
             "idle", VALID_STATUSES,
-            "'idle' was added to the public vocabulary. comms-senior-dev ruled against exactly this "
+            "'idle' was added to the public vocabulary. comms-fixturedeveloper ruled against exactly this "
             "on 2026-08-18: `idle` is a stored legacy/heartbeat detail that normalizes to `online`, "
             "and widening the public taxonomy to bless an old detail state is the move the "
             "terminal-status allowlist ruling already refused.",

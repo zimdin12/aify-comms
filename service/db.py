@@ -154,7 +154,7 @@ TERMINAL_SESSION_MIGRATIONS = {
     # HOW A TERMINAL ENDED, which nothing recorded until 2026-08-26. node-pty hands the bridge
     # `{exitCode, signal}`, `terminal-runtime.js` spreads both into the exit detail, and
     # `terminal-manager.mjs` then posted only an output marker and a status -- so the two numbers that
-    # explain a death were dropped at the last hop. When sc-claude and sc-architect died mid-turn the
+    # explain a death were dropped at the last hop. When sc-claude and architect died mid-turn the
     # operator asked why and the row had `status='stopped'`, an empty `error`, and nothing else.
     #
     # DEFAULT NULL, not 0 and not ''. Zero is a real exit code meaning a clean exit, and a column that

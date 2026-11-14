@@ -1,7 +1,7 @@
 # Plan 3 — Controllers + Delivery Migration Design Spec
 
 **Status:** Draft — pending operator review
-**Author:** comms-senior-dev (Claude Opus 4.7) + operator
+**Author:** developer (Claude Opus 4.7) + operator
 **Date:** 2026-05-25
 **Related branch:** `feature/dashboard-console-mode`
 **Builds on:** [Plan 1 spec](2026-05-25-runtime-adapter-design.md), [Plan 2 spec](2026-05-25-runtime-adapter-plan2-capabilities-design.md)

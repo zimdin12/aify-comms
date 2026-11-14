@@ -53,7 +53,7 @@ export function writeClaudeSessionId({ sessionId, agentId, dir = "" } = {}) {
 // has nothing to key by and used to DROP the session id entirely. The bridge then
 // couldn't resolve its own transcript even after `comms_register` told it its agent
 // id — which is why registering did not turn status on (a genuinely bad UX, and the
-// general-manager incident). So capture the session id keyed by the CLAUDE PROCESS
+// manager incident). So capture the session id keyed by the CLAUDE PROCESS
 // (the hook's ppid == the bridge's ppid — both are children of the same claude), and
 // let `comms_register` PROMOTE it to the agent-keyed store the moment identity arrives.
 //

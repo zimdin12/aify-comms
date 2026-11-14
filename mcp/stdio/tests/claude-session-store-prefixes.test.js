@@ -62,7 +62,7 @@ try {
 
     // The agent-keyed file IS what the wrapper is looking for.
     assert.ok(
-      recovers.test(path.basename(claudeSessionStorePath("sc-coder", dir))),
+      recovers.test(path.basename(claudeSessionStorePath("sc-fixtureworker", dir))),
       "the agent-keyed store must match the recovery glob — that is how the wrapper finds it",
     );
 
@@ -85,9 +85,9 @@ try {
 
   // ── the agent-keyed store ──────────────────────────────────────────────────────────────────
   {
-    const file = writeClaudeSessionId({ sessionId: "sess-abc", agentId: "sc-coder", dir });
+    const file = writeClaudeSessionId({ sessionId: "sess-abc", agentId: "sc-fixtureworker", dir });
     assert.ok(file, "a write with an agent id returns the path it wrote");
-    assert.equal(readClaudeSessionId({ agentId: "sc-coder", dir }), "sess-abc");
+    assert.equal(readClaudeSessionId({ agentId: "sc-fixtureworker", dir }), "sess-abc");
 
     // No agent id is a NO-OP, not a file with an empty key — the whole point of agent keying is that
     // a machine-global guess caused cross-contamination.

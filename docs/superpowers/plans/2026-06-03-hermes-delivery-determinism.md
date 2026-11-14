@@ -14,7 +14,7 @@
 
 - **RC1 (mp: queued, never claimed):** `service/routers/api_v2.py:2311` `_bridge_claim_block_reason` — `bridge_not_current` guard blocks a `channel-sidecar` claim for a resident agent whose `runtime_state.bridgeInstanceId` is set. Carve-out exists only inside `if session_mode == "managed":` (2320). `is_channel_sidecar_claim` already computed at 2287.
 - **RC2 (ci: requeue forever / not in TUI):** the visible TUI is not attached to the loop's gateway host (`session.active_list` empty on ci's gateway 9136); `waitForActiveSession` returns null → requeue forever. Underlying: native-id reconciliation is non-deterministic (stale marker, no pre-seed, TUI may run its own tui_gateway instead of attaching to the host). Regression vs `ac585ab` (deterministic stable key + pre-seed).
-- **RC3 (duplicate sessions):** relaunch creates a second resident `agent_sessions`/console row instead of superseding the prior one (mp-senior-dev, mp-manager each show 2 `resident_*` sessions).
+- **RC3 (duplicate sessions):** relaunch creates a second resident `agent_sessions`/console row instead of superseding the prior one (developer, manager each show 2 `resident_*` sessions).
 - **RC4 (--yolo lost):** hermes-aify regenerated without the `--yolo`/`HERMES_YOLO_MODE=1` bypass default.
 
 ---

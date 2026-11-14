@@ -56,7 +56,7 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
     provably ALIVE again. The reap is monotonic (a `stopped` row can't go active via output —
     `_terminal_status_transition`), so a starved-but-alive worker that resumes stays stranded
     `available` while it works HEADLESS, claiming and completing channel runs, until a console is
-    manually re-attached (the next-manager incident, 2026-06-08). Re-activate the row so the agent
+    manually re-attached (the manager incident, 2026-06-08). Re-activate the row so the agent
     recovers `online`/`working`.
 
     STRICTLY scoped to never resurrect a genuinely-dead or operator-stopped console:

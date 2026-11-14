@@ -1,6 +1,6 @@
 """A failure notice the target never wrote must not satisfy the target's reply contract.
 
-H2, reported by an external review 2026-08-18 and ruled by comms-senior-dev the same day, verbatim in
+H2, reported by an external review 2026-08-18 and ruled by comms-fixturedeveloper the same day, verbatim in
 substance:
 
     An auto-mirrored/system failure notice may NOT satisfy a `require_reply` contract.
@@ -87,15 +87,15 @@ class SystemNoticeDoesNotCloseAContract(FastApiTestCase):
                 result_message_id, handoff_message_id, requested_at, finished_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (run_id, None, "sc-manager", "sc-architect", "start_if_possible", "managed", "request",
+            (run_id, None, "sc-fixtureowner", "sc-fixtureplanner", "start_if_possible", "managed", "request",
              "do X", "please do X", "normal", status, require_reply, "", "",
              _minutes_ago(60), _minutes_ago(finished_minutes_ago)),
         )
 
     def setUp(self):
         super().setUp()
-        self._register("sc-manager")
-        self._register("sc-architect")
+        self._register("sc-fixtureowner")
+        self._register("sc-fixtureplanner")
 
     def test_a_FAILED_run_is_mirrored_but_its_contract_stays_OPEN(self):
         # A CANCELLED run behaves the same.

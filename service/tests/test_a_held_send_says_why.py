@@ -56,27 +56,27 @@ class AHeldSendSaysWhy(FastApiTestCase):
             conn.close()
 
     def test_an_undefined_recordless_recipient_is_queued_and_the_answer_says_it_is_held_and_why(self):
-        self._register("undefined-coder")
-        sent = self._send("undefined-coder")
-        [(run_id, status)] = self._runs("undefined-coder")
+        self._register("undefined-fixtureworker")
+        sent = self._send("undefined-fixtureworker")
+        [(run_id, status)] = self._runs("undefined-fixtureworker")
         self.assertEqual(status, "queued", "the message's run is kept")
         self.assertEqual(sent["notStarted"], [], "notStarted means no run; this one has a run")
-        self.assertEqual(sent["held"], [{"targetAgentId": "undefined-coder", "runId": run_id,
+        self.assertEqual(sent["held"], [{"targetAgentId": "undefined-fixtureworker", "runId": run_id,
                                          "reason": switched_view.HELD_RECORDLESS}])
-        self.assertIn("undefined-coder was not woken and its message is held", sent["notice"])
+        self.assertIn("undefined-fixtureworker was not woken and its message is held", sent["notice"])
 
     def test_CONTROL_a_defined_recordless_recipient_keeps_its_run_and_is_not_held(self):
-        self._register("defined-coder")
-        define(self, "defined-coder", environment_id=ENV_ID, machine_id=MACHINE, bridge_id="bridge-current",
+        self._register("defined-fixtureworker")
+        define(self, "defined-fixtureworker", environment_id=ENV_ID, machine_id=MACHINE, bridge_id="bridge-current",
                runtime="codex", workspace="/workspace")
-        sent = self._send("defined-coder")
+        sent = self._send("defined-fixtureworker")
         self.assertEqual((sent["held"], sent["notStarted"]), ([], []), sent)
-        self.assertEqual(len(self._runs("defined-coder")), 1)
+        self.assertEqual(len(self._runs("defined-fixtureworker")), 1)
 
     def test_CONTROL_a_recipient_aify_env_reports_offline_is_stored_unwoken(self):
-        self._register("offline-coder")
-        env_records.report(self, "offline-coder", state="offline")
-        sent = self._send("offline-coder")
-        self.assertEqual((sent["held"], self._runs("offline-coder")), ([], []))
-        self.assertEqual([h["targetAgentId"] for h in sent["notStarted"]], ["offline-coder"])
-        self.assertIn("Wake failed for offline-coder", sent["notice"])
+        self._register("offline-fixtureworker")
+        env_records.report(self, "offline-fixtureworker", state="offline")
+        sent = self._send("offline-fixtureworker")
+        self.assertEqual((sent["held"], self._runs("offline-fixtureworker")), ([], []))
+        self.assertEqual([h["targetAgentId"] for h in sent["notStarted"]], ["offline-fixtureworker"])
+        self.assertIn("Wake failed for offline-fixtureworker", sent["notice"])

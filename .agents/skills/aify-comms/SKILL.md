@@ -71,7 +71,7 @@ Create a managed agent through an environment:
 
 ```text
 comms_envs()
-comms_spawn(from="<your-id>", agentId="feature-coder", role="coder", runtime="codex", workspace="/path/to/project", initialMessage="Brief for the new agent")
+comms_spawn(from="<your-id>", agentId="coder", role="coder", runtime="codex", workspace="/path/to/project", initialMessage="Brief for the new agent")
 ```
 
 On `spawn UNPROVEN` in `comms_envs`, spawn anyway: the attempt is the authority.

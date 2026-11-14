@@ -48,7 +48,7 @@ class RuntimeAdapter:
         which the wrapper only exports when the agent id is passed. A resume
         command WITHOUT it hands the operator a session that registers, messages
         and heartbeats normally but whose status silently latches forever — the
-        general-manager "always working" incident. The command we hand out must
+        manager "always working" incident. The command we hand out must
         never be the one that breaks the agent.
         """
         raise NotImplementedError(

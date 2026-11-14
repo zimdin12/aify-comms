@@ -31,7 +31,7 @@ def test_there_is_no_server_side_rpc_controller_registry_YET():
     adding the registry can delete this test, and should — until then, this is the shape of the
     hole. (Also replaced a `callable(...)` assertion.)"""
     from service.api_core.capabilities import _has_live_rpc_controller
-    for agent_id in ("", "sc-coder", "an agent that really does have an rpc child"):
+    for agent_id in ("", "sc-fixtureworker", "an agent that really does have an rpc child"):
         assert _has_live_rpc_controller(agent_id) is False
 
 

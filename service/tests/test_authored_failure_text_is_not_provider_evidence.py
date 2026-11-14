@@ -1,8 +1,8 @@
 """A cause aify-comms invented must never be reported as a cause a provider confirmed.
 
-THE INCIDENT (2026-08-18, reported by graph-tech-lead, confirmed by inspection). A sender was told:
+THE INCIDENT (2026-08-18, reported by graph-fixtureguide, confirmed by inspection). A sender was told:
 
-    "graph-senior-dev-hermes couldn't respond — its model provider is rate-limiting / at a usage limit
+    "graph-fixturedeveloper-hermes couldn't respond — its model provider is rate-limiting / at a usage limit
      right now (a provider-side throttle, not your request). Please retry shortly."
 
 The run record said something weaker and different: the turn was PRESUMED dead, with three named
@@ -70,8 +70,8 @@ REAL_PROVIDER_REFUSAL = (
 def _row(**kw) -> dict:
     base = {
         "status": "failed",
-        "from_agent": "graph-tech-lead",
-        "target_agent": "graph-senior-dev-hermes",
+        "from_agent": "graph-fixtureguide",
+        "target_agent": "graph-fixturedeveloper-hermes",
         "error_text": "",
         "summary": "",
         "id": "run-x",

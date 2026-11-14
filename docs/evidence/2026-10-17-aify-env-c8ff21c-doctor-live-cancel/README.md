@@ -7,7 +7,7 @@ Open item. The cause is not known. The later green runs do not replace this one.
 - Object: aify-env `c8ff21ce6854e6c8381ca5011fa4c48b1e6df0b0` (accepted, later fast-forwarded to aify-env main).
 - Setup: a fresh detached worktree `~/projects/aify-env-merge-c8ff21c`. Its `node_modules` was a junction to
   `~/projects/aify-env/node_modules` (checkout at 8d2e54f; `package.json` and `package-lock.json` are unchanged
-  between 8d2e54f and c8ff21c). Windows 11, node v22.20.0, run from comms-tech-lead's agent shell.
+  between 8d2e54f and c8ff21c). Windows 11, node v22.20.0, run from lead's agent shell.
 - Invocation: `npm test > npm-test-c8ff21c-run1-exit1.txt 2>&1; echo $?`, which printed `npm test exit=1`.
 - Result: `# tests 3129, # pass 3124, # fail 0, # cancelled 1, # skipped 4`.
 - The cancelled test: `tests/doctor-live.test.js:184`, "NEGATIVE CONTROL, ON THE SAME REAL DAEMON: change the disk

@@ -2,13 +2,13 @@
 
 Staleness is a function of the clock. Nothing is written when a host stops pushing, so the change feed,
 which reports commits, says nothing, and a dashboard holding its socket never refetches the environments
-that would show it: comms-senior-dev's review of cbcc26d0 reproduced a card still fresh at +601 s, and an
+that would show it: developer's review of cbcc26d0 reproduced a card still fresh at +601 s, and an
 hour later, with zero fetches. Each sweep pass asks which stores are stale and, when that set moves,
 reports `definition_stores` as changed, the way `status_cache` reports an agent whose lease ran out.
 
 WHEN, honestly: at the first successful sweep after the deadline. That is not a 60 s guarantee end to
 end: the loop sleeps 60 s AFTER each completed sweep, and the sweep's own work, the feed's coalescing and
-the client's debounce and fetch all add to it (comms-senior-dev's review of c8692f10).
+the client's debounce and fetch all add to it (developer's review of c8692f10).
 
 A FIRST PASS COMPARES AGAINST NOTHING STALE, so a host already stale at the first successful sweep after a
 start is reported. It once compared against nothing at all and said nothing, and a client that had read

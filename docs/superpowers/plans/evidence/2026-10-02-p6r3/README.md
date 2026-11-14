@@ -1,4 +1,4 @@
-# P6r3: the repair of comms-senior-dev's REVISE of P6r2 (2026-10-02)
+# P6r3: the repair of developer's REVISE of P6r2 (2026-10-02)
 
 The review bound comms 6047aa1e and aify-wrapper ab316a4
 (`C:/Users/Administrator/AppData/Local/hermes/cache/scratch/ab316a4-6047aa1e-P6r2-review/PARENT-REVIEW.md`).

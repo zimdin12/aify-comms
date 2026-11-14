@@ -29,9 +29,9 @@ import { setApiBase } from '/api-client.mjs';
 import { initStartDialog, openStartDialog } from '/start-dialog.mjs';
 setApiBase('/fixture-api', location.origin);
 state.agents = [
-  { id: 'sc-manager', status: 'stopped', sessionMode: 'managed' },
-  { id: 'sc-coder', status: 'working', sessionMode: 'managed' },
-  { id: 'pc-manager', status: 'available', sessionMode: 'resident' },
+  { id: 'sc-fixtureowner', status: 'stopped', sessionMode: 'managed' },
+  { id: 'sc-fixtureworker', status: 'working', sessionMode: 'managed' },
+  { id: 'pc-fixtureowner', status: 'available', sessionMode: 'resident' },
 ];
 window.fixture = { pages: [], opened: [], openStartDialog };
 initStartDialog({ setPage: (p) => fixture.pages.push(p), chatController: { open: (k) => fixture.opened.push(k) }, refreshSoon() {} });
@@ -142,17 +142,17 @@ try {
     await press('Enter');
     await settle(200);
     assert.equal(posts.length, 1, 'Enter sent no start');
-    assert.match(posts[0].path, /\/agents\/sc-manager\/control$/);
+    assert.match(posts[0].path, /\/agents\/sc-fixtureowner\/control$/);
     assert.match(await evaluate(dialogText), new RegExp(REFUSAL), 'the refusal is not in the dialog');
   });
   await check('start dialog: arrows move, and a live agent opens its console', async () => {
     await type('sc-');
     await press('ArrowDown');
-    assert.match(await evaluate("document.querySelector('.start-dialog .chat-rail-item.active')?.textContent ?? ''"), /sc-manager/);
-    await type('sc-coder');
+    assert.match(await evaluate("document.querySelector('.start-dialog .chat-rail-item.active')?.textContent ?? ''"), /sc-fixtureowner/);
+    await type('sc-fixtureworker');
     await press('Enter');
     await settle(50);
-    assert.deepEqual(await evaluate('fixture.opened'), ['dm:sc-coder']);
+    assert.deepEqual(await evaluate('fixture.opened'), ['dm:sc-fixtureworker']);
     assert.equal(await evaluate("!!document.querySelector('.start-dialog')"), false, 'the dialog stayed open');
   });
   await check('start dialog: a new name offers Create, which fills the spawn form', async () => {

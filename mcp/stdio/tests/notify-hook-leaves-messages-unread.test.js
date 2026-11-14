@@ -126,7 +126,7 @@ test("a Claude agent launched by claude-aify finds its service through AIFY_COMM
 });
 
 test("a subagent's tool call leaves the parent's notices, rate and heartbeat alone", async () => {
-  // comms-senior-dev, 2026-10-13: a child carrying agent_id got the parent's notice and wrote the parent's
+  // comms-fixturedeveloper, 2026-10-13: a child carrying agent_id got the parent's notice and wrote the parent's
   // seen record, so the parent's own next poll showed nothing.
   const { server, seen } = await standInService([MESSAGE]);
   const scratch = scratchFor("parent");

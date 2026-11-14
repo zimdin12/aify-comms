@@ -1,12 +1,12 @@
-# Brief — comms-senior-dev (hermes): fix aify-comms dashboard/console/delivery issues
+# Brief — developer (hermes): fix aify-comms dashboard/console/delivery issues
 
 > **Historical execution brief (2026-07-15).** The checkout path, branch state, personnel,
 > deployment permissions, and task instructions below applied only to that completed work round.
 > Do not execute them as current repository guidance; use `AGENTS.md` and the current worktree.
 
-You are **comms-senior-dev**, a hermes senior engineer working ON aify-comms itself.
-**comms-tech-lead** (Steven's claude session) reviews your work. Steven is **very low on Claude
-tokens**, so YOU do the analysis, planning, implementation and testing; comms-tech-lead only
+You are **developer**, a hermes senior engineer working ON aify-comms itself.
+**lead** (Steven's claude session) reviews your work. Steven is **very low on Claude
+tokens**, so YOU do the analysis, planning, implementation and testing; lead only
 reviews and relays a short plan summary to Steven. Optimise for value per unit of Steven's attention.
 
 ## Where to work
@@ -33,8 +33,8 @@ reviews and relays a short plan summary to Steven. Optimise for value per unit o
 ## Deliverable order
 1. **Plan first, before big implementation.** For each issue: root cause (with proof), fix
    approach, the test that proves it, risk/blast-radius, and a stopping rule. Post the plan to
-   comms-tech-lead as `comms_send(type="response", inReplyTo=<this dispatch's message id>)`. Keep
-   it a TLDR + a per-issue line; comms-tech-lead relays a short version to Steven and reviews.
+   lead as `comms_send(type="response", inReplyTo=<this dispatch's message id>)`. Keep
+   it a TLDR + a per-issue line; lead relays a short version to Steven and reviews.
 2. **Then implement**, one issue at a time, each with a real test, each verified. Report each as
    you finish. Ask ONE clear question if blocked rather than guessing.
 
@@ -45,10 +45,10 @@ reviews and relays a short plan summary to Steven. Optimise for value per unit o
 - `.claude/skills/aify-comms-debug/references/status.md` and `.../dispatch-bridge.md`.
 - `aify-doctor` (installed launcher; `--json`) — run it to see fleet/build/bridge truth.
 - The 18 unpushed commits (below) — many touch the same files you will. Understand them; flag any
-  you believe is wrong, but they are comms-tech-lead's work under review, not your task to redo.
+  you believe is wrong, but they are lead's work under review, not your task to redo.
 
 ## FIRST-CLASS DELIVERABLE (Steven, 2026-07-15): REVIEW all 18 unpushed commits — your review GATES the push
-These 18 commits are comms-tech-lead's work and are UNPUSHED. Steven pushes based on your review, so
+These 18 commits are lead's work and are UNPUSHED. Steven pushes based on your review, so
 your review is what gates the push — treat it as a real deliverable, done in the PLAN phase before you
 build on these files. For EACH commit:
 - Is it CORRECT? Read `git show <sha>` and the code path it touches.
@@ -56,7 +56,7 @@ build on these files. For EACH commit:
 - Regression risk / blast radius on the live fleet?
 - Over-engineering or scope creep (apply the scope-discipline rules in /home/dev/.claude/CLAUDE.md)?
 Write a per-commit verdict (OK / CONCERN + why, citing file:line) to
-`docs/plans/2026-07-15-comms-senior-dev-REVIEW.md`. Be adversarial but fair — you are the second pair
+`docs/plans/2026-07-15-review.md`. Be adversarial but fair — you are the second pair
 of eyes the claim discipline requires ("the claimant is the last person who should certify the claim").
 Highest scrutiny: `a0c8ad9` (KEEP-CLEARED — touches every agent's turn detection), `46968b8`+`8b40990`
 (console live-screen + repaint, which needed several corrections), `c1b7d50` (flicker/blocked/compaction).
@@ -93,7 +93,7 @@ Steven: *"cant we do really similar solution as hermes dashboard tui has? why ca
 stable?"* Our console has needed repeated fixes and still isn't right; hermes' own dashboard TUI
 renders a terminal in a browser and is stable.
 
-**Measured facts (comms-tech-lead, verified live — re-verify, don't trust):** the TUIs we host emit
+**Measured facts (lead, verified live — re-verify, don't trust):** the TUIs we host emit
 ZERO newlines, paint by ABSOLUTE cursor position, NEVER scroll the viewport, and repaint only what
 changed (Ink-style diff). A screen we start tracking mid-stream keeps wrong rows forever unless a
 full repaint is forced; a real PTY resize forces that repaint. There is **no true scrollBACK** —
@@ -112,7 +112,7 @@ recommendation with a proof-of-concept plan. If a synthetic scrollback is the ri
 Do NOT rip out the working `8b40990` path until a measured-better replacement is proven in a browser.
 
 ### 2. Switch-to-managed chip does nothing until a full page reload
-Steven: *"I tried to switch comms-tech-lead to managed. pressed the button and nothing happened...
+Steven, agent identity generalized: *"I tried to switch lead to managed. pressed the button and nothing happened...
 only after refreshing whole page it switched to managed and start agent appeared."*
 The chip is `service/new_dashboard/app.js:2235` (`data-mode-switch`). Find its click handler; after
 the mode-switch POST succeeds it does not re-fetch/re-render agent+session state. Fix: refresh state
@@ -150,8 +150,8 @@ only SUSTAINED failure (N consecutive, or a recovery that took many tries) shoul
 silence a real outage: keep escalation on sustained failure. Test: a single injected transient
 failure logs at debug (or is deduped); N-consecutive still warns.
 
-### 6. general-manager stopped receiving messages (resident subscription staleness)
-Steven: *"my general manager stopped receiving messages."* general-manager's own analysis: (a) a
+### 6. manager stopped receiving messages (resident subscription staleness)
+Steven: *"my general manager stopped receiving messages."* manager's own analysis: (a) a
 `type=response` reply lands in the inbox and does not push-wake the requester (by design — verify
 this is intended), and (b) his resident subscription had gone stale (presence stuck ~5h) and a
 stale resident session can stop receiving push-wakes until re-register.
@@ -166,21 +166,21 @@ the proof says so.
 ---
 
 ### 7. Fresh managed-hermes agents cannot boot (PROVEN live — you are running as codex BECAUSE of this)
-comms-tech-lead reproduced this trying to spawn YOU as hermes: a brand-new managed-hermes agent
+lead reproduced this trying to spawn YOU as hermes: a brand-new managed-hermes agent
 (no saved session handle, `resume_policy=native_first`) launches, registers, heartbeats, a claimer
 attaches (`bridge_instances=1`) — but the gateway NEVER creates/reports a session: `session_handle`
 stays empty, the console stays `stopped`/0 bytes, no terminal events fire, spawn `error=''` (SILENT
 failure), and every dispatch backstops after 180s ("up-but-deaf"). This happened on 3 consecutive
-fresh spawns. Meanwhile 4 hermes SIBLINGS (cms-senior-dev, acma-coder, lc-coder, lc-tech-lead) are
+fresh spawns. Meanwhile 4 hermes SIBLINGS (developer, coder, coder, lead) are
 fully live on the SAME bridge code — every one of them RESUMES an existing session
 (`--resume <handle>`). So the failing path is FRESH-SESSION CREATE, not hermes generally, and NOT
-comms-tech-lead's 18 commits (siblings prove the code is fine).
-**ROOT CAUSE — found live (comms-tech-lead, 2026-07-15), the state.db idea was WRONG and killed by its own test** (state.db opens in 0ms, 49703 msgs counted in 17ms — not the cause):
+lead's 18 commits (siblings prove the code is fine).
+**ROOT CAUSE — found live (lead, 2026-07-15), the state.db idea was WRONG and killed by its own test** (state.db opens in 0ms, 49703 msgs counted in 17ms — not the cause):
 The real cause is a **gateway-host process leak** that CPU-saturates the box:
 - Each managed-hermes agent runs a heavyweight `hermes dashboard` gateway (a python web server, DAEMONIZED — parented to init, not its managed-host). Fresh-session boot must init 14 MCP servers + 110 skills and pass a **60s readiness probe** (`hermes-managed-host.js:120` `READY_TIMEOUT_MS`, env `AIFY_HERMES_GATEWAY_READY_MS`).
-- **STOP does not reliably reap the gateway host.** Proven: stopping 5 stale agents reaped their delivery-loop/daemon (91→59 procs) but **left 3 gateway hosts alive** (cms-tech-lead:9636, next-senior-dev:9095, next-tech-lead:8926, ~527MB) while 2 others (ci:9136, mp:9495) DID reap — inconsistent. So gateways accumulate: 11 gateways for 7 live agents.
+- **STOP does not reliably reap the gateway host.** Proven: stopping 5 stale agents reaped their delivery-loop/daemon (91→59 procs) but **left 3 gateway hosts alive** (lead:9636, developer:9095, lead:8926, ~527MB) while 2 others (ci:9136, mp:9495) DID reap — inconsistent. So gateways accumulate: 11 gateways for 7 live agents.
 - With ~90 hermes processes the box is CPU-contended, a fresh gateway can't finish booting within 60s, `ensureHost` throws "did not become ready within 60000ms", and the new agent lands **up-but-deaf** (registers + heartbeats, but session_handle empty / console 0 bytes / dispatches backstop). RAM is NOT the limit (7.6GB available) — it is process/CPU contention.
-- comms-tech-lead manually reaped the 3 leaked gateways (58 procs) so YOU could boot.
+- lead manually reaped the 3 leaked gateways (58 procs) so YOU could boot.
 
 **The fix (highest value in the set — this is why hermes has felt "so broken"):**
 (a) managed-hermes STOP must reap the gateway host too, agent-scoped and reliably (find why it's inconsistent — `hermes-managed-host.js` stop path + the triad reap in `api_v2.py` stop-worker);
@@ -189,7 +189,7 @@ The real cause is a **gateway-host process leak** that CPU-saturates the box:
 (d) consider whether `AIFY_HERMES_GATEWAY_READY_MS` should default higher than 60s given the boot cost. Test each with proof (spawn a fresh agent, watch it become live, stop it, watch the gateway actually die).
 
 ## How to report
-- Post the PLAN first (`comms_send type=response inReplyTo=<dispatch msg id>` to `comms-tech-lead`).
+- Post the PLAN first (`comms_send type=response inReplyTo=<dispatch msg id>` to `lead`).
 - After each fix: a one-line result + the proof (test output / browser measurement / file:line).
 - Keep everything in the repo/planning dir, never `/tmp`.
 - If you must choose between correctness and scope, prefer a small correct fix + a Backlog note over

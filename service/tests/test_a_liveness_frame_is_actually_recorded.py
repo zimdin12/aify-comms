@@ -14,7 +14,7 @@ WHAT READ IT. `_active_terminal_for_agent` releases a terminal whose `bridge_id`
 its environment row -- and every aify-env start mints a fresh bridge id, so after a restart EVERY
 terminal mismatches. `fc8d4c52` added the guard that stops that: a terminal its host is still
 REPORTING is not released, read from `updated_at`. With nothing refreshing `updated_at`, that guard
-could never be true. It released `sc-coder`'s terminal at 06:27:52 while aify-env was running the
+could never be true. It released `sc-fixtureworker`'s terminal at 06:27:52 while aify-env was running the
 process and streaming its console; an ended terminal cannot go back to active by design, so the
 worker's own output could never undo it. A live claude session, unaddressable and unrestartable,
 with three refused restarts behind it.
@@ -38,7 +38,7 @@ from service.tests._base import FastApiTestCase
 class ALivenessFrameIsActuallyRecordedTests(FastApiTestCase):
     DB_NAME = "aify-test-liveness-frame.db"
     ENV = "windows:liveness-host:default"
-    AGENT = "sc-coder"
+    AGENT = "sc-fixtureworker"
     SESSION = "sess-liveness"
     TERMINAL = "term-liveness"
 
@@ -77,7 +77,7 @@ class ALivenessFrameIsActuallyRecordedTests(FastApiTestCase):
                     "environment_id, runtime, bridge_id, command, workspace, status, output, error, "
                     "output_seq, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (self.TERMINAL, self.AGENT, self.SESSION, self.ENV, "claude-code",
-                     terminal_bridge, "claude-aify --aify-agent sc-coder", "C:/work", "attached",
+                     terminal_bridge, "claude-aify --aify-agent sc-fixtureworker", "C:/work", "attached",
                      "", "", 7, fresh, terminal_updated),
                 )
                 await db.commit()

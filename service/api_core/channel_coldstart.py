@@ -5,7 +5,7 @@ lines; this is the self-contained part that reaches OUTSIDE the message write to
 
 WHY IT EXISTS AT ALL, kept with the code because the reason is an incident. Channel posts used to
 create queued runs and rely entirely on the 180s queued-run backstop to spawn workers — and before
-that backstop had a coldstart rescue, those runs simply FAILED. That is the "sc-manager's broadcasts
+that backstop had a coldstart rescue, those runs simply FAILED. That is the "manager's broadcasts
 left targets available, no answers" report (#191). This mirrors the direct-send path: spawn a
 managed-warm worker NOW for each launchable member with no live wrapper child, so a channel roll-call
 wakes a cold team in seconds rather than minutes.
@@ -31,7 +31,7 @@ async def _coldstart_cold_channel_members(db, req, launchable_recipients):
             # Send-time coldstart for COLD managed members (2026-07-02). Channel posts
             # previously created queued runs and relied entirely on the 180s queued-run
             # backstop to spawn workers (and before the backstop's coldstart-rescue existed,
-            # those runs just FAILED — the "sc-manager's broadcasts left targets available,
+            # those runs just FAILED — the "manager's broadcasts left targets available,
             # no answers" incident, #191). Mirror the direct-send path: spawn a managed-warm
             # worker NOW for each launchable member with no live wrapper child, so a channel
             # roll-call wakes a cold team in seconds, not minutes. The helper is idempotent

@@ -74,7 +74,7 @@ Ordering matters: do the HistoryScreen work first — un-hiding the scrollbar wi
 
 ## 4. A cold managed agent offers no way to start it (the hermes complaint)
 
-**Verified:** hermes cold-start is **not** broken — spawn requests for `acma-coder` / `lca-coder` / `lc-coder` were created and ran as recently as 19:27 on 2026-07-14. The gap is purely UI: the Console tab bails at `if (!session)` (`app.js:257`) and renders "no active session — send a message and it will lazy-start". The start buttons (`canStartConsole` / `canStartDeadSession`, `app.js:2315-2324`) live **below** that early return, so an agent with no session row can never reach them.
+**Verified:** hermes cold-start is **not** broken — spawn requests for `coder` / `coder` / `coder` were created and ran as recently as 19:27 on 2026-07-14. The gap is purely UI: the Console tab bails at `if (!session)` (`app.js:257`) and renders "no active session — send a message and it will lazy-start". The start buttons (`canStartConsole` / `canStartDeadSession`, `app.js:2315-2324`) live **below** that early return, so an agent with no session row can never reach them.
 
 **Fix:** in that empty state, offer **Start agent** for a managed agent with a runtime (fresh start when there is no saved handle; resume when there is) — the same actions the session path already exposes. It is a small change, but it is the difference between "why can't I start hermes models?" and a button.
 

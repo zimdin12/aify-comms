@@ -1,7 +1,7 @@
 # Runtime Symmetry & Session Governance — Design
 
 **Date:** 2026-05-30
-**Owner:** comms-tech-lead (operator Steven)
+**Owner:** lead (operator Steven)
 **Status:** DESIGN — awaiting operator review before planning/implementation
 **Supersedes/absorbs:** the hermes-delivery plan (`2026-05-30-hermes-apiserver-delivery.md`) becomes the hermes *delivery mechanism* underneath this governance layer; the gateway-bind recon (`2026-05-30-hermes-0.15.1-gateway-api.md`) and api_server contract (`2026-05-30-hermes-apiserver-contract.md`) remain factual references.
 

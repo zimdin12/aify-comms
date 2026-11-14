@@ -7,7 +7,7 @@ pre-split fixture. Bodies are at their original 8-space column.
 ONE DECIDES WHETHER TO TRUST A REPORTED ID; THE OTHER MIRRORS AN ACCEPTED ONE. They sit a hundred
 lines apart in the handler and share only their subject, which is what the module is named for.
 
-THE FRESH-START GUARD (2026-06-12, the ci-manager lost-context incident) is the subtle one.
+THE FRESH-START GUARD (2026-06-12, the manager lost-context incident) is the subtle one.
 Auto-adopting a self-reported session id is SAFE when the new id carries the old context -- a
 compaction or a resume. It is destructive when the live terminal started FRESH, because then the
 reported id names an EMPTY session, adopting it overwrites the pinned handle of the real
@@ -47,7 +47,7 @@ async def _detect_fresh_start_terminal(
         body back over its call without substituting arguments, so it refuses a call whose argument
         name differs from the parameter it fills.
         """
-        # FRESH-START GUARD (2026-06-12, the ci-manager lost-context incident): auto-adopt
+        # FRESH-START GUARD (2026-06-12, the manager lost-context incident): auto-adopt
         # exists for SAFE self-changes (a compaction/resume issues a new id that CARRIES the
         # context). But when the live terminal started FRESH (its command has no --resume —
         # e.g. the wrapper dropped an unresumable handle after days offline), the reported id

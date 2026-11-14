@@ -97,7 +97,7 @@ def test_both_readers_find_the_endpoint_for_every_client_the_installer_renders(c
     `${HARNESS_ENDPOINT-${AIFY_SERVER_URL:-${AIFY_COMMS_URL:-<url>}}}` -- and a reader written against
     claude's one level returned nothing for it. redeploy.sh then falls back to loopback, so a
     hermes-only host would have had every wrapper repointed at 127.0.0.1 by the command that exists to
-    preserve its endpoint. Found by comms-senior-dev in pre-deploy review; the tests were green.
+    preserve its endpoint. Found by comms-fixturedeveloper in pre-deploy review; the tests were green.
     """
     bash, _ = _tools()
     out = tmp_path / client

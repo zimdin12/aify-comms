@@ -21,7 +21,7 @@ spawn_requests row (spawn_requests.txt in this dir):
 - Remaining candidates (UNATTRIBUTED): PATCH never reached service, or it exceeded the 10s client timeout and was abandoned/cancelled server-side without commit.
 - Claim cadence: claims land in same-second pairs 30-38s apart: cc-1 03:50:52; cc-2 03:51:22; cc-3+cc-4 03:51:56; hm-1+hm-2 03:52:27; hm-3+hm-4 03:53:05 although requests were queued 16-38s earlier. Not explained.
 - Why it stays `starting` forever: service/reconcilers/spawn_lifecycle.py:173 sweeps only `status IN ('claimed','running')`. `starting` is never reaped.
-- Side finding: all 19 successful claims since 23:43Z were later failed "Abandoned: claimed by a live bridge but never settled within 30 minutes" although their agents run (sc-lead, cc-1..3, hm-3/4 ...). The wall ceiling fails every live managed-warm `running` row.
+- Side finding: all 19 successful claims since 23:43Z were later failed "Abandoned: claimed by a live bridge but never settled within 30 minutes" although their agents run (lead, cc-1..3, hm-3/4 ...). The wall ceiling fails every live managed-warm `running` row.
 
 ## B. vanished apgtest definitions
 

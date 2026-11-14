@@ -21,7 +21,7 @@ import { controlContent, dispatchContent } from "../claude-channel-content.js";
 
 // ── dispatchContent ──────────────────────────────────────────────────────────────────────────
 {
-  const text = dispatchContent("sc-coder", {
+  const text = dispatchContent("sc-fixtureworker", {
     from: "manager-bot",
     subject: "Ship the thing",
     body: "details here",
@@ -30,7 +30,7 @@ import { controlContent, dispatchContent } from "../claude-channel-content.js";
     requireReply: true,
   });
 
-  assert.match(text, /\[URGENT\] manager-bot → sc-coder: "Ship the thing"/);
+  assert.match(text, /\[URGENT\] manager-bot → sc-fixtureworker: "Ship the thing"/);
   assert.match(text, /Drop current work and handle this immediately\./);
   assert.match(text, /Priority: URGENT/);
   assert.match(text, /Message ID: msg-1/);
@@ -104,32 +104,32 @@ import { controlContent, dispatchContent } from "../claude-channel-content.js";
 
 // ── controlContent — the one that had no direct coverage before the extraction ────────────────
 {
-  const interrupt = controlContent("sc-coder", {
+  const interrupt = controlContent("sc-fixtureworker", {
     action: "interrupt",
     from: "manager-bot",
     body: "stop the deploy",
   });
-  assert.match(interrupt, /Aify interrupt for agent "sc-coder"\./);
+  assert.match(interrupt, /Aify interrupt for agent "sc-fixtureworker"\./);
   assert.match(interrupt, /Requested by: manager-bot/);
   assert.match(interrupt, /stop the deploy/);
   assert.match(interrupt, /Stop your current task as soon as practical\./);
   assert.ok(!/Apply this guidance/.test(interrupt), "an interrupt does not also get the steer line");
 
-  const steer = controlContent("sc-coder", { action: "steer", body: "prefer the smaller diff" });
-  assert.match(steer, /Aify steer for agent "sc-coder"\./);
+  const steer = controlContent("sc-fixtureworker", { action: "steer", body: "prefer the smaller diff" });
+  assert.match(steer, /Aify steer for agent "sc-fixtureworker"\./);
   assert.match(steer, /Apply this guidance to your current work\./);
   assert.ok(!/Requested by/.test(steer), "an absent sender prints no empty Requested-by line");
   assert.ok(!/Stop your current task/.test(steer));
 
   // An action with no trailing-line rule still produces a usable message rather than falling
   // through to nothing — the agent is told what happened either way.
-  const other = controlContent("sc-coder", { action: "resume", body: "carry on" });
-  assert.match(other, /Aify resume for agent "sc-coder"\./);
+  const other = controlContent("sc-fixtureworker", { action: "resume", body: "carry on" });
+  assert.match(other, /Aify resume for agent "sc-fixtureworker"\./);
   assert.match(other, /carry on/);
   assert.ok(!/Stop your current task|Apply this guidance/.test(other));
 
   // EMPTY BODY: no fence at all, rather than an empty code block.
-  const empty = controlContent("sc-coder", { action: "interrupt" });
+  const empty = controlContent("sc-fixtureworker", { action: "interrupt" });
   assert.ok(!/```/.test(empty), "an empty body opens no code fence");
   assert.match(empty, /Stop your current task as soon as practical\./,
     "and the action line still arrives");

@@ -11,9 +11,9 @@
 // SAFETY INCIDENT (2026-05-31): the first version keyed kill-prior on
 // `--resume <handle>` ALONE. That is only unique if Claude session ids never
 // collide across agents. They CAN collide (cross-contamination, #138): a
-// managed agent (graph-tech-lead) was bound to a RESIDENT operator session's
+// managed agent (lead) was bound to a RESIDENT operator session's
 // live id (651b895f). Reaping by handle then `taskkill /f`-ed the operator's
-// own comms-tech-lead session. NEVER AGAIN.
+// own lead session. NEVER AGAIN.
 //
 // FIX — agent-scoped: a candidate claude.exe is reaped ONLY when its parent
 // wrapper process is `claude-aify --aify-agent <THIS agent>`. The agent id is

@@ -15,8 +15,8 @@ test("ordinary names this project actually uses are accepted", () => {
   // The failure opposite to the interesting one: a validator so strict it rejects real agent ids. Every
   // name here is one the repo or its examples genuinely register.
   for (const name of [
-    "claude-main", "comms-senior-dev", "mc-senior-dev", "agent_1", "Agent.2",
-    "a", "team-manager", "coder-01", "x".repeat(128),
+    "claude-main", "comms-fixturedeveloper", "mc-fixturedeveloper", "agent_1", "Agent.2",
+    "a", "team-fixtureowner", "coder-01", "x".repeat(128),
   ]) {
     assert.doesNotThrow(() => validateName(name), `${name} is a legitimate name and must be accepted`);
   }

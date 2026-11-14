@@ -8,9 +8,9 @@ booting. A bridge that simply stays up made it permanent: the row was never reap
 MEASURED on the operator's live service, 2026-08-28. FOUR spawn_requests sat `running`:
 
     probe-one           created 2026-08-25T02:37:46   updated 2026-08-25T02:37:48
-    mc-senior-dev       created 2026-08-26T18:42:23   updated 2026-08-26T18:42:27
-    graph-senior-dev    created 2026-08-27T21:19:59   updated 2026-08-27T21:20:02
-    comms-senior-dev    created 2026-08-27T21:20:01   updated 2026-08-27T21:20:06
+    mc-fixturedeveloper       created 2026-08-26T18:42:23   updated 2026-08-26T18:42:27
+    graph-fixturedeveloper    created 2026-08-27T21:19:59   updated 2026-08-27T21:20:02
+    comms-fixturedeveloper    created 2026-08-27T21:20:01   updated 2026-08-27T21:20:06
 
 Every one claimed by bridge `5fdddb0f-...`, which belongs to `windows:StevenZ-L:default` and was last
 seen the same day -- online. Each was updated once within six seconds of creation and never again.
@@ -167,7 +167,7 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
     # here: a stuck `claimed` row is exactly what the gate reads, so every send to that agent is
     # refused with "a spawn for this agent is ALREADY IN FLIGHT", for ever.
     #
-    # MEASURED on the operator's fleet 2026-09-03. `sc-coder` was unreachable for fifteen minutes and
+    # MEASURED on the operator's fleet 2026-09-03. `sc-fixtureworker` was unreachable for fifteen minutes and
     # would have stayed so: its row was claimed by the LIVE bridge, so even once `claimed` was
     # covered the carve-out above would have sheltered it for thirty minutes. The carve-out exists
     # for a worker that is slowly BOOTING, which a `claimed` row is not -- across 1,068 real spawns
@@ -197,7 +197,7 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
         bug the `running` half of this file already fixed once.
 
         The claim is on the LIVE bridge, which is the half that decides whether the fix helps:
-        sc-coder's row was claimed by the live bridge, and with the carve-out applied it would have
+        sc-fixtureworker's row was claimed by the live bridge, and with the carve-out applied it would have
         been sheltered for thirty minutes -- the carve-out was written for slow BOOTS, which a claim
         is not."""
         self._seed("stuck-claim-text", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="claimed")

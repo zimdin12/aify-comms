@@ -39,7 +39,7 @@ def row(**over):
         "id": "run-1",
         "message_id": "msg-1",
         "from_agent": "manager-bot",
-        "target_agent": "sc-coder",
+        "target_agent": "sc-fixtureworker",
         "message_type": "request",
         "subject": "Ship the thing",
         "priority": "high",
@@ -161,7 +161,7 @@ def test_the_identifying_fields_are_passed_straight_through():
     assert serialised["id"] == "run-1"
     assert serialised["messageId"] == "msg-1"
     assert serialised["from"] == "manager-bot"
-    assert serialised["targetAgentId"] == "sc-coder"
+    assert serialised["targetAgentId"] == "sc-fixtureworker"
     assert serialised["type"] == "request"
     assert serialised["subject"] == "Ship the thing"
     assert serialised["priority"] == "high"

@@ -84,7 +84,7 @@ test("e2e: in-flight transcript → gate SUPPRESSES (no POST)", async () => {
 
 test("e2e: a Stop that names its final message ends the turn though the tail is not yet flushed", async () => {
   // 2026-10-28, measured: Claude ran the Stop hook before writing the turn's final line, so the tail ended in the
-  // tool_result and the gate held comms-tech-lead and env-senior-dev at `working` after their turns ended.
+  // tool_result and the gate held comms-fixtureguide and env-fixturedeveloper at `working` after their turns ended.
   const unflushed = INFLIGHT + jl({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } });
   assert.equal(await runGate({ transcript: unflushed }), false, "control: this tail alone reads in-flight");
   assert.equal(await runGate({ transcript: unflushed, payload: { last_assistant_message: "   " } }), false, "a blank message names nothing");

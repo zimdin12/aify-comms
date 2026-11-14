@@ -1,4 +1,4 @@
-"""An interrupt on a run its target never claimed cancels it in the service (dashboard-manager, 2026-10-13).
+"""An interrupt on a run its target never claimed cancels it in the service (dashboard-fixtureowner, 2026-10-13).
 
 A request to an agent with no delivery loop sat queued for 13 hours. `comms_run_interrupt` refused it as "not active",
 since an interrupt is a control for the bridge running the turn and a queued run has none; the only way out was to

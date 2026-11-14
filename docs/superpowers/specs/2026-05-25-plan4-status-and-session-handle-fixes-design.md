@@ -1,7 +1,7 @@
 # Plan 4 — Status, Session-Handle, and Default-Path Fixes Design Spec
 
 **Status:** Draft — pending operator review
-**Author:** comms-senior-dev (Claude Opus 4.7) + operator
+**Author:** developer (Claude Opus 4.7) + operator
 **Date:** 2026-05-25
 **Related branch:** `feature/dashboard-console-mode`
 **Builds on:** Plans 1+2+3 (RuntimeAdapter foundation + capabilities + controllers/delivery extraction)
@@ -60,7 +60,7 @@ Operator-driven testing surfaced 12 distinct issues clustering into 5 themes. Th
 - **Issue 9 (Console widget oscillation):** with synth-terminal deprecation in Phase A, oscillation mostly disappears for wrapper-backed runtimes. For opencode (still synth), keep `state.sessionTerminals` cache. Add explicit "prefer wrapper PTY when both exist for same agent" rule to `chooseSessionConsoleWidget` in `service/new_dashboard/app.js`.
 
 **Phase F — Holistic review + finishing:**
-- Dispatch code-reviewer subagent over full Plan 4 diff.
+- Dispatch reviewer subagent over full Plan 4 diff.
 - Fix Critical/Important concerns surfaced.
 - Update DECISIONS.md, README.md, install.*.md, skills (both `.claude/` and `.agents/` mirrors).
 - `superpowers:finishing-a-development-branch`.

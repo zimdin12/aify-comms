@@ -30,23 +30,23 @@ function command({ stdout = "", code = 0, error = null } = {}) {
 
 test("A LIVE GATEWAY: the one JSON line becomes the loop's gateway, and the loop owns no process", async () => {
   const c = command({ stdout: `${ANSWER}\n` });
-  const gateway = await gatewayFromLauncher({ agentId: "pc-manager", spawn: c.spawn, command: "/w/aify-hermes-gateway.mjs" });
+  const gateway = await gatewayFromLauncher({ agentId: "pc-fixtureowner", spawn: c.spawn, command: "/w/aify-hermes-gateway.mjs" });
   assert.deepEqual(gateway, { port: 9341, token: TOKEN, wsUrl: `ws://127.0.0.1:9341/api/ws?token=${TOKEN}`, child: null });
   const [{ cmd, args, options }] = c.calls;
   assert.equal(cmd, process.execPath);
-  assert.deepEqual(args, ["/w/aify-hermes-gateway.mjs", "ensure", "pc-manager"]);
+  assert.deepEqual(args, ["/w/aify-hermes-gateway.mjs", "ensure", "pc-fixtureowner"]);
   assert.equal(options.stdio[2], "inherit", "its reasons land in the loop's own log");
   assert.equal(options.env, undefined, "it runs with the loop's environment, which is the launcher's");
 });
 
 test("NO GATEWAY: a refusal says so, and never repeats what the command printed", async () => {
   for (const [why, c, expected] of [
-    ["a non-zero exit", command({ stdout: ANSWER, code: 1 }), /found no gateway for 'pc-manager' \(exit 1/],
+    ["a non-zero exit", command({ stdout: ANSWER, code: 1 }), /found no gateway for 'pc-fixtureowner' \(exit 1/],
     ["an answer with no url", command({ stdout: JSON.stringify({ port: 9341, token: TOKEN }) }), /answered no gateway url/],
     ["an answer that is not JSON", command({ stdout: `token=${TOKEN}` }), /answered no gateway url/],
     ["a command that cannot start", command({ error: Object.assign(new Error("spawn"), { code: "ENOENT" }) }), /could not run: ENOENT/],
   ]) {
-    await assert.rejects(gatewayFromLauncher({ agentId: "pc-manager", spawn: c.spawn, command: "x" }), (error) => {
+    await assert.rejects(gatewayFromLauncher({ agentId: "pc-fixtureowner", spawn: c.spawn, command: "x" }), (error) => {
       assert.match(error.message, expected, why);
       assert.doesNotMatch(error.message, new RegExp(TOKEN), `${why} leaked the token`);
       return true;

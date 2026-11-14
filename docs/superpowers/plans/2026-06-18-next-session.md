@@ -43,7 +43,7 @@ It conflates streaming the FINAL reply with active work (broke `test_attached_co
 ### Verify + deploy
 - `node --check mcp/stdio/terminal-runtime.js && node --check mcp/stdio/server.js`.
 - Bridge change → **rerun `install.sh` (copies mcp/stdio + node_modules into ~/.aify-comms/) AND restart `claude-aify`** — wrapper restart alone is NOT enough; no container rebuild.
-- Live-validate: a managed claude doing a long tool-free generation with the dashboard Console CLOSED must stay `working` the whole time (watch sc-claude / sc-architect on the dashboard, or sample `comms_agent_info`).
+- Live-validate: a managed claude doing a long tool-free generation with the dashboard Console CLOSED must stay `working` the whole time (watch sc-claude / architect on the dashboard, or sample `comms_agent_info`).
 - Close task **#224** when this lands (the grace was the stopgap; this is the real fix).
 
 ---

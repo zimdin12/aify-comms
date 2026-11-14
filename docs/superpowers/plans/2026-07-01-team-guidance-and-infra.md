@@ -143,7 +143,7 @@ It is general on purpose: apply judgment, scale it to the task, and let language
 
 - [ ] **Step 5 — add two bullets to the TOP of Manager Discipline (these are the highest-DB-frequency stalls):**
   `- **Stuck? Peek first.** When an agent looks stalled/overdue, `comms_console_tail(agentId=...)` (managed) or a focused `[STATUS]` probe (resident) BEFORE re-spawning or reminding — reach for the console as the reflex, not the filesystem.`
-  `- **Right-size the rigor.** Scale review depth + teammate count to task complexity and risk; don't run the full multi-reviewer gauntlet on trivial/low-risk work. More agents/reviews are a COST, not a virtue. (See `references/building-software.md`.)`
+  `- **Right-size the rigor.** Scale review depth + teammate count to task complexity and risk; don't run the full reviewer gauntlet on trivial/low-risk work. More agents/reviews are a COST, not a virtue. (See `references/building-software.md`.)`
 
 - [ ] **Step 6 — add a channels nudge under the existing context-scoping bullet (L58):**
   `Put shared DECISIONS (frozen contracts, API shapes, integration order) on a team CHANNEL via `comms_channel_send`, not scattered across DMs — DB shows teams default to ~98% DMs, which fragments shared context. DMs are for owned 1:1 handoffs.`

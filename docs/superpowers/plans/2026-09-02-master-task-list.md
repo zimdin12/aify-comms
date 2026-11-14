@@ -384,7 +384,7 @@ four agents still running through all of it.
   | module | imported by |
   |---|---|
   | `spawn-loop`, `terminal-control-loop`, `environment-control-loop`, `managed-environment-sync`, `managed-teardown-sweeps`, `boot-marker-sweep` | `server.js` |
-  | `terminal-manager` | `server.js`, `terminal-control-loop` |
+  | `terminal manager` | `server.js`, `terminal-control-loop` |
   | `single-agent-teardown` | `terminal-control-loop` |
   | `reap-managed-survivors` | `managed-ownership`, `managed-teardown-sweeps`, `single-agent-teardown`, `terminal-control-loop` |
 
@@ -542,7 +542,7 @@ in the file and the one the operator has raised most often.
 
 - **A1. Show the managed agents that are running.** *"i wanted to have some tui for aify-env. so i can
   see all managed agents that are running etc."* (08-24 20:19), then *"i still do not see anything
-  under agent, i should se sc-manager and stuff like that correct?"* (08-25 04:46).
+  under agent, i should se manager and stuff like that correct?"* (08-25 04:46).
   **Why it never worked:** the TUI lists aify-env's OWN process record. Since Phase 8 the managed
   hermes agents were spawned by the aify-comms BRIDGE, not by aify-env -- which is why they survived
   aify-env going down -- so they were not in that record. The TUI has never asked aify-comms
@@ -554,10 +554,10 @@ in the file and the one the operator has raised most often.
 
       PROCESSES 4 owned
         ID       PID     AGENT      SERVICE     IO   UP     TITLE
-        cf63-p1  215208  sc-lead    aify-comms  pty  2h40m  Claude Code
-        cf63-p2  252812  sc-tester  aify-comms  pty  2h39m  Claude Code
-        cf63-p3  195104  sc-critic  aify-comms  pty  2h39m  Claude Code
-        cf63-p6  161124  sc-coder   aify-comms  pty  1h5m   Claude Code
+        cf63-p1  215208  lead    aify-comms  pty  2h40m  Claude Code
+        cf63-p2  252812  tester  aify-comms  pty  2h39m  Claude Code
+        cf63-p3  195104  critic  aify-comms  pty  2h39m  Claude Code
+        cf63-p6  161124  coder   aify-comms  pty  1h5m   Claude Code
 
   **It came right by consequence, not by construction, so the JOIN is now pinned.** `tui.test.js`
   proved the view renders an agent column from a snapshot the test supplies; `health.test.js` did not
@@ -581,7 +581,7 @@ in the file and the one the operator has raised most often.
   and `aify-env tui` POSTs keystrokes back to `/processes/:id/input` -- attach, not redraw, which is
   the herdr property the operator asked for.
 
-  **PROVEN LIVE:** following `sc-lead` on the operator's host returns its real claude TUI, 170 frames
+  **PROVEN LIVE:** following `lead` on the operator's host returns its real claude TUI, 170 frames
   in eight seconds.
 
   **What was missing was the proof, exactly as with A1.** Every console test used hand-written
@@ -866,11 +866,11 @@ solved it by narrowing to one runtime. See D9.
 
   **The per-agent form is the actionable one.** The doctor reports the fleet-wide collision list,
   which is right for a report and useless when you are looking at one agent wondering why its replies
-  vanish. The drawer now says "this session is also claimed by comms-tech-lead".
+  vanish. The drawer now says "this session is also claimed by lead".
 
   **Live while it was written, and matching this file's own open list: 3 handles claimed by 8
   agents** -- 33 of 44 agents carry a handle, 11 carry none. One of the three is the very conversation
-  that built the feature (`comms-claude` + `comms-tech-lead`).
+  that built the feature (`comms-claude` + `lead`).
 
   **AND IT HAS AN AGREEMENT TEST, which is what makes the second copy honest.**
   `mcp/stdio/session-handle-check.mjs` owns this question for the doctor and cannot be imported into
@@ -1005,7 +1005,7 @@ solved it by narrowing to one runtime. See D9.
 
   Four decisions, each with a test that fails without it:
   - **`status=all`, not `live`** -- a row reading `stopped` while still holding a pid IS the orphan
-    the operator went looking for (aify-env owned a live PTY for `ef-manager` pid 155844 while every
+    the operator went looking for (aify-env owned a live PTY for `manager` pid 155844 while every
     recent session read `stopped`). Filtering to live hides the case the panel exists for.
   - **The PID gets a column**, because `/terminals`'s own docstring says it is the field aify-env's
     listing shares -- it is what lets a person match a row here against something alive on the host.
@@ -1413,7 +1413,7 @@ solved it by narrowing to one runtime. See D9.
 - **D0. DONE 2026-09-03. `comms_envs` reported `status`, which is not whether a bridge is live.**
   The same defect the doctor had, in the tool AGENTS read: measured 2026-09-02, `comms_envs` said
   `windows:StevenZ-L:default [online]` while `/spawn` returned 409 in the same minute, and
-  sc-manager -- correctly trusting the tool -- reported the fleet ready and was refused six times.
+  manager -- correctly trusting the tool -- reported the fleet ready and was refused six times.
   **What was built.** The claim predicates left `doctor-predicates.js` for `spawn-claimer.mjs`, a
   pure leaf, because an MCP tool group importing the doctor to answer a question that is not the
   doctor's would drag its filesystem and home reads into every agent's bridge. Both tools now ask
@@ -2154,7 +2154,7 @@ Four items from the standing "also open" list, checked rather than carried forwa
 
 - **"48 stale identities" -> 18, not 48.** Of 44 registered agents: 11 seen inside a day, 10 within a
   week, 5 within a month, and **18 silent for more than 30 days** -- three of them for 126 days
-  (`ef-tech-lead`, `ef-senior-dev`, `ef-coder-lead`, all `stopped`). That matches `agent-drawer.mjs`'s
+  (`lead`, `developer`, `lead`, all `stopped`). That matches `agent-drawer.mjs`'s
   own 2026-08-29 note ("18 of 47 agents had been silent for more than 30 days, three of them for
   120"), so 18 has been the number for a week and 48 counts something else. **Deleting them is the
   operator's** -- it is data removal, and several read `offline` rather than `stopped`.

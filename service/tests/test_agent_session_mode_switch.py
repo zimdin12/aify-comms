@@ -100,7 +100,7 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
     # ─── C1 ────────────────────────────────────────────────────────────────
 
     def test_an_undefined_resident_is_refused_a_managed_switch_and_nothing_is_written(self):
-        """terraria-manager, 2026-11-01: the switch landed for an agent no host defines, so it read
+        """terraria-fixtureowner, 2026-11-01: the switch landed for an agent no host defines, so it read
         `unknown` and was in no start list. Refused before any write, with or without force, naming the
         import that defines it; 422, because no force makes a definition exist."""
         self._heartbeat_environment("codex")
@@ -354,7 +354,7 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
             conn.close()
         self.assertEqual(queued, 0, "an agent with nothing running must not have a stop invented for it")
 
-    # ─── 2026-06-12 — the sc-manager "sent but never received" strand ─────────
+    # ─── 2026-06-12 — the sc-fixtureowner "sent but never received" strand ─────────
 
     def _register_resident_candidate(self, agent_id: str) -> None:
         """Re-register an existing managed agent as a LIVE resident session (the

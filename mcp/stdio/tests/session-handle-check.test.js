@@ -3,7 +3,7 @@
 // BOTH FIXTURES BELOW ARE REAL, taken off the operator's fleet on 2026-08-31, and between them they
 // are the two session failures that cost that day:
 //
-//   * `651b895f-…` held by comms-claude AND comms-tech-lead. One Claude Code session re-registered
+//   * `651b895f-…` held by comms-claude AND comms-fixtureguide. One Claude Code session re-registered
 //     under a new id; the old row kept the handle with nothing heartbeating for it. It read `offline`
 //     for ever while its `lastSeen` refreshed on every tool call, and every review verdict sent to it
 //     was refused and relayed. Hours were spent restarting a reviewer that was not the broken part.
@@ -28,12 +28,12 @@ const HERMES = "20260715_001441_960b8f";
 /** The live fleet's shape, trimmed to what this check reads. */
 const FLEET = {
   "comms-claude": { sessionHandle: RESIDENT },
-  "comms-tech-lead": { sessionHandle: RESIDENT },
-  "mc-senior-dev": { sessionHandle: HERMES },
+  "comms-fixtureguide": { sessionHandle: RESIDENT },
+  "mc-fixturedeveloper": { sessionHandle: HERMES },
   "guns-ab-planner": { sessionHandle: HERMES },
   "safety-gate-auditor": { sessionHandle: HERMES },
   "pathweaver-activation-auditor": { sessionHandle: HERMES },
-  "sc-tester": { sessionHandle: "20260701_015609_630430" },
+  "sc-fixtureprobe": { sessionHandle: "20260701_015609_630430" },
   "apg-pilot-01": { sessionHandle: "" },
   "apg-pilot-02": {},
 };
@@ -44,8 +44,8 @@ test("it finds both real collisions and leaves the singly-held session alone", (
   const dupes = duplicateSessionHandles(FLEET);
   assert.equal(dupes.length, 2);
   assert.deepEqual(dupes.map((d) => d.handle), [HERMES, RESIDENT], "widest collision is not first");
-  assert.deepEqual(dupes[1].agentIds, ["comms-claude", "comms-tech-lead"]);
-  assert.ok(!dupes.some((d) => d.agentIds.includes("sc-tester")),
+  assert.deepEqual(dupes[1].agentIds, ["comms-claude", "comms-fixtureguide"]);
+  assert.ok(!dupes.some((d) => d.agentIds.includes("sc-fixtureprobe")),
             "an agent holding its own handle was reported as colliding");
 });
 
@@ -94,7 +94,7 @@ test("collisions FAIL and name every agent involved", () => {
   const verdict = sessionHandleVerdict(duplicateSessionHandles(FLEET), { measured: 7 });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "shared");
-  for (const id of ["comms-claude", "comms-tech-lead", "mc-senior-dev", "guns-ab-planner"]) {
+  for (const id of ["comms-claude", "comms-fixtureguide", "mc-fixturedeveloper", "guns-ab-planner"]) {
     assert.ok(verdict.detail.includes(id), `${id} was not named`);
   }
   assert.match(verdict.detail, /2 session\(s\)/);

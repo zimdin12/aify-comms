@@ -71,7 +71,7 @@ async def _compute_session_display_status(db, session_row, agent_row=None) -> st
     if stored.lower() not in {s.lower() for s in LIVE_SESSION_STATUSES}:
         # INVERSE truthfulness (2026-06-11): a DEAD stored status with a LIVE bound terminal
         # is factually wrong — the dashboard rendered "Console stopped" over a visibly-running
-        # terminal (next-manager, twice: a heartbeat lapse let the dead-session reconciler
+        # terminal (manager, twice: a heartbeat lapse let the dead-session reconciler
         # downgrade the row AFTER the bind, so the bind-moment promotion never re-fired).
         # Display 'running' when the bound terminal row is live and the agent is not
         # operator-stopped. Display-only — the stored row is never mutated, and operator

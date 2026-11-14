@@ -50,7 +50,7 @@ async def _has_live_terminal_session(db, agent_id: str) -> bool:
     synth terminals for wrapper-backed runtimes (see
     `_synth_terminal_should_be_created`), but pre-Plan-4 rows persist in
     operator DBs with `status='running'` and no cleanup path. Observed
-    2026-05-26 — sc-coder, sc-architect kept showing `online` after Plan
+    2026-05-26 — coder, architect kept showing `online` after Plan
     5 deploy because their stale 2026-05-24 `vterm_*` rows hid the dead
     worker from the gate.
     """
@@ -245,7 +245,7 @@ async def _resident_bridge_record_is_fresh(db, row, *, lease_seconds: int) -> bo
 async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     if await _resident_bridge_record_is_fresh(db, row, lease_seconds=lease_seconds):
         return True
-    # Fallback (operator-reported 2026-05-31, sc-manager): an IDLE resident
+    # Fallback (operator-reported 2026-05-31, manager): an IDLE resident
     # claude's MCP bridge is NOT heartbeated — the turn-busy heartbeat only fires
     # during an active turn, and the session-handle heartbeat only POSTs when the
     # session id CHANGES. So a live-but-idle resident goes stale after the lease

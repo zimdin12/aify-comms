@@ -1,9 +1,9 @@
 """Failure text aify-comms wrote about itself. Never evidence about a provider.
 
-THE INCIDENT (2026-08-18, reported by graph-tech-lead, confirmed). A sender was told, in the present
+THE INCIDENT (2026-08-18, reported by lead, confirmed). A sender was told, in the present
 indicative:
 
-    "graph-senior-dev-hermes couldn't respond — its model provider is rate-limiting / at a usage
+    "developer couldn't respond — its model provider is rate-limiting / at a usage
      limit right now (a provider-side throttle, not your request). Please retry shortly."
 
 The run record said something else entirely — that the cause was PRESUMED, and offered three

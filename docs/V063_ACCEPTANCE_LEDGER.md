@@ -37,7 +37,7 @@ The inventory finds candidates; this ledger says what they owe.
 **Two scope corrections review made, both verified here before being adopted:**
 
 - **Deletions are not evidence-free.** Removing ownership, teardown, control-loop or
-  terminal-manager responsibilities needs an explicit retirement disposition. They stay in the
+  terminal manager responsibilities needs an explicit retirement disposition. They stay in the
   population; rows R-1..R-3 below are theirs.
 - **The lockfile is a shipping input.** The Dockerfile's `COPY mcp/stdio/package.json mcp/stdio/package-lock.json` is followed by `RUN cd mcp/stdio && npm ci`, so excluding it as "not behaviour" was wrong. Rows P-1a and P-1b are its
   obligation. (Named by content rather than by line, because a line number in a doc rots -- the

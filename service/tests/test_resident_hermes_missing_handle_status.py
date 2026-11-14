@@ -1,7 +1,7 @@
 """fix/resident-hermes-status (2026-06-02) — a resident hermes that cannot
 actually be woken must NOT compute `available`.
 
-Operator-reported inconsistency (live agent ci-senior-dev, a resident hermes
+Operator-reported inconsistency (live agent ci-fixturedeveloper, a resident hermes
 registered from a REMOTE machine): the dashboard showed status `available` but a
 RED status dot, wake path "Hermes missing handle", because the status label and
 the dot are driven by DIFFERENT fields.

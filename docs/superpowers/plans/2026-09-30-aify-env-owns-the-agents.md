@@ -53,8 +53,8 @@ hosts without the new aify-env). Nothing is migrated without the operator runnin
   "version": 1,
   "revision": 7,
   "agent": {
-    "id": "comms-senior-dev",
-    "name": "comms-senior-dev",
+    "id": "developer",
+    "name": "developer",
     "role": "reviewer",
     "harness": "hermes",
     "mode": "managed",
@@ -140,8 +140,8 @@ the service cannot report (P0 C10). `aify-env doctor` reports agents the service
 that have no definition.
 
 **D13. aify-dashboard is its owner's.** This tag publishes the contract (the file schema, the daemon
-routes, the push route) and tells dashboard-manager. D6 means its plugin, when written, switches on the
-same way. dashboard-manager's answer (2026-09-30): its plugin pushes a C3-shaped snapshot to the
+routes, the push route) and tells manager. D6 means its plugin, when written, switches on the
+same way. manager's answer (2026-09-30): its plugin pushes a C3-shaped snapshot to the
 dashboard's OWN route (`PUT /api/v1/host/:hostKey/agent-definitions`), because the dashboard runs
 without aify-comms and mounts no host folders; so the plugin side of C3 is per service, never tied to
 aify-comms' path. Until that plugin exists the dashboard mirrors aify-comms' agent list, which P3 makes

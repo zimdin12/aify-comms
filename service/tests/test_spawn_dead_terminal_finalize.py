@@ -320,7 +320,7 @@ class HistoricalConsoleReadTests(_SpawnSeedMixin, FastApiTestCase):
         "[terminal attached pid=49060]\n"
         "\x1b[?25h[hermes-managed-host] fatal: hermes dashboard at http://127.0.0.1:9147/"
         " did not become ready within 60000ms: fetch failed\r\n"
-        "[hermes-aify] FATAL: managed gateway host for 'sc-architect' did not come up.\r\n"
+        "[hermes-aify] FATAL: managed gateway host for 'sc-fixtureplanner' did not come up.\r\n"
         "[terminal exited]\n"
     )
 

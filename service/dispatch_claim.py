@@ -121,7 +121,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         # its poll loop / goes idle. This is the one-driver invariant in action:
         # the managed driver releases so the resident TUI can take the session.
         #
-        # driver_state guard (operator-reported 2026-05-31, sc-manager): the
+        # driver_state guard (operator-reported 2026-05-31, manager): the
         # original condition was the blunt `session_mode != managed`, which ALSO
         # fired for a NATIVELY-resident agent whose channel sidecar is its SOLE
         # delivery path — so every resident claude/hermes agent's sidecar was told
@@ -138,7 +138,7 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
         ):
             # Live resident bridge ⇒ this is the resident's OWN delivery sidecar, not a
             # displaced managed driver — adopt driving and keep claiming instead of
-            # releasing (see _adopt_live_resident_driver; the sc-manager strand).
+            # releasing (see _adopt_live_resident_driver; the manager strand).
             if not await _adopt_live_resident_driver(db, agent["id"]):
                 await db.commit()
                 return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}

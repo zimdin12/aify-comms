@@ -58,8 +58,8 @@ const opts = { procRoot: PROC, tmpDir: TMP };
 // ── readProcEnv ─────────────────────────────────────────────────────────────────────────────────
 
 test("the process environment is parsed into a plain object", () => {
-  writeProc(101, { environ: environ({ AIFY_AGENT_ID: "sc-coder", PATH: "/usr/bin" }) });
-  assert.deepEqual(readProcEnv(101, opts), { AIFY_AGENT_ID: "sc-coder", PATH: "/usr/bin" });
+  writeProc(101, { environ: environ({ AIFY_AGENT_ID: "sc-fixtureworker", PATH: "/usr/bin" }) });
+  assert.deepEqual(readProcEnv(101, opts), { AIFY_AGENT_ID: "sc-fixtureworker", PATH: "/usr/bin" });
 });
 
 test("a value CONTAINING an equals sign keeps all of it", () => {
@@ -111,8 +111,8 @@ test("a binding written for the CLIENT pid is found through the bridge's ppid", 
   // the binding is keyed by the parent pid. Looking only at the bridge's own pid would find nothing and
   // report every registered agent as never having registered.
   writeProc(201, { stat: statLine(201, 200) });
-  fs.writeFileSync(path.join(TMP, "aify-agent-200"), "sc-coder", "utf-8");
-  assert.equal(readBoundAgentId(201, opts), "sc-coder");
+  fs.writeFileSync(path.join(TMP, "aify-agent-200"), "sc-fixtureworker", "utf-8");
+  assert.equal(readBoundAgentId(201, opts), "sc-fixtureworker");
 });
 
 test("a binding written for the BRIDGE's own pid is also found", () => {

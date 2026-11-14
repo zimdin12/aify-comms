@@ -46,7 +46,7 @@ LAUNCH_IDENTITY = REPO / "mcp" / "stdio" / "launch-identity.mjs"
 
 def _terminal(**overrides):
     base = {
-        "id": "term-1", "agentId": "sc-lead", "runtime": "claude-code",
+        "id": "term-1", "agentId": "sc-fixturechief", "runtime": "claude-code",
         "workspace": "C:/work", "sessionHandle": "",
     }
     base.update(overrides)

@@ -4,7 +4,7 @@
 // had no agent id to key by) and the turn detector never armed (it read AIFY_AGENT_ID once,
 // at boot). comms_register told the bridge who it was — and nothing used that. The agent
 // registered, messaged and heartbeated perfectly while its status latched forever, with no
-// visible error anywhere. That is the general-manager incident, and it is bad UX besides:
+// visible error anywhere. That is the general-fixtureowner incident, and it is bad UX besides:
 // an operator who registers reasonably expects status to work.
 //
 // The chain under test: hook captures session id keyed by the claude pid -> comms_register
@@ -51,21 +51,21 @@ test("comms_register can then claim that capture into the agent-keyed store", ()
   handleClaudeSessionHook({ stdin: hookPayload("sess-anon"), env: {}, dir, ppid: 4242 });
 
   // What server.js's claimCapturedClaudeSession does on register:
-  assert.equal(readClaudeSessionId({ agentId: "comms-tech-lead", dir }), null);
+  assert.equal(readClaudeSessionId({ agentId: "comms-fixtureguide", dir }), null);
   const captured = readCapturedClaudeSessionIdForPid({ pid: 4242, dir });
-  writeClaudeSessionId({ sessionId: captured, agentId: "comms-tech-lead", dir });
+  writeClaudeSessionId({ sessionId: captured, agentId: "comms-fixtureguide", dir });
 
   // The detector can now resolve THIS session's transcript -> status works.
-  assert.equal(readClaudeSessionId({ agentId: "comms-tech-lead", dir }), "sess-anon");
+  assert.equal(readClaudeSessionId({ agentId: "comms-fixtureguide", dir }), "sess-anon");
 });
 
 test("once registered, later hook fires key the store via the BINDING file (no env needed)", () => {
   const dir = tmpdir();
-  writeAgentBindingFile({ pid: 4242, agentId: "comms-tech-lead", bridgeId: "b1", dir });
+  writeAgentBindingFile({ pid: 4242, agentId: "comms-fixtureguide", bridgeId: "b1", dir });
 
   handleClaudeSessionHook({ stdin: hookPayload("sess-2"), env: {}, dir, ppid: 4242 });
 
-  assert.equal(readClaudeSessionId({ agentId: "comms-tech-lead", dir }), "sess-2");
+  assert.equal(readClaudeSessionId({ agentId: "comms-fixtureguide", dir }), "sess-2");
   // It went straight to the agent-keyed store — no pid capture needed.
   assert.equal(readCapturedClaudeSessionIdForPid({ pid: 4242, dir }), null);
 });
@@ -74,13 +74,13 @@ test("env identity still wins and behaves exactly as before (no regression)", ()
   const dir = tmpdir();
   handleClaudeSessionHook({
     stdin: hookPayload("sess-3"),
-    env: { AIFY_AGENT_ID: "general-manager" },
+    env: { AIFY_AGENT_ID: "general-fixtureowner" },
     dir,
     ppid: 4242,
   });
 
-  assert.equal(readClaudeSessionId({ agentId: "general-manager", dir }), "sess-3");
-  assert.ok(fs.existsSync(claudeSessionStorePath("general-manager", dir)));
+  assert.equal(readClaudeSessionId({ agentId: "general-fixtureowner", dir }), "sess-3");
+  assert.ok(fs.existsSync(claudeSessionStorePath("general-fixtureowner", dir)));
   assert.equal(readCapturedClaudeSessionIdForPid({ pid: 4242, dir }), null);
 });
 

@@ -3,9 +3,9 @@
 The review judged three HIGHs from the round before and raised new MEDIUMs. Every claim was checked at source
 before triage by four read-only investigators (aify-comms `cf4f5710`, aify-env `ba486a4`/`84a02ae`, aify-wrapper
 `9470225`). Probes ran on scratch copies only. Each fix below is its own commit, red on its predecessor and
-mutation-proven. comms-senior-dev reviews each one.
+mutation-proven. developer reviews each one.
 
-## Fixed in 0.8.5 (built; each is HELD in comms-senior-dev's independent review until its verdict)
+## Fixed in 0.8.5 (built; each is HELD in developer's independent review until its verdict)
 
 Status, 2026-10-04:
 - F1-F5, F8 comms, F9 and B1 are committed on comms fix/0.8.5.
@@ -27,7 +27,7 @@ Status, 2026-10-04:
 | F8 | Spawn and terminal claims need no host proof; PATCH spawn skips the bridge check when `bridgeId` is omitted | `spawn_requests_io.py:115-116`, `terminal_controls_io.py:79-86`, `spawn_requests.py:448` | comms `f97f08da`; the env doctor tells a 401 from a host-proof 403 (store slice) |
 | F9 | KNOWN_ISSUES says "0.8.2 fixes its HIGHs and MEDIUMs" and the carry-overs "were not traced" | `KNOWN_ISSUES.md:10,41-43` | corrected with this round |
 
-Also from comms-senior-dev's review of 0.8.5 in the same round:
+Also from developer's review of 0.8.5 in the same round:
 - removal history matched case-sensitively (comms `78052e25`);
 - a refusal beside a freed id was lost on a failed retry (env `beb4b14`);
 - `attach`/`run`/`import` chose from an incomplete receipt look (env `3f1e1ec`);

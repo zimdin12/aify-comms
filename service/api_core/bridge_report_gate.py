@@ -1,6 +1,6 @@
 """Whether a bridge may report an agent's session: only one registered for that agent and not superseded.
 
-REVIEW OF 7f638a65 (comms-senior-dev, 2026-09-28). A `claude` started from an agent's own shell has a
+REVIEW OF 7f638a65 (developer, 2026-09-28). A `claude` started from an agent's own shell has a
 bridge that registers its own session and is refused (409), so it never owns the agent. Its session-handle
 heartbeat started anyway, independently of registration, and `PATCH /agents/{id}/session-handle` checked
 nothing about who was asking: the reviewer's probe had a refused bridge rewrite the live parent's

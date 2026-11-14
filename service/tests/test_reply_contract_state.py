@@ -40,7 +40,7 @@ def row(**over):
         "reminder_count": 0,
         "source_read_at": "",
         "from_agent": "manager-bot",
-        "target_agent": "sc-coder",
+        "target_agent": "sc-fixtureworker",
         "message_source": "direct",
         "summary": "",
         "last_reminder_at": "",
@@ -112,7 +112,7 @@ def test_overdue_needs_all_four_conditions():
 
 def test_a_run_its_target_never_received_is_never_overdue():
     """A QUEUED run was never delivered, so a reminder only joins the same undelivered queue. Two never-claimed runs
-    drew 98 of the 147 reminders in the 2026-10-10..13 events (79 against dashboard-senior-dev, which had no loop)."""
+    drew 98 of the 147 reminders in the 2026-10-10..13 events (79 against dashboard-fixturedeveloper, which had no loop)."""
     old = iso(NOW - 24 * 3600)
     assert state(requested_at=old, status="queued")["overdue"] is False
     assert state(requested_at=old, status="queued")["state"] == "queued"
@@ -153,7 +153,7 @@ def test_reminder_minutes_degenerate_values():
 
 # ── category and actionable ──────────────────────────────────────────────────────────────────
 def test_a_self_wake_is_never_actionable():
-    same = state(from_agent="sc-coder", target_agent="sc-coder", requested_at=iso(NOW - 3600))
+    same = state(from_agent="sc-fixtureworker", target_agent="sc-fixtureworker", requested_at=iso(NOW - 3600))
     assert same["category"] == "self_wake"
     assert same["replyExpected"] is True
     assert same["overdue"] is True, "it is still overdue -- the state is honest"

@@ -28,9 +28,9 @@ def _row(**over):
     base = {
         "id": "run_test_1",
         "message_id": "",
-        "target_agent": "mc-senior-dev",
+        "target_agent": "mc-fixturedeveloper",
         "from_agent": "dashboard",
-        "subject": "Restart mc-senior-dev",
+        "subject": "Restart mc-fixturedeveloper",
     }
     base.update(over)
     return _Row(base)
@@ -69,9 +69,9 @@ class ReplyReminderHintIsActionableTests(unittest.TestCase):
                 self.assertNotIn("match it to the run", text)
 
     def test_threaded_run_carries_in_reply_to(self):
-        text = self._text(_row(message_id="msg_42", from_agent="mc-manager"))
+        text = self._text(_row(message_id="msg_42", from_agent="mc-fixtureowner"))
         self.assertIn('inReplyTo="msg_42"', text)
-        self.assertIn('subject="Re: Restart mc-senior-dev"', text)
+        self.assertIn('subject="Re: Restart mc-fixturedeveloper"', text)
 
     def test_operator_initiated_run_is_labelled_honestly(self):
         """No message id means the reply genuinely cannot be threaded. Name the run and say so,

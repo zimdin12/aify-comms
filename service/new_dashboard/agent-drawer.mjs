@@ -97,7 +97,7 @@ export function openAgentDrawer(agentId) {
     `<button class="ghost danger" data-agent-remove="${esc(id)}" title="Remove the agent itself: its host moves its definition to the trash, and its sessions go with it.">Remove agent</button>`,
   ].filter(Boolean).join('');
   // Always render this block. When there is no command, say WHY — an absent section is
-  // indistinguishable from a broken feature (operator report: "llama-manager does not have cli
+  // indistinguishable from a broken feature (operator report: "manager does not have cli
   // command that i can copy"; it has no session handle, so there is nothing to resume).
   const cli = continueCliDetails(agent, session);
   const cliCmd = cli.command;

@@ -1,4 +1,4 @@
-"""Root-cause-G parity for managed CLAUDE (2026-06-12, the graph-tech-lead strand).
+"""Root-cause-G parity for managed CLAUDE (2026-06-12, the graph-fixtureguide strand).
 
 A send to a managed claude-code agent whose sessions are ALL dead (exactly the state
 after an environment-bridge restart retires every session) must cold-start a

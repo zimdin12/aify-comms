@@ -236,7 +236,7 @@ def test_the_removal_takes_the_entry_and_its_emptied_event_and_nothing_else():
         assert "aify-notify" not in kept, kept
 
 
-# comms-senior-dev, 2026-10-13: a blank line inside the entry ended it early, the event header went, and the
+# comms-fixturedeveloper, 2026-10-13: a blank line inside the entry ended it early, the event header went, and the
 # entry's remaining keys landed on the hook before it -- on_session_end's command became aify-notify.sh.
 FOREIGN_BEFORE = 'hooks:\n  on_session_end:\n    - command: "echo foreign-hook"\n      timeout: 99\n'
 FOREIGN_AFTER = '  pre_llm_call:\n    - command: "echo another-hook"\n      timeout: 77\n'

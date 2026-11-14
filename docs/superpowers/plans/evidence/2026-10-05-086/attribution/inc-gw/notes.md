@@ -36,7 +36,7 @@ Gateway process chain for 9189 (Win32_Process, still alive): hermes.exe 06:56:10
 9284: hermes.exe 06:56:40 -> 06:56:43 -> 06:56:50 -> 03:57:04.95Z (listener 109280) -> 03:57:35.6.
 No process for 9427/9570 (netstat: only 9189, 9284 listen; 8800 positive control listens).
 
-Host load in window: 10 spawns 03:20-03:52 (apgtest-cc-1..4 claude + apgtest-hm-1..4 + dashboard-senior-dev + graph-senior-dev);
+Host load in window: 10 spawns 03:20-03:52 (apgtest-cc-1..4 claude + apgtest-hm-1..4 + developer + developer);
 PTY start control took 38 s (hm-1) / 68 s (hm-2); PowerShell first paint ~1m43s after request;
 errors.log 06:50-06:57: aify-notify.sh shell hooks timing out 8-20 s repeatedly, execute_code 300 s timeouts,
 terminal.wait 32/62 s deadlines, "snapshot bootstrap failed exit 124".
@@ -59,7 +59,7 @@ also starts after spawn() returns, which on this host took ~3 s: log 03:56:07.0 
 - agent_sessions.session_handle "" for both.
 - Local markers DO exist: TEMP\aify-hermes-session-apgtest-hm-3 = 20261005_065915_e3d023 (03:59:24Z), hm-4 = 20261005_065936_3c3903 (03:59:48Z).
 - Delivery loop logs: hm-3 900/901 lines, hm-4 893/893 lines "poll cycle claim error: HTTP 401: Invalid or missing API key".
-  Other loops (comms-senior-dev, graph-senior-dev started 03:29:42Z, sc-*, golf, dashboard, pc-manager): 0 x 401 in last 200 lines.
+  Other loops (developer, developer started 03:29:42Z, sc-*, golf, dashboard, manager): 0 x 401 in last 200 lines.
 - hermes-active-session.mjs:575-580 writes the local marker FIRST then PATCH /agents/{id}/session-handle with the same key,
   error swallowed; next tick sees durable === marker and never retries => handle lost permanently once the PATCH fails.
 - Registry credential ~/.aify/credentials/aify-comms-6b1e649c84bd.key == container API_KEY (equality only, not printed);

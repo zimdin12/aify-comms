@@ -9,9 +9,9 @@ by a different path (`spawn-loop` and `managed-environment-sync` PATCH it).
 OBSERVED ON THE OPERATOR'S HOST, 2026-08-29, on a live and perfectly healthy agent::
 
     live environment bridge          e720826b-741c-455f-b8bd-e4659777e0c7
-    comms-senior-dev, 03:44          cd17b4c8-ebdb-4980-9492-b2a69435b590
-    comms-senior-dev, minutes later  a0897fff-a6c4-4c99-8349-8b9d750dd22a
-    ef-manager (just spawned)        e720826b-741c-455f-b8bd-e4659777e0c7
+    developer, 03:44          cd17b4c8-ebdb-4980-9492-b2a69435b590
+    developer, minutes later  a0897fff-a6c4-4c99-8349-8b9d750dd22a
+    manager (just spawned)        e720826b-741c-455f-b8bd-e4659777e0c7
 
 `aify-comms doctor` then reported that agent as an orphaned managed delivery loop "bound to no live
 bridge", while it was answering messages, and its remedy is to relaunch the environment bridge -- which

@@ -1,8 +1,8 @@
 // Which session rows the Sessions list should SHOW.
 //
-// Operator report 2026-07-28: "i see multiple sc-manager sessions why? (must be a bug)".
+// Operator report 2026-07-28: "i see multiple manager sessions why? (must be a bug)".
 //
-// Measured before changing anything: sc-manager has 10 rows in `agent_sessions`, but only ONE is
+// Measured before changing anything: manager has 10 rows in `agent_sessions`, but only ONE is
 // live. `GET /sessions` already hides pure history (`SESSION_CLEAN_HISTORY_STATUSES` =
 // ended/completed/cancelled), so 8 of them were correctly suppressed. What reached the dashboard was
 // the live `running` row plus a `stopped` row from EIGHT WEEKS earlier.
@@ -48,7 +48,7 @@ export function sessionDisplayStatus(session, agent) {
 }
 
 // ONE AGENT = ONE ENTRY, which is how the operator reads this list: "for me i know only one
-// sc-manager. this one identification is one specific agent / session for me.. seeing 2 makes me
+// manager. this one identification is one specific agent / session for me.. seeing 2 makes me
 // misunderstand". So per agent:
 //
 //   * has live row(s)  -> show the live ones, hide every non-live row.

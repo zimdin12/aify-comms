@@ -1,7 +1,7 @@
 # P0: the contracts, frozen before any code
 
 Companion to [2026-09-30-aify-env-owns-the-agents.md](2026-09-30-aify-env-owns-the-agents.md). Two plan
-reviews on 2026-09-30 (comms-senior-dev: R1-R7 on the plan, then five closures and four integration
+reviews on 2026-09-30 (developer: R1-R7 on the plan, then five closures and four integration
 points on this file at 22748507) found transitions the plan named but did not fix. This file fixes
 them. Every later phase implements one section here and its witnesses; a phase that needs to change a
 rule here changes this file first, in its own reviewed commit.
@@ -379,7 +379,7 @@ installs on one PC are `win32:stevenz-l` and `wsl:stevenz-l`: two machines, two 
 machine is two installs on the SAME platform and host with their own definition directories: two
 Windows user profiles (each with its own `~/.aify`), or two daemons with different
 `AIFY_AGENT_DEFINITIONS_DIR`. The table above would then let each retire the other (raised and
-corrected by dashboard-manager, 2026-09-30). So a retired store's
+corrected by manager, 2026-09-30). So a retired store's
 push is refused with the store that retired it and when, and a retired store that keeps pushing is
 reported in `aify-env doctor` and on the dashboard as "two stores claim machine <id>", never only
 logged.
@@ -970,7 +970,7 @@ for hermes), resolved by three hand copies (`spawn_requests.py`, `agents/environ
   (`aify-env agents import`). Every accepted change says `appliesAt: "next start"`. Applying the defaults
   to existing agents clears the same stale values (review of P6r, C1-C4).
 - **Split with the dashboard work:** the service routes and agent-info fields are this tag's; the
-  dashboard controls are dashboard-manager's, agreed before either is built.
+  dashboard controls are manager's, agreed before either is built.
 
 ## C11. Mixed versions and persisted state
 

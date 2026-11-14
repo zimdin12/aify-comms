@@ -239,7 +239,7 @@ def is_self_report_only(line: str) -> bool:
 def says_what_it_was_doing(raw: str) -> bool:
     """True when a recording holds at least one line that is not the terminal talking about itself.
 
-    THE DISTINCTION THIS DRAWS, and why `.strip()` could not draw it. sc-architect died on
+    THE DISTINCTION THIS DRAWS, and why `.strip()` could not draw it. architect died on
     2026-08-26 with `terminal_sessions.output` holding exactly `'[terminal exited]\n'` -- eighteen
     characters, non-empty, truthy. The console tail took its historical branch, rendered that marker,
     and the operator read "(nothing was recorded)" while 5,308 characters of the rendered screen sat
@@ -263,9 +263,9 @@ def richest_recording(streamed: str, replayed: str) -> tuple[str, str]:
 
         agent          terminal_sessions.output   terminal_events rebuilt
         sc-claude                        63,423                    10,913
-        sc-architect                         18                    14,773
+        architect                         18                    14,773
 
-    sc-architect's eighteen characters are its own exit marker. Non-empty, so a `.strip()` gate
+    architect's eighteen characters are its own exit marker. Non-empty, so a `.strip()` gate
     passed it and the console tail rendered a line that says only THAT it ended -- while 14,773
     characters describing what it was doing sat in the events of the same terminal. The operator
     asked why the agent died and was told nothing was recorded.

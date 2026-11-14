@@ -30,7 +30,7 @@
 - [x] A2 **Compaction auto-confirm** (setting-gated): claude-console-prompts.js currently
   DELIBERATELY skips the `/compact → "Resume from summary"` prompt (comment: would summarize
   away the session) → managed agents stall there while managers wait (operator screenshot,
-  lc-manager incident). Add setting `console_auto_confirm_claude_compaction` (default ON per
+  manager incident). Add setting `console_auto_confirm_claude_compaction` (default ON per
   operator pain; follow the existing `console_auto_confirm_claude_dev_channels` pattern:
   DEFAULT_SETTINGS + settings schema in new dashboard + bridge reads it) and auto-press Enter
   on that prompt when enabled. Keep the safety skip when the flag is off.

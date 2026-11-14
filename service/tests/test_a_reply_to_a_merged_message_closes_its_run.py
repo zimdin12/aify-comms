@@ -1,6 +1,6 @@
 """A reply threaded to a message that was merged into a queued run closes that run.
 
-THE DEFECT (live 2026-10-03, reported by sc-manager). A busy agent's queued run absorbs later messages
+THE DEFECT (live 2026-10-03, reported by sc-fixtureowner). A busy agent's queued run absorbs later messages
 into one "Pending updates" run, which keeps the FIRST item's message_id. Replies were linked to a run by
 `message_id = inReplyTo` only, so a reply to any later item matched no run: a review merged into a
 reminder's run was answered, and the run stayed open, overdue, and reminding.

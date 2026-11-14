@@ -211,7 +211,7 @@ The contract therefore requires:
 - `doctor` gains a wrapper-version check, or `bridge-installed` is extended to cover a wrapper that no
   longer ships with the bridge.
 
-**Deploy coupling is a release step, not a doctor line.** comms-senior-dev, 2026-08-18: "doctor red +
+**Deploy coupling is a release step, not a doctor line.** developer, 2026-08-18: "doctor red +
 relaunch instruction is not itself a deployment gate."
 
 ---

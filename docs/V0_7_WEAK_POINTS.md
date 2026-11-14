@@ -59,7 +59,7 @@ exactly as much as its last verification.
    measures how often a channel send fails.
 3. **CLOSED 2026-08-29 by verification, shipped 2026-08-28.** `GET /terminals` exists
    (`list_terminals`, filtered by status/agent/environment and capped at `MAX_TERMINAL_LIST`), and
-   its own docstring opens "THIS DID NOT EXIST" and cites the `ef-manager` orphan that motivated
+   its own docstring opens "THIS DID NOT EXIST" and cites the `manager` orphan that motivated
    it. `aify-comms doctor`'s `env-processes` check is built on it. The entry stood here for a day
    after the thing it asks for had shipped.
 
@@ -163,7 +163,7 @@ down; these are the one-line versions, because the front of the file is the only
    Every hop on the aify-comms side is correct and none of it helps. The fix is small on both sides but
    changes the exit frame's shape, which is a wire contract between two repos on a LIVE tier. Until it
    is made, the exit code this review added is trustworthy for a local pty and only for a
-   self-terminating delegated process -- and sc-architect, the death that prompted the feature, was
+   self-terminating delegated process -- and architect, the death that prompted the feature, was
    delegated.
 
 16. **The dashboard still cannot tell you why a console died, and it is where you looked first.** The
@@ -452,7 +452,7 @@ to make quietly.
 
 **Until then the limitation is disclosed rather than implied.** A LOCAL pty death records a true code
 and signal today -- that half works. A DELEGATED death records a code that is only trustworthy when
-the process exited of its own accord, and sc-architect, the death that prompted the whole feature, was
+the process exited of its own accord, and architect, the death that prompted the whole feature, was
 delegated.
 
 **A slack ceiling in my own test, and an audit whose instrument measured the wrong thing.** Continuing
@@ -785,7 +785,7 @@ an output marker and a status, and dropped both numbers. `TerminalOutputRequest`
 them anyway, and `terminal_sessions` had no column for them. Four components, and the data died at
 the third.
 
-The delegated path mattered here specifically: sc-architect was a delegated terminal, so a fix that
+The delegated path mattered here specifically: architect was a delegated terminal, so a fix that
 only covered the local PTY would have missed the case that prompted it.
 
 **NULL IS NOT ZERO, and that is the whole design of the two new columns.** Zero is a clean exit and
@@ -834,7 +834,7 @@ which reads as "nobody told me" rather than inventing a code. A death nobody wat
 explain itself; what changes is that a death the bridge watched now does.
 
 **Still not answered: WHY those two PTYs died.** This records the exit code from now on; it cannot
-retrofit one onto a death that already happened. sc-claude and sc-architect remain unexplained, and
+retrofit one onto a death that already happened. sc-claude and architect remain unexplained, and
 the next one of these will explain itself.
 
 **The console tail told the operator nothing was recorded, while 14,773 characters sat one store
@@ -849,9 +849,9 @@ agent next to it.
 | agent | `terminal_sessions.output` | `terminal_events` rebuilt |
 |---|---|---|
 | sc-claude | 63,423 | 10,913 |
-| sc-architect | **18** | **14,773** |
+| architect | **18** | **14,773** |
 
-sc-architect's eighteen characters are its own `[terminal exited]` marker. Non-empty, so the
+architect's eighteen characters are its own `[terminal exited]` marker. Non-empty, so the
 `.strip()` gate passed it, the tail rendered a line saying only THAT it ended, and the operator read
 "(nothing was recorded)" -- while the events held the screen it died on, ending on
 `Search Files("build_terrain_heat_source")` and a note about tuning a test timestep to recover green.
@@ -878,7 +878,7 @@ reads as the ordinary case rather than as a recovery; that skew is pinned by a t
 output column and the events on the SAME 24-hour schedule (`ended_output_ttl_hours` and
 `terminal_event_ttl_hours`, both 24), so the fallback does not extend how far back a death can be
 explained -- it fixes the case WITHIN that window, which is when anyone actually asks. The pruner did
-not cause sc-architect's near-empty column either: that terminal was 42 minutes old, so nothing had
+not cause architect's near-empty column either: that terminal was 42 minutes old, so nothing had
 expired. Its eighteen characters are all the column ever received.
 
 **The same handler also called a dead terminal idle.** With both stores silent it fell through to

@@ -1,7 +1,7 @@
 // In-flight turn_busy re-pulse for the HERMES bridge paths (#172).
 //
 // PROBLEM (operator-observed 2026-06-01): a MANAGED hermes agent (e.g.
-// sc-coder) shows status `online` while it is actually WORKING. The server
+// coder) shows status `online` while it is actually WORKING. The server
 // only reports `working` when agent_turn_state.turn_busy is FRESH (within
 // TURN_BUSY_STALE_SECONDS=120) or an active run is claimed/running. Neither
 // hermes delivery path keeps turn_busy fresh DURING a long in-flight turn:
