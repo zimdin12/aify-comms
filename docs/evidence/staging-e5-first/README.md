@@ -15,7 +15,9 @@ an agent session is out of scope and printed as NOT_RUN.
   (`server/src/main.ts`) on this run's host image, with its own volume (`<project>-dashboard-data`) and its own
   random key, distinct from the fixture key. It has no published port and is reached only on the internal network as
   `http://aify-dashboard:9700`. It does not use the dashboard's Dockerfile, because that image runs as `node` and
-  declares `VOLUME /data`, and the harness's isolation checks refuse both. NOT_RUN says so.
+  declares `VOLUME /data`, and the harness's isolation checks refuse both. NOT_RUN says so. That image is
+  exercised outside this harness instead: every deploy of the live dashboard on this host builds and runs it (last
+  at aify-dashboard `9e600de1`, 2026-11-14).
 - **The host:** the fresh host E4 starts from. `fixtures/bootstrap-host.sh` runs env's, comms' and the wrapper's own
   installers. The check reads that each of comms, env and wrapper was installed from its exact staged HEAD.
 
