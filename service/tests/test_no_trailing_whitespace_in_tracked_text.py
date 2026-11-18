@@ -78,18 +78,27 @@ def offences(text: str) -> list[str]:
     return found
 
 
-def test_the_binary_exemption_is_small_and_specific():
-    """A `.gitattributes` slip could exempt the whole tree from this gate and nothing would say so.
+def is_evidence_capture(name: str) -> bool:
+    return name.startswith("docs/evidence/") and name.endswith((".txt", ".json"))
 
-    The exemption exists for captured byte logs, so it must stay the size of that idea. Both bounds
-    matter: an EMPTY set means the declaration stopped being read and the captures will fail the gate
-    again, while a large one means a pattern went too wide and the whitespace rule quietly stopped
-    applying to source.
-    """
-    binary = binary_by_gitattributes()
-    assert binary, "no file is declared -text; the captured PTY fixtures will fail this gate"
-    assert len(binary) < 20, f"{len(binary)} files are exempt from the whitespace gate: {sorted(binary)}"
-    assert all(f.endswith(".txt") for f in binary), f"a non-capture is exempt: {sorted(binary)}"
+
+def test_the_binary_exemption_is_small_and_specific():
+    """Byte-exact evidence receipts are scoped by path and suffix; the PTY fixture cap still applies elsewhere."""
+    pty = {name for name in binary_by_gitattributes() if not is_evidence_capture(name)}
+    assert pty, "no PTY fixture is declared -text"
+    assert len(pty) < 20, f"too many files exempt outside evidence: {sorted(pty)}"
+    assert all(
+        name.endswith(".txt") and name.startswith(("service/tests/data/", "mcp/stdio/tests/fixtures/"))
+        for name in pty
+    ), f"a non-PTY file is exempt outside evidence: {sorted(pty)}"
+
+
+def test_evidence_capture_scope_excludes_source_and_other_docs():
+    assert is_evidence_capture("docs/evidence/replay/result.json")
+    assert is_evidence_capture("docs/evidence/replay/run.txt")
+    assert not is_evidence_capture("docs/evidence/replay/reproduce.py")
+    assert not is_evidence_capture("docs/evidence-old/result.json")
+    assert not is_evidence_capture("config/service.json")
 
 
 def test_the_scan_finds_the_files_it_claims_to():
