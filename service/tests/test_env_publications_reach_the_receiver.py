@@ -1,25 +1,56 @@
 """The env-owned sender examples reach actual comms admission, not a second fixture list."""
 import copy
 from contextlib import closing
+from hashlib import sha256
 import json
+from pathlib import Path
 import sqlite3
+from tempfile import TemporaryDirectory
 
 from service.tests._base import FastApiTestCase
-from service.tests.test_the_env_plugin_addresses_routes_this_service_serves import env_repo
+
+# Byte copies of aify-env c695b52a3f1a3601a7ac8b22641b9299cea126cc, docs/agent-state/.
+_FIXTURE_ROOT = Path(__file__).parent
+_SCHEMA = 'data/agent-state-env-c695b52a/schema.json'
+_PUBLICATIONS = 'data/agent-state-env-c695b52a/publications.json'
+_DIGESTS = {
+    _SCHEMA: 'aa086ed2ecbadea0cca6e5e55d15752a4654e389c19683513b399cdfd249f7b4',
+    _PUBLICATIONS: 'd6eadaa92c5b1d0e34c75e297af74e68cc69761b551c3f87907b912369eaac41',
+}
+
+
+def _checked_fixture(root, name, expected):
+    raw = (root / name).read_bytes()
+    if sha256(raw).hexdigest() != expected:
+        raise ValueError(f'{name}: SHA-256 mismatch')
+    return raw
 
 
 class EnvPublicationsReachTheReceiver(FastApiTestCase):
-    def publications(self):
-        repo, why = env_repo()
-        self.assertIsNotNone(repo, why)
-        source = repo / 'docs' / 'agent-state' / 'publications.json'
-        self.assertTrue(source.is_file(), f'{source}: select the published env contract with AIFY_ENV_REPO')
-        examples = json.loads(source.read_text(encoding='utf-8'))
+    def publications(self, root=_FIXTURE_ROOT):
+        fixtures = {name: _checked_fixture(root, name, digest) for name, digest in _DIGESTS.items()}
+        examples = json.loads(fixtures[_PUBLICATIONS])
         self.assertGreaterEqual(len(examples), 20, 'the producer population must not disappear')
         self.assertEqual(len({entry['name'] for entry in examples}), len(examples))
         self.assertEqual({entry['body']['kind'] for entry in examples},
                          {'snapshot', 'changes', 'unavailable', 'retired'})
         return examples
+
+    def test_mismatched_producer_artifacts_are_refused(self):
+        original = {name: (_FIXTURE_ROOT / name).read_bytes() for name in _DIGESTS}
+        for name, raw in original.items():
+            with self.subTest(artifact=name), TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / name).parent.mkdir(parents=True)
+                for file, content in original.items():
+                    (root / file).write_bytes(content)
+                self.assertEqual(self.publications(root), json.loads(original[_PUBLICATIONS]))
+                changed = json.loads(raw)
+                (changed[0] if isinstance(changed, list) else changed)['pinControl'] = True
+                (root / name).write_text(json.dumps(changed), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch') as refused:
+                    self.publications(root)
+                self.assertIn(name, str(refused.exception))
 
     def post(self, body):
         return self.client.post('/api/v1/agent-state', json=body)

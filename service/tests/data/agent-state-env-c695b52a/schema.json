@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.invalid/aify-env/agent-state/v1",
+  "title": "Agent-state publication",
+  "description": "Current serialized sender bodies. Ordering, duplicate JSON keys, byte/depth limits and cross-row identity rules remain receiver responsibilities.",
+  "type": "object",
+  "required": ["kind", "machineId", "instance", "generation", "incarnationId", "publication", "inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"type": "string"},
+    "machineId": {"$ref": "#/definitions/text"},
+    "instance": {"$ref": "#/definitions/text"},
+    "generation": {"$ref": "#/definitions/positiveInteger"},
+    "incarnationId": {"$ref": "#/definitions/text"},
+    "publication": {"$ref": "#/definitions/positiveInteger"},
+    "inputs": {"type": "object", "additionalProperties": {"type": "string"}},
+    "build": {"type": "string", "pattern": "^[!-~]{1,200}(?![\\s\\S])"},
+    "reportEveryMs": {"type": "integer", "minimum": 1000, "maximum": 3600000},
+    "complete": {"const": true},
+    "agents": {"type": "array", "items": {"$ref": "#/definitions/agent"}},
+    "removed": {"type": "array", "items": {"$ref": "#/definitions/removal"}},
+    "reason": {"$ref": "#/definitions/text"}
+  },
+  "oneOf": [
+    {
+      "properties": {"kind": {"const": "snapshot"}, "removed": {"maxItems": 0}},
+      "required": ["complete", "agents", "removed"],
+      "not": {"required": ["reason"]}
+    },
+    {
+      "properties": {"kind": {"const": "changes"}},
+      "required": ["agents", "removed"],
+      "not": {"anyOf": [{"required": ["complete"]}, {"required": ["reason"]}]}
+    },
+    {
+      "properties": {"kind": {"const": "unavailable"}},
+      "required": ["reason"],
+      "not": {"anyOf": [{"required": ["complete"]}, {"required": ["agents"]}, {"required": ["removed"]}]}
+    },
+    {
+      "properties": {"kind": {"const": "retired"}, "reason": {"const": "shutdown"}, "inputs": {"maxProperties": 0}},
+      "required": ["reason"],
+      "not": {"anyOf": [{"required": ["complete"]}, {"required": ["agents"]}, {"required": ["removed"]}, {"required": ["reportEveryMs"]}]}
+    }
+  ],
+  "definitions": {
+    "text": {"type": "string", "minLength": 1},
+    "integer": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "positiveInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "nullableText": {"type": ["string", "null"], "minLength": 1},
+    "state": {
+      "type": "string",
+      "enum": ["unknown", "stopped", "misconfigured", "working", "blocked", "shell", "idle", "starting", "available", "offline"]
+    },
+    "process": {
+      "type": "object",
+      "required": ["state", "verified", "pid"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"type": "string", "enum": ["running", "starting", "exited", "none", "unknown"]},
+        "verified": {"type": "string", "enum": ["yes", "no", "unknown"]},
+        "pid": {"type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991}
+      }
+    },
+    "definitionRef": {
+      "type": ["object", "null"],
+      "required": ["storeId", "incarnation", "revision"],
+      "additionalProperties": false,
+      "properties": {
+        "storeId": {"$ref": "#/definitions/text"},
+        "incarnation": {"$ref": "#/definitions/positiveInteger"},
+        "revision": {"$ref": "#/definitions/positiveInteger"}
+      }
+    },
+    "launch": {
+      "type": "object",
+      "required": ["cwd", "definition"],
+      "additionalProperties": false,
+      "properties": {
+        "cwd": {"$ref": "#/definitions/nullableText"},
+        "definition": {"$ref": "#/definitions/definitionRef"}
+      }
+    },
+    "turn": {
+      "type": ["object", "null"],
+      "required": ["open", "startedAtUs", "lastEventAtUs", "awaitingInput", "busyIf"],
+      "additionalProperties": false,
+      "properties": {
+        "open": {"type": "boolean"},
+        "startedAtUs": {"$ref": "#/definitions/integer"},
+        "lastEventAtUs": {"$ref": "#/definitions/integer"},
+        "awaitingInput": {"type": "boolean"},
+        "ageMs": {"$ref": "#/definitions/integer"},
+        "busyIf": {
+          "type": "object",
+          "required": ["strict", "verifiedRenewal"],
+          "additionalProperties": false,
+          "properties": {"strict": {"type": "boolean"}, "verifiedRenewal": {"type": "boolean"}}
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": ["agentId", "lifetime", "state", "stateCause", "busy", "process", "launch", "turn", "name", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "agentId": {"$ref": "#/definitions/text"},
+        "lifetime": {"$ref": "#/definitions/nullableText"},
+        "state": {"$ref": "#/definitions/state"},
+        "stateCause": {"$ref": "#/definitions/text"},
+        "definition": {"type": "string", "enum": ["valid", "invalid", "unavailable", "none"]},
+        "busy": {"type": "boolean"},
+        "process": {"$ref": "#/definitions/process"},
+        "launch": {"$ref": "#/definitions/launch"},
+        "turn": {"$ref": "#/definitions/turn"},
+        "name": {"$ref": "#/definitions/nullableText"},
+        "role": {"$ref": "#/definitions/nullableText"}
+      }
+    },
+    "removal": {
+      "type": "object",
+      "required": ["agentId", "lifetime"],
+      "additionalProperties": false,
+      "properties": {"agentId": {"$ref": "#/definitions/text"}, "lifetime": {"$ref": "#/definitions/text"}}
+    }
+  }
+}
