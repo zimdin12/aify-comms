@@ -199,7 +199,7 @@ export function renderRuntime() {
               : `A spawn here would be refused: ${claim.why}. Start a claimer on that host.`;
           return `<button class="ghost${claim.canSpawn ? '' : ' danger'}" data-env-spawn="${esc(env.id)}" title="${esc(title)}">Spawn here…${claim.canSpawn ? '' : ' (no claimer)'}</button>`;
         })()}
-        <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
+        <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit service workspace roots, not aify-env launch roots">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
           // No "Stop" for a live host: that control was drained by the aify-comms environment bridge
@@ -336,14 +336,14 @@ export function openEnvironmentRootsEditor(environmentId) {
       <label class="settings-label">Roots (one per line)
         <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="${esc(rootsPlaceholder(env))}">${esc(roots.join('\n'))}</textarea>
       </label>
-      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to host roots” to restore the advertised set.</p>
+      <p class="subtle">Saving here changes the service's workspace roots, not aify-env's launch roots. To add a launch root, run <code>aify-env roots add &lt;folder&gt;</code> on the host. Keep at least one workspace root, or reset to the advertised workspace list.</p>
       <label class="settings-label">Host check <span class="subtle">(run on the host: it says whether aify-env is running there and what it can see, and changes nothing)</span>
         <textarea id="env-check-cmd" rows="1" spellcheck="false" readonly>${esc(checkCmd)}</textarea>
       </label>
       <p class="subtle">Starting aify-env on that host is the operator's action: run <code>aify-env</code> there yourself if the check says none is running. One already running agents is shown rather than replaced.</p>
       <div class="agent-drawer-actions">
         <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
-        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to host roots</button>
+        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset workspace roots</button>
         <button class="ghost" data-copy-text="${esc(checkCmd)}">Copy host check</button>
       </div>
     </div>`;
@@ -387,7 +387,7 @@ export async function controlEnvironment(environmentId, action) {
 export async function submitEnvironmentRoots(environmentId) {
   const text = byId('env-edit-roots')?.value || '';
   const roots = text.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
-  if (!roots.length) { toast('At least one root is required. Use “Reset to host roots” to restore advertised roots.', 'warn'); return; }
+  if (!roots.length) { toast('At least one root is required. Use “Reset workspace roots” to restore the advertised workspace list.', 'warn'); return; }
   try {
     await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ roots, requestedBy: 'dashboard' }) });
     toast('Workspace roots updated', 'ok');

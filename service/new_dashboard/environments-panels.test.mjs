@@ -280,6 +280,9 @@ test("the roots editor flags a dashboard override, under either metadata spellin
     return els["inspector-content"].innerHTML;
   });
   assert.ok(plain.includes("using the roots the host advertises"));
+  assert.match(plain, /Saving here changes the service's workspace roots, not aify-env's launch roots/);
+  assert.match(plain, /<code>aify-env roots add &lt;folder&gt;<\/code> on the host/);
+  assert.match(plain, /data-env-roots-reset="e1">Reset workspace roots<\/button>/);
 });
 
 test("the roots editor opens for an environment that is not in state", async () => {
@@ -625,6 +628,7 @@ test("a service root aify-env will not launch in is marked on the card, with the
   assert.match(html, /<code>C:\/<\/code>/, "CONTROL: a root inside aify-env's launch roots stays plain");
   assert.match(stripTags(html), /aify-env starts work under C:\\ · 1 listed root outside them/,
     "the card does not say where aify-env actually starts work");
+  assert.match(html, /data-env-roots="w" title="[^"]*not aify-env launch roots"/);
 });
 
 test("CONTROL: with every root inside, nothing is marked; with no report, the card claims nothing", () => {
