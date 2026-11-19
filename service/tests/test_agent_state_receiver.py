@@ -307,8 +307,15 @@ class AgentStateReceiverTest(FastApiTestCase):
         node = shutil.which('node')
         self.assertIsNotNone(node, 'Node must be available for the real producer compatibility test')
         fixture = Path(__file__).with_name('data')/'g6_agent_state_wire.mjs'
-        result = subprocess.run([node, str(fixture), str(source), self._tmpdir.name],
-                                capture_output=True, check=True, timeout=20)
+        home = self._tmpdir.name
+        # The actual producer imports must see only the fixture's home, never a live wrapper or service.
+        env = {name: os.environ[name] for name in ('SYSTEMROOT', 'WINDIR') if name in os.environ}
+        env.update({name: home for name in ('HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR')})
+        with patch.dict(os.environ, {'AIFY_AGENT_ID': 'parent-fixture-agent', 'AIFY_API_KEY': 'fixture-only-key',
+                                     'AIFY_SERVER_URL': 'http://127.0.0.2:1'}):
+            result = subprocess.run([node, str(fixture), str(source.resolve()), home], cwd=home, env=env,
+                                    capture_output=True, encoding='utf-8', timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
         produced = json.loads(result.stdout)
         publications = produced['bodies']
         # Decision 2: an aify-env that exports a cadence announces it on every one of these bodies, and comms accepts it.

@@ -1,8 +1,13 @@
 // Offline fixture: synthetic managed child identity and harness/definition observations.
 // Real AgentStateHost, readAgentStates and AgentStatePublisher. No child or network.
+import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 const [source, home] = process.argv.slice(2);
+const leaked = Object.keys(process.env).filter(name => /^(AIFY_|CLAUDE_MCP_|HERDR_|NODE_OPTIONS$)/i.test(name));
+assert.deepEqual(leaked, [], 'offline publisher must not inherit live launch variables');
+assert.equal(path.resolve(homedir()), path.resolve(home), 'offline publisher must use the disposable home');
 const load = name => import(pathToFileURL(path.join(source, 'lib', name)).href);
 const { AgentStateHost } = await load('agent-state-host.mjs');
 const { AgentStatePublisher } = await load('agent-state-publisher.mjs');
