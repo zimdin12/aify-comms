@@ -120,10 +120,17 @@ test("an array entry with no msg falls back to its JSON rather than vanishing", 
   });
 });
 
-test("a non-array object detail is stringified rather than coerced", async () => {
-  respond(500, { detail: { code: "boom" } });
+test("an open lifecycle request displays the service's message and retains HTTP 409", async () => {
+  const message = "agent has an open lifecycle request req-open-1";
+  respond(409, { detail: { code: "OPEN_REQUEST", openRequestId: "req-open-1", message } });
+  await assert.rejects(() => api("/agents/test-agent/control"), { message, status: 409 });
+});
+
+test("an object detail without a usable message falls back to JSON", async () => {
+  const detail = { code: "boom", message: " " };
+  respond(500, { detail });
   await assert.rejects(() => api("/x"), (error) => {
-    assert.equal(error.message, JSON.stringify({ code: "boom" }));
+    assert.equal(error.message, JSON.stringify(detail));
     return true;
   });
 });
