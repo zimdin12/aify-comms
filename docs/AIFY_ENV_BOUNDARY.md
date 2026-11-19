@@ -2,7 +2,10 @@
 
 Design capture, 2026-08-19, since built: <https://github.com/zimdin12/aify-env>. Where this document
 and the code disagree, the code is the answer: this records the reasoning behind the boundary, so the
-decisions survive the conversation they were made in.
+decisions survive the conversation they were made in. For current ownership decisions, including the
+separate repos, service-owned plugins and host-owned screen evidence, see the
+[approved component roles](audit-2026-11/ROLES.md). The design history below does not establish that a
+migration is complete.
 
 Companion to [MULTI_SERVICE_STACK_TRACE.md](MULTI_SERVICE_STACK_TRACE.md), which established that
 per-service endpoints already work and that the real blocker is spawning living inside aify-comms.
@@ -54,15 +57,13 @@ present. A panel that merely *shows* somebody else's domain data is still the wr
 
 ### Screen knowledge — amended 2026-09-14
 
-**THE RULE, as the operator amended it:** aify-env's host core stays PTY-only. It exposes screen
-text and PTY activity, never what a runtime's screen means. A service's screen knowledge may live in
-that service's own plugin directory, `lib/plugins/<service>/`, because the plugin runs next to the
-authoritative screen. The 2026-09-03 ruling is amended, not overturned: it had moved a claude screen
-model out of aify-env's core after it was added there to unblock a fleet, and the core still may not
-carry one.
+**Historical rule, superseded by D2 on 2026-11-04:** aify-env's host core was to stay PTY-only. It
+exposed screen text and PTY activity, and left runtime screen interpretation in the service plugin.
+That amended the 2026-09-03 ruling that moved the Claude screen model out of core. D2 assigns screen
+evidence to aify-env's core as part of owning agent status; it does not say the migration is complete.
 
-What follows from it today: aify-comms' plugin vendors Herdr's per-runtime screen rules and reports
-working / idle / blocked for the managed terminals it runs. Since the 0.9.8 switch the status word is
+Under the earlier arrangement, aify-comms' plugin used Herdr's per-runtime screen rules to report
+working / idle / blocked for managed terminals. Since the 0.9.8 switch the status word is
 aify-env's own, and this service ignores the report a liveness frame carries (its store went in 0.9.9
 S3c). Of the service's own screen code, `console_prompts.py` still
 answers dialogs; the `console_working.py` footer lease, the fallback for an aify-env that sent no
