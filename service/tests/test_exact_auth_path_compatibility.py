@@ -3,19 +3,30 @@
 Real apps and the real MCP mount, but never the main service lifespan or a listening server.
 """
 import asyncio
+from hashlib import sha256
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import httpx
 from fastapi.testclient import TestClient
+from mcp.server.fastmcp import Context
 from starlette.websockets import WebSocketDisconnect
 
 from service import main, new_dashboard_app as dashboard
 from service.config import ServiceConfig
 from service.dashboard_access import COOKIE as DASHBOARD_COOKIE
+from service.sse.caller import caller_id
+from service.tests.test_mcp_http_names_its_caller_by_header import _text, _tool_call
 from service.ws import ConnectionManager
+
+# aify-wrapper a606355d87212dd542009d41cdcfa570bbbf05d1:docs/contracts/http-mcp.json
+_HTTP_BYTES = (Path(__file__).parent / 'data/http-mcp-wrapper-a606355d.json').read_bytes()
+if sha256(_HTTP_BYTES).hexdigest() != '9cf731c5e89061862459824cb1ec97cfb4a8bf3a015f20a1eb2b0b6f4a7b6594':
+    raise ValueError('wrapper HTTP fixture digest mismatch')
+_HTTP = json.loads(_HTTP_BYTES)
 
 KEY = 'issue43-fixture-key'
 LOOPBACK = 'http://127.0.0.1:8800'
@@ -85,19 +96,31 @@ class ExactAuthCompatibility(unittest.TestCase):
             spec = importlib.util.spec_from_file_location('issue43_mcp_fixture', path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
+            @module.mcp_server.tool()
+            def whoami(ctx: Context) -> str:
+                return caller_id(ctx)
+
             # Only the transport's lifetime; main.lifespan would start unrelated workers.
             async with module.setup_mcp_server(app):
                 async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=LOOPBACK) as client:
                     payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}
                     accept = {'accept': 'application/json, text/event-stream'}
-                    unauthenticated = await client.post('/mcp/http', json=payload, headers=accept)
+                    endpoint, headers = _HTTP['path'], _HTTP['headers']
+                    unauthenticated = await client.post(endpoint, json=payload, headers=accept)
                     self.assertEqual(unauthenticated.status_code, 401 if key else 200)
-                    wrong = await client.post('/mcp/http', json=payload, headers={**accept, 'X-API-Key': 'wrong'})
+                    wrong = await client.post(endpoint, json=payload, headers={**accept, headers['apiKey']: 'wrong'})
                     self.assertEqual(wrong.status_code, 401 if key else 200)
-                    authorized = await client.post('/mcp/http', json=payload, headers={**accept, 'X-API-Key': KEY})
+                    authorized = await client.post(endpoint, json=payload, headers={**accept, headers['apiKey']: KEY})
                     self.assertEqual(authorized.status_code, 200, authorized.text)
                     tools = {tool['name'] for tool in authorized.json()['result']['tools']}
                     self.assertIn('comms_send', tools, 'control: the actual tool transport was not reached')
+                    admitted = {**accept, headers['apiKey']: KEY} if key else accept
+                    async def call_with(name):
+                        return _text(await client.post(endpoint, json=_tool_call('whoami'),
+                                                       headers={**admitted, name: 'fixture-caller'}))
+                    self.assertEqual(await call_with(headers['agentId']), (False, 'fixture-caller'))
+                    refused, text = await call_with('X-Fixture-Renamed-Caller')
+                    self.assertTrue(refused and 'connection names no agent' in text, text)
 
         for key in (KEY, ''):
             with self.subTest(keyed=bool(key)):

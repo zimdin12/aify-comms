@@ -1,0 +1,6 @@
+{ "path": "/mcp/http", "headers": {
+  "agentId": "X-Aify-Agent-Id",
+  "machineId": "X-Aify-Machine-Id",
+  "launchFolder": "X-Aify-Launch-Folder",
+  "apiKey": "X-API-Key"
+} }
