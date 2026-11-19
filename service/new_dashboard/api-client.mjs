@@ -109,7 +109,10 @@ export async function api(path, options = {}) {
     }
     // The status travels with the error: a 4xx is a definite refusal, anything else may have been
     // stored before the answer was lost (sendOutcomeIsUnknown).
-    throw Object.assign(new Error(detail), { status: response.status });
+    const error = Object.assign(new Error(detail), { status: response.status });
+    const structured = data.detail;
+    if (structured && typeof structured === 'object' && !Array.isArray(structured)) error.detail = structured;
+    throw error;
   }
   return data;
 }

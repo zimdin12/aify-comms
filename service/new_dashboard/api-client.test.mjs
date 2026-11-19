@@ -120,10 +120,21 @@ test("an array entry with no msg falls back to its JSON rather than vanishing", 
   });
 });
 
-test("an open lifecycle request displays the service's message and retains HTTP 409", async () => {
+test("an open lifecycle request retains its message, HTTP status, code and request ID", async () => {
   const message = "agent has an open lifecycle request req-open-1";
-  respond(409, { detail: { code: "OPEN_REQUEST", openRequestId: "req-open-1", message } });
-  await assert.rejects(() => api("/agents/test-agent/control"), { message, status: 409 });
+  const detail = { code: "OPEN_REQUEST", openRequestId: "req-open-1", message };
+  respond(409, { detail });
+  await assert.rejects(() => api("/agents/test-agent/control"), { message, status: 409, detail });
+});
+
+test("a legacy string detail remains the message without structured metadata", async () => {
+  respond(409, { detail: "agent has an open lifecycle request req-open-1" });
+  await assert.rejects(() => api("/agents/test-agent/control"), (error) => {
+    assert.equal(error.message, "agent has an open lifecycle request req-open-1");
+    assert.equal(error.status, 409);
+    assert.equal(Object.hasOwn(error, "detail"), false);
+    return true;
+  });
 });
 
 test("an object detail without a usable message falls back to JSON", async () => {
@@ -131,6 +142,7 @@ test("an object detail without a usable message falls back to JSON", async () =>
   respond(500, { detail });
   await assert.rejects(() => api("/x"), (error) => {
     assert.equal(error.message, JSON.stringify(detail));
+    assert.deepEqual(error.detail, detail);
     return true;
   });
 });
