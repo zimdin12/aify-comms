@@ -23,6 +23,7 @@ artifacts and never answer for each other.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -54,6 +55,39 @@ def bash() -> str:
     return found
 
 
+#: Written by the stand-in `hermes` whenever the installer runs it. A render must leave it absent.
+HERMES_RAN = "hermes-ran.log"
+
+
+def _render_env(home: Path) -> dict[str, str]:
+    """Keep tool discovery, but never read registry, credentials, startup hooks or Hermes from the host.
+
+    Hermes is the one client the renderer would otherwise RUN: install.sh asks `hermes config path`
+    for its install root and its config root, and a real Hermes given a fresh home bootstraps that home
+    and fetches its plugin catalog. Both roots are given here as fixture folders, which install.sh reads
+    first, and the only `hermes` it can find is a stand-in that records being run and fails.
+    """
+    system = {"PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT"}
+    env = {key: value for key, value in os.environ.items() if key.upper() in system}
+    sentinel_bin = home / "sentinel-bin"
+    for folder in (home / "hermes-home", home / "hermes-install", sentinel_bin):
+        folder.mkdir(parents=True, exist_ok=True)
+    stand_in = sentinel_bin / "hermes"
+    stand_in.write_text(f'#!/bin/sh\necho "$*" >> "{(home / HERMES_RAN).as_posix()}"\nexit 97\n',
+                        encoding="utf-8", newline="\n")
+    stand_in.chmod(0o755)
+    env.update(
+        HOME=home.as_posix(), USERPROFILE=str(home), APPDATA=str(home), LOCALAPPDATA=str(home),
+        TMPDIR=home.as_posix(), TMP=str(home), TEMP=str(home),
+        AIFY_SERVICE_REGISTRY=(home / "services.json").as_posix(),
+        HERMES_HOME=(home / "hermes-home").as_posix(),
+        AIFY_HERMES_INSTALL_ROOT=(home / "hermes-install").as_posix(),
+        AIFY_HERMES_COMMAND=stand_in.as_posix(),
+        PATH=os.pathsep.join([str(sentinel_bin), env.get("PATH", "")]),
+    )
+    return env
+
+
 def render(client: str, *extra: str, url: str = NOWHERE_URL) -> Mapping[str, str]:
     """Every file this client renders, by name, as immutable text.
 
@@ -65,16 +99,22 @@ def render(client: str, *extra: str, url: str = NOWHERE_URL) -> Mapping[str, str
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    with tempfile.TemporaryDirectory(prefix="aify-render-") as out:
+    with tempfile.TemporaryDirectory(prefix="aify-render-") as scratch:
+        root = Path(scratch)
+        home, out = root / "home", root / "out"
+        home.mkdir()
+        out.mkdir()
         result = subprocess.run(
             [bash(), INSTALL_SH.as_posix(), "--client", client, url, *extra,
-             "--emit-wrappers", Path(out).as_posix()],
-            capture_output=True, text=True, cwd=REPO, timeout=600,
+             "--emit-wrappers", out.as_posix()],
+            capture_output=True, text=True, cwd=REPO, env=_render_env(home), timeout=600,
         )
         files = {
             path.name: path.read_text(encoding="utf-8")
-            for path in sorted(Path(out).iterdir()) if path.is_file()
+            for path in sorted(out.iterdir()) if path.is_file()
         }
+        ran = home / HERMES_RAN
+        assert not ran.exists(), f"{client}: the render ran hermes: {ran.read_text(encoding='utf-8')}"
     assert result.returncode == 0 and f"{client}-aify" in files, (
         f"{client}: nothing rendered (exit {result.returncode})\n{result.stdout}{result.stderr}"
     )
