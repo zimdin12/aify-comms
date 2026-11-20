@@ -44,7 +44,7 @@ const __isEntrypoint = (() => {
 })();
 
 import { loadSettingsEnv } from "./load-env.js";
-import { removeAgentBindingFile } from "./binding-file.js";
+import { removeBindingsWrittenHere } from "./binding-file.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   detectRuntime,
@@ -273,8 +273,9 @@ function cleanupOnExit() {
   if (hermesMarkerCwd) {
     try { removeRuntimeMarker("hermes", hermesMarkerCwd); } catch { /* best effort */ }
   }
-  // Remove agent binding temp file
-  removeAgentBindingFile({ pid: process.ppid || process.pid, bridgeId: BRIDGE_INSTANCE_ID });
+  // Remove the agent binding files this bridge wrote, under whichever parent each write named: after Linux
+  // reparents an orphaned bridge, process.ppid no longer names the harness an earlier write used.
+  removeBindingsWrittenHere();
 }
 async function shutdownWithStatus(code) {
   if (shutdownStarted) process.exit(code);

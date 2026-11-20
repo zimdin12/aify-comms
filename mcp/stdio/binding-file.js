@@ -56,7 +56,28 @@ export function writeAgentBindingFile({ pid, agentId, bridgeId = "", startedAt =
     if (held && Date.parse(held) > Date.parse(startedAt)) return false;
   }
   fs.writeFileSync(file, JSON.stringify(payload));
+  if (payload.bridgeId) WRITTEN_HERE.set(file, { pid: payload.pid, bridgeId: payload.bridgeId, dir });
   return true;
+}
+
+// Every binding this process wrote, keyed by file. The parent a writer keyed on can change between bridge start
+// and a late registration answer (Linux reparents an orphaned bridge), so an exit that recomputes one key misses
+// the other. Only writes that carry a bridge id are kept: removal checks that id, so it never takes a successor's.
+const WRITTEN_HERE = new Map();
+
+/**
+ * Remove each binding this process wrote that still names, exactly, the bridge that wrote it. Returns how many went.
+ * A positive match only: a file now holding another id, no id (a legacy writer) or unreadable data is someone else's
+ * and stays, unlike `removeAgentBindingFile`, which also removes a file whose owner it cannot read.
+ */
+export function removeBindingsWrittenHere() {
+  let removed = 0;
+  for (const [file, written] of WRITTEN_HERE) {
+    WRITTEN_HERE.delete(file);
+    if (readAgentBindingFile(written).bridgeId !== written.bridgeId) continue;
+    try { fs.unlinkSync(file); removed += 1; } catch { /* already gone */ }
+  }
+  return removed;
 }
 
 export function removeAgentBindingFile({ pid, bridgeId = "", dir = "" } = {}) {
