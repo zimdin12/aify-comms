@@ -136,7 +136,7 @@ test("leaving while the registration is still in flight reports the loss after i
     agentId: AGENT, ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident" }, boundMs: 2000,
     call: async (method, url) => { order.push(url.endsWith("/resident-lost") ? "loss" : url); return {}; },
     register: () => new Promise((resolve) => { land = () => { order.push("registered"); resolve(); }; }),
-    removeBinding: () => {},
+    removeBindings: () => {},
   });
   duties.startBeats = () => [];  // the real beats would reach whatever service this process's environment names
   duties.start();
@@ -153,7 +153,7 @@ test("leaving reports resident-lost only when this process owns the lifecycle; h
     const calls = [];
     const duties = new ResidentDuties({
       agentId: AGENT, ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident", ...env },
-      call: async (method, url) => { calls.push(url); return {}; }, register: async () => {}, removeBinding: () => {},
+      call: async (method, url) => { calls.push(url); return {}; }, register: async () => {}, removeBindings: () => {},
     });
     await duties.end();
     return calls.filter((url) => url.endsWith("/resident-lost")).length;
@@ -166,12 +166,12 @@ test("leaving is bounded: a service that never answers holds the exit for the bo
   const removed = [];
   const residency = new ResidentDuties({
     agentId: AGENT, ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident" },
-    call: () => new Promise(() => {}), register: async () => {}, removeBinding: (args) => removed.push(args), boundMs: 50,
+    call: () => new Promise(() => {}), register: async () => {}, removeBindings: () => removed.push("dropped"), boundMs: 50,
   });
   const started = Date.now();
   const hold = setTimeout(() => {}, 5000);  // the bound's own timer is unref'd, as the channel's exit should not wait on it
   await Promise.all([residency.end(), residency.end()]);
   clearTimeout(hold);
   assert.ok(Date.now() - started < 2000, "end() waited past its bound");
-  assert.deepEqual(removed.map((r) => r.bridgeId), ["owner-1"], "the binding must be removed once, by its owner id");
+  assert.deepEqual(removed, ["dropped"], "the bindings must be removed once");
 });

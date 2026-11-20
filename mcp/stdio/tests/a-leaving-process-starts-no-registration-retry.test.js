@@ -76,7 +76,7 @@ test("a retry already in flight when the process leaves is answered before resid
   const duties = new ResidentDuties({
     agentId: "retry-witness", ownerId: "owner-1", env: { AIFY_SESSION_MODE: "resident" }, boundMs: 5000,
     call: async (method, url) => { if (url.endsWith("/resident-lost")) order.push("loss"); return {}; },
-    removeBinding: () => {},
+    removeBindings: () => {},
   });
   duties.startBeats = () => [];  // the real beats would reach the stand-in's other routes; they are not under test
   mock.timers.enable({ apis: ["setTimeout"] });

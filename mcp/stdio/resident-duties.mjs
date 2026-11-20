@@ -5,12 +5,12 @@
 // from the service, the channel or the loop is the agent's only local comms process, so it takes them:
 // start-up registration (`auto-registration.mjs`, reused with its retry and its same-session, tombstone and
 // managed guards), the owner's liveness beat, the session-handle beat, and on the way out resident-lost and the
-// binding file's removal. Resident-lost follows `AIFY_RESIDENT_LIFECYCLE_OWNER` as the bridge's did: hermes-aify
+// binding files' removal. Resident-lost follows `AIFY_RESIDENT_LIFECYCLE_OWNER` as the bridge's did: hermes-aify
 // names its managed host, whose own report is the one that counts, so the hermes loop sends none from here.
 //
 // TWO IDS, ONE PER ROLE, as the bridge and the channel had them. The OWNER id is this process's
 // `BRIDGE_INSTANCE_ID`: registration, the binding file, the handle beat and resident-lost all carry it, and the
-// service and `removeAgentBindingFile` act on a leaving process only when its owner id still matches. So a
+// service and `removeBindingsWrittenHere` act on a leaving process only when its owner id still matches. So a
 // process that exits after its successor registered changes nothing. Claims and the sidecar beat keep
 // `channelBridgeId(agentId)`, the row the service's sidecar rules are written for.
 //
@@ -19,7 +19,7 @@
 
 import { API_KEY, IS_REMOTE, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
-import { removeAgentBindingFile } from "./binding-file.js";
+import { removeBindingsWrittenHere } from "./binding-file.js";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
@@ -49,10 +49,10 @@ export class ResidentDuties {
     register = makeAutoRegister({
       ensureDispatchLoop: () => {}, active: () => this.ended === null, onAttempt: (attempt) => this.track(attempt),
     }),
-    removeBinding = removeAgentBindingFile,
+    removeBindings = removeBindingsWrittenHere,
     boundMs = RESIDENT_LOST_BOUND_MS,
   } = {}) {
-    Object.assign(this, { agentId, ownerId, env, call, register, removeBinding, boundMs });
+    Object.assign(this, { agentId, ownerId, env, call, register, removeBindings, boundMs });
     this.stops = [];
     this.ended = null;
     this.registering = Promise.resolve();
@@ -119,8 +119,12 @@ export class ResidentDuties {
     return this.ended;
   }
 
-  /** Synchronous, for `process.on("exit")`: only the binding this process wrote. */
+  /**
+   * Synchronous, for `process.on("exit")`: the bindings this process wrote and still owns, under whichever parent
+   * each write named. Linux reparents an orphaned process, so a key recomputed from process.ppid here can miss
+   * the binding a registration wrote earlier (stdio's exit has the same rule, 51c140d8).
+   */
   dropBinding() {
-    try { this.removeBinding({ pid: process.ppid || process.pid, bridgeId: this.ownerId }); } catch { /* best effort */ }
+    try { this.removeBindings(); } catch { /* best effort */ }
   }
 }
