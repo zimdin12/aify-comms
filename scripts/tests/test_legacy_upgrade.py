@@ -1,9 +1,10 @@
-"""Full installer phases against v0.5.6-produced state, never the host home.
+"""Standalone installer phases against v0.5.6-produced state, never the host home.
 
 Run with AIFY_UPGRADE_DEPS pointing at an existing node_modules directory.
 AIFY_UPGRADE_EVIDENCE retains disposable homes and complete transcripts.
 Network/npm, PowerShell PATH writes and runtime launches are stubbed. Native Node,
 Git, filesystem copies, old/current config/hook/plugin/registry producers are real.
+The guided install chain and its aify-env handoff are outside this fixture.
 Claude/Codex MCP CLI persistence is outside this test; Hermes YAML is produced by
 both actual installers. No service or environment daemon is launched.
 """
@@ -52,7 +53,13 @@ class LegacyUpgradeTests(unittest.TestCase):
         archive = subprocess.check_output(["git", "-C", str(REPO), "archive", "v0.5.6"])
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             tar.extractall(old, filter="data")
-        for name in ("install.sh", "VERSION", ".git"):
+        # Give the installer its own Git metadata for the build stamp, regardless of checkout layout.
+        source_head = subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip()
+        subprocess.run(["git", "clone", "--quiet", "--local", "--shared", "--no-checkout", "--template=",
+                        "--", str(REPO), str(current)], check=True, timeout=30)
+        subprocess.run(["git", "-C", str(current), "update-ref", "--no-deref", "HEAD", source_head],
+                       check=True, timeout=30)
+        for name in ("install.sh", "VERSION"):
             shutil.copy2(REPO / name, current / name)
         for name in ("scripts", "mcp", "integrations", ".agents", ".claude", ".claude-plugin"):
             shutil.copytree(REPO / name, current / name, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
@@ -87,7 +94,16 @@ class LegacyUpgradeTests(unittest.TestCase):
         for name, body in {
             "npm": 'exit 0', "curl": 'exit 7', "powershell.exe": 'exit 0',
             "docker": 'exit 1',
-            "hermes": 'test "$*" = "config path" || exit 90; printf "%s/config.yaml\\n" "$HERMES_HOME"',
+            # Expose the fixture file's plain block mapping, as `config get` would. No services opt
+            # into the generic session writer here: an unexpected config write must still fail.
+            "hermes": r'''case "$*" in
+  "config path") printf "%s/config.yaml\n" "$HERMES_HOME" ;;
+  "config get mcp_servers") awk '/^mcp_servers:[[:space:]]*$/ {found=1; next}
+    found && /^[^[:space:]]/ {exit}
+    found {print substr($0, 3)}
+    END {if (!found) exit 91}' "$HERMES_HOME/config.yaml" ;;
+  *) exit 90 ;;
+esac''',
             "claude": 'test "$1" = mcp || exit 90; exit 0',
             "codex": 'test "$1" = mcp || exit 90; exit 0',
             "node": 'exec "' + Path(node).as_posix() + '" "$@"',
@@ -96,6 +112,16 @@ class LegacyUpgradeTests(unittest.TestCase):
             p = bins / name
             p.write_text('#!/bin/bash\n' + body + '\n', newline="\n")
             p.chmod(0o755)
+        # The pinned config writer launches the command through native Node, which cannot execute
+        # a shell script by its shebang on Windows. Both installers still observe the same fake.
+        entry = bins / "hermes-config-fixture.mjs"
+        entry.write_text('import {spawnSync} from "node:child_process";\n'
+                         f'const result = spawnSync({json.dumps(Path(BASH).as_posix())}, '
+                         f'[{json.dumps((bins / "hermes").as_posix())}, ...process.argv.slice(2)], '
+                         '{stdio: "inherit"});\n'
+                         'if (result.error) console.error(result.error.message);\n'
+                         'process.exitCode = result.status ?? 90;\n', encoding="utf-8", newline="\n")
+        env["HERMES_RUNTIME_COMMAND"] = entry.as_posix()
         def run(label, repo, *args, disabled=False):
             child = env.copy()
             child.pop("MSYS_NO_PATHCONV", None); child.pop("MSYS2_ARG_CONV_EXCL", None)
@@ -122,7 +148,8 @@ class LegacyUpgradeTests(unittest.TestCase):
         before_env = envfile.read_bytes()
         for disabled in (False, True):
             for client in ("claude", "codex", "hermes"):
-                out = run(f"current-{disabled}-{client}", current, "--client", client, endpoint, disabled=disabled)
+                out = run(f"current-{disabled}-{client}", current, "--standalone", "--client", client, endpoint,
+                          disabled=disabled)
                 self.assertNotIn("failed node --check", out)
                 self.assertIn("aify-env", out)
             updated = config.read_text()
@@ -135,7 +162,7 @@ class LegacyUpgradeTests(unittest.TestCase):
             self.assertEqual(services["aify-comms"]["endpoint"], endpoint)
             self.assertTrue(Path(services["aify-comms"]["mcp"][0]["args"][0]).is_file())
             stamp = (home / "bridge/.aify-version").read_text()
-            self.assertIn(subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip(), stamp)
+            self.assertIn(source_head, stamp)
             check = subprocess.run([BASH, str(home / ".local/bin/aify-comms"), "--check"], env={**env, "MSYS_NO_PATHCONV": "1", "MSYS2_ARG_CONV_EXCL": "*"}, capture_output=True, text=True)
             (root / f"check-{disabled}.log").write_text(check.stdout + check.stderr)
             self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
