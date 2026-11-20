@@ -17,10 +17,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user
-ARG DOCKER_GID=999
-RUN groupadd -g ${DOCKER_GID} docker 2>/dev/null || true && \
-    useradd -m -s /bin/bash service && \
-    usermod -aG docker service && \
+RUN useradd -m -s /bin/bash service && \
     mkdir -p /app /data /keys /home/service/.claude && \
     chown -R service:service /app /data /keys /home/service/.claude && \
     chmod 700 /keys

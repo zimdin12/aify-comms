@@ -34,9 +34,8 @@ where they are. They are runtime mechanics and they belong next to the process.
 
 **The host dials the service. The service never dials the host.**
 
-Measured rather than assumed: the service makes no outbound HTTP to a host at all. Its only `httpx`
-is `service/containers/manager.py`, against the local Docker socket. Every host-to-service call —
-registration, heartbeat, claim, turn boundaries — is outbound from the host.
+The service never initiates an HTTP connection to an agent host. Registration, heartbeat, claims and
+turn reports all originate on the host.
 
 That is not an accident to be cleaned up. `TARGET_ARCHITECTURE.md` says a machine that runs agents
 installs aify-env and the launchers and **carries no copy of the service**, and the `api-exposure`

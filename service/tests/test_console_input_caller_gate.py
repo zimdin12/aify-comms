@@ -1,10 +1,7 @@
 """Who may type into another agent's terminal — the gate on console keystroke injection.
 
-`POST /agents/{agent_id}/console/input` writes bytes into a live PTY. Its own docstring calls the
-caller check SAFETY, and `containers/proxy.py` names this capability when explaining why the hub's
-API key must never reach a sub-container: "a logging/compromised image -> full API incl. console
-keystroke injection". Both of its refusals were among the operator-facing 4xx messages in this
-service that no test had ever exercised.
+`POST /agents/{agent_id}/console/input` writes bytes into a live PTY. The caller must be
+identified and registered before the service queues input.
 
 WHAT THE GATE IS FOR. The endpoint records the caller in two places — the terminal control's
 `requested_by` and an `agent_console_input` audit event carrying `{from, controlId, bytes}`. That

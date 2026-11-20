@@ -5,7 +5,7 @@ Loads from: defaults -> config/service.json -> environment variables.
 Environment variables always win.
 
 Use .env for deployment/infrastructure settings (ports, resources, credentials).
-Use config/service.json for service definition (containers, custom config).
+Use config/service.json for service definition and custom config.
 """
 
 import json
@@ -100,7 +100,7 @@ class ServiceConfig:
     log_level: str = "info"
     log_format: str = "json"
 
-    # Custom config from service.json (containers config, etc.)
+    # Custom config from service.json.
     custom: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -165,7 +165,7 @@ class ServiceConfig:
                         # These five fields are OBSERVATIONS of the build, not configuration. There is
                         # no operator intent a hand-edit could express here that would be true.
                         continue
-                    if key not in ("custom", "containers") and hasattr(config, key):
+                    if key != "custom" and hasattr(config, key):
                         setattr(config, key, value)
             except (json.JSONDecodeError, ValueError, AttributeError) as e:
                 import logging

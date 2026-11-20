@@ -226,14 +226,9 @@ async def version():
 
 
 @router.get("/ready")
-async def ready(request: Request):
-    """Readiness check. Verifies all components are initialized."""
-    checks = {}
-    manager = getattr(request.app.state, "container_manager", None)
-    if manager is not None:
-        checks["container_manager"] = "initialized"
-        checks["docker"] = "connected" if manager.docker else "unavailable"
-    return {"status": "ready", "checks": checks}
+async def ready():
+    """Report that the service is serving requests."""
+    return {"status": "ready", "checks": {}}
 
 
 @router.get("/info")
@@ -267,13 +262,5 @@ async def info(request: Request):
             "environment_bridge": "Run the installed aify-comms launcher on each host/WSL environment",
         },
     }
-
-    manager = getattr(request.app.state, "container_manager", None)
-    if manager is not None:
-        response["endpoints"]["containers"] = f"{base}/api/v1/containers"
-        response["endpoints"]["gpu"] = f"{base}/api/v1/gpu"
-        response["endpoints"]["route"] = f"{base}/route/{{container_name}}/{{path}}"
-        response["containers"] = manager.list_containers()
-        response["groups"] = manager.get_groups()
 
     return response

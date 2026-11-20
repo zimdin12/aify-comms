@@ -10,17 +10,11 @@ addresses that only work on the box the service runs on. It is pinned here as OB
 with its reason, because it looks like an oversight and is not — and because a future change to
 "safer" absolute URLs would break exactly the callers it exists for.
 
-THE CONTAINER BLOCK IS CONDITIONAL and that is the interesting part of `/ready`: with no container
-manager the checks are EMPTY rather than reporting a failure, because container support is optional
-and a service without it is not unready. With one, `docker` must report `connected` or `unavailable`
-truthfully — a readiness probe that says "ready" while its docker socket is gone is the false green
-this repo keeps finding.
 """
 
 from __future__ import annotations
 
 import unittest
-from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -28,28 +22,12 @@ from fastapi.testclient import TestClient
 from service.routers.health import router as health_router
 
 
-class _FakeContainerManager:
-    """Only what these two endpoints touch: `.docker`, `list_containers()`, `get_groups()`."""
-
-    def __init__(self, *, docker=None, containers=None, groups=None):
-        self.docker = docker
-        self._containers = containers if containers is not None else [{"name": "c-1"}]
-        self._groups = groups if groups is not None else {"g-1": ["c-1"]}
-
-    def list_containers(self):
-        return self._containers
-
-    def get_groups(self):
-        return self._groups
-
-
 class ServiceDiscoveryEndpointTests(unittest.TestCase):
     """A plain app carrying ONLY the health router.
 
     `FastApiTestCase` mounts `api_v2` under /api/v1 and nothing else, so `/ready` and `/info` — which
     the health router serves at the ROOT — 404 there. Building the app here keeps the test about the
-    two handlers rather than about how the production app happens to be assembled, and it means the
-    container-fixtureowner state cannot leak into any other suite.
+    two handlers rather than about how the production app is assembled, without starting its lifespan.
     """
 
     def setUp(self):
@@ -60,38 +38,10 @@ class ServiceDiscoveryEndpointTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
 
-    @property
-    def _app(self):
-        return self.app
-
-    # ── /ready ───────────────────────────────────────────────────────────────────────────────
-
-    def test_ready_with_no_container_manager_reports_ready_with_no_checks(self):
-        """Container support is optional. Reporting a missing manager as a failed check would make
-        every plain deployment permanently 'not ready'."""
+    def test_ready_reports_ready_without_an_external_dependency(self):
         response = self.client.get("/ready")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), {"status": "ready", "checks": {}})
-
-    def test_ready_reports_docker_as_CONNECTED_only_when_it_is(self):
-        """The truthful half. A readiness probe that says connected with no docker client is the
-        false green — an operator would look anywhere but the socket."""
-        self._app.state.container_manager = _FakeContainerManager(docker=object())
-        connected = self.client.get("/ready").json()["checks"]
-        self.assertEqual(connected["container_manager"], "initialized")
-        self.assertEqual(connected["docker"], "connected")
-
-        self._app.state.container_manager = _FakeContainerManager(docker=None)
-        unavailable = self.client.get("/ready").json()["checks"]
-        self.assertEqual(unavailable["container_manager"], "initialized",
-                         "the manager is still initialized — only DOCKER is gone")
-        self.assertEqual(unavailable["docker"], "unavailable")
-
-    def test_ready_stays_200_either_way(self):
-        """It answers a question; it does not fail. A 503 here would restart a container that is
-        serving the fleet perfectly well, the same reasoning `/health` records for its ntfy block."""
-        self._app.state.container_manager = _FakeContainerManager(docker=None)
-        self.assertEqual(self.client.get("/ready").status_code, 200)
 
     # ── /info ────────────────────────────────────────────────────────────────────────────────
 
@@ -133,21 +83,6 @@ class ServiceDiscoveryEndpointTests(unittest.TestCase):
                 named = integrations[key].replace("See ", "").strip()
                 self.assertTrue((repo / named).exists(), f"{key} advertises a path that is gone: {named}")
 
-    def test_info_omits_the_container_block_when_there_is_no_manager(self):
-        payload = self.client.get("/info").json()
-        self.assertNotIn("containers", payload)
-        self.assertNotIn("groups", payload)
-        self.assertNotIn("containers", payload["endpoints"])
-
-    def test_info_includes_the_container_block_when_there_IS_one(self):
-        self._app.state.container_manager = _FakeContainerManager()
-        payload = self.client.get("/info").json()
-        self.assertEqual(payload["containers"], [{"name": "c-1"}])
-        self.assertEqual(payload["groups"], {"g-1": ["c-1"]})
-        self.assertTrue(payload["endpoints"]["containers"].endswith("/api/v1/containers"))
-        self.assertIn("{container_name}", payload["endpoints"]["route"],
-                      "the route template must stay a template, not a formatted URL")
-
     def test_the_mcp_sse_integration_is_null_when_mcp_is_disabled(self):
         """Advertising an SSE endpoint that is switched off sends an agent into a connection it
         cannot make — worse than saying nothing, because it looks like a fault."""
@@ -167,9 +102,3 @@ class ServiceDiscoveryEndpointTests(unittest.TestCase):
         for forbidden in ("ntfy.sh", "api_key", "apikey", "password", "token", "sqlite:"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, body)
-
-    def test_ready_survives_an_app_with_no_container_state_at_all(self):
-        """`getattr(..., None)` — on a plain app the attribute is ABSENT, not None. Pinned because
-        the two are different and only one of them is what this app actually has."""
-        self.assertFalse(hasattr(SimpleNamespace(), "container_manager"))
-        self.assertEqual(self.client.get("/ready").json()["checks"], {})

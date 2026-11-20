@@ -28,9 +28,6 @@ mcp[cli]>=1.27.0,<2
 # HTTP client (for proxy and calling sub-services)
 httpx>=0.27.0
 
-# Docker SDK (for managing sub-containers)
-docker>=7.0.0
-
 # SQLite async
 aiosqlite>=0.20.0
 

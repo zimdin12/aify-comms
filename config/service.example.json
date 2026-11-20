@@ -5,11 +5,6 @@
   "mcp_enabled": true,
   "mcp_path_prefix": "/mcp",
 
-  "containers": {
-    "_comment": "Legacy optional container-router definitions. Leave empty for normal aify-comms dashboard/control-plane use.",
-    "definitions": {}
-  },
-
   "custom": {
     "compose_project_name": "aify-comms",
     "network_name": "aify-comms-network"

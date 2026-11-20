@@ -4,7 +4,7 @@ REPORTED FROM ANOTHER INSTANCE, 2026-08-17: their service reported version `3.6.
 `0.5.4`. Cause: `ServiceConfig.load()` applied service.json with a generic loop —
 
     for key, value in data.items():
-        if key not in ("custom", "containers") and hasattr(config, key):
+        if key != "custom" and hasattr(config, key):
             setattr(config, key, value)
 
 — so ANY key that happened to name a config attribute won, including `version`, and it ran AFTER the
@@ -110,7 +110,7 @@ class ServiceJsonCannotOverrideTheStamp(unittest.TestCase):
         # file the README tells operators to hand-edit, and every test above would still pass.
         config = _load_with_service_json({"log_level": "debug", "custom": {"k": "v"}})
         self.assertEqual(config.log_level, "debug", "service.json no longer configures the service")
-        # A SUBSET check, deliberately: `load()` merges env-derived container defaults
+        # A SUBSET check, deliberately: `load()` merges deployment defaults
         # (`compose_project_name`, `network_name`) into `custom` after reading the file, so an equality
         # assertion here would be asserting the test machine's environment rather than this contract.
         self.assertEqual(config.custom.get("k"), "v", "the custom block stopped being read")

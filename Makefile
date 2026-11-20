@@ -10,7 +10,7 @@ help:
 	@echo "  make logs       - Tail service logs"
 	@echo "  make test       - Test all endpoints"
 	@echo "  make dev        - Start with hot-reload (mounts source)"
-	@echo "  make clean      - Remove containers and volumes"
+	@echo "  make clean      - Remove containers and orphans; keep volumes"
 	@echo "  make mcp-install - Install stdio MCP server dependencies"
 
 setup:
@@ -41,7 +41,7 @@ dev:
 	@echo "Dev mode: http://localhost:8800 with hot-reload"
 
 clean:
-	docker compose down -v --remove-orphans
+	docker compose down --remove-orphans
 
 mcp-install:
 	cd mcp/stdio && npm install

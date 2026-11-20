@@ -31,7 +31,7 @@ from service.api_core.browser_origin import (
     browser_request_is_allowed, effective_trusted_hosts, is_browser_navigation,
     refusal_message, url_without_api_key,
 )
-from service.routers import health, containers as containers_router, service_spec as service_spec_router
+from service.routers import health, service_spec as service_spec_router
 from service.routers.api_v2 import router as api_router
 from service.change_feed import CHANGE_FEED
 from service.db import CONNECTION_POOL, init_db
@@ -429,28 +429,6 @@ async def lifespan(app: FastAPI):
     # Store config on app state
     app.state.config = config
 
-    # Container manager (optional)
-    container_manager = None
-    json_path = Path(config.config_dir) / "service.json"
-    if json_path.exists():
-        try:
-            with open(json_path) as f:
-                config_data = json.load(f)
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in {json_path}: {e}")
-            config_data = {}
-
-        if config_data.get("containers", {}).get("definitions"):
-            from service.containers.manager import ContainerManager, load_container_definitions
-            try:
-                definitions, defaults = load_container_definitions(config_data)
-                container_manager = ContainerManager(definitions, defaults)
-                app.state.container_manager = container_manager
-                await container_manager.start_background_tasks()
-                logger.info(f"Container manager: {len(definitions)} containers defined")
-            except Exception as e:
-                logger.error(f"Container manager init failed: {e}")
-
     # Mount MCP server if enabled. `mcp_lifetime` holds the Streamable HTTP session manager open until shutdown.
     mcp_lifetime = AsyncExitStack()
     if config.mcp_enabled:
@@ -504,8 +482,6 @@ async def lifespan(app: FastAPI):
         CHANGE_FEED.detach()
 
     # --- SHUTDOWN ---
-    if container_manager:
-        await container_manager.shutdown()
     logger.info(f"Shutting down {config.name}")
 
 
@@ -541,10 +517,6 @@ def create_app() -> FastAPI:
     # damage shows up somewhere nobody was looking:
     #   * the dashboard console is a WEBSOCKET, and this handles only scope 'http', so the visible
     #     TUI is untouched. That requirement is not negotiable and was verified, not assumed.
-    #   * the one StreamingResponse (service/containers/proxy.py) strips content-encoding and
-    #     httpx has already decoded the body, so nothing is compressed twice; and starlette 1.6.0
-    #     asks zlib for a sync flush on each streamed chunk, so a proxied stream is not held back
-    #     waiting for a deflate block to fill.
     app.add_middleware(GZipMiddleware, minimum_size=500)
 
     # CORS
@@ -593,7 +565,6 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(service_spec_router.router)
     app.include_router(api_router, prefix="/api/v1")
-    app.include_router(containers_router.router)
 
     # WebSocket endpoint
     @app.websocket("/ws")

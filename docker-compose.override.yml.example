@@ -6,15 +6,6 @@
 
 services:
   service:
-    # Example: enable GPU
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-
     # Example: mount source for development with hot-reload
     # volumes:
     #   - ./service:/app/service

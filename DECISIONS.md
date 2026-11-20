@@ -11,6 +11,12 @@ stay separate, how they share versioned producer contracts, and who owns screen 
 plugins. Use it when deciding where new code or contracts belong. It describes the target ownership;
 check the running implementation before retiring a path.
 
+## 2026-11-21: Comms does not manage other Docker containers
+
+Comms still runs in Docker. It no longer exposes the generic container manager, GPU allocator or
+container proxy. A legacy `containers` block in `service.json` is ignored; no configuration migration
+is required. `make clean` removes containers and orphans but keeps volumes, including the database.
+
 ## 2026-11-14: both UIs use one lifecycle admission owner
 
 The owner split in [the approved roles](docs/audit-2026-11/ROLES.md) supersedes any older "pure comms service" or "dashboard must not control the fleet" wording. The comms UI and aify-dashboard may both offer intentional fleet controls through comms' existing request endpoints. Comms owns request admission and durable receipts; aify-env owns execution and agent status. Neither UI submits lifecycle actions to discover available capabilities.

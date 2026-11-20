@@ -6,8 +6,7 @@ because `mcp/` is not this repo's package: `import mcp` resolves to the PyPI dis
 which is why `service/main.py` loads this file by path (`service/sse/__init__.py`).
 
 The list is the comms tools only. It is what every connected agent reads into its context, so nothing that
-is not a comms tool belongs in it: the container tools a service template carried were removed in 0.9.11,
-and the HTTP container API (`service/routers/containers.py`) is unaffected.
+is not a comms tool belongs in it.
 """
 
 import logging
