@@ -1,79 +1,88 @@
-# Four end-to-end runs on a staging stack
+# End-to-end staging runs
 
-The operator authorised 3–4 end-to-end tests on 2026-11-07: "find good places to do some live test... in some
-staging container... so we could sometimes run it and check if all is still good". Unit suites prove each repo
-against fixtures. These runs prove the three repos together, on real processes, without touching the live fleet.
+Use staging to test selected revisions together without touching the live fleet. A passing run covers
+its pinned revisions and scenario. It does not qualify a live rollout or a different build.
 
 ## Where they run
 
-A separate compose project, `aify-comms-staging`, on Docker, never on the live host's processes:
+Each run uses its own Docker Compose project named `aify-comms-staging-<run-id>`.
 
-- **comms**: its own containers, ports 8820/8821, network `aify-comms-staging-network`, and volume
-  `aify-comms-staging-data`. Set `DATA_VOLUME_NAME` explicitly. Without it, a staging stack mounts the LIVE volume
-  (docs/superpowers/plans/evidence/2026-10-02-staging).
-- **aify-dashboard**: no staging run starts one. aify-dashboard#18 is checked live after the switch instead (see
-  2026-11-08-scope-decisions.md, step 6): a staged dashboard plus a Claude file-write fixture measured 190-225
-  script lines for what one real file write and one activity read prove.
-- **host tier**: a Linux container running aify-env and the launchers from the checkouts under test. Its home
-  directory belongs to the container, so its `~/.aify`, leases and owned-process records cannot meet the live
-  ones. An aify-env started on this host instead would supersede the live one and reap its managed agents
-  (aify-env has no `AIFY_HOME` override; its `lib/residents-home.mjs` says so).
-- **runtimes**: the real `codex` and `claude` binaries are installed, but **no run calls a model provider** and no
-  host credential enters a container. The work loop is driven by a stub runtime that speaks the same launcher
-  contract. The Codex app-server handshake needs no provider (shown on codex-cli 0.166.0 for wrapper#14).
-- **one command**: `scripts/staging-e2e.sh <run>` builds the named shas, runs, prints one PASS/FAIL line per
-  check, and tears down everything it created, volume included. Evidence is the printed result plus the shas.
+- **Comms:** the generated layout gives each run an internal network, a service-data volume and a
+  host-home volume, with no published ports. The harness checks that `DATA_VOLUME_NAME` names that
+  run's service-data volume. Do not reuse live projects or volumes.
+- **Host tier:** a Linux container runs aify-env and the selected launchers. Its home holds the run's
+  registry, leases and owned-process records. Starting aify-env on the live host instead can
+  supersede the running instance and reap its managed agents.
+- **Dashboard:** the layout adds a dashboard service only when the manifest pins a dashboard
+  revision. E5 requires it and runs the server source on the run's host image with its own volume and
+  fixture key. E5 does not exercise the dashboard's Dockerfile or its bridge inside an agent session.
+  Dashboard file-write activity is a separate check.
+- **Runtimes:** no run calls a model provider or uses host credentials. The work loop uses a stub
+  that follows the launcher contract. E3 uses a real Codex app-server for its auth handshake.
 
-## The four runs
+`scripts/staging-e2e.sh <run> --refs <manifest>` uses pinned sources, prints a result for each check,
+and records cleanup for the resources it created. Keep the receipts with the source revisions.
 
-| Run | What it does | Fails when |
+## Scenarios
+
+| Run | What it checks | Fails when |
 |---|---|---|
-| **E1 fresh install** | Empty host-tier container: `install.sh --client claude` and `--client codex` against staging comms, then `aify-comms doctor --json` and `aify-env doctor`. | a fresh install needs a second pass, a doctor row is red, or an auth-exempt path answers without the key |
-| **E2 work loop** | Spawn a managed stub agent through aify-env, send it a request, read the linked reply, stop it, then restart aify-env and check that recovery left no owned process behind. | a spawn answers 201 without a live child, a reply is not linked to its run, a stopped agent's process survives, or recovery kills something it does not own |
-| **E3 Codex auth** | `codex-aify` with the real app-server: an unauthenticated WebSocket gets 401, and the comms MCP child connects with the forwarded token. | the app-server accepts no token, or the comms child cannot reach it |
-| **E4 switch rehearsal** | Start the stack at the shas live today, seed it with a copy of the live database, then switch to the candidate shas exactly as the joint switch will: rebuild comms, `install.sh`, move the env/wrapper checkouts, restart aify-env. Then run E2's checks. | the new aify-env cannot take over from the old one, an agent record or definition is lost, or doctor is not green after the switch |
+| **E1 fresh install** | Install Claude and Codex clients on a clean host, then run the applicable Comms and Env doctor checks. | A consented install needs a second pass, an applicable doctor check fails, or a protected route answers without the key. |
+| **E2 work loop** | Start a managed stub through aify-env, send work, read the linked reply, stop it, then exercise recovery. | The child never starts, the reply is not linked to its run, or recovery leaves or reaps the wrong process. |
+| **E3 Codex auth** | Verify the real app-server requires the per-launch token: it refuses a WebSocket with no token or a wrong one, and answers `initialize` with the right token. The token is absent from readable process argv, from one sampled agent response and from Codex's config. The Comms allowlist names both token variables. NOT_RUN: the MCP child using the token, and how a populated runtime record names the variable, because both start only on a model turn. | The app-server accepts a missing or wrong token, refuses the right one or leaves `initialize` unanswered, an allowlist name is missing, or the token appears in a sampled argv, response or config. |
+| **E4 switch rehearsal** | Seed a synthetic Linux fleet on a pinned baseline, switch to the pinned candidate, then check takeover, work delivery and retained records in that stack. | Env cannot take over, a seeded record is lost, or an applicable doctor check fails after the switch. |
+| **E5 dashboard registration** | Register a staged dashboard from a fresh host, then read Env's publication and check it again after settlement. | The dashboard accepts a wrong key, the registry entry is wrong, or an expected agent is missing, stale or in conflict. |
 
 ### E1 consent contract, amended 2026-11-13
 
-Tech-lead decision for #49: success is one invocation by a consenting interactive operator. In staging, a tty
-supplies explicit approval of the shown artifact digest and consent to policy-only sudo preparation. The chain
-must finish complete, and the applicable doctors must be green on a run-owned host. Provider/context exclusions
-remain explicit. Do not pre-approve the digest or prepare policy in a fixture to manufacture that success.
+For #49, success is one invocation by a consenting interactive operator. In staging, a TTY supplies
+approval of the shown artifact digest and consent to policy-only sudo preparation. Check policy
+readiness through its existing owner before connect. Do not pre-approve a digest or prepare policy
+in a fixture to make the run pass.
 
-A separate noninteractive case supplies no consent. It must refuse with exactly one copyable next-action command,
-print no key, and publish no registry entry. Check policy readiness through its existing owner before connect;
-there is no rollback or second installation path. Exit 78 is never installation success. The existing E1 record
-remains RED until the amended successor run is observed. Test Codex in an independent fresh home, not after a
-partially completed Claude install. Container source overrides do not qualify GitHub retrieval or a work-PC install.
+A noninteractive case supplies no consent. It must refuse with exactly one copyable next-action
+command, print no key, and publish no registry entry. Exit 78 is not installation success. Test Codex
+in a separate fresh home, not after a partially completed Claude install.
 
-The amended successor was observed on 2026-11-13: 26 of 26 E1 checks passed on the exact local-source tuple.
-[Its evidence and retained failures](../evidence/issue49-e1-consent/README.md) distinguish applicable doctor success
-from excluded provider setup, and preserve the earlier red records. This is not a live rollout or a GitHub fetch qualification.
+The [E1 evidence](../evidence/issue49-e1-consent/README.md) records 26 passing checks on the pinned
+local-source tuple and keeps the earlier failures. It does not qualify GitHub retrieval or a work-PC
+install.
 
-The database copy follows the 2026-10-02 method: the SQLite backup API inside the live container, opened
-read-only, then seeded into the staging volume before first start.
+### E4 and the disk reserve
 
-## Which issue each run qualifies
+Every manifest, for every scenario, must set `seed: "synthetic-linux-fleet"` and
+`liveCopyEnabled: false`: the harness builds the manifest before it dispatches a scenario. E4 does
+not copy the live SQLite database. Before invoking any rehearsal, verify the Docker data filesystem has at least
+40 GiB free. On this host, read `/data` with `docker exec aify-comms-service df -Pk /data`. The
+harness can pull its probe image before reporting space, so its capacity check does not replace that
+read-only measurement. Check for the `aify.staging.run` label on containers, volumes, networks and
+images. Run only one rehearsal at a time. An empty listing is not a lock or permission to delete
+resources.
 
-| Run | Issues it proves together |
+Dry `--preflight` checks the manifest and generated layout. It does not measure free space, run
+Docker or exercise the switch.
+
+### E5 publication evidence
+
+The [E5 evidence](../evidence/staging-e5-first/README.md) records the pinned Node 24 run. It checks
+that a wrong key returns 401 and that the dashboard has no publishers before registration. After
+registration, one fresh managed publisher must hold every expected agent without conflicts. The
+only other publisher allowed is the one Env announces for residents, and every returned publisher
+must be fresh. The scenario reads the state again after a full reporting interval. Reuse this evidence for those revisions only, not for current disk capacity.
+
+## Which issues each run qualifies
+
+| Run | Issues it covers |
 |---|---|
-| E1 | comms#43, #49, #27 (dashboard→comms over host-gateway); env#32; wrapper#9, #18, #21 |
+| E1 | comms#43, #49, #27 (service Host admission only; the dashboard container's host-gateway DNS half is NOT_RUN); env#32; wrapper#9, #18, #21 |
 | E2 | env#13, #15, #17, #19, #21, #31; comms#31, #53 |
-| E3 | wrapper#14 plus the comms allowlist (`scripts/codex-mcp-env-vars.cjs`) |
-| E4 | the joint switch itself, including env#17's first takeover from dde9d6d, which only a fixture covers today |
+| E3 | wrapper#14 and the Comms allowlist (`scripts/codex-mcp-env-vars.cjs`) |
+| E4 | The isolated Linux component switch and Env takeover |
+| E5 | Dashboard registration and Env publication on the staging host image |
 
-From now on, an issue in this table is not closed on its unit tests alone. Its run must pass on the candidate
-shas, and the closing comment names the run and the shas.
+Unit tests alone do not qualify these integration scenarios. Record the run, pinned revisions and
+applicable exclusions before calling one qualified.
 
-## Not covered
-
-Windows: ConPTY, PowerShell launch and native process identity. The live host is Windows, so E2–E4 still need
-one supervised pass on the live switch. Also not covered: real model behaviour (model sync, #23), Hermes,
-and anything that needs a provider login. Those are qualified on the live switch, as now.
-
-## Order
-
-1. comms builds E3's allowlist change; wrapper#14 publishes as a pair with it.
-2. comms builds the harness and E4 first, because E4 de-risks the joint switch everyone is waiting on.
-   Then E1, E2 and E3.
-3. The joint switch happens after E4 passes on the candidate shas.
+Windows ConPTY, PowerShell launch, native Windows process identity, real model behaviour, Hermes,
+and provider login are outside these rehearsals. A passing E4 is not permission to deploy or restart
+the live stack.
