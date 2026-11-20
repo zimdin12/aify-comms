@@ -3,8 +3,9 @@
 An agent can follow this guide across repositories, ask for the missing choices, install the selected
 components and verify the result. Each repository installs its own product. aify-comms points to
 [aify-env's guide](https://github.com/zimdin12/aify-env); that guide points to
-[herdr's own installer](https://github.com/herdrdev/herdr#install) for optional panes. The comms
-installer never installs either external product. This follows the
+[herdr's own installer](https://github.com/herdrdev/herdr#install) for optional panes. A plain Comms
+install hands off to Env's guided chain. The standalone Comms path installs the selected client
+only. This follows the
 [repo-owner contract](superpowers/plans/2026-09-07-herdr-as-the-pane-surface.md#installing-it-every-repo-installs-its-own-and-points-at-the-next).
 
 ## Optional Herdr scope
@@ -28,24 +29,28 @@ A user who wants the current default-branch fixes can give their agent this prom
 
 This is an agent-guided workflow, not an all-in-one unattended installer. The agent must follow the
 owning repositories and verify each selected component. The legacy-upgrade fixture in
-`scripts/tests/test_legacy_upgrade.py` exercises old installer-produced configuration with isolated
-substitutes for external CLIs and package/network operations; it is not proof of every old host.
+`scripts/tests/test_legacy_upgrade.py` checks the standalone client upgrade from old installer-produced
+configuration. It substitutes runtime CLIs and package/network operations. It does not exercise the
+full guided chain or qualify a real host.
 
 ## Upgrading a host from before 0.6
 
-A host installed before the three-repo split (v0.5.x) upgrades through the same chain, but these points
-were all hit in the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/README.md):
+A host installed before the three-repo split (v0.5.x) upgrades through the same chain. Use these
+checks alongside the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/README.md):
 
-- **Back up the database first.** A 0.9 service opened v0.5.7 data in place, with no errors, and kept
-  its agents, messages and channels. The data in that test was small and seeded, not a real fleet's.
+- **Back up the database first.** Use SQLite's backup API. Copying only a live `aify.db` can omit
+  committed writes still in the write-ahead log (WAL). Open a separate restored copy on the old
+  version before upgrading and leave the saved backup untouched. Do not assume the old version can
+  open the migrated database. The rehearsal used seeded v0.5.7 data, not a real fleet's database.
 - **Install the service and every client from one commit,** preferably a release tag. The connect step
   refuses bridge files that differ from what the service serves.
 - **Address the service by IP, `localhost`, or `host.docker.internal`.** The exact Docker host-gateway
   name is trusted by default; other hostnames need `TRUSTED_HOSTS` or receive 403. Trusting the Host
   does not supply DNS: Docker Engine clients need a `host-gateway` mapping for that name.
-- **Without a terminal, the install stops once for approval.** Pass the printed digest back with
-  `AIFY_INSTALL_APPROVE=<digest>`.
-- **On Linux, Claude's channel policy needs one `sudo` command.** The installer prints it.
+- **Without a terminal, an unapproved artifact stops the guided install.** If you approve that
+  exact artifact, pass the printed digest in `AIFY_INSTALL_APPROVE=<digest>`.
+- **On Linux, Claude's channel policy is checked separately.** If setup is needed, the installer
+  prints the policy command. This check may stop the next run even after digest approval.
 - **Stop every old agent and the old environment bridge before the upgrade.** v0.5's bare `aify-comms`
   ran `server.js --environment-bridge`; find it with `pgrep -af -- "[-]-environment-bridge"` (the
   bracket keeps the search from matching its own shell). aify-env supersedes a stale bridge when it
@@ -60,9 +65,13 @@ were all hit in the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/RE
   takes its latest release, and the herdr server fetches herdr.dev/agent-detection at runtime, which a
   work network may block.
 
-The installer removes the old machine-wide `aify-comms` MCP entry, replaces the hooks, and renders
-launchers that reach the service over HTTP. aify-env and herdr after that upgrade were rehearsed
-separately on Linux ([aify-env evidence 786f957](https://github.com/zimdin12/aify-env/tree/786f957/docs/evidence/2026-10-28-work-pc-rehearsal)):
+For Claude, the installer removes the old `aify-comms` tool entry and the launcher adds Streamable
+HTTP per launch. Hermes uses Streamable HTTP for the tools as well. Codex still uses the local stdio
+bridge for tools and delivery. Keep Codex on stdio for the upgrade; the installer removes and
+recreates its entry. [Codex catch-up](CODEX_CATCHUP.md)
+tracks the separate transport migration.
+
+aify-env and herdr after that upgrade were rehearsed separately on Linux ([aify-env evidence 786f957](https://github.com/zimdin12/aify-env/tree/786f957/docs/evidence/2026-10-28-work-pc-rehearsal)):
 with aify-env started, the comms doctor reads 14 passed and 3 skipped. Not covered: WSL itself, a
 logged-in agent doing work, and hermes on Linux.
 
@@ -112,10 +121,12 @@ lookup means the latest version is unknown. Do not invent an update verdict.
   For a selected service update, `bash scripts/stamp.sh` then `docker compose up -d --build` after
   separate approval for the service interruption. Service runtime includes `service/`, `mcp/` outside
   `mcp/stdio/`, and `config/`. A healthy container alone is no reason to skip an outdated build.
-- **Client host:** use `bash install.sh --client <claude|codex|hermes> <endpoint> --with-hook` for each
-  selected missing/outdated client. This copies the bridge and skills, registers the service and
-  renders launchers from the pinned aify-wrapper dependency. Read the relevant `install.<client>.md`
-  for runtime-specific requirements. Already-installed clients need updates too, not just missing ones.
+- **Client host:** use `bash install.sh --client <claude|codex|hermes> <endpoint>` to enter the
+  guided chain for each selected missing or outdated client. Use `--standalone` only for a deliberate
+  Comms client-only install. An existing Claude or Codex notification hook is refreshed; adding a new
+  one requires `--standalone --with-hook`. Hermes gets no hook, because it drops `post_tool_call`
+  output: the installer removes the one an earlier install added. Read the relevant
+  `install.<client>.md` for runtime-specific requirements.
 - **Environment tier:** follow the reviewed [aify-env checkout](https://github.com/zimdin12/aify-env)
   README and `install.sh`. Register the selected service through the comms client installer first,
   so env can check its registered-service credentials. In the aify-env checkout:
