@@ -21,7 +21,7 @@ build:
 	docker compose build
 
 up:
-	bash scripts/compose-up.sh -d --build
+	bash scripts/stamp.sh && docker compose up -d --build
 
 down:
 	docker compose down

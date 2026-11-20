@@ -285,8 +285,8 @@ the same. Updating is always manual: `git pull`, `bash scripts/stamp.sh && docke
 0.7.0 removed two old paths, and neither is supported: the v1 JSON-volume to SQLite migration
 (`scripts/migrate-v1-to-v2.sh`, `service/export_v1.py`, `service/import_v2.py`), and the sub-service
 compose template (`scripts/add-service.sh`, the `SUB_SERVICES` setting, `services/`). A host still on v1
-JSON data migrates with v0.6.22 first; extra compose services go in `docker-compose.override.yml`,
-which `make up` (`scripts/compose-up.sh`) includes when it exists.
+JSON data migrates with v0.6.22 first. `make up` runs `bash scripts/stamp.sh && docker compose up -d --build`.
+Compose reads `.env` and automatically includes `docker-compose.override.yml` when it exists.
 
 ## Repository
 
