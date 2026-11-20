@@ -37,6 +37,13 @@ groups above; it does not change any issue's owner or exit.
 5. **One install path**, ahead of the work-PC install: comms#49, #51 and #52; env#12, #27 and
    #28; wrapper#19, #22, #23 and #24.
 6. **Agent features:** comms#55, #57 and #58, "Make managed", and the Herdr items.
+7. **Review every doc and skill** once each repo's issues are closed or done. Check that each
+   statement matches the code, that each document is the right length for what its readers
+   need, and that no two documents say the same thing. Finished-work records move to history.
+   Each team reviews its own repo.
+
+Hosted CI (comms#25) is deferred, not rejected: the stack is for private use, and a CI setup
+brings its own upkeep.
 
 No fix in this programme may rest on a cap, a budget, a timeout or a time window, and none may
 limit what agents can do. aify-wrapper#7, a fixed context budget, was closed as not planned on
