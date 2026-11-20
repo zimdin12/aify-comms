@@ -38,6 +38,17 @@ async def lifecycle_requests_for(db, agent_id):
     return [lifecycle_record(row) for row in rows]
 
 
+async def lifecycle_spawn_history(db):
+    """List spawn receipts across agents, without intent, brief or launch configuration."""
+    rows = await (await db.execute('''
+        SELECT id, agent_id AS agentId, machine_id AS machineId, action, status, outcome,
+               created_at AS createdAt, finished_at AS finishedAt
+        FROM agent_lifecycle_requests WHERE action = 'spawn'
+        ORDER BY created_at DESC, id DESC
+    ''')).fetchall()
+    return [dict(row) for row in rows]
+
+
 async def admit_lifecycle(db, agent_id, body, proof, now, *, brief=''):
     if not isinstance(proof, LifecycleProof):
         raise HTTPException(403, 'lifecycle proof required')

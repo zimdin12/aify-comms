@@ -168,8 +168,9 @@ test("each builder responds to every field it names", () => {
     [_runSig, "runs", { id: "r", status: "queued", subject: "s", summary: "y", targetAgentId: "a" },
       ["status", "subject", "summary", "targetAgentId"]],
     [_envSig, "environments", { id: "e", status: "online", label: "L" }, ["status", "label"]],
-    [_spawnReqSig, "spawnRequests", { id: "sr", status: "queued", agentId: "a", error: "", updatedAt: 1 },
-      ["status", "agentId", "error", "updatedAt"]],
+    [_spawnReqSig, "spawnRequests", { id: "sr", action: "spawn", status: "pending", agentId: "a", machineId: "m",
+      outcome: "", createdAt: "2026-11-19T00:00:00Z", finishedAt: "" },
+      ["action", "status", "agentId", "machineId", "outcome", "createdAt", "finishedAt"]],
     [_msgSig, "messages", { id: "m", from: "a", subject: "s", read: false }, ["from", "subject", "read"]],
   ];
   for (const [fn, key, record, fields] of cases) {
@@ -202,12 +203,28 @@ test("_chatChanSig survives channels being absent", () => {
   });
 });
 
+test("spawn history repaints when its read fails, even with the same rows", () => {
+  const saved = state.spawnRequestsStatus;
+  try {
+    const k = key();
+    let paints = 0;
+    const paint = () => { paints += 1; };
+    state.spawnRequestsStatus = 'ready';
+    renderSection(k, [_spawnReqSig()], paint);
+    state.spawnRequestsStatus = 'unavailable';
+    renderSection(k, [_spawnReqSig()], paint);
+    assert.equal(paints, 2);
+  } finally {
+    state.spawnRequestsStatus = saved;
+  }
+});
+
 test("an EMPTY collection yields an empty signature, not a throw", () => {
   withData({
     agents: [], contracts: [], runs: [], environments: [], spawnRequests: [], messages: [],
     chat: { channels: [] },
   }, () => {
-    for (const fn of [_agentSig, _contractSig, _runSig, _envSig, _spawnReqSig, _msgSig, _chatChanSig]) {
+    for (const fn of [_agentSig, _contractSig, _runSig, _envSig, _msgSig, _chatChanSig]) {
       assert.deepEqual(fn(), []);
     }
   });

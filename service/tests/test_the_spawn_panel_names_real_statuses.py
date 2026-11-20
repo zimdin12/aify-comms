@@ -25,10 +25,17 @@ be false. What is false HERE is naming them as spawn-request states.
 """
 from __future__ import annotations
 
+import inspect
+import json
 import re
+import shutil
+import subprocess
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
+from service.api_core.agent_lifecycle_requests import claim_lifecycle_requests
+from service.lifecycle_models import OPEN_STATUSES, TERMINAL
 from service.routers.spawn_requests import (
     SPAWN_REQUEST_PATCHABLE_STATUSES,
     SPAWN_REQUEST_STATUSES,
@@ -47,14 +54,14 @@ def _panel_source() -> str:
 
 
 def _spawn_panel_region() -> str:
-    """`renderSpawnRequests` only, comments removed.
+    """The legacy queue renderer only, comments removed.
 
     The file also renders environments, whose statuses differ. And the comments must go: the note
     explaining that the `done` alias was removed QUOTES the comparison it removed, and the first
     version of this gate read that sentence as a live branch and failed on the fix.
     """
     source = _panel_source()
-    start = source.index("export function renderSpawnRequests()")
+    start = source.index("export function renderLegacySpawnRequests(")
     end = source.index("export function", start + 10)
     return chr(10).join(
         line for line in source[start:end].splitlines()
@@ -80,7 +87,7 @@ class TheSpawnPanelNamesRealStatusesTests(unittest.TestCase):
     def test_the_panel_region_was_found(self) -> None:
         """The other control. An empty region agrees with every assertion below."""
         region = _spawn_panel_region()
-        self.assertIn("spawn-requests-list", region)
+        self.assertIn("legacy-spawn-requests-list", region)
         self.assertIn("No spawn requests", region, "the empty state is not in the region being read")
 
     def test_the_panel_compares_against_no_status_the_service_refuses(self) -> None:
@@ -104,6 +111,63 @@ class TheSpawnPanelNamesRealStatusesTests(unittest.TestCase):
         self.assertEqual(unknown, [], (
             "the empty state names a spawn state the service cannot produce: " + str(unknown)
         ))
+
+
+class _ChipAttributes(HTMLParser):
+    def __init__(self, markup):
+        super().__init__()
+        self.chips = []
+        self.feed(markup)
+
+    def handle_starttag(self, tag, attrs):
+        fields = dict(attrs)
+        if tag == 'span' and 'data-status-kind' in fields:
+            self.chips.append(fields)
+
+
+class LifecycleSpawnPanelTests(unittest.TestCase):
+    def test_the_table_renders_the_service_lifecycle_statuses(self):
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('node is not on PATH')
+        # The schema's pending default and claimable states are in OPEN_STATUSES. Result reports
+        # accept TERMINAL; the claim writer can also assign a state directly before any report.
+        direct_writes = set(re.findall(r"UPDATE\s+agent_lifecycle_requests\s+SET\s+status\s*=\s*'(\w+)'",
+                                       inspect.getsource(claim_lifecycle_requests), re.IGNORECASE))
+        self.assertIn('claimed', direct_writes, 'control: the direct writer scan found no claim')
+        statuses = sorted(set(OPEN_STATUSES) | set(TERMINAL) | direct_writes)
+        unknown = 'online'  # Recognised for agents, never a lifecycle request state.
+        self.assertNotIn(unknown, statuses)
+        outcome = 'Launcher said "<fixture>"'
+        source = f'''
+            import {{ renderSpawnRequests }} from {json.dumps(PANEL.as_uri())};
+            import {{ state }} from {json.dumps(PANEL.with_name('state.mjs').as_uri())};
+            const table = {{ innerHTML: '' }};
+            const markup = {{}};
+            globalThis.document = {{ getElementById: id => id === 'spawn-requests-list' ? table : null }};
+            state.spawnRequestsStatus = 'ready';
+            for (const status of {json.dumps([*statuses, unknown])}) {{
+              state.spawnRequests = [{{ id: 'fixture', agentId: 'coder', action: 'spawn', status,
+                outcome: {json.dumps(outcome)} }}];
+              renderSpawnRequests();
+              markup[status] = table.innerHTML;
+            }}
+            console.log(JSON.stringify(markup));
+        '''
+        rendered = subprocess.run([node, '--input-type=module', '-e', source], check=True,
+                                  capture_output=True, text=True, encoding='utf-8')
+        rows = json.loads(rendered.stdout)
+        for status in statuses:
+            with self.subTest(status=status):
+                [chip] = _ChipAttributes(rows[status]).chips
+                tone = 'warn' if status in OPEN_STATUSES else 'ok' if status == 'done' else 'bad'
+                dot = 'working' if tone == 'warn' else tone
+                self.assertEqual((chip['data-status-kind'], chip['data-tone']), (status, tone))
+                self.assertEqual(chip['data-status-why'], outcome)
+                self.assertIn(f'class="status-dot {dot}"', rows[status])
+                self.assertNotIn('status-dot unknown', rows[status])
+        [chip] = _ChipAttributes(rows[unknown]).chips
+        self.assertEqual((chip['data-status-kind'], chip['data-tone']), ('unknown', 'muted'))
 
 
 if __name__ == "__main__":

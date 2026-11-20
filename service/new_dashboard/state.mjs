@@ -34,8 +34,8 @@ export const state = {
   runs: [],
   sessions: [],
   environments: [],
-  spawnRequests: [], // GET /spawn-requests — queued/claimed/failed/done spawns, surfaced on Environments.
-  spawnRequestsTruncated: false, // that list is the newest page, and says so when older requests exist
+  spawnRequests: [], // Lifecycle spawn receipts on Environments; legacy history is read separately.
+  spawnRequestsStatus: 'loading',
   stats: {},
   files: [],
   filesError: '', // why the last /shared read failed, so an empty Files page can say which empty it is

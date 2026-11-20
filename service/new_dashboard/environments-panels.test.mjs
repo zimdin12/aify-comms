@@ -14,7 +14,8 @@ import { state } from "./state.mjs";
 import {
   renderEnvironmentSpawnOptions,
   renderRuntime,
-  renderSpawnRequests,
+  loadLegacySpawnRequests,
+  renderLegacySpawnRequests,
   rootsPlaceholder,
   staleDefinitionsBadge,
 } from "./environments-panels.mjs";
@@ -82,11 +83,10 @@ async function withDomAsync(els, run) {
 }
 
 function spawnRows(requests) {
-  state.spawnRequests = requests;
-  const els = { "spawn-requests-list": el() };
+  const els = { "legacy-spawn-requests-list": el() };
   return withDom(els, null, () => {
-    renderSpawnRequests();
-    return els["spawn-requests-list"].innerHTML;
+    renderLegacySpawnRequests(requests);
+    return els["legacy-spawn-requests-list"].innerHTML;
   });
 }
 
@@ -504,25 +504,50 @@ test("a spawn's error is readable in full: the cell wraps and carries the whole 
 import { setApiBase } from "./api-client.mjs";
 import { loadSpawnRequests } from "./environments-panels.mjs";
 
-test("loadSpawnRequests fetches the table on navigation, and a failed fetch keeps the rows already shown", async () => {
+test("navigation reads lifecycle spawns and distinguishes empty from unavailable", async () => {
   const realFetch = globalThis.fetch;
-  const saved = state.spawnRequests;
+  const saved = { spawnRequests: state.spawnRequests, spawnRequestsStatus: state.spawnRequestsStatus };
+  const paths = [];
+  let body = { requests: [
+    { id: "new", agentId: "new-coder", action: "spawn", status: "pending", createdAt: "2026-11-19T12:00:00Z" },
+    { id: "failed", agentId: "failed-coder", action: "spawn", status: "failed", outcome: "<launcher refused>",
+      createdAt: "2026-11-19T11:00:00Z", finishedAt: "2026-11-19T11:01:00Z" },
+  ] };
   setApiBase("");
   try {
-    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder", status: "queued" }] }) });
+    globalThis.fetch = async (url) => {
+      paths.push(String(url));
+      const result = String(url).includes("/history/spawns") ? body : { spawnRequests: [{ agentId: "stale-legacy" }] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(result) };
+    };
     await withDomAsync({ "spawn-requests-list": el() }, async (els) => {
+      const table = els["spawn-requests-list"];
       await loadSpawnRequests();
-      assert.deepEqual(state.spawnRequests.map((r) => r.id), ["sr-1"]);
-      assert.match(els["spawn-requests-list"].innerHTML, /coder/);
-    });
-    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
-    await withDomAsync({ "spawn-requests-list": el() }, async () => {
+      assert.deepEqual(paths, ["/agent-lifecycle-requests/history/spawns"]);
+      assert.match(table.innerHTML, /new-coder[\s\S]*pending[\s\S]*failed-coder[\s\S]*failed/);
+      assert.match(table.innerHTML, /&lt;launcher refused&gt;/);
+      assert.match(table.innerHTML, /2026-11-19T11:01:00Z/);
+      assert.doesNotMatch(table.innerHTML, /stale-legacy/);
+
+      body = {};
       await loadSpawnRequests();
-      assert.deepEqual(state.spawnRequests.map((r) => r.id), ["sr-1"], "a failed fetch must not empty the table");
+      assert.match(table.innerHTML, /Spawn history unavailable/);
+      assert.match(table.innerHTML, /new-coder/);
+      assert.doesNotMatch(table.innerHTML, /No lifecycle spawn requests/);
+
+      body = { requests: [] };
+      await loadSpawnRequests();
+      assert.match(table.innerHTML, /No lifecycle spawn requests/);
+      assert.doesNotMatch(table.innerHTML, /unavailable|new-coder/);
+
+      globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+      await loadSpawnRequests();
+      assert.match(table.innerHTML, /Spawn history unavailable/);
+      assert.doesNotMatch(table.innerHTML, /No lifecycle spawn requests/);
     });
   } finally {
     globalThis.fetch = realFetch;
-    state.spawnRequests = saved;
+    Object.assign(state, saved);
   }
 });
 
@@ -589,24 +614,19 @@ test("AN ONLINE ENVIRONMENT OFFERS NO 'Stop bridge': nothing claims that control
 
 // --- a capped spawn table says it is capped (v0.7 C17) --------------------------------------------
 
-test("A CAPPED SPAWN-REQUEST TABLE SAYS SO, like every other capped list here", async () => {
-  // `/spawn-requests?limit=200` shows the newest 200 (about 1,215 existed when this was written), and
-  // the Sessions rail sends people here for "full history". Sessions, runs, contracts and messages
-  // all say when they are a page; this said nothing.
+test("the existing legacy history still says when it is a page", async () => {
   const realFetch = globalThis.fetch;
-  const saved = state.spawnRequests;
   setApiBase("");
   try {
     globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder" }], truncated: true }) });
-    const capped = await withDomAsync({ "spawn-requests-list": el() }, async (els) => { await loadSpawnRequests(); return els["spawn-requests-list"].innerHTML; });
+    const capped = await withDomAsync({ "legacy-spawn-requests-list": el() }, async (els) => { await loadLegacySpawnRequests(); return els["legacy-spawn-requests-list"].innerHTML; });
     assert.match(capped, /mb-warn/);
     assert.match(capped, /Showing the newest 1 spawn request/);
     globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder" }], truncated: false }) });
-    const whole = await withDomAsync({ "spawn-requests-list": el() }, async (els) => { await loadSpawnRequests(); return els["spawn-requests-list"].innerHTML; });
+    const whole = await withDomAsync({ "legacy-spawn-requests-list": el() }, async (els) => { await loadLegacySpawnRequests(); return els["legacy-spawn-requests-list"].innerHTML; });
     assert.doesNotMatch(whole, /Showing the newest/, "CONTROL: a complete list says nothing");
   } finally {
     globalThis.fetch = realFetch;
-    state.spawnRequests = saved;
   }
 });
 

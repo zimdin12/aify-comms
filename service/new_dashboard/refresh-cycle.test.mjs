@@ -26,7 +26,7 @@ const OK_BODIES = {
   "/dispatch/runs": { runs: [{ id: "r1" }] },
   "/sessions": { sessions: [{ id: "s1", agentId: "a1", terminalId: "t1" }] },
   "/environments": { environments: [{ id: "e1" }] },
-  "/spawn-requests": { spawnRequests: [{ id: "sr1" }] },
+  "/agent-lifecycle-requests/history/spawns": { requests: [{ id: "sr1", action: "spawn" }] },
   "/stats": { total: 7 },
   "/settings": { dashboard_refresh_seconds: 15 },
 };
@@ -293,19 +293,15 @@ test("the open Files page is still polled", async () => {
 });
 
 test("the closed Environments page is not polled for spawn requests", async () => {
-  // The LARGEST slice in the cycle: 414,690 bytes of 1,419,728 measured against the live service on
-  // 2026-08-26, for a table whose only reader is the Environments page. Absent from the stub means
-  // "cannot tell", which fetches -- so every other test in this file keeps its ten slices.
   const { requested } = await cycle({ environmentsPage: "closed" });
-  assert.equal(
-    requested.filter((u) => u.includes("/spawn-requests")).length, 0,
-    "fetched 400KB of spawn requests for a page nobody is looking at",
-  );
+  assert.equal(requested.filter((u) => u.includes("/history/spawns")).length, 0);
 });
 
 test("the open Environments page is still polled", async () => {
   const { requested } = await cycle({ environmentsPage: "open" });
-  assert.equal(requested.filter((u) => u.includes("/spawn-requests")).length, 1);
+  assert.deepEqual(requested.filter((u) => u.includes("/history/spawns") || u.includes("/spawn-requests")),
+    ["/agent-lifecycle-requests/history/spawns"]);
+  assert.deepEqual(state.spawnRequests.map((row) => row.id), ["sr1"]);
 });
 
 test("a healthy cycle does not fetch the inbox it would throw away", async () => {

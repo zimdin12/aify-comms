@@ -6,6 +6,7 @@ import test from 'node:test';
 import { setApiBase } from './api-client.mjs';
 import { state } from './state.mjs';
 import { loadSlices, sliceIsWanted } from './slice-loaders.mjs';
+import { slicesReading } from './slice-tables.mjs';
 
 async function withStubs({ reject = [], pages = {} } = {}, run) {
   const saved = { document: globalThis.document, fetch: globalThis.fetch, state: { ...state } };
@@ -25,7 +26,7 @@ async function withStubs({ reject = [], pages = {} } = {}, run) {
     if (reject.some((p) => path.startsWith(p))) throw new TypeError('Failed to fetch');
     const body = path.startsWith('/agents') ? { agents: [{ id: 'fresh' }] }
       : path.startsWith('/environments') ? { environments: [{ id: 'env-fresh' }] }
-      : path.startsWith('/spawn-requests') ? { spawnRequests: [{ id: 'sr-1' }], truncated: true } : {};
+      : path === '/agent-lifecycle-requests/history/spawns' ? { requests: [{ id: 'sr-1', action: 'spawn' }] } : {};
     return { ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(body) };
   };
   setApiBase('');
@@ -97,11 +98,23 @@ test('a slice for a closed page is not fetched, as the full cycle decides', asyn
   });
 });
 
-test('the spawn-requests slice records that it is a page, so the table can say so', async () => {
-  await withStubs({ pages: { environments: 'open' } }, async ({ deps }) => {
-    state.spawnRequestsTruncated = false;
-    await loadSlices(['spawnRequests'], deps);
+test('a lifecycle commit refreshes the Environments spawn list', async () => {
+  await withStubs({ pages: { environments: 'open' } }, async ({ requested, deps }) => {
+    const slices = slicesReading(['agent_lifecycle_requests']);
+    assert.deepEqual(await loadSlices(slices, deps), []);
+    assert.deepEqual(requested, ['/agent-lifecycle-requests/history/spawns']);
     assert.deepEqual(state.spawnRequests.map((r) => r.id), ['sr-1']);
-    assert.equal(state.spawnRequestsTruncated, true);
+    assert.equal(state.spawnRequestsStatus, 'ready');
+  });
+  assert.ok(!slicesReading(['spawn_requests']).includes('spawnRequests'));
+});
+
+test('a failed lifecycle history refresh repaints the unavailable state and is retried', async () => {
+  await withStubs({ reject: ['/agent-lifecycle-requests'], pages: { environments: 'open' } }, async ({ calls, deps }) => {
+    state.spawnRequests = [{ id: 'last-good', action: 'spawn' }];
+    assert.deepEqual(await loadSlices(['spawnRequests'], deps), ['spawnRequests']);
+    assert.equal(state.spawnRequestsStatus, 'unavailable');
+    assert.equal(state.spawnRequests[0].id, 'last-good');
+    assert.equal(calls.renderAll, 1);
   });
 });

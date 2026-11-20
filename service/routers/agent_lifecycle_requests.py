@@ -36,6 +36,15 @@ async def list_lifecycle(agent_id: str):
         await db.close()
 
 
+@router.get('/agent-lifecycle-requests/history/spawns')
+async def list_lifecycle_spawn_history():
+    db = await get_db()
+    try:
+        return {'ok': True, 'requests': await core.lifecycle_spawn_history(db)}
+    finally:
+        await db.close()
+
+
 @router.get('/agent-lifecycle-requests/{request_id}')
 async def read_lifecycle(request_id: str):
     db = await get_db()

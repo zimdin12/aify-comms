@@ -27,9 +27,7 @@ export function navigateToPage(page, setPage, loadAnalytics) {
   // Without this the page would show whatever was last seen -- or nothing at all on a first open --
   // for up to a full refresh interval, 15 seconds by default.
   if (page === 'files') loadFiles().then(renderFiles);
-  // Same rule, larger slice: /spawn-requests is polled only while the Environments page is open
-  // (414,690 of a 1,419,728 byte cycle), so opening it must fetch once or the table shows its
-  // previous contents -- or nothing at all on a first open -- for up to a full refresh interval.
+  // Spawn history is refreshed only on Environments, so opening the page must also load it.
   if (page === 'environments') loadSpawnRequests();
 }
 

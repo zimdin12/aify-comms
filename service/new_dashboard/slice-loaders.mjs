@@ -23,6 +23,7 @@ import { applyTheme } from './theme.js';
 import { byId } from './ui.js';
 import { state } from './state.mjs';
 import { RECENT_PAGE_LIMIT } from './message-history.mjs';
+import { loadSpawnHistory } from './spawn-history.mjs';
 
 /** A slice nobody on the current page reads is not fetched, exactly as the full cycle decides. */
 export function sliceIsWanted(slice) {
@@ -73,9 +74,7 @@ export const SLICE_LOADERS = Object.freeze({
     state.environments = asArray(await api('/environments'), 'environments');
   },
   async spawnRequests() {
-    const res = await api('/spawn-requests?limit=200');
-    state.spawnRequests = asArray(res, 'spawnRequests');
-    state.spawnRequestsTruncated = Boolean(res?.truncated);
+    await loadSpawnHistory();
   },
   async stats() {
     state.stats = (await api('/stats')) || {};
@@ -115,6 +114,8 @@ export async function loadSlices(slices, { evaluateFlowGates, renderAll, refresh
     evaluateFlowGates();
     renderAll();
     refreshOpenInspector();
+  } else if (failed.includes('spawnRequests')) {
+    renderAll(); // a failed history read still changes what the panel can truthfully say
   }
   return failed;
 }

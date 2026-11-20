@@ -52,6 +52,42 @@ class LifecycleRequests(FastApiTestCase):
         finally:
             conn.close()
 
+    def test_spawn_history_lists_only_lifecycle_spawn_receipts_across_agents(self):
+        path = '/api/v1/agent-lifecycle-requests/history/spawns'
+        empty = self.client.get(path)
+        self.assertEqual((empty.status_code, empty.json()), (200, {'ok': True, 'requests': []}))
+        created = '2026-11-19T12:00:00Z'
+        finished = '2026-11-19T12:01:00Z'
+        for request_id, agent, action, status, outcome, when in (
+            ('start', 'one', 'start', 'done', 'started', finished),
+            ('restart', 'two', 'restart', 'done', 'restarted', finished),
+            ('spawn-a', 'one', 'spawn', 'failed', 'launcher refused', created),
+            ('spawn-b', 'two', 'spawn', 'pending', '', created),
+        ):
+            self.sql('''INSERT INTO agent_lifecycle_requests
+                (id, agent_id, machine_id, store_id, expected_incarnation, expected_revision,
+                 action, requested_by, intent, brief, status, outcome, created_at, finished_at)
+                VALUES (?, ?, ?, 's1', 2, 5, ?, 'peer', ?, ?, ?, ?, ?, ?)''',
+                (request_id, agent, A['machine'], action, '{"env":{"SECRET":"fixture-env"}}',
+                 '{"body":"fixture-private-brief"}', status, outcome, when, finished if outcome else ''))
+        old = '2026-11-12T12:00:00Z'
+        self.sql('''INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, env_vars, created_at, updated_at)
+                    VALUES ('spec', 'old-agent', ?, 'codex', ?, ?, ?)''',
+                 (A['env'], '{"FIXTURE":"legacy-env"}', old, old))
+        self.sql('''INSERT INTO spawn_requests (id, spawn_spec_id, environment_id, agent_id, runtime,
+                    created_at, updated_at) VALUES ('legacy', 'spec', ?, 'old-agent', 'codex', ?, ?)''',
+                 (A['env'], old, old))
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {'ok': True, 'requests': [
+            dict(id='spawn-b', agentId='two', machineId=A['machine'], action='spawn',
+                 status='pending', outcome='', createdAt=created, finishedAt=''),
+            dict(id='spawn-a', agentId='one', machineId=A['machine'], action='spawn',
+                 status='failed', outcome='launcher refused', createdAt=created, finishedAt=finished),
+        ]})
+        legacy = self.client.get('/api/v1/spawn-requests').json()['spawnRequests']
+        self.assertEqual([row['id'] for row in legacy], ['legacy'])
+
     def test_receipt_capture_unclaimed_visibility_and_replay_before_drift(self):
         first = self.ask()
         self.assertEqual(first.status_code, 200, first.text)

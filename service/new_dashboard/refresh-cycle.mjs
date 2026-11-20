@@ -23,6 +23,7 @@ import { applyTheme } from './theme.js';
 import { byId } from './ui.js';
 import { state } from './state.mjs';
 import { RECENT_PAGE_LIMIT } from './message-history.mjs';
+import { loadSpawnHistory } from './spawn-history.mjs';
 
 export async function runRefreshCycle({
   armRefreshTimer,
@@ -44,10 +45,7 @@ export async function runRefreshCycle({
   // (incl. every agent's status) froze on its last render and looked stale/"wrong". Now each slice
   // applies independently; a slice whose fetch blipped keeps its last-good value, and we always
   // re-render with whatever fresh data arrived this cycle.
-  // The Environments page is the only reader of state.spawnRequests, and this slice is the LARGEST
-  // thing the poll moves: 414,690 bytes of a 1,419,728 byte cycle measured against the live service
-  // on 2026-08-26 -- 29% of it, for a table nobody is looking at. Same rule as /shared, same
-  // fail-closed predicate.
+  // Only Environments reads spawn history, so skip its request on other pages.
   //
   // The SLOT is kept rather than the entry dropped: ok(i) and val(i) index this array by position,
   // so omitting one would silently shift every slice after it onto the wrong data.
@@ -60,7 +58,7 @@ export async function runRefreshCycle({
     api(runQueryPath()),                                                  // 4
     api('/sessions?limit=80'),                                            // 5
     api('/environments'),                                                 // 6
-    wantSpawnRequests ? api('/spawn-requests?limit=200') : Promise.resolve(null), // 7
+    wantSpawnRequests ? loadSpawnHistory() : Promise.resolve(null),       // 7
     api('/stats'),                                                        // 8
     api('/settings'),                                                     // 9
     // The panel's declarations never change while the service runs, so they are asked for until held.
@@ -145,13 +143,6 @@ export async function runRefreshCycle({
     });
   }
   if (ok(6)) state.environments = asArray(val(6), 'environments');
-  // Guarded on the REQUEST, not just the result: a skipped slice resolves to null, and assigning
-  // asArray(null) would wipe the list rather than leave it alone. Nothing reads it while the page is
-  // closed, but wiping it would make the first render after opening flash empty.
-  if (wantSpawnRequests && ok(7)) {
-    state.spawnRequests = asArray(val(7), 'spawnRequests');
-    state.spawnRequestsTruncated = Boolean(val(7)?.truncated);
-  }
   if (ok(8)) state.stats = val(8) || {};
   if (ok(10) && val(10)) adoptSettingsSchema(val(10));
   if (ok(9) && val(9) && typeof val(9) === 'object') {

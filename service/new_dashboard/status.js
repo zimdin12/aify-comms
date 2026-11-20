@@ -138,9 +138,13 @@ export function resolveStatus(rawStatus, context = {}) {
 
 // Inline status chip with a "why" tooltip trigger (the popover handler lives in app.js).
 export function renderStatusChip(rawStatus, context = {}) {
-  const status = resolveStatus(rawStatus, context);
-  const badges = status.badges.length ? ` <small>${esc(status.badges.join(' · '))}</small>` : '';
-  const why = context.why || `${status.label} status`;
+  return renderResolvedStatusChip(resolveStatus(rawStatus, context), context.why);
+}
+
+/** Share the chip and tooltip markup without sharing the caller's status vocabulary. */
+export function renderResolvedStatusChip(status, reason) {
+  const badges = status.badges?.length ? ` <small>${esc(status.badges.join(' · '))}</small>` : '';
+  const why = reason || `${status.label} status`;
   return `<span class="status-chip ${esc(status.tone)} status-why-trigger" role="button" tabindex="0" title="${esc(why)}" data-status-why="${esc(why)}" data-tone="${esc(status.tone)}" data-status-kind="${esc(status.kind)}"><span class="status-dot ${esc(status.dotKind)}"></span>${esc(status.label)}${badges}</span>`;
 }
 

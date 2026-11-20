@@ -162,7 +162,7 @@ export function renderSessionRail() {
     </details>`).join('') : (state.sessionsTruncated
     // NOT "no sessions yet" when the server said there are more. That sentence sent an operator to
     // spawn a second session for an agent that already had one running.
-    ? '<div class="empty-state"><span class="empty-icon">🔎</span><strong>None on this page</strong><p>None of the loaded sessions match. Older sessions are not loaded and are not searchable here — full history is under Environments.</p></div>'
+    ? '<div class="empty-state"><span class="empty-icon">🔎</span><strong>None on this page</strong><p>None of the loaded sessions match. Older sessions are not loaded and are not searchable here.</p></div>'
     : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>')));
 }
 export function sessionGroupCollapsed(envId) {

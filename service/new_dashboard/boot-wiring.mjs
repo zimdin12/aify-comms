@@ -16,7 +16,7 @@ import { applyCachedTheme, applyTheme } from './theme.js';
 import { attachChatFile, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
 
 import { codexConsoleSendTurn } from './codex-console.mjs';
-import { createSpawnRequest, renderEnvironmentSpawnOptions } from './environments-panels.mjs';
+import { createSpawnRequest, loadLegacySpawnRequests, renderEnvironmentSpawnOptions } from './environments-panels.mjs';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
 import { handleGlobalInput, handleGlobalKeydown } from './keyboard-shortcuts.mjs';
 import { loadContractsForState, renderContracts } from './work-loop-actions.mjs';
@@ -107,6 +107,9 @@ export function wireGlobalControls({
   byId('env-spawn-environment')?.addEventListener('change', (event) => {
     byId('env-spawn-workspace').value = '';
     renderEnvironmentSpawnOptions(event.target.value);
+  });
+  byId('legacy-spawn-history')?.addEventListener('toggle', (event) => {
+    if (event.currentTarget.open) return loadLegacySpawnRequests();
   });
   byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();

@@ -3,11 +3,7 @@
 // One subject, three renderers, extracted from app.js in v0.5.4 as a measured closure needing only sibling
 // leaf modules imported downward.
 //
-// `renderSpawnRequests` is the one with history behind it: it was ported from the 8800 dashboard because
-// claimed/failed/done spawn requests had nowhere to appear, so a spawn that failed or stuck was invisible
-// unless someone read the database. It also aliases `done`, the one spawn status the canonical resolver
-// does not know — an alias that silently stopped working would put every completed spawn back into the
-// unknown bucket, which is the failure this module's tests exist to catch.
+// The main table reads new-agent lifecycle receipts. Legacy queue records have a separate, on-demand history.
 
 export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-environment')?.value || '') {
   const envSelect = byId('env-spawn-environment');
@@ -48,13 +44,14 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
 }
 
 import { api } from './api-client.mjs';
-import { asArray, environmentRoots, environmentRuntimes } from './record-fields.mjs';
+import { environmentRoots, environmentRuntimes } from './record-fields.mjs';
 import { state, inspectorOpening } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime, relTimeHtml } from './util.js';
 import { launchRootsNote, rootChip } from './env-launch-roots.mjs';
+import { loadSpawnHistory, renderLifecycleSpawnStatus } from './spawn-history.mjs';
 
 /**
  * ` · last seen 83d ago`, for an environment that is not answering. Empty for everything else.
@@ -211,28 +208,57 @@ export function renderRuntime() {
 /**
  * Fetch the spawn requests this page renders, and draw them.
  *
- * The poll only asks for them while the Environments page is open (see `shouldLoadForPage`), because
- * the slice is the largest thing a cycle moves -- 414,690 of 1,419,728 bytes measured on 2026-08-26 --
- * and this table is its only reader. That makes OPENING the page the moment the data is needed, and
- * the next poll is up to a full refresh interval away (15s by default), which on a first open would
- * show "No spawn requests" for a table that has plenty.
- *
- * Errors are swallowed on purpose and the previous list kept: this runs on a navigation, and a failed
- * fetch should leave the page as it was rather than empty it. The poll reports its own slice failures.
+ * Opening the page asks for the current rows, without waiting for a refresh or a change event.
+ * On failure the panel names the failed read and keeps the last good rows.
  */
 export async function loadSpawnRequests() {
-  try {
-    const res = await api('/spawn-requests?limit=200');
-    state.spawnRequests = asArray(res, 'spawnRequests');
-    state.spawnRequestsTruncated = Boolean(res?.truncated);
-  } catch (_) { /* keep the prior list */ }
+  try { await loadSpawnHistory(); } catch (_) { /* the panel names the failed read */ }
   renderSpawnRequests();
+}
+
+function spawnTime(timestamp) {
+  return timestamp ? `<time datetime="${esc(timestamp)}" title="${esc(timestamp)}">${relTimeHtml(timestamp)}</time>` : '—';
 }
 
 export function renderSpawnRequests() {
   const el = byId('spawn-requests-list');
   if (!el) return;
-  const requests = [...state.spawnRequests].sort((a, b) =>
+  const { spawnRequests: requests, spawnRequestsStatus: status } = state;
+  const unavailable = status === 'unavailable'
+    ? `<div class="mb mb-warn">Spawn history unavailable.${requests.length ? ' Showing the last successful read.' : ''}</div>`
+    : '';
+  if (!requests.length) {
+    el.innerHTML = unavailable || `<p class="subtle">${status === 'ready'
+      ? 'No lifecycle spawn requests.' : 'Loading spawn history…'}</p>`;
+    return;
+  }
+  const rows = requests.map((req) => `<tr>
+    <td>${spawnTime(req.createdAt)}</td><td>${spawnTime(req.finishedAt)}</td>
+    <td><strong>${esc(req.agentId)}</strong></td><td class="clip">${esc(req.machineId || '—')}</td>
+    <td>${esc(req.action)}</td><td>${renderLifecycleSpawnStatus(req.status, req.outcome)}</td>
+    <td class="clip spawn-detail" title="${esc(req.outcome || '')}">${esc(req.outcome || '—')}</td>
+  </tr>`).join('');
+  el.innerHTML = `${unavailable}<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>
+    <th>Requested</th><th>Finished</th><th>Agent</th><th>Machine</th><th>Action</th><th>Status</th><th>Outcome</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+export async function loadLegacySpawnRequests() {
+  const el = byId('legacy-spawn-requests-list');
+  if (!el) return;
+  try {
+    const result = await api('/spawn-requests?limit=200');
+    if (!Array.isArray(result?.spawnRequests)) throw new Error('Legacy spawn history returned no list');
+    renderLegacySpawnRequests(result.spawnRequests, result.truncated);
+  } catch (_) {
+    el.innerHTML = '<p class="mb mb-warn">Legacy spawn history unavailable.</p>';
+  }
+}
+
+export function renderLegacySpawnRequests(records, truncated = false) {
+  const el = byId('legacy-spawn-requests-list');
+  if (!el) return;
+  const requests = [...records].sort((a, b) =>
     String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   if (!requests.length) {
     // THE STATES THIS TABLE CAN ACTUALLY SHOW. It promised "completed" spawns, and a spawn
@@ -258,9 +284,8 @@ export function renderSpawnRequests() {
       <td class="clip spawn-detail" title="${esc(detail)}">${esc(detail)}</td>
     </tr>`;
   }).join('');
-  // SAID WHEN IT IS A PAGE, as sessions, runs, contracts and messages already are. The Sessions rail
-  // sends people here for full history, and about 1,215 requests existed when this was measured.
-  const capped = state.spawnRequestsTruncated
+  // This is the existing legacy page, not a limit on lifecycle history.
+  const capped = truncated
     ? `<div class="mb mb-warn">Showing the newest ${requests.length} spawn requests; older ones are not loaded.</div>`
     : '';
   el.innerHTML = `${capped}<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>

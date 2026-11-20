@@ -103,6 +103,28 @@ const DEPS = {
   chatCreateChannel: async () => {},
 };
 
+test("opening legacy spawn history loads only the old table", async () => {
+  const dom = recordingDom();
+  const requested = [];
+  try {
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      return { ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ agentId: 'legacy-agent' }] }) };
+    };
+    wireGlobalControls(DEPS);
+    const toggle = dom.bound.find((event) => event.on === 'legacy-spawn-history' && event.type === 'toggle');
+    assert.ok(toggle, 'opening actual markup must reach the loader');
+    await toggle.fn({ currentTarget: { open: false } });
+    assert.deepEqual(requested, []);
+    await toggle.fn({ currentTarget: { open: true } });
+    assert.deepEqual(requested, ['/spawn-requests?limit=200']);
+    assert.match(dom.els.get('legacy-spawn-requests-list').innerHTML, /legacy-agent/);
+    assert.equal(dom.els.get('spawn-requests-list')?.innerHTML ?? '', '');
+  } finally {
+    dom.restore();
+  }
+});
+
 test("wiring binds listeners and never throws on a DOM missing every optional element", () => {
   // Most of these use `byId(...)?.addEventListener`, and the page they belong to may not be in the
   // document at all on a trimmed build. A throw here happens at BOOT, before anything is interactive.
@@ -135,7 +157,7 @@ test("THE env-group TOGGLE LISTENER IS REGISTERED IN THE CAPTURE PHASE", () => {
   const h = recordingDom();
   try {
     wireGlobalControls(DEPS);
-    const toggles = h.bound.filter((b) => b.type === "toggle");
+    const toggles = h.bound.filter((b) => b.on === "document" && b.type === "toggle");
     assert.equal(toggles.length, 1, "exactly one toggle listener");
     assert.equal(toggles[0].opts, true, "…and it must be registered with capture=true");
   } finally { h.restore(); }
