@@ -74,7 +74,8 @@ def env_overrides() -> dict[str, int]:
 
 def published_host_ports() -> set[int]:
     """Every host port this stack publishes, as CONFIGURED -- defaults overridden by `.env`."""
-    text = COMPOSE.read_text(encoding="utf-8")
+    # Binding changes the host address, not the port numbers this check must see.
+    text = COMPOSE.read_text(encoding="utf-8").replace("${SERVICE_BIND:+${SERVICE_BIND}:}", "")
     overrides = env_overrides()
     ports = {int(m) for m in PUBLISHED.findall(text)}
     for name in PUBLISHED_VAR.findall(text):

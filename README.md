@@ -159,9 +159,15 @@ rows, `env-processes`, `managed-orphans`, `context-window` and `claude-login`, a
 
 ## Security
 
-By default the service has **no API key**, **CORS `*`**, and publishes its port on **`0.0.0.0`** — a
-trusted-LAN setup. Anything that can reach port 8800 can drive every agent, including typing into
-consoles.
+By default the service has **no API key**, **CORS `*`**, and publishes on **all host interfaces**.
+Without `API_KEY`, anyone who can reach the published API or dashboard can use the fleet without
+signing in, including sending messages and typing into agent consoles. Optional HTTPS encrypts the
+connection; it does not add authentication. Use this default only on a trusted network.
+
+For access from this host only, set `SERVICE_BIND=127.0.0.1` in `.env`. This binds the published API,
+dashboard and optional HTTPS ports to loopback. Browsers and agents on other machines will no longer
+be able to reach those ports directly, even with a valid key. For remote access, choose a reachable
+host interface and set `API_KEY`. Leaving `SERVICE_BIND` unset or blank keeps the existing open bind.
 
 Turn on a key:
 

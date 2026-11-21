@@ -23,7 +23,7 @@ services:
         max-size: "10m"
         max-file: "3"
     ports:
-      - "${SERVICE_PORT:-8800}:8800"
+      - "${SERVICE_BIND:+${SERVICE_BIND}:}${SERVICE_PORT:-8800}:8800"
     volumes:
       - service-data:/data
       - ./config:/app/config:ro
@@ -72,7 +72,7 @@ services:
         max-size: "10m"
         max-file: "3"
     ports:
-      - "${NEW_DASHBOARD_PORT:-8801}:8801"
+      - "${SERVICE_BIND:+${SERVICE_BIND}:}${NEW_DASHBOARD_PORT:-8801}:8801"
     depends_on:
       - service
     env_file:
@@ -113,7 +113,7 @@ services:
     # refused with every container reporting healthy. Keep HTTPS_PORT and the port inside HTTPS_SITES
     # equal.
     ports:
-      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
+      - "${SERVICE_BIND:+${SERVICE_BIND}:}${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
     # HTTPS_SITES REACHES CADDY ONLY IF IT IS PASSED HERE. `{$HTTPS_SITES:...}` in the Caddyfile is
     # resolved by Caddy from its OWN environment, not by compose, and this service has no `env_file`
     # -- so the knob documented in `.env.example` silently did nothing and Caddy always used the
