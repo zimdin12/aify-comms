@@ -200,6 +200,7 @@ async def longpoll(
 ) -> dict:
     """Run `attempt()`; if its result is empty and `wait_ms` > 0, wait for work and
     retry until a non-empty result, the client disconnects, or `wait_ms` elapses.
+    Replies from that wait path include `held: true`. Immediate replies omit it.
 
     `request`: the HTTP request being held. Its caller leaving ends the wait, and no attempt runs
     after that, so a caller that has gone is never handed work it will not receive: a claim marks
@@ -242,7 +243,7 @@ async def longpoll(
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or gone.is_set():
-                    return result
+                    break
                 # ONLY THE SLEEP is counted as waiting. The retry `attempt()` below is real work and must
                 # keep counting against the slow-request threshold, or a claim that is slow to EXECUTE would
                 # hide inside a long poll -- which is the failure this accounting exists to make visible, not
@@ -253,11 +254,13 @@ async def longpoll(
                 # Asked AFTER the wake and BEFORE the attempt: the wake is usually the work arriving, and
                 # claiming it now would mark it for a caller that will never read the answer.
                 if gone.is_set():
-                    return result
+                    break
                 _stop_listening(scope, woken)
                 woken = _listen(scope)
                 result = await _try()
                 if not is_empty(result):
-                    return result
+                    break
+        # Copy the reply: a lock fallback can be a shared dict used by immediate claims.
+        return {**result, "held": True}
     finally:
         _stop_listening(scope, woken)

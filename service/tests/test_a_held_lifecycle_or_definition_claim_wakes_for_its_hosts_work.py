@@ -139,6 +139,7 @@ class AHeldClaimWakesForItsHostsWork(_HeldClaims):
                 self.assertTrue(still_held, "the empty claim did not hold")
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual([r["id"] for r in response.json()["requests"]], [request_id])
+                self.assertIs(response.json().get("held"), True)
                 self.assertLess(after_enqueue, WOKEN, "the held claim was not woken by the enqueue's commit")
                 self.assertEqual([(r["id"], r["status"]) for r in self.rows(self.table(name))],
                                  [(request_id, "claimed")])
@@ -175,7 +176,8 @@ class AHeldClaimWakesForItsHostsWork(_HeldClaims):
                     router._proven_host = real
                 self.assertEqual(before, 1, "control: host B made exactly its first attempt before the enqueue")
                 self.assertGreaterEqual(after, 2, "the enqueue's commit did not wake host B's claim on the same queue")
-                self.assertEqual((other_response.status_code, other_response.json()), (200, {"ok": True, "requests": []}))
+                self.assertEqual((other_response.status_code, other_response.json()),
+                                 (200, {"ok": True, "requests": [], "held": True}))
                 self.assertGreaterEqual(other_took, 1.4, "another host's work ended this host's wait")
                 self.assertEqual([r["id"] for r in own.json()["requests"]], [request_id])
                 self.execute(f"DELETE FROM {self.table(name)}")
@@ -190,6 +192,7 @@ class AHeldClaimWakesForItsHostsWork(_HeldClaims):
 
                 request_id, response, took = self.against_the_service(scenario)
                 self.assertEqual([r["id"] for r in response.json()["requests"]], [request_id])
+                self.assertNotIn("held", response.json(), "waitMs was supplied but the first attempt had work")
                 self.assertLess(took, 0.5, "a claim with work waiting held anyway")
                 self.execute(f"DELETE FROM {self.table(name)}")
 
@@ -452,6 +455,7 @@ class AnIdleHeldClaimAttemptsOnlyOnItsFallback(_HeldClaims):
                     longpoll.longpoll = real
                 self.assertEqual(response.status_code, 200, f"control: the route answered {response.text}")
                 self.assertGreaterEqual(took, self.HOLD_S - 0.1, "control: the claim was not held, so nothing was measured")
+                self.assertIs(response.json().get("held"), True, f"{name} held a claim without acknowledging it")
                 # The first attempt, one after each fallback sleep, and one when the last sleep ends at the deadline;
                 # with no fallback, the first and the one at the deadline. Measured the same before these claims could be held.
                 expected = 1 + (math.ceil(self.HOLD_S / fallback) if fallback else 1)
