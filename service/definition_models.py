@@ -9,7 +9,7 @@ Handlers read `model_dump(exclude_unset=True)`, so api_core sees exactly the key
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -26,6 +26,8 @@ class DefinitionPush(BaseModel):
 class DefinitionClaim(BaseModel):
     bridgeId: Any = None
     machineId: Any = None
+    #: How long an empty claim is held open for a request to arrive (longpoll); 0, the default, answers at once.
+    waitMs: Optional[int] = 0
 
 
 class DefinitionResult(BaseModel):

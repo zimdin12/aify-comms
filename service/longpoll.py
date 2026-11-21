@@ -26,6 +26,10 @@ short-polls into long-polls **without changing claim semantics**:
   a `notify()` is ever missed — so missing an enqueue hook can only ever degrade to
   the current behaviour, never lose or further delay work. This is the property
   that makes the change safe to ship incrementally.
+* A held claim LISTENS BEFORE EACH ATTEMPT, so work committed while an empty attempt
+  is still finishing (closing its database) wakes the wait that follows. A claim with
+  no fallback re-check (`fallback_s=MAX_WAIT_S`) depends on this: without it, that
+  commit notified nobody and the claim slept out its whole wait.
 
 Single-worker only: the bus is process-global, consistent with `_LIVE_STATE_CACHE`
 and the hard single-uvicorn-worker constraint (see CLAUDE.md / DECISIONS.md).
@@ -122,11 +126,21 @@ def notify(scope: str = GLOBAL_SCOPE) -> int:
     return woken
 
 
-async def _wait_once(scope: str, timeout: float, gone: Optional[asyncio.Event] = None) -> None:
-    """Block up to `timeout` seconds, until notify(scope)/notify('*'), or until the caller has `gone`."""
-    loop = asyncio.get_event_loop()
-    fut: asyncio.Future = loop.create_future()
+def _listen(scope: str) -> asyncio.Future:
+    """A future the next notify(scope)/notify('*') resolves. Registered at once, before any await."""
+    fut: asyncio.Future = asyncio.get_event_loop().create_future()
     _waiters[scope].add(fut)
+    return fut
+
+
+def _stop_listening(scope: str, fut: asyncio.Future) -> None:
+    _waiters[scope].discard(fut)
+    if not _waiters[scope]:
+        _waiters.pop(scope, None)
+
+
+async def _until(fut: asyncio.Future, timeout: float, gone: Optional[asyncio.Event] = None) -> None:
+    """Block up to `timeout` seconds, until `fut` resolves (at once if it already has), or until the caller has `gone`."""
     left = asyncio.ensure_future(gone.wait()) if gone is not None else None
     try:
         await asyncio.wait({fut} if left is None else {fut, left}, timeout=timeout,
@@ -134,9 +148,15 @@ async def _wait_once(scope: str, timeout: float, gone: Optional[asyncio.Event] =
     finally:
         if left is not None:
             left.cancel()
-        _waiters[scope].discard(fut)
-        if not _waiters[scope]:
-            _waiters.pop(scope, None)
+
+
+async def _wait_once(scope: str, timeout: float, gone: Optional[asyncio.Event] = None) -> None:
+    """Block up to `timeout` seconds, until notify(scope)/notify('*'), or until the caller has `gone`."""
+    fut = _listen(scope)
+    try:
+        await _until(fut, timeout, gone)
+    finally:
+        _stop_listening(scope, fut)
 
 
 @contextlib.asynccontextmanager
@@ -204,28 +224,40 @@ async def longpoll(
                 return lock_result
             raise
 
-    result = await _try()
     wait_ms = int(wait_ms or 0)
-    if wait_ms <= 0 or not is_empty(result):
-        return result
+    if wait_ms <= 0:
+        return await _try()
 
-    deadline = time.monotonic() + min(wait_ms / 1000.0, MAX_WAIT_S)
-    async with _watch_for_the_caller_leaving(request) as gone:
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or gone.is_set():
-                return result
-            # ONLY THE SLEEP is counted as waiting. The retry `attempt()` below is real work and must
-            # keep counting against the slow-request threshold, or a claim that is slow to EXECUTE would
-            # hide inside a long poll -- which is the failure this accounting exists to make visible, not
-            # a second place to bury it.
-            slept_at = time.monotonic()
-            await _wait_once(scope, min(remaining, fallback_s), gone)
-            note_waited(time.monotonic() - slept_at)
-            # Asked AFTER the wake and BEFORE the attempt: the wake is usually the work arriving, and
-            # claiming it now would mark it for a caller that will never read the answer.
-            if gone.is_set():
-                return result
-            result = await _try()
-            if not is_empty(result):
-                return result
+    # LISTENING BEFORE EACH ATTEMPT: a notify that lands while the attempt runs, or while it closes its
+    # connection after finding nothing, resolves this future, and the wait below returns at once. Listening
+    # only once the wait began missed exactly those, the commits that race an empty attempt.
+    woken = _listen(scope)
+    try:
+        result = await _try()
+        if not is_empty(result):
+            return result
+
+        deadline = time.monotonic() + min(wait_ms / 1000.0, MAX_WAIT_S)
+        async with _watch_for_the_caller_leaving(request) as gone:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or gone.is_set():
+                    return result
+                # ONLY THE SLEEP is counted as waiting. The retry `attempt()` below is real work and must
+                # keep counting against the slow-request threshold, or a claim that is slow to EXECUTE would
+                # hide inside a long poll -- which is the failure this accounting exists to make visible, not
+                # a second place to bury it.
+                slept_at = time.monotonic()
+                await _until(woken, min(remaining, fallback_s), gone)
+                note_waited(time.monotonic() - slept_at)
+                # Asked AFTER the wake and BEFORE the attempt: the wake is usually the work arriving, and
+                # claiming it now would mark it for a caller that will never read the answer.
+                if gone.is_set():
+                    return result
+                _stop_listening(scope, woken)
+                woken = _listen(scope)
+                result = await _try()
+                if not is_empty(result):
+                    return result
+    finally:
+        _stop_listening(scope, woken)

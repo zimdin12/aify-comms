@@ -1,5 +1,5 @@
 """Lifecycle wire fields. Core validates values without coercion."""
-from typing import Any
+from typing import Any, Optional
 from pydantic import BaseModel
 
 #: The lifecycle actions that launch a worker, and so prepare a launch and are refused at once for a
@@ -44,6 +44,11 @@ class LifecycleClaim(BaseModel):
     machineId: Any = None
     actions: Any = None
     capabilities: Any = None
+
+
+class LifecycleClaimRequest(LifecycleClaim):
+    """The claim route's body: `waitMs` holds an empty claim open until its queue commits a change (longpoll)."""
+    waitMs: Optional[int] = 0
 
 
 class LifecycleAttachment(LifecycleClaim):

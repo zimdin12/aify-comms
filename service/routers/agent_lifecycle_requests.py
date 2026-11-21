@@ -1,12 +1,15 @@
 """HTTP lifecycle queue. The service accepts intent; only the host executes."""
 from fastapi import HTTPException, Request
+from service import longpoll
 from service.api_core import agent_lifecycle_requests as core
 
 from service.api_core.operator_authz import require_lifecycle
 from service.api_core.routing import domain_router
 from service.clock import now
 from service.db import get_db
-from service.lifecycle_models import LifecycleSubmit, LifecycleClaim, LifecycleResult, LifecycleAttachment
+from service.lifecycle_models import (
+    LifecycleSubmit, LifecycleClaim, LifecycleClaimRequest, LifecycleResult, LifecycleAttachment,
+)
 from service.api_core import lifecycle_launch
 from service.routers.definition_requests import _environment, _proven_host
 
@@ -57,20 +60,35 @@ async def read_lifecycle(request_id: str):
         await db.close()
 
 
+def nothing_claimed(result):
+    """Whether a claim attempt handed out nothing, so a held claim keeps waiting."""
+    return not result['requests']
+
+
 @router.post('/environments/{environment_id:path}/lifecycle-requests/claim')
-async def claim_lifecycle(environment_id: str, claimed_by: LifecycleClaim, request: Request):
+async def claim_lifecycle(environment_id: str, claimed_by: LifecycleClaimRequest, request: Request):
     body = claimed_by.model_dump(exclude_unset=True)
-    db = await get_db()
-    try:
-        await db.execute('BEGIN IMMEDIATE')
-        environment = await _environment(db, environment_id)
-        await _proven_host(db, environment, body.get('machineId',''), request)
-        found = await core.claim_lifecycle_requests(db, environment, body.get('bridgeId',''), body.get('machineId',''), now(),
-                                                    body.get('actions'), body.get('capabilities'))
-        await db.commit()
-        return {'ok': True, 'requests': found}
-    finally:
-        await db.close()
+
+    async def attempt():
+        # THE WHOLE CLAIM, EVERY ATTEMPT: its own connection and write transaction, closed before any wait, and the
+        # host proof, the bridge fence and the declared actions and capabilities judged again.
+        db = await get_db()
+        try:
+            await db.execute('BEGIN IMMEDIATE')
+            environment = await _environment(db, environment_id)
+            await _proven_host(db, environment, body.get('machineId',''), request)
+            found = await core.claim_lifecycle_requests(db, environment, body.get('bridgeId',''), body.get('machineId',''),
+                                                        now(), body.get('actions'), body.get('capabilities'))
+            await db.commit()
+            return {'ok': True, 'requests': found}
+        finally:
+            await db.close()
+
+    # WOKEN BY THE COMMIT of any write to the queue (change_feed.CLAIM_SCOPES), never by a timer: no fallback re-check.
+    # No `lock_result`: write contention answers as it always has. Treated as empty, it would wait past work already
+    # committed, for a wake that came before the attempt.
+    return await longpoll.longpoll(claimed_by.waitMs, attempt, nothing_claimed, scope="lifecycle-request",
+                                   fallback_s=longpoll.MAX_WAIT_S, request=request)
 
 
 async def _launch_operation(environment_id, request_id, submitted, request, operation, key):

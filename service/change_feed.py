@@ -70,6 +70,10 @@ CLAIM_SCOPES: Mapping[str, str] = {
     "terminal_controls": "terminal-control",
     "environment_controls": "env-control",
     "spawn_requests": "spawn",
+    # A host's held lifecycle and definition claims. Every writer of these queues commits through here
+    # (dispatch's automatic starts, spawns owed by creations, operator requests and edits), so none is missed.
+    "agent_lifecycle_requests": "lifecycle-request",
+    "definition_requests": "definition-request",
 }
 
 #: How long changes gather before one event is sent. A burst of writes from one request, or from a

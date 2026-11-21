@@ -96,6 +96,47 @@ class LongpollTests(unittest.TestCase):
         self.assertIsNone(result["run"])
         self.assertLess(elapsed, 2.0)  # bailed on disconnect, not the 10s fallback
 
+    def test_a_notify_that_lands_during_an_attempt_is_not_slept_through(self):
+        # Work committed while an empty attempt is still finishing (closing its database) notifies before the
+        # wait begins. A claim with no fallback timer slept through it for its whole wait.
+        async def _run():
+            calls = {"n": 0}
+
+            async def attempt():
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    longpoll.notify("during-attempt")  # the enqueue commits as this attempt ends, empty
+                    return {"ok": True, "run": None}
+                return {"ok": True, "run": {"id": "r4"}}
+
+            started = time.monotonic()
+            result = await longpoll.longpoll(
+                25000, attempt, is_empty=lambda r: r.get("run") is None,
+                scope="during-attempt", fallback_s=longpoll.MAX_WAIT_S,
+            )
+            return result, calls["n"], time.monotonic() - started
+
+        result, n, elapsed = asyncio.run(_run())
+        self.assertEqual((result["run"], n), ({"id": "r4"}, 2))
+        self.assertLess(elapsed, 1.0, "the notify that arrived during the attempt was slept through")
+        self.assertNotIn("during-attempt", longpoll._waiters)
+
+    def test_waitMs_zero_listens_for_nothing(self):
+        # CONTROL for the above: a claim that asked for no wait is the plain attempt it always was.
+        async def _run():
+            woken = []
+
+            async def attempt():
+                woken.append(longpoll.notify("no-wait"))
+                return {"ok": True, "run": None}
+
+            result = await longpoll.longpoll(0, attempt, is_empty=lambda r: r.get("run") is None, scope="no-wait")
+            return result, woken
+
+        result, woken = asyncio.run(_run())
+        self.assertEqual((result["run"], woken), (None, [0]))
+        self.assertNotIn("no-wait", longpoll._waiters)
+
     def test_notify_returns_woken_count_and_no_leak(self):
         async def _run():
             async def waiter():
