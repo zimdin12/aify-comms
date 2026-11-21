@@ -95,6 +95,42 @@ class AReportingHostOwnsItsTerminalTests(FastApiTestCase):
 
         return asyncio.run(go())
 
+    def test_legacy_command_release_is_scoped_to_the_required_launcher(self):
+        async def resolve_and_read(runtime, command):
+            db = await get_db()
+            try:
+                await db.execute("UPDATE terminal_sessions SET runtime = ?, command = ? WHERE id = ?",
+                                 (runtime, command, self.TERMINAL))
+                resolved = await _active_terminal_for_agent(db, self.AGENT)
+                terminal = await (await db.execute(
+                    "SELECT status, error FROM terminal_sessions WHERE id = ?", (self.TERMINAL,),
+                )).fetchone()
+                session = await (await db.execute(
+                    "SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (self.SESSION,),
+                )).fetchone()
+                return resolved, tuple(terminal), tuple(session)
+            finally:
+                await db.close()
+
+        for runtime, command, released in (
+            ("claude-code", "claude --resume fixture", True),
+            ("claude", "claude --resume fixture", True),
+            ("claude-code", "claude-aify --aify-agent fixture", False),
+            ("claude-code", " ", False),
+            ("codex", "codex --resume fixture", False),
+        ):
+            with self.subTest(runtime=runtime, command=command):
+                resolved, terminal, session = asyncio.run(resolve_and_read(runtime, command))
+                if released:
+                    self.assertIsNone(resolved, "raw Claude terminal must release ownership")
+                    self.assertEqual(terminal, ("failed", "Released legacy raw Claude terminal before managed "
+                                                "channel dispatch; Claude backing must start through claude-aify."))
+                    self.assertEqual(session, ("managed", "failed"))
+                else:
+                    self.assertEqual(resolved["terminal_id"], self.TERMINAL)
+                    self.assertEqual(terminal, ("attached", ""))
+                    self.assertEqual(session, ("console", "attached"))
+
     def test_THE_TWO_CASES_ARE_DISTINGUISHABLE(self):
         """Both directions on one mismatched id. aify-env mints a fresh bridge id on every plugin
         start, so after a restart every terminal mismatches: one its host is actively reporting must

@@ -25,12 +25,22 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.delivery_policy import delivery_profile
 from service.api_core.events import _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
+
+
+# This check recognizes old recorded commands; it does not decide where to launch work.
+_LEGACY_CONSOLE_POLICY = {
+    "wake:channel": (
+        "claude-aify",
+        "Released legacy raw Claude terminal before managed channel dispatch; Claude backing must start through claude-aify.",
+    ),
+}
 
 
 async def _release_stale_terminal_owner(db, row, *, reason: str):
@@ -103,13 +113,12 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
         return None
     runtime = _normalize_runtime(row["runtime"] or row["session_runtime"] or "")
     command = str(row["command"] or "").strip()
-    if runtime == "claude-code" and command and "claude-aify" not in command:
-        await _release_stale_terminal_owner(
-            db,
-            row,
-            reason="Released legacy raw Claude terminal before managed channel dispatch; Claude backing must start through claude-aify.",
-        )
-        return None
+    policy = _LEGACY_CONSOLE_POLICY.get(delivery_profile(runtime).fact)
+    if policy and command:
+        launcher, reason = policy
+        if launcher not in command:
+            await _release_stale_terminal_owner(db, row, reason=reason)
+            return None
 
     settings = settings or await _load_settings(db)
     # FIX B3 (2026-06-03): raise the Console-owner staleness-release floor to align
