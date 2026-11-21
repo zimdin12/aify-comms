@@ -48,14 +48,8 @@ export function openAgentDrawer(agentId) {
   const mode = modes.displayMode || String(session?.mode || 'resident').toLowerCase();
   const otherMode = modes.configuredMode === 'managed' ? 'resident' : 'managed';
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
-  // AGENT-LEVEL stop (2026-07-26, operator request: "a way to stop/kill an online agent").
-  // Every other action here is gated on `sid` — a resolvable session row — so an agent whose
-  // session is missing/unresolved offered NO way to stop it from the dashboard at all. This one
-  // is keyed on the AGENT and hits /agents/{id}/stop-worker, the authoritative teardown: it ends
-  // the live worker, terminal bindings and turn_busy pulse, reports `available`, and PRESERVES
-  // registration + session_handle so the agent can be started again later.
-  // Offered whenever the agent isn't already down, so it works for exactly the `online`/`working`
-  // case the operator hit.
+  // Stop is keyed by agent id, so a missing session row does not hide it for
+  // an agent that may still have a worker.
   const agentStatus = String(agent.status || '').trim().toLowerCase();
   const canStopWorker = !['offline', 'stopped', 'available'].includes(agentStatus);
   // START WHERE THE SERVICE WOULD START IT (v0.7.7), by the rule the Start dialog uses.

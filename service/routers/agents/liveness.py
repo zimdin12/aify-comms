@@ -129,13 +129,9 @@ async def agent_heartbeat(agent_id: str, request: Request):
         )).fetchone()
         if not agent_row:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        # Mode FSM release signal (Task 4.1, 2026-05-30). Symmetric with the
-        # claim path: a DISPLACED managed sidecar (bridgeKind="channel-sidecar")
-        # pulsing turn_busy via heartbeat is told to RELEASE once the agent has
-        # been switched to resident, so it stops driving even between claims.
-        # driver_state guard (2026-05-31, manager): see the claim-path comment.
-        # A live resident driver (driver_state='driving') keeps its own delivery
-        # sidecar; only a displaced managed driver (not 'driving') is released.
+        # A resident sidecar keeps driving if already marked driving or if its
+        # live bridge can be adopted. Otherwise heartbeat tells the displaced
+        # sidecar to release, even between claims.
         if bridge_kind == "channel-sidecar":
             mode_row = await (await db.execute(
                 "SELECT session_mode, driver_state FROM agents WHERE id = ?",

@@ -135,19 +135,11 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
 
 @router.post("/agents/{agent_id}/stop-worker")
 async def stop_agent_worker(agent_id: str, request: Request):
-    """Phase 4: dashboard Stop → agent.status = 'available'.
+    """Request a worker stop without removing the agent or holding future starts.
 
-    Single endpoint that tears down whatever persistent worker the agent
-    has (virtual rpc terminal_session, live agent_sessions, terminal
-    bindings, runtime_state.virtualTerminalId pointer, turn_busy pulse).
-    Bridge-side resources (PiSession pool entry, codex/opencode session
-    pools, claude-aify wrapper PTY) get cleaned up by the bridge on its
-    next reconcile cycle — the service-side teardown here is
-    authoritative for the agent's reported status.
-
-    The agent's persistent identity (registration, capabilities,
-    conversation history, session_handle for resume) is preserved.
-    Only the live worker lifecycle ends.
+    Defined agents delegate the stop to their host. Otherwise the service queues
+    terminal stops and ends live session records. Identity, conversation history
+    and the resume handle are kept. Acceptance is not evidence of process exit.
     """
     db = await get_db()
     try:

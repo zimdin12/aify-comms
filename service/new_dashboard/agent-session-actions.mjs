@@ -299,12 +299,8 @@ export async function removeAgent(agentId) {
   } catch (err) { toast(`Remove failed: ${err?.message || err}`, 'error'); }
 }
 
-// Kill a live worker from the details drawer, keyed on the AGENT rather than a session row
-// (2026-07-26). /agents/{id}/stop-worker is the authoritative teardown: it ends the live
-// agent_sessions rows, terminal bindings, virtual-terminal pointer and turn_busy pulse, and the
-// agent reports `available`. Identity, history and the resume handle survive, so this is "stop",
-// not "remove" — the agent can be started again from the same drawer.
-// Confirmed because it kills real running work.
+// Confirm before requesting a worker stop: it can interrupt live work.
+// Stop leaves the agent startable and keeps identity, history and the resume handle.
 export async function stopAgentWorker(agentId) {
   if (!agentId) return;
   if (!await uiConfirm(
