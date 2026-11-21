@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "registration": {
+    "name": "aify-comms",
+    "fixed": {
+      "endpointEnv": ["CLAUDE_MCP_SERVER_URL", "AIFY_SERVER_URL"],
+      "keyEnv": ["CLAUDE_MCP_API_KEY", "AIFY_API_KEY"],
+      "agentState": { "path": "/api/v1/agent-state" },
+      "mcpTransport": "http"
+    },
+    "secrets": [{ "field": "credentialRef", "required": true, "probe": "api" }]
+  },
+  "store": {
+    "endpoint": "http://127.0.0.1:8800",
+    "credentialRef": "session-fixture.key",
+    "bytes": "stored-fixture-key-0123456789\n"
+  },
+  "cases": [
+    { "id": "stored-key", "request": {}, "custody": "private", "expected": { "key": "stored-fixture-key-0123456789" } },
+    { "id": "loopback-alias", "request": { "url": "http://localhost:8800/" }, "custody": "private", "expected": { "key": "stored-fixture-key-0123456789" } },
+    { "id": "export-before-store", "request": { "env": { "AIFY_API_KEY": "explicit-fixture-key-0123456789" } }, "custody": "private", "expected": { "key": "explicit-fixture-key-0123456789" } },
+    { "id": "first-export-wins", "request": { "env": { "CLAUDE_MCP_API_KEY": "first-fixture-key-0123456789", "AIFY_API_KEY": "second-fixture-key-0123456789" } }, "custody": "private", "expected": { "key": "first-fixture-key-0123456789" } },
+    { "id": "invalid-first-export-refuses", "request": { "env": { "CLAUDE_MCP_API_KEY": " ", "AIFY_API_KEY": "second-fixture-key-0123456789" } }, "custody": "private", "expected": { "refused": true } },
+    { "id": "other-port-no-stored-key", "request": { "url": "http://127.0.0.1:8801" }, "custody": "private", "expected": { "refused": true } },
+    { "id": "other-path-no-stored-key", "request": { "url": "http://127.0.0.1:8800/other" }, "custody": "private", "expected": { "refused": true } },
+    { "id": "other-scheme-no-stored-key", "request": { "url": "https://127.0.0.1:8800" }, "custody": "private", "expected": { "refused": true } },
+    { "id": "missing-file", "request": {}, "custody": "missing", "expected": { "refused": true } },
+    { "id": "malformed-bytes", "request": {}, "custody": "private", "bytes": "stored-fixture-key-0123456789", "expected": { "refused": true } },
+    { "id": "shared-file", "request": {}, "custody": "shared", "expected": { "refused": true } },
+    { "id": "symbolic-link", "request": {}, "custody": "symlink", "expected": { "refused": true } }
+  ],
+  "endpointCases": [
+    { "left": "http://localhost:8800", "right": "http://127.0.0.1:8800/", "same": true },
+    { "left": "http://127.0.0.1", "right": "http://127.0.0.1:80", "same": true },
+    { "left": "https://fixture.invalid", "right": "https://fixture.invalid:443", "same": true },
+    { "left": "http://fixture.invalid:1/a", "right": "http://fixture.invalid:1/b", "same": false },
+    { "left": "http://fixture.invalid:1/a/", "right": "http://fixture.invalid:1/a", "same": true },
+    { "left": "not a url", "right": "not a url", "same": false },
+    { "left": "", "right": "", "same": false },
+    { "left": "http://fixture.invalid:1", "right": "https://fixture.invalid:1", "same": false }
+  ]
+}
