@@ -1,11 +1,8 @@
-""""Is there still nothing to do?" — the five predicates that decide whether a long-poll keeps waiting.
+"""Predicates for deciding whether a claim should keep waiting.
 
-PURE. No database, no router, no imports from this service: five dict reads and nothing else.
-
-WHAT THEY DECIDE. `longpoll()` runs a claim attempt, and if the result is EMPTY it holds the request
-open and retries until work arrives or the client's wait elapses. These predicates are the only
-definition of "empty" the service has, and each of the five claim endpoints has its own, because
-each returns a differently-shaped result.
+These are pure dict reads. `longpoll()` retries an empty claim until work arrives or the wait
+elapses. Each predicate belongs to its response shape; lifecycle and definition claims share
+one because both return a `requests` list.
 
 WHY THEY LIVE HERE. Until v0.5.4 all five were written INLINE at the `longpoll()` call — four
 one-line lambdas and one nested `def`. None could be imported, so none could be tested, and the
@@ -29,6 +26,11 @@ each asymmetry tested; making them agree is a behaviour change and a reviewer's 
 """
 
 from __future__ import annotations
+
+
+def request_list_is_empty(result: dict) -> bool:
+    """Lifecycle and definition claims only wait when their required list is empty."""
+    return not result["requests"]
 
 
 def dispatch_claim_is_empty(result: dict) -> bool:

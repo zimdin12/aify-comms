@@ -338,7 +338,7 @@ class TheServiceOwnsThePool(unittest.TestCase):
         self._main = main_module
         self._original_get_config = main_module.get_config
         self._original_path = db_module._db_path
-        config = ServiceConfig(data_dir=self._tmp.name, config_dir=self._tmp.name, mcp_enabled=False, cors_origins=["*"])
+        config = ServiceConfig(data_dir=self._tmp.name, mcp_enabled=False, cors_origins=["*"])
         main_module.get_config = lambda: config
         self.app = main_module.create_app()
 

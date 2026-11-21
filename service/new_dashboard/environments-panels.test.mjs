@@ -502,15 +502,15 @@ test("a spawn's error is readable in full: the cell wraps and carries the whole 
 
 // --- loadSpawnRequests ------------------------------------------------------------------------
 import { setApiBase } from "./api-client.mjs";
-import { loadSpawnRequests } from "./environments-panels.mjs";
+import { loadSpawnRequests, renderSpawnRequests } from "./environments-panels.mjs";
 
 test("navigation reads lifecycle spawns and distinguishes empty from unavailable", async () => {
   const realFetch = globalThis.fetch;
   const saved = { spawnRequests: state.spawnRequests, spawnRequestsStatus: state.spawnRequestsStatus };
   const paths = [];
   let body = { requests: [
-    { id: "new", agentId: "new-coder", action: "spawn", status: "pending", createdAt: "2026-11-19T12:00:00Z" },
-    { id: "failed", agentId: "failed-coder", action: "spawn", status: "failed", outcome: "<launcher refused>",
+    { id: "new", agentId: "new-agent", action: "spawn", status: "pending", createdAt: "2026-11-19T12:00:00Z" },
+    { id: "failed", agentId: "failed-agent", action: "spawn", status: "failed", outcome: "<launcher refused>",
       createdAt: "2026-11-19T11:00:00Z", finishedAt: "2026-11-19T11:01:00Z" },
   ] };
   setApiBase("");
@@ -524,7 +524,7 @@ test("navigation reads lifecycle spawns and distinguishes empty from unavailable
       const table = els["spawn-requests-list"];
       await loadSpawnRequests();
       assert.deepEqual(paths, ["/agent-lifecycle-requests/history/spawns"]);
-      assert.match(table.innerHTML, /new-coder[\s\S]*pending[\s\S]*failed-coder[\s\S]*failed/);
+      assert.match(table.innerHTML, /new-agent[\s\S]*pending[\s\S]*failed-agent[\s\S]*failed/);
       assert.match(table.innerHTML, /&lt;launcher refused&gt;/);
       assert.match(table.innerHTML, /2026-11-19T11:01:00Z/);
       assert.doesNotMatch(table.innerHTML, /stale-legacy/);
@@ -532,13 +532,13 @@ test("navigation reads lifecycle spawns and distinguishes empty from unavailable
       body = {};
       await loadSpawnRequests();
       assert.match(table.innerHTML, /Spawn history unavailable/);
-      assert.match(table.innerHTML, /new-coder/);
+      assert.match(table.innerHTML, /new-agent/);
       assert.doesNotMatch(table.innerHTML, /No lifecycle spawn requests/);
 
       body = { requests: [] };
       await loadSpawnRequests();
       assert.match(table.innerHTML, /No lifecycle spawn requests/);
-      assert.doesNotMatch(table.innerHTML, /unavailable|new-coder/);
+      assert.doesNotMatch(table.innerHTML, /unavailable|new-agent/);
 
       globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
       await loadSpawnRequests();
@@ -547,6 +547,26 @@ test("navigation reads lifecycle spawns and distinguishes empty from unavailable
     });
   } finally {
     globalThis.fetch = realFetch;
+    Object.assign(state, saved);
+  }
+});
+
+test("renderSpawnRequests uses cached history before any navigation fetch", () => {
+  const saved = { spawnRequests: state.spawnRequests, spawnRequestsStatus: state.spawnRequestsStatus };
+  try {
+    state.spawnRequests = [];
+    state.spawnRequestsStatus = "idle";
+    withDom({ "spawn-requests-list": el() }, null, (els) => {
+      const table = els["spawn-requests-list"];
+      renderSpawnRequests();
+      assert.match(table.innerHTML, /Loading spawn history/);
+      state.spawnRequests = [{ agentId: "fixture-agent", action: "spawn", status: "done" }];
+      state.spawnRequestsStatus = "ready";
+      renderSpawnRequests();
+      assert.match(table.innerHTML, /fixture-agent[\s\S]*data-status-kind="done"/);
+      assert.doesNotMatch(table.innerHTML, /Loading spawn history/);
+    });
+  } finally {
     Object.assign(state, saved);
   }
 });

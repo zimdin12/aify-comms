@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import {
   AGENT_STATUSES,
   STATUS_KINDS,
+  renderResolvedStatusChip,
   renderStatusChip,
   resolveStatus,
   runStatusContext,
@@ -75,6 +76,15 @@ test("renderStatusChip escapes interpolated values (XSS guard)", () => {
   assert.ok(!html.includes("<img"), "chip must escape attribute-context HTML");
   assert.ok(html.includes("&quot;") || html.includes("&gt;"), "escaped entities present");
   assert.ok(html.includes('data-status-kind="online"'));
+});
+
+test("renderResolvedStatusChip keeps the caller's status vocabulary", () => {
+  const status = { kind: "receipt", label: "Ready & verified", tone: "ok", dotKind: "ok" };
+  const html = renderResolvedStatusChip(status);
+  assert.match(html, /data-status-kind="receipt"/);
+  assert.match(html, /data-tone="ok"/);
+  assert.match(html, /data-status-why="Ready &amp; verified status"/);
+  assert.match(html, /status-dot ok"><\/span>Ready &amp; verified/);
 });
 
 // ── statusWhyContext / runStatusContext, moved here from app.js in v0.5.4 ────────────────────────

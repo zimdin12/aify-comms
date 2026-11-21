@@ -7,6 +7,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.claim_emptiness import request_list_is_empty
 from service.api_core.definition_requests import (
     admit, claim, finish_removal, report, request_by_id, requests_for,
 )
@@ -83,13 +84,8 @@ async def claim_definition_changes(environment_id: str, claimed_by: DefinitionCl
 
     # Woken by the commit of any write to the queue (change_feed.CLAIM_SCOPES), never by a timer; contention answers
     # as it always has (see the lifecycle claim).
-    return await longpoll.longpoll(claimed_by.waitMs, attempt, nothing_claimed, scope="definition-request",
+    return await longpoll.longpoll(claimed_by.waitMs, attempt, request_list_is_empty, scope="definition-request",
                                    fallback_s=longpoll.MAX_WAIT_S, request=request)
-
-
-def nothing_claimed(result: dict) -> bool:
-    """Whether a claim attempt handed out nothing, so a held claim keeps waiting."""
-    return not result["requests"]
 
 
 @router.post("/environments/{environment_id:path}/definition-requests/{request_id}/result")

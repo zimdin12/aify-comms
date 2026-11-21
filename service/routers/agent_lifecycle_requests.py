@@ -2,7 +2,7 @@
 from fastapi import HTTPException, Request
 from service import longpoll
 from service.api_core import agent_lifecycle_requests as core
-
+from service.api_core.claim_emptiness import request_list_is_empty
 from service.api_core.operator_authz import require_lifecycle
 from service.api_core.routing import domain_router
 from service.clock import now
@@ -60,11 +60,6 @@ async def read_lifecycle(request_id: str):
         await db.close()
 
 
-def nothing_claimed(result):
-    """Whether a claim attempt handed out nothing, so a held claim keeps waiting."""
-    return not result['requests']
-
-
 @router.post('/environments/{environment_id:path}/lifecycle-requests/claim')
 async def claim_lifecycle(environment_id: str, claimed_by: LifecycleClaimRequest, request: Request):
     body = claimed_by.model_dump(exclude_unset=True)
@@ -87,7 +82,7 @@ async def claim_lifecycle(environment_id: str, claimed_by: LifecycleClaimRequest
     # WOKEN BY THE COMMIT of any write to the queue (change_feed.CLAIM_SCOPES), never by a timer: no fallback re-check.
     # No `lock_result`: write contention answers as it always has. Treated as empty, it would wait past work already
     # committed, for a wake that came before the attempt.
-    return await longpoll.longpoll(claimed_by.waitMs, attempt, nothing_claimed, scope="lifecycle-request",
+    return await longpoll.longpoll(claimed_by.waitMs, attempt, request_list_is_empty, scope="lifecycle-request",
                                    fallback_s=longpoll.MAX_WAIT_S, request=request)
 
 

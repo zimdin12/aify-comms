@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { bindingFilePathForPid, readAgentBindingFile, removeAgentBindingFile, writeAgentBindingFile } from "../binding-file.js";
+import {
+  bindingFilePathForPid, readAgentBindingFile, removeAgentBindingFile, removeBindingsWrittenHere, writeAgentBindingFile,
+} from "../binding-file.js";
 import { tmpDir } from "./_tmpdir.js";
 
 const tmp = tmpDir("aify-binding-file-");
@@ -44,6 +44,23 @@ fs.rmSync(file, { force: true });
 writeAgentBindingFile({ pid, agentId: "agent-a", bridgeId: "retired", startedAt: older, dir: tmp });
 assert.equal(writeAgentBindingFile({ pid, agentId: "agent-a", bridgeId: "successor", startedAt: younger, dir: tmp }), true);
 assert.equal(readAgentBindingFile({ pid, dir: tmp }).bridgeId, "successor");
+
+// Shutdown sweeps each key this process wrote, but only if its owner still matches.
+const owned = [pid, pid + 1];
+const replaced = pid + 2;
+const untracked = pid + 3;
+const bindingPath = (key) => bindingFilePathForPid(key, tmp);
+for (const key of [...owned, replaced]) {
+  writeAgentBindingFile({ pid: key, agentId: "agent-a", bridgeId: "leaving", dir: tmp });
+}
+const successor = JSON.stringify({ pid: replaced, agentId: "agent-a", bridgeId: "successor" });
+fs.writeFileSync(bindingPath(replaced), successor);
+fs.writeFileSync(bindingPath(untracked), "legacy-agent");
+assert.equal(removeBindingsWrittenHere(), owned.length);
+for (const key of owned) assert.equal(fs.existsSync(bindingPath(key)), false);
+assert.equal(fs.readFileSync(bindingPath(replaced), "utf8"), successor);
+assert.equal(fs.readFileSync(bindingPath(untracked), "utf8"), "legacy-agent");
+assert.equal(removeBindingsWrittenHere(), 0);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log("binding-file.test.js: all assertions passed");

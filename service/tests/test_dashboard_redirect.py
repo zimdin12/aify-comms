@@ -60,7 +60,6 @@ class DashboardRedirectTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         cfg = ServiceConfig(
             data_dir=self.tmp.name,
-            config_dir=self.tmp.name,
             api_key="",
             # NO `host=`. `ServiceConfig` no longer declares one: it was settable through `HOST` and
             # through `service.json` and read by nothing, while the container's CMD hardcodes

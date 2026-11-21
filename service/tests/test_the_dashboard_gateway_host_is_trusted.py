@@ -30,7 +30,7 @@ class TheDashboardGatewayHostIsTrusted(FastApiTestCase):
     def _request_client(self, host, *, key=KEY, trusted_hosts=(), https_sites=''):
         config = ServiceConfig(api_key=key, operator_key='', mcp_enabled=False, cors_origins=['*'],
                                trusted_hosts=list(trusted_hosts), https_sites=https_sites,
-                               data_dir=str(self._db_path.parent), config_dir=str(self._db_path.parent))
+                               data_dir=str(self._db_path.parent))
         with mock.patch.object(main, 'get_config', return_value=config):
             app = main.create_app()
         app.state.config = config

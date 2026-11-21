@@ -65,7 +65,6 @@ class ServiceConfig:
 
     # Paths
     data_dir: str = "/data"
-    config_dir: str = "/app/config"
 
     # MCP
     mcp_enabled: bool = True
@@ -136,8 +135,8 @@ class ServiceConfig:
                 import logging
                 logging.getLogger(__name__).warning(f"Invalid _build_stamp.json: {e}")
 
-        # Load service.json if exists
-        json_path = Path(os.getenv("CONFIG_DIR", config.config_dir)) / "service.json"
+        # CONFIG_DIR selects the input file; it is not a setting used after loading.
+        json_path = Path(os.getenv("CONFIG_DIR", "/app/config")) / "service.json"
         if json_path.exists():
             try:
                 with open(json_path) as f:
@@ -182,7 +181,6 @@ class ServiceConfig:
             "AIFY_BUILT_AT": "built_at",
             "SERVICE_PORT": ("port", int),
             "DATA_DIR": "data_dir",
-            "CONFIG_DIR": "config_dir",
             "MCP_ENABLED": ("mcp_enabled", lambda v: v.lower() in ("true", "1", "yes")),
             "MCP_PATH_PREFIX": "mcp_path_prefix",
             "API_KEY": "api_key",

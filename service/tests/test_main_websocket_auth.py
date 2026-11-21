@@ -26,7 +26,6 @@ class WebsocketAuthTests(unittest.TestCase):
         self._original_get_config = main_module.get_config
         config = ServiceConfig(
             data_dir=self._tmpdir.name,
-            config_dir=self._tmpdir.name,
             api_key="secret",
             mcp_enabled=False,
             cors_origins=["*"],
@@ -128,7 +127,6 @@ class ACorsPreflightCarriesNoCredentialsTests(unittest.TestCase):
         self._original_get_config = main_module.get_config
         config = ServiceConfig(
             data_dir=self._tmpdir.name,
-            config_dir=self._tmpdir.name,
             api_key="secret",
             mcp_enabled=False,
             cors_origins=["*"],

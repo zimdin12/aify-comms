@@ -322,9 +322,7 @@ class DeafTargetAlwaysQueuesTests(unittest.TestCase):
         )
 
     def test_send_to_cold_available_hermes_no_lease_still_queues_and_coldstarts(self):
-        # A managed hermes that NEVER recorded a lease is cold-startable, NOT deaf:
-        # the send must NOT fail fast — it cold-starts a spawn_request (unchanged
-        # lazy-autostart-on-send behavior).
+        # No lease ever is cold-startable, not deaf. The send queues both the run and its automatic start.
         self._heartbeat_hermes_env()
         self._register_managed_hermes("cold-hermes")
 
@@ -352,18 +350,23 @@ class DeafTargetAlwaysQueuesTests(unittest.TestCase):
             f"cold available hermes (no lease ever) must NOT be hard-rejected; got {body}",
         )
 
+        [run] = body['dispatchRuns']
+        self.assertEqual((run['targetAgentId'], run['status']), ('cold-hermes', 'queued'))
+        found = self.client.get('/api/v1/agents/cold-hermes/lifecycle-requests')
+        self.assertEqual(found.status_code, 200, found.text)
+        [start] = found.json()['requests']
+        self.assertEqual((start['action'], start['startIntent'], start['status']), ('start', 'automatic', 'pending'))
+
         async def _go():
             db = await get_db()
             try:
-                row = await (await db.execute(
-                    "SELECT COUNT(*) AS n FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed')",
-                    ("cold-hermes",),
-                )).fetchone()
-                return int(row["n"])
+                return await (await db.execute(
+                    "SELECT id FROM spawn_requests WHERE agent_id = ?", ('cold-hermes',),
+                )).fetchall()
             finally:
                 await db.close()
 
-        self.assertEqual(_run(_go()), 1, f"cold-start must back the agent with a spawn_request; got {body}")
+        self.assertEqual(_run(_go()), [], 'cold dispatch must not add a legacy spawn request')
 
 
 if __name__ == "__main__":
