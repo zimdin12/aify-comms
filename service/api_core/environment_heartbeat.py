@@ -5,10 +5,10 @@ MOVED FROM `service/routers/environments.py` (audit item S2), statement for stat
 the commit and the broadcast, recorded before the move. What a beat says is read in
 `service/api_core/environment_beat.py`; this module decides what the row becomes.
 
-THE ORDER IS THE CONTRACT. `BEGIN IMMEDIATE` comes before the first read, so the host proof is judged
-and the row written under one write lock. Every refusal returns before any write. The commit comes
-before the held-terminal cleanup, which only an accepted beat may run, and the router broadcasts only
-after this returns, so a broadcast never announces an uncommitted row.
+`BEGIN IMMEDIATE` precedes the proof read. A host-proof refusal writes nothing. A proven peer
+that loses claimer arbitration may renew its environment's listed PTYs, without updating the environment
+or closing omitted rows. Only an accepted beat closes omitted rows, after committing registration
+and renewals; the router broadcasts after that commit.
 
 The caller owns the connection: it opens it, and it closes it after broadcasting.
 
@@ -36,7 +36,7 @@ from service.api_core.settings import _load_settings
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.env_status import environment_has_live_bridge as _environment_has_live_bridge
-from service.reconcilers.host_held_terminals import end_terminals_the_host_no_longer_holds
+from service.reconcilers.host_held_terminals import end_terminals_the_host_no_longer_holds, renew_held_terminals
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 logger = logging.getLogger("aify_comms.routers.environments")
@@ -101,11 +101,21 @@ async def record_environment_heartbeat(db, beat: EnvironmentBeat, presented: str
             return HeartbeatOutcome(body={"ok": True, "environment": _environment_record_to_dict(existing), "forgotten": True})
     merged = merge_with_stored(beat, existing)
     claim = arbitrate_claim(beat, existing)
+    claimer_id = str(req.bridgeId or '').strip()
+    evidence = None
+    same_machine = bool(req.machineId) and (not existing or existing['machine_id'] == req.machineId)
+    if same_machine and beat.requested_status != 'offline':
+        evidence = await renew_held_terminals(db, env_id, claimer_id, beat.held_terminals, now)
+    terminal_answer = {'terminalEvidence': evidence} if evidence is not None else {}
     if claim.refused is not None:
+        # Losing claimer arbitration does not invalidate a peer's positive PTY reports.
+        if evidence and any(fact['state'] == 'renewed' for fact in evidence.values()):
+            await db.commit()
         return HeartbeatOutcome(body={
             "ok": True,
             "environment": _environment_record_to_dict(existing),
             "claimer": claim.refused,
+            **terminal_answer,
         })
     await _record_environment_registration(
         db, existing, env_id, req, merged.effective_roots, merged.runtimes, beat.requested_status,
@@ -132,10 +142,10 @@ async def record_environment_heartbeat(db, beat: EnvironmentBeat, presented: str
     # `bridgeId` is echoed rather than assumed: a beat with no bridgeId is an ADVERTISEMENT, not
     # a claim, and reporting it as an accepted claimer would invent the very authority the
     # advertise/claim split exists to withhold.
-    claimer_id = str(req.bridgeId or "").strip()
     return HeartbeatOutcome(written=True, body={
         "ok": True,
         "environment": environment,
+        **terminal_answer,
         "claimer": {
             "accepted": bool(claimer_id),
             "bridgeId": claimer_id,

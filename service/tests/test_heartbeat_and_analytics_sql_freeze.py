@@ -340,7 +340,8 @@ class HeartbeatAndAnalyticsSqlFreezeTests(FastApiTestCase):
         self._assert_frozen(self.record_repeat_beat(), 200, REPEAT_BEAT_BODY, REPEAT_BEAT_SQL)
 
     def test_recovery_beat_with_held_terminals(self):
-        self._assert_frozen(self.record_recovery_beat_with_held_terminals(), 200, RECOVERY_BODY, RECOVERY_SQL)
+        self._assert_frozen(self.record_recovery_beat_with_held_terminals(), 200,
+                            {**RECOVERY_BODY, 'terminalEvidence': {}}, RECOVERY_SQL)
 
     def test_host_tier_beat_supersedes_a_legacy_bridge(self):
         self._assert_frozen(self.record_host_tier_beat(), 200, HOST_TIER_BODY, HOST_TIER_SQL)

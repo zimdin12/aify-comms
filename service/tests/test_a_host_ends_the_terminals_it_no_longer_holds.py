@@ -151,7 +151,8 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute(
-                    "SELECT t.status, t.stopped_at, t.error, s.terminal_status AS session_status "
+                    "SELECT t.status, t.stopped_at, t.error, t.updated_at, t.bridge_id, "
+                    "t.output, t.output_at, t.output_seq, s.terminal_status AS session_status "
                     "FROM terminal_sessions t JOIN agent_sessions s ON s.id = t.session_id "
                     "WHERE t.id = ?", (terminal_id,))).fetchone()
                 events = await (await db.execute(
@@ -180,6 +181,59 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
         self.assertIn("host_no_longer_holds_terminal", gone["events"],
                       "the terminal's event history does not record why it ended")
         self.assertEqual(self._terminal("t-held")["status"], "attached", "a HELD terminal was ended")
+
+    def test_a_heartbeat_renews_owned_terminals_and_returns_distinct_facts(self):
+        self._beat()
+        self._beat(env=OTHER_ENV, bridge=BRIDGE)
+        self._seed('t-owned', bridge=BRIDGE)
+        self._seed('t-ended', status='failed', bridge=BRIDGE)
+        self._seed('t-peer')
+        self._seed('t-outside', env=OTHER_ENV, bridge=BRIDGE)
+        before = {key: self._terminal(key) for key in ('t-owned', 't-ended', 't-peer', 't-outside')}
+        reply = self._beat(heldTerminals=[*before, 't-missing'])
+        owned = self._terminal('t-owned')
+        self.assertGreater(owned['updated_at'], before['t-owned']['updated_at'], 'listed owned PTY was not renewed')
+        self.assertEqual({**owned, 'updated_at': LONG_AGO}, before['t-owned'], 'renewal changed something besides freshness')
+        self.assertEqual(reply.get('terminalEvidence'), {
+            't-owned': {'state': 'renewed'}, 't-ended': {'state': 'ended', 'status': 'failed'},
+            't-peer': {'state': 'renewed'}, 't-outside': {'state': 'owned-elsewhere'},
+            't-missing': {'state': 'missing'},
+        })
+        peer = self._terminal('t-peer')
+        self.assertGreater(peer['updated_at'], before['t-peer']['updated_at'])
+        self.assertEqual({**peer, 'updated_at': LONG_AGO}, before['t-peer'])
+        for key in ('t-ended', 't-outside'):
+            self.assertEqual(self._terminal(key), before[key], key)
+
+    def test_a_new_bridge_renews_a_still_held_pty_without_repointing_its_owner(self):
+        self._beat(bridge='bridge-old', started=LONG_AGO)
+        self._seed('t-preserved', bridge='bridge-old')
+        before = self._terminal('t-preserved')
+        recent = _iso(datetime.now(timezone.utc) - timedelta(seconds=5))
+        reply = self._beat(bridge='bridge-new', started=recent, heldTerminals=['t-preserved'])
+        self.assertIs(reply['claimer']['accepted'], True, reply)
+        self.assertEqual(reply['environment']['bridgeId'], 'bridge-new')
+        kept = self._terminal('t-preserved')
+        self.assertGreater(kept['updated_at'], before['updated_at'], 'a still-held PTY must renew across bridge replacement')
+        self.assertEqual({**kept, 'updated_at': before['updated_at']}, before)
+        self.assertEqual(reply.get('terminalEvidence'), {'t-preserved': {'state': 'renewed'}})
+
+    def test_a_refused_claimer_can_renew_without_closing_omitted_terminals(self):
+        recent = _iso(datetime.now(timezone.utc) - timedelta(seconds=5))
+        self._beat(started=recent)
+        self._seed('t-winner', bridge=BRIDGE)
+        self._seed('t-peer', bridge='bridge-peer')
+        self._seed('t-omitted', bridge='bridge-peer')
+        reply = self._beat(bridge='bridge-peer', heldTerminals=['t-peer'])
+        self.assertIs(reply['claimer']['accepted'], False, reply)
+        self.assertGreater(self._terminal('t-peer')['updated_at'], LONG_AGO, 'the peer still owns its PTY after refusal')
+        self.assertEqual(self._terminal('t-winner')['updated_at'], LONG_AGO)
+        self.assertEqual(self._terminal('t-omitted')['status'], 'attached', 'the refused peer closed an omitted row')
+        self.assertEqual(reply.get('terminalEvidence'), {'t-peer': {'state': 'renewed'}})
+        self.assertEqual(reply['environment']['bridgeId'], BRIDGE)
+        # A later winning beat without the peer's id must see its now-fresh terminal.
+        self._beat(started=recent, heldTerminals=['t-winner'])
+        self.assertEqual(self._terminal('t-peer')['status'], 'attached')
 
     def test_ABSENT_is_not_empty__an_older_host_ends_nothing(self):
         self._beat()

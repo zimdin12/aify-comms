@@ -36,6 +36,7 @@ from service.api_core.events import _append_terminal_event
 from service.api_core.terminal_output_settlement import _close_out_terminal_on_end_status
 from service.api_core.terminal_status import (
     TERMINAL_LIVE_FILTER_SQL,
+    TERMINAL_STOPPABLE_STATUSES,
     _TERMINAL_ACTIVE_STATUSES,
     _TERMINAL_END_STATUSES,
 )
@@ -97,6 +98,45 @@ def terminals_the_host_no_longer_holds(rows, held_terminals, *, now_epoch: float
                 continue
         selected.append(terminal_id)
     return selected
+
+
+def _held_terminal_fact(row, environment_id):
+    if row is None:
+        return {'state': 'missing'}
+    if row['environment_id'] != environment_id:
+        return {'state': 'owned-elsewhere'}
+    status = str(row['status'] or '').strip().lower()
+    if status in _TERMINAL_END_STATUSES:
+        return {'state': 'ended', 'status': status}
+    if (row['id'].startswith('vterm_') or row['command'] in VIRTUAL_RPC_COMMAND_SET
+            or status not in TERMINAL_STOPPABLE_STATUSES):
+        return {'state': 'unknown'}
+    return {'state': 'renewed'}
+
+
+async def renew_held_terminals(db, environment_id, bridge_id, held_terminals, now):
+    """Renew listed PTYs in the proven environment, under the heartbeat's proof lock.
+
+    A Runner can keep reporting its PTY after the bridge id changes. Renew freshness without
+    moving ownership. None means no declaration, and missing means the row does not exist.
+    """
+    if not bridge_id or not isinstance(held_terminals, list) or not all(
+            isinstance(terminal_id, str) and terminal_id for terminal_id in held_terminals):
+        return None
+    ids = tuple(dict.fromkeys(held_terminals))
+    if not ids:
+        return {}
+    rows = await (await db.execute('''
+        SELECT id, environment_id, status, command FROM terminal_sessions
+        WHERE id IN (SELECT value FROM json_each(?))''', (json.dumps(ids),))).fetchall()
+    by_id = {row['id']: row for row in rows}
+    evidence = {terminal_id: _held_terminal_fact(by_id.get(terminal_id), environment_id)
+                for terminal_id in ids}
+    renewed = [terminal_id for terminal_id in ids if evidence[terminal_id]['state'] == 'renewed']
+    if renewed:
+        await db.execute('''UPDATE terminal_sessions SET updated_at=?
+            WHERE id IN (SELECT value FROM json_each(?))''', (now, json.dumps(renewed)))
+    return evidence
 
 
 async def end_terminals_the_host_no_longer_holds(db, environment_id: str, held_terminals, *, offline: bool,
