@@ -50,8 +50,6 @@ const CORPUS = [
   "con", "CON", "nul.key", "com1", "lpt9.txt", "prn",
   // charset edges
   "a b", "a$b", "café", "a\nb", "a\tb",
-  // non-strings
-  null, undefined, 42, {},
 ];
 
 test("the aify-env checkout is present, because this proof needs the real implementation", () => {
@@ -87,6 +85,10 @@ test("both implementations agree on every shape in the corpus", async () => {
     + "\nEvery disagreement is either a ref this installer writes and aify-env then refuses to "
     + "resolve, or one it refuses to write that would have worked.",
   );
+});
+
+test("the client ref export refuses non-strings before filesystem access", () => {
+  for (const ref of [null, undefined, 42, {}]) assert.match(ours(ref), /not a string/);
 });
 
 // -- and the writer actually uses it ---------------------------------------------------------------

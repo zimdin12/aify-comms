@@ -155,7 +155,7 @@ test("no API key VALUE is embedded in the module", () => {
   assert.equal(apiKeyFrom({}), "", "a key appeared from somewhere other than the environment");
   assert.equal(apiKeyFrom({ AIFY_API_KEY: "from-env" }), "from-env");
   for (const name of API_KEY_ENV_NAMES) {
-    assert.match(src, new RegExp(`"${name}"`), `${name} is read but not declared here`);
+    assert.equal(apiKeyFrom({ [name]: "from-declared-env" }), "from-declared-env", `${name} is declared but not read`);
   }
 });
 

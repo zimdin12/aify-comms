@@ -89,6 +89,20 @@ def test_A_MISSING_COMPONENT_CARRIES_ITS_OWN_INSTALLER():
     assert "aify-env" in rows and "install.sh" in rows["aify-env"][2]
 
 
+def test_bridge_local_shim_is_not_a_host_installation(tmp_path):
+    local_bin = tmp_path / "node_modules" / ".bin"
+    host_bin = tmp_path / "host-bin"
+    for directory in (local_bin, host_bin):
+        directory.mkdir(parents=True)
+        shim = directory / "aify-env"
+        shim.write_text("#!/bin/bash\nexit 99\n", encoding="utf-8")
+        shim.chmod(0o755)
+    local = local_bin.as_posix()
+    state = lambda value: _rows(_run(env={"PATH": value}).stdout)["aify-env"][0]
+    assert state(local) == "missing"
+    assert state(os.pathsep.join((local, host_bin.as_posix()))) == "installed"
+
+
 def test_a_missing_component_is_a_NONZERO_exit():
     """So a caller can gate on it without parsing. Both directions, in one test, because an exit
     status that is always 0 and one that is always 1 are equally useless."""

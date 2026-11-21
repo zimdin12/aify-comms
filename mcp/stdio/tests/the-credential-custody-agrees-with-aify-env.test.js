@@ -22,14 +22,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 
-import {
-  aclPrincipalLeaf,
-  aclProblem,
-  currentWindowsOwner,
-  custodyProblem,
-  custodyProblemFor,
-  parseIcaclsAces,
-} from "../credential-custody.mjs";
+import { custodyProblem } from "../credential-custody.mjs";
+import { readStoredCredentialSync } from "aify-env/client/credentials";
 import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const SIBLING = siblingCheckout("aify-env", path.join("lib", "credential-fs.mjs"));
@@ -120,26 +114,8 @@ test("EVERY CASE GETS THE SAME VERDICT FROM BOTH IMPLEMENTATIONS", async () => {
   assert.deepEqual(disagreements, [],
     "the cached custody rules have drifted from the daemon that owns them");
 });
-test("the pieces the rules are built from", () => {
-  // Named here because they are the parts most likely to drift from aify-env independently of the
-  // verdict function, and because a parse that understood nothing must never read as "no problems".
-  assert.equal(aclPrincipalLeaf("HOST\\op"), "op");
-  assert.equal(aclPrincipalLeaf("Everyone"), "everyone");
-  const aces = parseIcaclsAces("C:\\s\\k.key HOST\\op:(F)", { path: "C:\\s\\k.key" });
-  assert.equal(aces.length, 1, "the one ACE on the path line was not parsed");
-  assert.equal(aces[0].leaf, "op");
-  assert.match(aclProblem([], { owner: "HOST\\op" }), /unknown/,
-    "an empty parse read as 'no grants, therefore private'");
-  assert.equal(aclProblem(aces, { owner: "HOST\\op" }), "", "the owner was treated as an offender");
-  assert.equal(currentWindowsOwner({ USERDOMAIN: "HOST", USERNAME: "op" }), "HOST\\op");
-  assert.equal(currentWindowsOwner({ USERNAME: "" }), "");
-});
-
-test("custodyProblemFor FAILS CLOSED on a path it cannot inspect", () => {
-  // It runs at module load in every bridge with no environment key. A throw there takes the bridge
-  // down; a silent "" reads a secret out of a file nobody checked.
-  const reason = custodyProblemFor("/no/such/credential.key", {
-    platform: "linux", lstat: () => { throw Object.assign(new Error("nope"), { code: "ENOENT" }); },
-  });
-  assert.match(reason, /could not inspect/);
+test("the pinned custody reader refuses a credential it cannot inspect", () => {
+  const result = readStoredCredentialSync("missing.key", { home: path.join(import.meta.dirname, "nonexistent-fixture") });
+  assert.equal(result.state, "CREDENTIAL_MISSING");
+  assert.equal(result.value, "");
 });

@@ -6,8 +6,7 @@
 // - its file-set manifest lists the COMMIT's bytes under mcp/stdio and nothing else, and the artifact's
 //   sha256 is the hash of exactly that manifest;
 // - it carries no value from the environment;
-// - building it reads no credential file, although its env-var names come from a module that resolves a
-//   credential when imported.
+// - building it reads no credential file, even when its parent could resolve one.
 // A build that cannot bind a commit says so with a pending source.
 //
 // Every git repo, home and registry here is a temp one; children run on `sealedChildEnv`.
@@ -23,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { manifestText, sha256 } from "../file-set-manifest.mjs";
 import { commsServiceSpec, fixedFields, renderStdioMcp } from "../service-spec.mjs";
+import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "../service-env-names.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +95,8 @@ test("the spec describes exactly the entry the installer writes today", () => {
     const entry = JSON.parse(fs.readFileSync(registry, "utf8")).services["aify-comms"];
     const spec = commsServiceSpec({ version: "x", source: { pending: "test" } });
     assert.deepEqual(spec.fixed, fixedFields());
+    assert.deepEqual(spec.fixed.keyEnv, API_KEY_ENV_NAMES);
+    assert.deepEqual(spec.fixed.endpointEnv, ENDPOINT_ENV_NAMES);
     for (const [field, value] of Object.entries(spec.fixed)) {
       assert.deepEqual(entry[field], value, `fixed.${field} differs from the installed entry`);
     }

@@ -1,7 +1,7 @@
 // The wrapper calls the real helper from a private installed bridge, never the user's bridge or a stub.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +19,8 @@ mkdirSync(bridge, { recursive: true });
 for (const entry of readdirSync(STDIO, { withFileTypes: true })) {
   if (entry.isFile() && /\.(?:m?js|json)$/.test(entry.name)) copyFileSync(path.join(STDIO, entry.name), path.join(bridge, entry.name));
 }
+const envPackage = path.dirname(fileURLToPath(import.meta.resolve("aify-env/package.json")));
+cpSync(envPackage, path.join(bridge, "node_modules", "aify-env"), { recursive: true });
 const CLI = path.join(bridge, "session-for-agent.mjs");
 const env = { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT, HOME: root, USERPROFILE: root,
   AIFY_SERVICE_REGISTRY: path.join(root, "absent-registry.json"), AIFY_API_KEY: KEY };
@@ -62,7 +64,7 @@ test("installed bridge helper selects the named pin through the real wrapper, no
   writeFileSync(path.join(projects, `${OTHER}.jsonl`), "{}\n");
   assert.ok(existsSync(path.join(bridge, "agent-for-handle.mjs")), "known bridge helper was copied");
   const direct = await lookup();
-  assert.equal(direct.code, 0, "installed helper must exist and exit successfully");
+  assert.equal(direct.code, 0, direct.stderr);
   assert.equal(direct.stdout, `found\t${PIN}\n`);
   assert.equal(direct.stderr, "");
   assert.deepEqual(await wrapperLookup(), { status: "found", session: PIN });

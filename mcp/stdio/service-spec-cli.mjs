@@ -12,12 +12,8 @@
 // When the commit cannot be bound (no GitHub origin, the revision is absent), the artifact is
 // `{pending: <reason>}` and carries no hash and no manifest.
 //
-// NO CREDENTIAL IS READ, and no path is chosen to make that so. The spec takes its env-var names from
-// `aify-service-endpoint.mjs`, which resolves the service key when it is imported, through the registry
-// and the credential bound to the endpoint its environment names. This process never imports it. The
-// document is built in a CHILD whose environment holds no variable except SystemRoot (which node needs
-// on Windows): with no endpoint named, the resolver returns before it reads any file
-// (registry-credential.mjs, "NO ENDPOINT, NO KEY"), and no key variable exists to be read either.
+// The spec's import graph is dependency-free and reads no runtime credentials.
+// Build in a child with no ambient service environment as an additional boundary.
 
 import { spawnSync } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";

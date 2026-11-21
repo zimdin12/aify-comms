@@ -23,7 +23,7 @@
 // something specific -- a remote endpoint, a second service -- and a file in the checkout must not
 // override the instruction they just typed.
 
-import { apiKeyFrom } from "./aify-service-endpoint.mjs";
+import { legacyExportedKey } from "./aify-service-endpoint.mjs";
 import { SERVICE_NAME } from "./service-registry.mjs";
 // MOVED OUT 2026-09-07 so the RUNTIME path can read the credential store too. It lived here, so
 // only the doctor could find a key in it, while every bridge component read env vars alone --
@@ -108,10 +108,10 @@ function isLoopbackEndpoint(endpoint) {
 }
 
 export function resolveDoctorApiKey({
-  env = {}, repoDir = "", readFile, join, homeDir = "", endpoint = "", realpath, custody,
+  env = {}, repoDir = "", readFile, join, homeDir = "", endpoint = "",
 } = {}) {
-  const exported = apiKeyFrom(env);
-  if (exported) return { key: exported, source: "the environment" };
+  const exported = legacyExportedKey(endpoint || "http://127.0.0.1", env);
+  if (exported.state !== "absent") return { key: exported.value, source: exported.value ? "the environment" : "" };
 
   const canRead = typeof readFile === "function" && typeof join === "function";
   // ONLY TOWARD LOOPBACK. 0.7.0 pointed the doctor at the installed endpoint, so on a host installed
@@ -149,14 +149,6 @@ export function resolveDoctorApiKey({
   // `{key, source}` ONLY. `keyForEndpoint` also reports the endpoint its key is authorised for --
   // which `httpCall` needs to authorise per destination -- but this function's contract is the pair
   // its callers destructure, and widening it silently broke two of their assertions.
-  const { key, source } = keyForEndpoint({
-    env, readFile, join, homeDir, endpoint, serviceName: SERVICE_NAME,
-    // Forwarded so a test can drive the on-disk-name check without a real filesystem; the
-    // resolver's own default is the real `realpath.native` when this is undefined.
-    ...(realpath ? { realpath } : {}),
-    // Injected for the same reason as `realpath`: the real check reads a real filesystem, and a
-    // fixture path would be refused for a reason the test is not about.
-    ...(custody ? { custody } : {}),
-  });
+  const { key, source } = keyForEndpoint({ env, readFile, join, homeDir, endpoint, serviceName: SERVICE_NAME });
   return { key, source };
 }

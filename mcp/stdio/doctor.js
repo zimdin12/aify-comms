@@ -46,6 +46,7 @@ import { clientApiKeyVerdict, credentialPolicyFrom } from "./client-api-key-chec
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
+import { transportBase } from "./registry-credential.mjs";
 import { markFor } from "./doctor-mark.mjs";
 import { buildReport, summaryLine } from "./doctor-report.mjs";
 import { checkAgentStatePublishers } from "./agent-state-publishers-check.mjs";
@@ -101,7 +102,7 @@ const BRIDGE_DIR = join(AIFY_HOME, "mcp", "stdio");
 // The launcher passes the endpoint this host was installed against (v0.7, B3); the literal is the last
 // resort, as 127.0.0.1 because Windows resolves `localhost` to ::1 first and Docker Desktop forwards
 // IPv6 unreliably.
-const SERVER_URL = (process.env.AIFY_COMMS_URL || process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800").replace(/\/$/, "");
+const SERVER_URL = transportBase(process.env.AIFY_COMMS_URL || process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800").replace(/\/$/, "");
 
 const checks = [];
 const add = (id, ok, code, detail, fix = "") => checks.push({ id, ok, code, detail, ...(fix ? { fix } : {}) });

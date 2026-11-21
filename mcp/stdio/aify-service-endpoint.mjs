@@ -29,10 +29,13 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveServiceKeySync } from "aify-env/client/credentials";
 
 // The credential aify-env holds for this service, read the way that daemon stores it. See
 // `API_KEY` below for why the environment alone was not enough.
-import { keyForEndpoint, sameEndpoint } from "./registry-credential.mjs";
+import { keyForEndpoint, sameEndpoint, transportBase } from "./registry-credential.mjs";
+import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./service-env-names.mjs";
+export { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES };
 
 
 /**
@@ -48,7 +51,6 @@ import { keyForEndpoint, sameEndpoint } from "./registry-credential.mjs";
  *
  * Five modules typed this precedence out by hand. One list, read here and declared in the registry.
  */
-export const API_KEY_ENV_NAMES = ["CLAUDE_MCP_API_KEY", "AIFY_API_KEY"];
 
 /**
  * The key this process was given, or "" when it was given none.
@@ -59,7 +61,7 @@ export const API_KEY_ENV_NAMES = ["CLAUDE_MCP_API_KEY", "AIFY_API_KEY"];
  * @param {object} [env] the environment to read; injected so a test need not mutate the real one
  */
 export function apiKeyFrom(env = process.env) {
-  return API_KEY_ENV_NAMES.map((name) => env[name]).find(Boolean) || "";
+  return legacyExportedKey("http://127.0.0.1", env).value;
 }
 
 
@@ -72,11 +74,11 @@ export function apiKeyFrom(env = process.env) {
 // describes moved here. It had come to sit above `IS_REMOTE`, which is not what it is about — a reader
 // would have taken it as an explanation of remote-mode detection. Comments do not follow code unless
 // someone moves them.
-function coerceLoopbackToIPv4(url) {
-  return String(url || "").replace(
-    /^(https?:\/\/)localhost(?=[:\/]|$)/i,
-    "$1127.0.0.1",
-  );
+// Comms explicitly permits an operator-exported key on each configured failover.
+// Bind a fresh manual entry with no stored reference to the actual transport.
+export function legacyExportedKey(url, env) {
+  return resolveServiceKeySync({ endpoint: url, keyEnv: API_KEY_ENV_NAMES },
+    { url, env, home: "", mode: "explicit-first" });
 }
 
 /**
@@ -91,10 +93,9 @@ function coerceLoopbackToIPv4(url) {
  *
  * One list, read here and declared there. Not a regex over this file, and not a second hand-typed copy.
  */
-export const ENDPOINT_ENV_NAMES = ["CLAUDE_MCP_SERVER_URL", "AIFY_SERVER_URL"];
 
 
-const SERVER_URL = coerceLoopbackToIPv4(
+const SERVER_URL = transportBase(
   ENDPOINT_ENV_NAMES.map((name) => process.env[name]).find(Boolean) || "",
 );
 
@@ -143,8 +144,8 @@ export function destinationKeyResolver(serverUrl, {
   let store = null;
   let lastReason = "";
   return (url, { refresh = false } = {}) => {
-    const envKey = apiKeyFrom(env);
-    if (envKey) return envKey;
+    const exported = legacyExportedKey(url, env);
+    if (exported.state !== "absent") return exported.value;
     if (refresh || !store?.key) {
       store = keyForEndpoint({ env, readFile, join: joinPath, homeDir, endpoint: serverUrl, ...rest,
         onRefusal: (reason) => {
@@ -209,7 +210,7 @@ function defaultFallbackServerUrls(primary) {
 function splitServerUrls(value) {
   return String(value || "")
     .split(/[,\s]+/)
-    .map(item => coerceLoopbackToIPv4(item.trim().replace(/\/+$/, "")))
+    .map(item => transportBase(item.trim().replace(/\/+$/, "")))
     .filter(Boolean);
 }
 
@@ -303,8 +304,10 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
       const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
       try {
         const headers = { ...baseOptions.headers };
-        // AUTHORISED FOR THIS DESTINATION, asked again for each one.
-        const keyHere = keyForUrl(baseUrl);
+        // The raw localhost fallback may use a different IP stack. Preserve the
+        // attempt, but only explicit comms failover keys may cross that boundary.
+        const usesCanonicalBase = baseUrl === transportBase(baseUrl);
+        const keyHere = usesCanonicalBase ? keyForUrl(baseUrl) : legacyExportedKey(baseUrl, process.env).value;
         if (keyHere) headers["X-API-Key"] = keyHere;
         const options = { ...baseOptions, headers, signal: controller.signal };
         // NEVER FOLLOWED, and this is a credential boundary rather than a nicety. `fetch` follows
@@ -316,7 +319,7 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
         // like any other non-2xx, which is the honest answer: a redirect is not an API response.
         const res = await fetch(url, { ...options, redirect: "manual" });
         if (!res.ok) {
-          if (res.status === 401) {
+          if (res.status === 401 && usesCanonicalBase) {
             keyForUrl(baseUrl, { refresh: true });
           }
           const text = await res.text();
@@ -371,7 +374,7 @@ export function activeServerUrl() {
 }
 
 
-export { API_KEY, IS_REMOTE, SERVER_URL, SERVER_URLS, coerceLoopbackToIPv4, uniqueServerUrls, httpCall,
+export { API_KEY, IS_REMOTE, SERVER_URL, SERVER_URLS, transportBase as coerceLoopbackToIPv4, uniqueServerUrls, httpCall,
          // splitServerUrls / defaultFallbackServerUrls joined the surface in v0.5.4, when three other
          // modules stopped declaring their own copies of these helpers.
          splitServerUrls, defaultFallbackServerUrls,

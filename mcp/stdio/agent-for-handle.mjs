@@ -15,13 +15,14 @@
 import { pathToFileURL } from "node:url";
 
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
+import { transportBase } from "./registry-credential.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 
 const TIMEOUT_MS = 2000;
 
 export async function agentForHandle({ url, runtime, handle, fetchImpl = fetch, keyFor = destinationKeyResolver(url) }) {
   if (!url || !runtime || !handle) return "";
-  const base = String(url).replace(/\/+$/, "");
+  const base = transportBase(url).replace(/\/+$/, "");
   const key = keyFor(base);
   // NEVER FOLLOWED: `fetch` re-sends custom headers on a redirect, so a 302 would hand the key to
   // whatever origin it names (v0.7 review reproduced exactly that). A redirect answers nothing here.

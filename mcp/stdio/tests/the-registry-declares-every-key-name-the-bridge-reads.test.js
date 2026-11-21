@@ -19,7 +19,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES, apiKeyFrom } from "../aify-service-endpoint.mjs";
 import { upsertService } from "../service-registry.mjs";
@@ -39,11 +39,10 @@ function bridgeSources(dir = STDIO, found = []) {
 
 test("only ONE module names the key carriers", () => {
   // The declaration itself is the one legitimate mention. Anything else is a fork.
-  const offenders = bridgeSources()
-    .filter((file) => !file.endsWith("aify-service-endpoint.mjs"))
+  const owners = bridgeSources()
     .filter((file) => readFileSync(file, "utf8").includes("CLAUDE_MCP_API_KEY"));
-  assert.deepEqual(offenders.map((f) => f.slice(STDIO.length)), [],
-    "a module re-typed the key precedence instead of calling apiKeyFrom()");
+  assert.deepEqual(owners.map((file) => basename(file)), ["service-env-names.mjs"],
+    "key names belong to the dependency-free declaration shared by the spec and bridge");
 });
 
 test("the scan can find something, so its empty answer means something", () => {

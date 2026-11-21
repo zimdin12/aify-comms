@@ -5,9 +5,8 @@
 //
 // ONE SOURCE FOR THE ENTRY. `register-service-cli.mjs` renders its servers with `renderStdioMcp()`, and
 // writes its fixed fields from the same owner's names; tests/service-spec.test.js holds the spec's
-// `fixed` and `mcp` equal to the entry that CLI writes. The env-var names come from their one owner,
-// `aify-service-endpoint.mjs`. That module can resolve a credential when it is imported, so the stamp-time
-// CLI loads this file only in a child whose environment names no endpoint (service-spec-cli.mjs).
+// `fixed` and `mcp` equal to the entry that CLI writes. The spec imports the env-var names,
+// not the runtime resolver, so stamping needs neither npm packages nor a credential.
 //
 // NO VALUE, ONLY NAMES. The spec carries env-var NAMES, paths and hashes: never a key, never an AIFY_*
 // value (format freeze, rule 4).
@@ -18,7 +17,7 @@
 // files), which a connect REPORTS rather than fails. node_modules is bound only through
 // `package-lock.json`, which is a listed file: the manifest pins the lock, not the installed tree.
 
-import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
+import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./service-env-names.mjs";
 import { sha256 } from "./file-set-manifest.mjs";
 import { SERVICE_NAME } from "./service-name.mjs";
 

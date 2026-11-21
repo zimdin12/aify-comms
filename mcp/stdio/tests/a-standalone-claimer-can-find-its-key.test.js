@@ -30,7 +30,6 @@ import { test } from "node:test";
 
 import {
   CREDENTIAL_DIR_NAME,
-  MAX_CREDENTIAL_BYTES,
   REGISTRY_ENV_NAME,
   decodeCredentialBytes,
   keyForEndpoint,
@@ -39,6 +38,7 @@ import {
 } from "../registry-credential.mjs";
 import { SERVICE_NAME } from "../service-name.mjs";
 import { SERVICE_NAME as REGISTRY_SERVICE_NAME } from "../service-registry.mjs";
+import { withCredentialHome } from "./_owned-credential-store.mjs";
 
 const HOME = "/home/op";
 const REGISTRY = "/home/op/.aify/services.json";
@@ -49,10 +49,10 @@ const join = (...parts) => parts.join("/");
 
 /** A filesystem that answers only the paths it was given, and throws for anything else. */
 function fsWith(files) {
-  return (path) => {
+  return Object.assign(path => {
     if (Object.prototype.hasOwnProperty.call(files, path)) return files[path];
     throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
-  };
+  }, { files });
 }
 
 const REAL_HOST = fsWith({
@@ -67,14 +67,10 @@ const REAL_HOST = fsWith({
  * the destination the registry named it for. `realpath` is the identity here so the on-disk-name
  * check always agrees; the tests that care about it inject their own.
  */
-const read = (readFile, extra = {}) => keyForEndpoint({
-  env: {}, readFile, join, homeDir: HOME, endpoint: ENDPOINT, realpath: (x) => x,
-  // Custody is satisfied by default so these cases exercise the check each is NAMED for; the custody
-  // test below injects its own verdicts. The real `custodyProblemFor` runs against a real filesystem
-  // and would refuse every fixture path here, which would make every test pass for the wrong reason.
-  custody: () => "",
-  ...extra,
-});
+const read = (registry, { shared = false, ...extra } = {}) => withCredentialHome(registry.files, HOME, homeDir => keyForEndpoint({
+  env: {}, readFile: file => registry(file === `${homeDir}/.aify/services.json` ? REGISTRY : file),
+  join, homeDir, endpoint: ENDPOINT, ...extra,
+}), { shared });
 
 test("THE FIX: a claimer with an empty environment finds the key the registry names", () => {
   const { key, source } = read(REAL_HOST);
@@ -183,7 +179,7 @@ test("R3: the store's decoding contract, not readFileSync().trim()", () => {
   assert.equal(decodeCredentialBytes(Buffer.from("s3cret\n\n")), "", "a stray extra newline was accepted");
   assert.equal(decodeCredentialBytes(Buffer.from("s3c\u0000ret\n")), "", "an embedded NUL was accepted");
   assert.equal(decodeCredentialBytes(Buffer.from([0xff, 0xfe, 0x0a])), "", "invalid UTF-8 was accepted");
-  assert.equal(decodeCredentialBytes(Buffer.from(`${"k".repeat(MAX_CREDENTIAL_BYTES + 1)}\n`)), "",
+  assert.equal(decodeCredentialBytes(Buffer.from(`${"k".repeat(4097)}\n`)), "",
     "an oversized credential was accepted");
   assert.equal(decodeCredentialBytes(Buffer.from(" s3cret \n")), "", "surrounding whitespace was accepted");
   assert.equal(decodeCredentialBytes(null), "");
@@ -193,14 +189,13 @@ test("R3: a file whose REAL name differs only in case is refused", () => {
   // On Windows and on macOS's default volume `Foo.key` and `foo.key` are ONE file, so two services
   // whose refs differ only in case silently share a credential and each reads the other's. aify-env
   // returns CREDENTIAL_INSECURE for that spelling mismatch; a grammar check alone cannot see it.
-  const cased = (real) => read(REAL_HOST, { realpath: (p) => p.replace("aify-comms-abc123.key", real) });
-  assert.equal(cased("aify-comms-abc123.key").key, "s3cret", "the matching case was refused");
-  assert.equal(cased("AIFY-COMMS-ABC123.KEY").key, "",
-    "a file whose on-disk name differs only in case was read as ours");
+  assert.equal(read(REAL_HOST).key, "s3cret", "the matching case was refused");
+  assert.equal(read(fsWith({ [REGISTRY]: REAL_HOST.files[REGISTRY], [CREDENTIAL.replace('aify-comms-abc123.key', 'AIFY-COMMS-ABC123.KEY')]: 's3cret\n' })).key, "",
+    "a credential with a different on-disk spelling was read as ours");
 });
 
 test("R3: a path that cannot be canonicalised is not one to read a secret from", () => {
-  assert.equal(read(REAL_HOST, { realpath: () => { throw new Error("EPERM"); } }).key, "");
+  assert.equal(read(fsWith({ [REGISTRY]: REAL_HOST.files[REGISTRY] })).key, "");
 });
 
 // ── the CALL SITE, not just the helper ──────────────────────────────────────────────────────────
@@ -364,11 +359,8 @@ test("R3: CUSTODY IS CHECKED, and a file the store would refuse yields no key", 
   // The half I skipped and review disproved: a credential written by aify-env's real writer was
   // accepted by both readers until Everyone was granted read, at which point aify-env returned
   // CREDENTIAL_INSECURE and this reader still handed back the key.
-  assert.equal(read(REAL_HOST, { custody: () => "readable by Everyone (a group)" }).key, "",
-    "a group-readable credential was still read");
-  // ...and a custody check that cannot run is a refusal, never a pass.
-  assert.equal(read(REAL_HOST, { custody: () => "could not inspect the file: EPERM" }).key, "");
-  assert.equal(read(REAL_HOST, { custody: () => "" }).key, "s3cret", "a private file was refused");
+  assert.equal(read(REAL_HOST, { shared: true }).key, "", "a group-readable credential was still read");
+  assert.equal(read(REAL_HOST).key, "s3cret", "a private file was refused");
 });
 
 test("R2: the resolver reports WHICH endpoint its key is authorised for", () => {

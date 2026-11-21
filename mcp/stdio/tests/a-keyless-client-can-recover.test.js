@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sealedChildEnv } from "./_child-env.mjs";
 import { destinationKeyResolver } from "../aify-service-endpoint.mjs";
+import { writeCredential } from "./_owned-credential-store.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const endpoint = "http://127.0.0.1:1";
@@ -99,26 +100,26 @@ test("both Hermes consumers ask the factory for a live key rather than passing a
   }
 });
 
-test("an empty resolver retries all custody checks and reports fixed reasons without raw details", () => {
+test("an empty resolver retries custody and decoding without printing raw details", t => {
   const diagnostics = [];
-  let refusal = "secret-bearing custody detail";
-  let bytes = "bad\r\n";
+  const homeDir = mkdtempSync(path.join(tmpdir(), 'comms-recovery-owner-'));
+  t.after(() => rmSync(homeDir, { recursive: true, force: true }));
+  const file = writeCredential(homeDir, 'fixture.key', 'bad\r\n', { shared: true });
   const resolve = destinationKeyResolver(endpoint, {
-    env: {}, homeDir: "/fixture", joinPath: (...parts) => parts.join("/"), realpath: x => x,
-    readFile: file => file.endsWith("services.json")
-      ? JSON.stringify({ services: { "aify-comms": { endpoint, credentialRef: "fixture.key" } } })
-      : bytes,
-    custody: () => refusal, onDiagnostic: message => diagnostics.push(message),
+    env: {}, homeDir,
+    readFile: () => JSON.stringify({ services: { "aify-comms": { endpoint, credentialRef: "fixture.key" } } }),
+    onDiagnostic: message => diagnostics.push(message),
   });
   assert.equal(resolve(endpoint), "");
   assert.equal(resolve(endpoint), "");
   assert.equal(diagnostics.length, 1, "unchanged failures must not flood each poll");
   assert.match(diagnostics[0], /credential_custody_refused/);
-  refusal = "";
+  rmSync(file);
+  writeCredential(homeDir, 'fixture.key', 'bad\r\n');
   assert.equal(resolve(endpoint), "");
   assert.match(diagnostics.at(-1), /credential_bytes_refused/);
-  bytes = "usable-fixture-key\n";
+  writeFileSync(file, 'usable-fixture-key\n');
   assert.equal(resolve(endpoint), "usable-fixture-key");
   assert.equal(resolve("http://127.0.0.1:2"), "", "recovery leaked the store key to another destination");
-  assert.doesNotMatch(diagnostics.join("\n"), /secret-bearing|usable-fixture-key|fixture.key/);
+  assert.doesNotMatch(diagnostics.join("\n"), /usable-fixture-key|fixture.key/);
 });

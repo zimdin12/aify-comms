@@ -50,11 +50,25 @@ if command -v npm >/dev/null 2>&1; then
   fi
 fi
 
-# `<component>|<command that proves it is installed>|<npm package name, or empty>|<how to get it>`
+# `<component>|<probe>|<npm package, or comma>|<path policy>|<how to get it>`
 COMPONENTS="\
-aify-comms|aify-comms|,|clone https://github.com/zimdin12/aify-comms and run ./install.sh
-aify-env|aify-env|aify-env|clone https://github.com/zimdin12/aify-env and run ./install.sh (it ASKS for the service key this host needs)
-aify-wrapper|aify-wrapper-check|aify-wrapper|installed as a dependency of the two above; aify-wrapper-install --all --endpoint <url>"
+aify-comms|aify-comms|,|cli|clone https://github.com/zimdin12/aify-comms and run ./install.sh
+aify-env|aify-env|aify-env|host-cli|clone https://github.com/zimdin12/aify-env and run ./install.sh (it ASKS for the service key this host needs)
+aify-wrapper|aify-wrapper-check|aify-wrapper|vendored|installed as a dependency of the two above; aify-wrapper-install --all --endpoint <url>"
+
+probe_available() {
+  local probe="$1" policy="$2" found
+  if [ "$policy" != host-cli ]; then command -v "$probe" >/dev/null 2>&1; return; fi
+  # A project-local npm bin is a bridge dependency, not the host CLI. Look
+  # past it for a real PATH entry rather than letting it hide a host install.
+  while IFS= read -r found; do
+    case "${found,,}" in
+      */node_modules/*) ;;
+      *) return 0 ;;
+    esac
+  done < <(type -aP "$probe" 2>/dev/null)
+  return 1
+}
 
 # The package.json of a component vendored under the bridge, or nothing. READ, never executed.
 vendored_package_file() {
@@ -87,13 +101,13 @@ package_version() {
 
 missing=0
 [ "$render" = true ] && echo "Components on this host:"
-while IFS='|' read -r name probe pkg howto; do
+while IFS='|' read -r name probe pkg policy howto; do
   [ -n "$name" ] || continue
   version=""
-  if command -v "$probe" >/dev/null 2>&1; then
+  if probe_available "$probe" "$policy"; then
     state="installed"
     version="$(package_version "$pkg")"
-  elif vendored="$(vendored_package_file "$pkg")" && [ -n "$vendored" ]; then
+  elif [ "$policy" = vendored ] && vendored="$(vendored_package_file "$pkg")" && [ -n "$vendored" ]; then
     # aify-wrapper is CONSUMED as a dependency of the bridge, so a correct install has it under
     # mcp/stdio/node_modules and nothing on PATH. Reporting it MISSING there sent operators to
     # install a second copy the launchers never read from.

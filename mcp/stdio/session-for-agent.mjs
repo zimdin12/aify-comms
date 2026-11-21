@@ -3,6 +3,7 @@
 // The wrapper accepts only one controlled line; no response body or credential is printed.
 import { pathToFileURL } from "node:url";
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
+import { transportBase } from "./registry-credential.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { validateName } from "./safe-name.mjs";
 
@@ -22,7 +23,7 @@ export async function sessionForAgent({ url, runtime, agentId, fetchImpl = fetch
   try {
     if (typeof url !== "string" || !url || typeof runtime !== "string" || !runtime) return "unavailable";
     validateName(agentId, "agent ID");
-    const base = url.replace(/\/+$/, "");
+    const base = transportBase(url).replace(/\/+$/, "");
     const key = (keyFor ?? destinationKeyResolver(base, { onDiagnostic: () => {} }))(base);
     const response = await fetchImpl(`${base}/api/v1/agents/${encodeURIComponent(agentId)}`, {
       headers: key ? { "X-API-Key": key } : {},
