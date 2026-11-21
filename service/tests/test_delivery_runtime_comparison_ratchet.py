@@ -6,7 +6,7 @@ from pathlib import Path
 SERVICE = Path(__file__).resolve().parents[1]
 COMPARISON = re.compile(r'runtime\w*\s*(==|!=)\s*"(claude-code|codex|hermes|pi|opencode)"')
 DELIVERY = {'liveness.py', 'execution_mode.py', 'channel_delivery.py', 'delivery_policy.py'}
-MAX_MATCHES = 14
+MAX_MATCHES = 10
 
 
 def test_delivery_runtime_comparisons_do_not_grow():

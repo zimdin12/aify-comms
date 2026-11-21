@@ -20,13 +20,50 @@ DB ACCESS: none. It is handed a row and settings.
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from service.api_core.capabilities import _row_capabilities
+from service.api_core.delivery_policy import delivery_profile
 from service.api_core.message_view import _last_known_address
 from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _quote_untrusted_subject
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
+
+
+@dataclass(frozen=True)
+class _ResidentAdvice:
+    applies: Callable[[str, list[str]], bool]
+    fix: str
+    commands: tuple[str, ...]
+
+
+_REGISTER = 'comms_register(agentId="{id}", role="{role}", runtime="{runtime}")'
+_SPAWN_TEAMMATE = ('comms_envs()', 'comms_spawn(from="<your-agent>", agentId="{id}-teammate", role="{role}", runtime="{runtime}")')
+
+# Keyed by the registered delivery profile, never by an asserted capability on the row.
+_RESIDENT_ADVICE = {
+    'wake:thread': _ResidentAdvice(
+        lambda handle, caps: not handle,
+        'Restart Codex, then re-register from the exact live Codex session you want to wake.',
+        (_REGISTER,),
+    ),
+    'wake:channel': _ResidentAdvice(
+        lambda handle, caps: 'resident-run' not in caps,
+        'Start Claude with claude-aify, then re-register from that exact live Claude session.',
+        ('claude-aify', _REGISTER),
+    ),
+    'wake:opencode-presence': _ResidentAdvice(
+        lambda handle, caps: True,
+        'Resident OpenCode sessions are presence-only. Spawn a persistent OpenCode agent from a connected dashboard environment.',
+        _SPAWN_TEAMMATE,
+    ),
+    'wake:pi-presence': _ResidentAdvice(
+        lambda handle, caps: True,
+        'Resident Oh My Pi sessions are presence-only. Spawn a persistent Pi agent from a connected dashboard environment.',
+        _SPAWN_TEAMMATE,
+    ),
+}
 
 
 async def _unregistered_recipient_hint(db, recipient_id: str) -> dict[str, Any]:
@@ -96,44 +133,15 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         ]
         return hint
 
-    if runtime == "codex" and session_mode == "resident" and not session_handle:
-        hint["fix"] = "Restart Codex, then re-register from the exact live Codex session you want to wake."
-        hint["suggestedCommands"] = [
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="codex")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "claude-code" and session_mode == "resident" and "resident-run" not in capabilities:
-        hint["fix"] = "Start Claude with claude-aify, then re-register from that exact live Claude session."
-        hint["suggestedCommands"] = [
-            "claude-aify",
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="claude-code")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "opencode" and session_mode == "resident":
-        hint["fix"] = (
-            "Resident OpenCode sessions are presence-only. Spawn a persistent OpenCode agent from a connected dashboard environment."
-        )
-        hint["suggestedCommands"] = [
-            f'comms_envs()',
-            f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="opencode")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
-
-    if runtime == "pi" and session_mode == "resident":
-        hint["fix"] = (
-            "Resident Oh My Pi sessions are presence-only. Spawn a persistent Pi agent from a connected dashboard environment."
-        )
-        hint["suggestedCommands"] = [
-            f'comms_envs()',
-            f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="pi")',
-            f'comms_agent_info(agentId="{recipient_id}")',
-        ]
-        return hint
+    if session_mode == "resident":
+        advice = _RESIDENT_ADVICE.get(delivery_profile(runtime).fact)
+        if advice is not None and advice.applies(session_handle, capabilities):
+            hint["fix"] = advice.fix
+            hint["suggestedCommands"] = [
+                *(command.format(id=recipient_id, role=role, runtime=runtime) for command in advice.commands),
+                f'comms_agent_info(agentId="{recipient_id}")',
+            ]
+            return hint
 
     if runtime not in _LAUNCHABLE_RUNTIMES:
         hint["fix"] = "This target is message-only right now. Check comms_agent_info before suggesting any runtime-specific reinstall or restart steps."
