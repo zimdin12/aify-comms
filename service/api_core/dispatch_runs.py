@@ -35,6 +35,7 @@ from service.api_core.active_run_discard import _discard_unusable_active_run
 from service.api_core.active_run_lookup import _find_mergeable_queued_run
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.claim_gating import _dispatch_message_id_for_recipient
+from service.api_core.delivery_policy import delivery_profile
 from service.api_core.dispatch_buffer import (
     _DISPATCH_BUFFER_CAP,
     _append_pending_dispatch_body,
@@ -154,9 +155,7 @@ async def _create_dispatch_runs(
                 active_run = active_state.get("activeRun")
             active_execution_mode = str((active_run.get("executionMode") if active_run else "") or "").strip().lower()
             recipient_runtime = _normalize_runtime((recipient_row["runtime"] if recipient_row else "") or requested_runtime)
-            # ASYMMETRY(hermes): its gateway sidecar does not consume dispatch_controls;
-            # route channel/resident steer through its claim loop and native session.steer.
-            steer_via_claim = recipient_runtime == "hermes" and active_execution_mode in {"channel", "resident"}
+            steer_via_claim = active_execution_mode in delivery_profile(recipient_runtime).steer_via_claim_modes
             if steer and active_run and "steer" in capabilities and not steer_via_claim:
                 # The subject is quoted for the same reason every sibling echo quotes it: it is free
                 # text written by ANOTHER agent, and this text is injected between the recipient's

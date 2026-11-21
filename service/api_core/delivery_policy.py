@@ -51,6 +51,7 @@ class DeliveryProfile:
     wrapper_child: bool = False
     wake: tuple[Rule, ...] = ()
     refuse: tuple[Rule, ...] = ()
+    steer_via_claim_modes: tuple[str, ...] = ()
 
     @property
     def sidecar(self):
@@ -84,7 +85,10 @@ LEGACY_DELIVERY = {
          'agent "{id}" is a resident Codex session without a bound session handle. '
          'Re-register that live session or provide sessionHandle explicitly.'),
     )),
-    'hermes': DeliveryProfile('wake:gateway', channel='flag', channel_claim=True, wake=(
+    # ASYMMETRY(hermes): the gateway sidecar claims a run and calls native session.steer;
+    # it does not consume dispatch_controls for channel or resident runs.
+    'hermes': DeliveryProfile('wake:gateway', channel='flag', channel_claim=True,
+                              steer_via_claim_modes=('channel', 'resident'), wake=(
         (lambda i: i.resident_run and i.gateway, 'hermes-live'),
         (lambda i: not i.gateway, 'hermes-missing-handle'),
     ), refuse=(

@@ -11,7 +11,7 @@ from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES
 SERVICE = Path(__file__).resolve().parents[1]
 RUNTIME_NAME = re.compile(r'runtime\w*$')
 DELIVERY = {'liveness.py', 'execution_mode.py', 'channel_delivery.py', 'delivery_policy.py'}
-MAX_MATCHES = 9
+MAX_MATCHES = 8
 
 
 def _runtime_comparison_lines(source: str):

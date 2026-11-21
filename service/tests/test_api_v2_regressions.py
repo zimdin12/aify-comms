@@ -2417,68 +2417,72 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(run["id"], "run_queued_306769")
         self.assertTrue(run["steerIfBusy"])
 
-    def test_ordinary_send_to_busy_managed_hermes_routes_steer_through_channel_claim(self):
+    def test_a_busy_run_receives_steer_by_claim_or_control(self):
         self._register("lead", runtime="codex", sessionMode="managed")
-        self._seed_managed_hermes_with_attached_terminal("hermes-fixtureworker", "term_hermes_steer")
-        self._stamp_live_channel_sidecar("hermes-fixtureworker", runtime="hermes")
-        self.client.post(
-            "/api/v1/agents/hermes-fixtureworker/claimer-lease",
-            json={"action": "acquire", "bridgeId": "channel-linux:test-host-hermes-fixtureworker"},
-        )
-        self._seed_queued_dispatch_run(
-            "run_hermes_active",
-            "hermes-fixtureworker",
-            execution_mode="channel",
-            require_reply=1,
-            from_agent="lead",
-        )
-        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (_now(), "run_hermes_active"))
-        self._seed_fresh_turn_busy(
-            "hermes-fixtureworker",
-            "run_hermes_active",
-            "channel-linux:test-host-hermes-fixtureworker",
-            runtime="hermes",
-        )
 
-        async def _create_channel_steer():
+        async def send_steer(agent_id, runtime, send_mode):
             db = await get_db()
             try:
                 runs = await _create_dispatch_runs(
-                    db,
-                    from_agent="lead",
-                    recipients=["hermes-fixtureworker"],
-                    message_type="info",
-                    subject="mid-turn guidance",
-                    body="apply this now",
-                    priority="normal",
-                    in_reply_to=None,
-                    dispatch_mode="start_if_possible",
-                    execution_mode="channel",
-                    requested_runtime="hermes",
-                    steer=True,
+                    db, from_agent="lead", recipients=[agent_id], message_type="info",
+                    subject="mid-turn guidance", body="apply this now", priority="normal",
+                    in_reply_to=None, dispatch_mode="start_if_possible", execution_mode=send_mode,
+                    requested_runtime=runtime, steer=True,
                 )
                 await db.commit()
-                return runs
+                run, = runs
+                return run
             finally:
                 await db.close()
 
-        created = asyncio.run(_create_channel_steer())
-        self.assertEqual(created[0]["status"], "queued")
-        queued_id = created[0]["runId"]
-        queued_row = self._fetchone(
-            "SELECT execution_mode, queue_if_busy, steer_if_busy FROM dispatch_runs WHERE id = ?",
-            (queued_id,),
-        )
-        self.assertEqual((queued_row["execution_mode"], queued_row["queue_if_busy"], queued_row["steer_if_busy"]), ("channel", 0, 1))
-        self.assertIsNone(
-            self._fetchone("SELECT id FROM dispatch_controls WHERE run_id = ?", ("run_hermes_active",)),
-            "channel-owned Hermes must not receive an unconsumed bridge control",
-        )
-        # Reached through `service.api_core.records`, its OWNER. It used to be read off
-        # `dispatch_router`, which never declared it — that module merely imported the name, and
-        # the attribute vanished the moment the last handler using it moved out in v0.5.4.
-        serialized = _serialize_dispatch_run_row(self._fetchone("SELECT * FROM dispatch_runs WHERE id = ?", (queued_id,)))
-        self.assertTrue(serialized["steerIfBusy"])
+        # The incoming send can resolve a different mode from the already-active run.
+        # Hermes managed/channel distinguishes using the active mode from using the new send's mode.
+        for runtime, active_mode, send_mode, expected in (
+            ("hermes", "channel", "channel", "queued"),
+            ("hermes", "resident", "resident", "queued"),
+            ("hermes", "managed", "channel", "steered"),
+            ("claude-code", "channel", "channel", "steered"),
+        ):
+            with self.subTest(runtime=runtime, active_mode=active_mode):
+                agent_id = f"steer-fixture-{runtime}-{active_mode}"
+                active_id = f"run_{agent_id}"
+                bridge_id = f"channel-linux:test-host-{agent_id}"
+                if active_mode == "resident":
+                    self._register(agent_id, runtime=runtime, sessionMode="resident",
+                                   machineId="linux:test-host", bridgeId=bridge_id,
+                                   sessionHandle="fixture-resident-handle",
+                                   runtimeConfig={"gatewayUrl": "ws://127.0.0.1:1"})
+                else:
+                    seed = (self._seed_managed_hermes_with_attached_terminal if runtime == "hermes"
+                            else self._seed_managed_claude_with_attached_terminal)
+                    seed(agent_id, f"term_{agent_id}")
+                    self._stamp_live_channel_sidecar(agent_id, runtime=runtime)
+                    self._execute("UPDATE agents SET runtime_config = ? WHERE id = ?",
+                                  (json.dumps({"channelEnabled": True}), agent_id))
+                self._seed_queued_dispatch_run(active_id, agent_id, execution_mode=active_mode,
+                                               require_reply=1, from_agent="lead")
+                self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?",
+                              (_now(), active_id))
+                self._seed_fresh_turn_busy(agent_id, active_id, bridge_id, runtime=runtime)
+
+                created = asyncio.run(send_steer(agent_id, runtime, send_mode))
+                self.assertEqual(created["status"], expected, "unexpected steer delivery path")
+                self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (active_id,))[0],
+                                 "running")
+                controls = self._fetchall("SELECT id, action, status FROM dispatch_controls WHERE run_id = ?",
+                                          (active_id,))
+                queued = self._fetchall("SELECT * FROM dispatch_runs WHERE target_agent = ? AND status = 'queued'",
+                                        (agent_id,))
+                if expected == "queued":
+                    self.assertEqual(controls, [], "claim delivery must not leave a steer control")
+                    row, = queued
+                    self.assertEqual(row["id"], created["runId"])
+                    self.assertEqual((row["execution_mode"], row["queue_if_busy"], row["steer_if_busy"]), (send_mode, 0, 1))
+                    self.assertTrue(_serialize_dispatch_run_row(row)["steerIfBusy"])
+                else:
+                    self.assertEqual(queued, [], "control delivery must not enqueue a new run")
+                    self.assertEqual(created["runId"], active_id)
+                    self.assertEqual([tuple(control) for control in controls], [(created["controlId"], "steer", "pending")])
 
     def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
         """Stamp a fresh, far-future cached live_state entry so a test can
