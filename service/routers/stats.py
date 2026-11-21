@@ -30,10 +30,7 @@ router = domain_router()
 async def get_stats(request: Request):
     db = await get_db()
     try:
-        # Read-path-write fix (2026-06-29): _repair_unusable_active_runs scanned the runs table on
-        # every poll of this stats endpoint. It already runs in the 60s reconcile loop AND on every
-        # GET /agents poll (the constantly-polled live roster), so the copy here was redundant
-        # write-txn contention — removed so /stats is a pure read.
+        # Dashboard polling reads counts; run repair stays in reconciliation.
         agents_c = await db.execute("SELECT COUNT(*) FROM agents")
         agents = (await agents_c.fetchone())[0]
 
@@ -49,29 +46,10 @@ async def get_stats(request: Request):
         total_c = await db.execute("SELECT COUNT(*) FROM messages WHERE source = 'direct'")
         total = (await total_c.fetchone())[0]
 
-        # THREE COUNTS, ONE PASS. These were three queries differing only in which rows they kept:
-        # unread-to-a-registered-agent split by source, and unread-to-an-unregistered one. Each
-        # re-walked `messages` and re-probed `read_receipts` for the same population.
-        #
-        # MEASURED on the operator's database, 2026-08-29, with 34,107 messages and 31,913 receipts:
-        # the three drove 67,856 read_receipts probes per request (33,440 direct + 488 channel +
-        # 33,928 addressed) where one drives 33,928 -- exactly half, because the two source-split
-        # queries sum to the third's population. `/stats` is on the dashboard's poll cycle and logged
-        # 2,262 SLOW-REQ warnings in the 8.5 hours to 2026-08-29 07:56.
-        #
-        # The plans differ in the honest direction: the two source-split queries used
-        # `idx_messages_source` and the orphan one already SCANNED, so the combined query keeps that
-        # one scan and drops the other two passes rather than turning an index seek into a scan.
-        # Verified against live data when the three became one pass: all forms returned
-        # (128, 0, 1891).
-        #
-        # THE THIRD COUNTER CHANGED MEANING ON 2026-08-29 and the number with it. It asked
-        # `a.id IS NULL` -- no row in `agents` -- which is true of every message addressed to
-        # `dashboard`, the UI's own identity, which had 1,792 unread and had sent 3,401. It now asks
-        # whether the recipient has an `agent_tombstones` row, which is what a REMOVAL leaves behind,
-        # and reports 78 rather than 1,891. `POST /messages/cleanup/orphan-unread` shares the
-        # predicate (`api_core/orphan_messages.py`), so the number here and the rows that endpoint
-        # deletes cannot drift apart -- which they had, in the direction that deletes an inbox.
+        # Count all three unread groups in one pass. The orphan count must match
+        # cleanup's unread-recipient tombstone predicate in service/api_core/orphan_messages.py.
+        # No registered agent row is not proof of removal: the dashboard has a valid inbox
+        # without one. The count must not invite deleting that inbox.
         unread_c = await db.execute(
             """
             SELECT

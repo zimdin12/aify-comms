@@ -1,24 +1,7 @@
-"""Process-global status cache and the bridge-row reconcilers that share its lifetime.
+"""Own the live-status cache and reconcile bridge rows.
 
-v0.5 slice 1a — the first extraction out of `service/routers/api_v2.py` (23k lines). Slice 1 was
-chosen to go first because it OWNS `_LIVE_STATE_CACHE`: the failure mode that survives every other
-gate is a duplicated module-global, so the smallest slice is the right one to prove the
-import-identity gate against.
-
-WHAT IS HERE AND WHY TOGETHER: the derived-status cache, its five accessors, and the two reconcilers
-that maintain `bridge_instances` rows. They share a lifetime — bridge supersession is what makes a
-cached agent status stale — and, measured before the move, they depend on nothing in the router
-except a UTC timestamp (`service.clock.now`) and, formerly, a settings read.
-
-NOT A PURE MOVE, and it is labelled that way deliberately. `_reap_stale_orphan_bridges` used to load
-settings itself; that derivation now happens in the caller (see `stale_seconds_from_settings`) with
-identical inputs and formula. Only the MOMENT of the settings read changed — per-sweep-pass instead
-of per-step — which is the correct unit for a reconciler sweep: one pass should be internally
-coherent rather than split across two policy epochs by a mid-sweep edit.
-
-SINGLE-WORKER INVARIANT: `_LIVE_STATE_CACHE` is a process-global dict. It is correct ONLY with one
-uvicorn worker / one event loop. `service/tests/test_process_global_identity.py` asserts this module
-is its one owner and that nobody imports it by value.
+The cache is process-local and rebuilt from the operational view. It requires one
+uvicorn worker and one event loop so readers and writers see the same entries.
 """
 
 from __future__ import annotations
@@ -28,19 +11,7 @@ from typing import Any, Optional
 from service.clock import now as _now
 from service.change_feed import CHANGE_FEED
 
-# ---- In-memory live-status cache (2026-06-18) --------------------------------------------
-# The derived agent status is a CACHE, not durable state: it is recomputed from inputs and is
-# rebuilt from scratch on restart. Storing it in SQLite made every dashboard poll refresh-WRITE
-# it (the single-writer `database is locked` storm) AND kept readers hammering the DB (blocking
-# the WAL checkpoint → WAL bloat → slow commits). It now lives in this process-global dict.
-# SAFE: the service is ONE uvicorn process / one event loop (the dashboard-next container only
-# proxies in, it never opens the DB), so dict access between `await`s is atomic — no mutex
-# needed. Lost on restart = fine (recomputed in a single reconcile pass — that's what a cache
-# is). NOTE: if the service is ever run multi-worker, this must move to a shared store (Redis)
-# or the workers need sticky routing. The old agent_live_state TABLE is dropped at startup
-# (`_drop_retired_tables` in service/db.py).
-
-
+# Refreshing this cache does not write a durable status row.
 _LIVE_STATE_CACHE: dict[str, dict[str, Any]] = {}
 
 
@@ -61,10 +32,8 @@ def _live_state_set(agent_id: str, data: dict[str, Any]) -> None:
     key = str(agent_id or "").strip()
     previous = _LIVE_STATE_CACHE.get(key)
     _LIVE_STATE_CACHE[key] = data
-    # THE ONE PLACE A DERIVED STATUS CHANGES, so it is the one place that says so. An agent goes
-    # offline because its lease ran out, and nothing is written when that happens; without this the
-    # dashboard would only learn it from a timed refetch. A first computation has nothing to differ
-    # from and reports nothing.
+    # Tell dashboard readers when a refresh changes the cached status.
+    # The first value has no transition to report.
     if previous and (previous.get("status") or "") != (data.get("status") or ""):
         CHANGE_FEED.agent_status_moved(key)
 
@@ -74,24 +43,10 @@ def _live_state_drop(agent_id: str) -> None:
 
 
 def _live_state_expire(agent_id: str) -> None:
-    """Mark a cached entry STALE without dropping it (2026-07-14, the status-flicker fix).
+    """Mark the entry due for refresh without erasing its last status.
 
-    A DROPPED entry is a cache MISS, and the `list_agents` miss-path falls back to the raw
-    `agents.status` column — which every heartbeat stamps to 'active', and which
-    `_LEGACY_RAW_STATUS_TO_CANONICAL` coerces to **`online`**. That value never passes through
-    `derive()`, so it can contradict `in_turn=1`: a genuinely WORKING agent is served `online`
-    for one poll, and a status-sorted dashboard yanks the row down the list and back. Operator
-    report: "all working agents turn online for a second and then back to working".
-
-    The race is real because `GET /agents` takes seconds (per-agent liveness/env gates inside
-    the row loop) while the event loop is single-threaded: a heartbeat landing mid-request
-    invalidates AFTER the top-of-request refresh pass and BEFORE the per-agent read. Working
-    agents heartbeat the most, so they lose that race the most — hence *all* of them flicker.
-
-    Expiring instead keeps the last DERIVED value readable while forcing a recompute on the
-    next refresh (`_live_state_fresh` gates on `refresh_after`). Worst case becomes a slightly
-    stale but TRUE status rather than a fresh falsehood. Real eviction (agent deleted) still
-    calls `_live_state_drop` directly.
+    A reader between invalidation and refresh can still use the last result.
+    Eviction, such as on agent removal, uses `_live_state_drop` instead.
     """
     entry = _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
     if entry is not None:
@@ -211,9 +166,5 @@ async def _reap_stale_orphan_bridges(db, *, stale_seconds: int, limit: int = 500
 
 
 async def invalidate_agent_live_state(db, agent_id: str) -> None:
-    # EXPIRE, don't drop (see _live_state_expire): a dropped entry is a cache MISS, and the
-    # miss-path serves the raw `agents.status` column coerced 'active' -> 'online', flickering
-    # a working agent to `online` for one poll. Expiring forces the same recompute while keeping
-    # the last DERIVED status readable in the meantime. (db kept in the signature for the ~45
-    # existing call sites; no DB write happens.)
+    # Mark the entry due for refresh without a database write or cache eviction.
     _live_state_expire(agent_id)

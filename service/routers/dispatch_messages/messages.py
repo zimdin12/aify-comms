@@ -1,19 +1,6 @@
-"""The `messages` route surface: send, inbox, read, search, unsend and compaction.
+"""Message routes: send, inbox, read, search, unsend and compaction.
 
-v0.5.2l, the other half of the dispatch+messages package.
-
-`send_message` is the hottest user-facing path in the product. In v0.5.2l it moved here WHOLE and
-byte-identical, and this docstring said it was "not method-split here" — true when written, and no longer
-true: v0.5.4 split the 278-line recipient-launch loop out to `api_core/dispatch_start.py`, which is what
-brought this file under 1000 lines.
-
-That sentence is corrected rather than deleted because the reasoning behind it still holds and constrains
-what may happen next: the route is not to be reshaped, only to have verbatim blocks lifted out under the
-inline-back proof in `test_send_message_split_is_inert.py` (retired in v0.6.13). Its line count is deliberately
-not restated here — measure the file.
-
-Local helpers are used by message handlers and nothing else; anything shared with dispatch lives in
-`shared.py`.
+Keep helpers shared with dispatch in `shared.py` or the owning API core module.
 """
 
 from __future__ import annotations
@@ -93,15 +80,8 @@ async def send_message(req: MessageSend, request: Request):
         if external_machine:
             await refuse_external_impersonation(db, req.from_agent, external_machine)
         await _touch_agent(db, req.from_agent, present=not operator_is_acting(request))
-        # NOTE: do NOT clear turn_busy here based on the agent sending a
-        # message. The agent might send a reply and then keep working
-        # (more tool calls, more analysis, more messages) — clearing on
-        # response would flip status to "active" while real work is
-        # still happening. Turn-end is a harness-level signal: each
-        # runtime delivers its own (codex turn/completed, pi agent_end,
-        # hermes process exit, opencode SDK turn-complete). Resident
-        # claude under claude-channel.js needs its Stop hook to call
-        # the bridge — see install.sh's claude wrapper installation.
+        # Sending a message does not end a turn. The sender may keep working
+        # after a reply; aify-env owns turn reporting.
         # Idempotency (#240): a bridge send that hit a transient socket error may have
         # actually landed server-side. /messages/send is otherwise non-idempotent (a fresh
         # msg_id per call), so a retry would DOUBLE-send — which is why the bridge excluded
