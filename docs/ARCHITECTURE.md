@@ -59,13 +59,15 @@ there is no second process for the command to start.
 
 ## Inside the service
 
-Requests enter at a router and descend. The direction is one-way:
+Requests enter at a router. The enforced import boundary is that `service/api_core/` and
+`service/reconcilers/` must not import router modules. `test_leaves_do_not_import_the_carrier.py`
+checks static imports at module and function scope. The diagram shows the usual request path:
 
 ```text
-service/routers/**             HTTP surface: route declarations, request/response shape, auth.
-        |                      api_v2.py is not a router; it is the include_router calls.
+service/routers/**             Route declarations, request/response shape, auth, and request coordination.
+        |                      api_v2.py assembles routers with include_router calls.
         v
-service/api_core/**            One subject per module, no knowledge of HTTP.
+service/api_core/**            Shared behavior and helpers, organized by subject.
 service/reconcilers/**         One responsibility per module, driven by the sweep loop.
 service/*.py (top-level)       Service-level modules, e.g. dispatch_claim.py and
         |                      terminal_write_queue.py (each owns its own transaction),
@@ -74,6 +76,13 @@ service/*.py (top-level)       Service-level modules, e.g. dispatch_claim.py and
 service/db.py, schema.py       SQLite. A pooled connection per call; writes serialise
                                through BEGIN IMMEDIATE.
 ```
+
+Some `api_core` modules deliberately carry HTTP types. `service/api_core/routing.py` supplies the
+shared FastAPI route wrapper, and `service/api_core/dispatch_controls_io.py` raises HTTP-shaped
+refusals. Some routers still coordinate product workflows: `service/routers/dispatch_messages/messages.py`
+stores and dispatches sends, and `service/routers/session_console.py` chooses, reuses, or starts a
+console. Prefer shared policy in the module that owns the subject. Neither HTTP types nor workflow
+placement is what the import gate checks.
 
 `service/sse/**` is a **parallel entry point, not a layer**: the `comms_*` MCP tools agents reach
 over `/mcp/http` (named for the SSE transport, deleted in 0.9.11). It calls the same API over HTTP through `service/sse/api_client.py` rather
