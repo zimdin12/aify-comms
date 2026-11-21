@@ -15,6 +15,7 @@ A leaf: standard library only, no service imports, so it can never join an impor
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import MappingProxyType
@@ -61,8 +62,45 @@ AGENT_STATUSES = tuple(_CONTRACT["agentStatuses"]["values"])
 AGENT_STATUS_MEANINGS = MappingProxyType(dict(_CONTRACT["agentStatuses"]["meanings"]))
 
 
-#: The harness a definition names, as the runtime this service files agents under. A leaf, so the definition modules
-#: that read it do not import one another to get it.
-HARNESS_RUNTIME = {"claude": "claude-code", "codex": "codex", "hermes": "hermes"}
-#: The other way: the harness a definition names for a runtime this service files agents under.
+# Exact export: aify-env a03b88ec7bc5a077ef299609b5f2ea8bf225dbe7:lib/harness-facts-v1.json.
+_HARNESS_FACTS_PATH = CONTRACT_PATH.with_name("harness-facts-v1.json")
+_HARNESS_FACTS_SHA256 = "dabd9e5c9c71107c58310d7a73c26512b7616822614045021ebbf98edcb73d9f"
+
+
+def _definition_harnesses(facts: object) -> dict[str, str]:
+    if not isinstance(facts, dict) or type(facts.get("schemaVersion")) is not int or facts["schemaVersion"] != 1:
+        raise RuntimeError("Env harness facts: unsupported schema")
+    table = facts.get("harnesses")
+    if not isinstance(table, dict):
+        raise RuntimeError("Env harness facts: invalid harness table")
+    admitted = {}
+    for name, row in table.items():
+        if (not name or not isinstance(row, dict) or type(row.get("definition")) is not bool
+                or not isinstance(row.get("runtime"), str) or not row["runtime"]):
+            raise RuntimeError(f"Env harness facts: invalid harness row {name!r}")
+        if row["definition"]:
+            admitted[name] = row["runtime"]
+    if not admitted:
+        raise RuntimeError("Env harness facts: no definition runtimes")
+    if len(set(admitted.values())) != len(admitted):
+        raise RuntimeError("Env harness facts: duplicate definition runtime")
+    return admitted
+
+
+def _load_definition_harnesses(path: Path, expected_sha256: str) -> dict[str, str]:
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise RuntimeError(f"cannot read Env harness facts at {path}") from exc
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise RuntimeError(f"Env harness facts SHA-256 mismatch at {path}")
+    try:
+        facts = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid Env harness facts JSON at {path}") from exc
+    return _definition_harnesses(facts)
+
+
+#: Definition admission comes from Env. This does not set Comms' broader runtime or alias vocabulary.
+HARNESS_RUNTIME = _load_definition_harnesses(_HARNESS_FACTS_PATH, _HARNESS_FACTS_SHA256)
 RUNTIME_HARNESS = {runtime: harness for harness, runtime in HARNESS_RUNTIME.items()}

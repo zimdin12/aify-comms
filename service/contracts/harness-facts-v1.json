@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "harnesses": {
+    "claude": {
+      "aliases": [],
+      "definition": true,
+      "install": true,
+      "managed": true,
+      "resident": true,
+      "residentReason": "",
+      "runtime": "claude-code",
+      "screen": true
+    },
+    "codex": {
+      "aliases": [],
+      "definition": true,
+      "install": true,
+      "managed": true,
+      "resident": true,
+      "residentReason": "",
+      "runtime": "codex",
+      "screen": true
+    },
+    "hermes": {
+      "aliases": [],
+      "definition": true,
+      "install": true,
+      "managed": true,
+      "resident": true,
+      "residentReason": "",
+      "runtime": "hermes",
+      "screen": true
+    },
+    "pi": {
+      "aliases": [
+        "omp"
+      ],
+      "definition": false,
+      "install": false,
+      "managed": true,
+      "resident": false,
+      "residentReason": "OMP is single-client, so it cannot provide resident wake",
+      "runtime": "pi",
+      "screen": false
+    }
+  }
+}

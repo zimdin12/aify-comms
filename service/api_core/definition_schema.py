@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from service.api_core.vocabulary import HARNESS_RUNTIME
+
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _RESERVED_DEVICE_NAMES = frozenset(["CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
                                     *(f"LPT{i}" for i in range(1, 10))])
@@ -26,7 +28,7 @@ _RESERVED_ENV_PREFIXES = ("AIFY_", "HARNESS_")
 # its env in any case on Windows, so the reserved and duplicate checks ignore case.
 _SECRET_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 _SECRETS_FIELDS = ("project", "names")
-HARNESSES = ("claude", "codex", "hermes")
+HARNESSES = tuple(HARNESS_RUNTIME)
 MODES = ("managed", "resident")
 _MAX_NAME_CODE_POINTS = 128
 _MAX_INSTRUCTIONS_BYTES = 65536
