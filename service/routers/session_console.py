@@ -140,6 +140,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                         )
 
         runtime = _normalize_runtime(session["runtime"] or "")
+        # Keep Pi explicit until a runtime fact declares that this route can provision a new virtual console.
         if runtime == "pi":
             return await _start_virtual_pi_console(
                 db, req, request, session, session_id,

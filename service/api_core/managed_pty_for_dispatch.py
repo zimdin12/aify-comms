@@ -107,6 +107,7 @@ async def _ensure_managed_pty_for_dispatch(
         )).fetchone()
     if not session:
         return None
+    # Keep Pi explicit until a runtime fact declares that creating a managed PTY requires a native handle.
     if normalized_runtime == "pi" and not str(session["session_handle"] or "").strip():
         return None
 
