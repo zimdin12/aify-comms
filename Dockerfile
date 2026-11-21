@@ -1,20 +1,8 @@
 FROM python:3.12-slim
 
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
-    build-essential \
-    procps \
+# Both service and dashboard healthchecks use curl.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 20 (needed for Claude Code CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user
 RUN useradd -m -s /bin/bash service && \
@@ -28,13 +16,9 @@ WORKDIR /app
 COPY service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install MCP client dependencies
-COPY mcp/stdio/package.json mcp/stdio/package-lock.json ./mcp/stdio/
-RUN cd mcp/stdio && npm ci
-
-# Copy service code
+# The host stamp writes the build identity, registration spec and bridge manifest into service/.
 COPY service/ ./service/
-COPY mcp/ ./mcp/
+COPY mcp/sse_server.py ./mcp/sse_server.py
 COPY config/ ./config/
 COPY integrations/ ./integrations/
 COPY .agents/ ./.agents/

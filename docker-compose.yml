@@ -27,8 +27,7 @@ services:
     volumes:
       - service-data:/data
       - ./config:/app/config:ro
-      # Mount Claude Code auth from host — enables trigger/dispatch inside container
-      # Uses your Max subscription, no API key needed
+      # Read-only Claude credentials for the usage collector. Agents run on their hosts.
       - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/service/.claude:ro
       # Codex/hermes auth, READ-ONLY — lets the SERVICE collect OpenAI quota itself instead of
       # depending on the environment bridge. The collector used to live only in the bridge, so
