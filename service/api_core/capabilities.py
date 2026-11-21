@@ -18,8 +18,9 @@ Everything here depends only on other leaves (`api_core.settings`, `api_core.run
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from service.api_core.serialization import _json_loads_or
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
@@ -47,9 +48,7 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
 
     val = settings.get("managed_via_wrapper", DEFAULT_SETTINGS.get("managed_via_wrapper", False))
     runtime_n = _normalize_runtime(runtime or "")
-    if runtime_n == "claude-code":
-        return False
-    if runtime_n == "pi":
+    if not _capability_profile(runtime_n).wrapper_setting:
         return False
     try:
         adapter = adapter_for(runtime_n)
@@ -125,7 +124,8 @@ def _default_capabilities_for(
     supports_steering = adapter.supports_steering
     # ASYMMETRY(hermes): wrapper/gateway delivery supports native steer. The
     # advanced single-client ACP fallback rejects concurrent session/prompt.
-    if runtime_n == "hermes" and session_mode_n == "managed" and not bool((runtime_config or {}).get("channelEnabled")):
+    if (session_mode_n == "managed" and _capability_profile(runtime_n).managed_steer_requires_channel
+            and not (runtime_config or {}).get("channelEnabled")):
         supports_steering = False
     if supports_steering:
         caps.append("steer")
@@ -231,48 +231,67 @@ def _has_codex_live_app_server(runtime_config: Optional[dict[str, Any]] = None) 
     return str(runtime_config.get("appServerUrl") or "").strip().lower().startswith(("ws://", "wss://"))
 
 
+@dataclass(frozen=True)
+class _CapabilityProfile:
+    wrapper_setting: bool = True
+    managed_steer_requires_channel: bool = False
+    managed: tuple[str, ...] = ()
+    # No tuple means pass through. An empty tuple with no readiness check strips resident driving.
+    resident: tuple[str, ...] | None = None
+    resident_ready: Callable[[Any], bool] | None = None
+
+
+def _has_literal_channel_flag(config: Any) -> bool:
+    return isinstance(config, dict) and config.get("channelEnabled") is True
+
+
+_RESIDENT_DRIVING = ("resident-run", "interrupt", "steer")
+_DEFAULT_CAPABILITY_PROFILE = _CapabilityProfile()
+_CAPABILITY_PROFILES = {
+    "claude-code": _CapabilityProfile(wrapper_setting=False, resident=_RESIDENT_DRIVING,
+                                      resident_ready=_has_literal_channel_flag),
+    "hermes": _CapabilityProfile(managed_steer_requires_channel=True,
+                                  managed=("managed-run", "resume", "interrupt", "spawn"),
+                                  resident=("resident-run", "resume", "interrupt", "steer"),
+                                  resident_ready=_has_hermes_gateway_url),
+    "pi": _CapabilityProfile(wrapper_setting=False,
+                              managed=("managed-run", "resume", "interrupt", "steer", "spawn"), resident=()),
+    "opencode": _CapabilityProfile(resident=()),
+}
+
+
+def _capability_profile(runtime: str) -> _CapabilityProfile:
+    return _CAPABILITY_PROFILES.get(runtime, _DEFAULT_CAPABILITY_PROFILE)
+
+
+def _with_missing_capabilities(capabilities: list[str], additions: tuple[str, ...]) -> list[str]:
+    for cap in additions:
+        if cap not in capabilities:
+            capabilities = [*capabilities, cap]
+    return capabilities
+
+
 def _row_capabilities(row) -> list[str]:
     if not row:
         return []
     capabilities = _json_loads_or(row["capabilities"], [])
     runtime = _normalize_runtime((row["runtime"] if "runtime" in row.keys() else "") or "generic")
     session_mode = _normalize_session_mode((row["session_mode"] if "session_mode" in row.keys() else "") or "resident")
-    # NO `session_handle` here. It was read into a local and never used by any branch below — the
-    # correction this function makes is decided by runtime, session_mode and runtime_config alone.
-    # Reading it cost a column that narrow SELECTs do not always carry, and, worse, it read as
-    # though a missing handle could withdraw `resident-run`; it cannot, which is the confusion
-    # `test_resident_hermes_missing_handle_status.py` was written to settle.
     runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
-    if runtime == "pi":
-        if session_mode == "resident":
-            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
-        if session_mode == "managed":
-            for cap in ("managed-run", "resume", "interrupt", "steer", "spawn"):
-                if cap not in capabilities:
-                    capabilities = [*capabilities, cap]
-    if runtime == "opencode" and session_mode == "resident":
-        return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
-    if runtime == "hermes":
-        if session_mode == "managed":
-            managed_caps = ["managed-run", "resume", "interrupt", "spawn"]
-            if bool(runtime_config.get("channelEnabled")):
-                managed_caps.append("steer")
+    profile = _capability_profile(runtime)
+
+    if session_mode == "managed":
+        additions = profile.managed
+        if profile.managed_steer_requires_channel:
+            if runtime_config.get("channelEnabled"):
+                additions = (*additions, "steer")
             else:
                 capabilities = [cap for cap in capabilities if cap != "steer"]
-            for cap in managed_caps:
-                if cap not in capabilities:
-                    capabilities = [*capabilities, cap]
-        elif _has_hermes_gateway_url(runtime_config):
-            for cap in ("resident-run", "resume", "interrupt", "steer"):
-                if cap not in capabilities:
-                    capabilities = [*capabilities, cap]
-        else:
-            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
-    if runtime == "claude-code" and session_mode == "resident":
-        channel_enabled = isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True
-        if not channel_enabled:
-            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
-        for cap in ("resident-run", "interrupt", "steer"):
-            if cap not in capabilities:
-                capabilities = [*capabilities, cap]
-    return capabilities
+        return _with_missing_capabilities(capabilities, additions)
+
+    # Readiness is independent of session_handle; narrow SELECTs need not carry it.
+    if profile.resident is None:
+        return capabilities
+    if profile.resident_ready is None or not profile.resident_ready(runtime_config):
+        return [cap for cap in capabilities if cap not in _RESIDENT_DRIVING]
+    return _with_missing_capabilities(capabilities, profile.resident)
