@@ -35,35 +35,42 @@ full guided chain or qualify a real host.
 
 ## Upgrading a host from before 0.6
 
-A host installed before the three-repo split (v0.5.x) upgrades through the same chain. Use these
-checks alongside the [upgrade rehearsal](evidence/2026-10-28-upgrade-rehearsal/README.md):
+A host installed before the three-repo split (v0.5.x) upgrades through the guided chain. This is an
+upgrade, not a fresh-install check. See the [older rehearsal](evidence/2026-10-28-upgrade-rehearsal/README.md)
+for its exact versions and gaps.
 
-- **Back up the database first.** Use SQLite's backup API. Copying only a live `aify.db` can omit
-  committed writes still in the write-ahead log (WAL). Open a separate restored copy on the old
-  version before upgrading and leave the saved backup untouched. Do not assume the old version can
-  open the migrated database. The rehearsal used seeded v0.5.7 data, not a real fleet's database.
-- **Install the service and every client from one commit,** preferably a release tag. The connect step
-  refuses bridge files that differ from what the service serves.
-- **Address the service by IP, `localhost`, or `host.docker.internal`.** The exact Docker host-gateway
-  name is trusted by default; other hostnames need `TRUSTED_HOSTS` or receive 403. Trusting the Host
-  does not supply DNS: Docker Engine clients need a `host-gateway` mapping for that name.
-- **Without a terminal, an unapproved artifact stops the guided install.** If you approve that
-  exact artifact, pass the printed digest in `AIFY_INSTALL_APPROVE=<digest>`.
-- **On Linux, Claude's channel policy is checked separately.** If setup is needed, the installer
-  prints the policy command. This check may stop the next run even after digest approval.
-- **Stop every old agent and the old environment bridge before the upgrade.** v0.5's bare `aify-comms`
-  ran `server.js --environment-bridge`; find it with `pgrep -af -- "[-]-environment-bridge"` (the
-  bracket keeps the search from matching its own shell). aify-env supersedes a stale bridge when it
-  starts, and the bridge exits by itself, but stopping it first is the clean order. While one still
-  runs, the comms doctor's `env-bridge` row reads green before aify-env exists, so read
-  `spawn-delegation` instead.
-- **Run `claude` once by hand on the host before any managed Claude agent,** to pick a theme and log
-  in. Until then every managed spawn waits on Claude Code's first-run screen, and no doctor says so.
-- **On Linux and WSL, herdr panes come from `herdr-aify env`, run from a real terminal.**
-  `aify-env herdr` is Windows-only and exits 69 elsewhere. Run without a terminal, `herdr-aify env`
-  leaves a herdr server and an aify-env running; `herdr-aify env --stop` cleans up. herdr's installer
-  takes its latest release, and the herdr server fetches herdr.dev/agent-detection at runtime, which a
-  work network may block.
+1. **Inventory the host before changing it.** In the shell that will run the installer, follow
+   [Discover and choose](#discover-and-choose). Record which commands resolve first, the npm global
+   prefix, the selected runtime profiles, endpoint, hooks, and the old bridge and launchers. On WSL,
+   read the Linux paths, not the Windows copies. Preserve an existing Herdr installation unless an
+   update is selected. Find a legacy bridge with `pgrep -af -- "[-]-environment-bridge"`; its presence
+   can make Comms' `env-bridge` doctor row pass before Env is running. Check `spawn-delegation` as well.
+2. **Back up and agree on the cutover.** Keep the current config, launcher paths and service revision.
+   For a service upgrade, take a SQLite backup and open a restored copy with the old version before
+   proceeding; copying only a live `aify.db` can miss its write-ahead log (WAL). Use the same Comms
+   commit for the selected service build and client checkout. Resolve any foreign or linked npm
+   installation at its source, using the named refusal rather than overwriting it. Have the operator
+   stop the old agents and legacy environment bridge before the cutover; verify the old bridge no
+   longer runs. Starting the new Env and relaunching agents are separate decisions.
+3. **Move the legacy skill trees aside.** For each selected client, confirm its actual skill root and
+   identify the old Comms trees using [the migration names below](#migrating-skills-copied-by-an-older-installer).
+   The operator moves those trees intact to a backup outside every skill search root. Preserve
+   unrelated skills and Env-managed trees. If Env reports another conflict, stop and resolve the
+   named path before retrying; do not delete trees or edit receipts.
+4. **Run one guided pass per selected client.** Use `bash install.sh --client <runtime> <endpoint>`
+   from the selected Comms checkout, once for Claude and once for Hermes if both are selected. Use
+   a real terminal to review each artifact approval and any separate Claude channel-policy prompt.
+   Without a terminal, an unapproved artifact stops the run; pass only the reviewed digest in
+   `AIFY_INSTALL_APPROVE=<digest>`. Address Comms by IP, `localhost`, or `host.docker.internal`.
+   Other hostnames need `TRUSTED_HOSTS`; Docker Engine clients may also need a `host-gateway` mapping.
+5. **Verify the install, then verify what is running.** Check the installed paths, launchers, skill
+   placement and both doctors. Keep unrelated MCP configuration in place. After the approved Env
+   start and agent relaunches, read back the running revisions and confirm the old bridge is still
+   absent. For a runtime that has never been set up, finish its first-run setup before a managed
+   launch. On Linux and WSL use `herdr-aify env` from a real terminal if panes were selected;
+   `aify-env herdr` is Windows-only. Run without a terminal, `herdr-aify env` leaves a herdr server and an
+   aify-env running; `herdr-aify env --stop` cleans up. The herdr server fetches herdr.dev/agent-detection
+   at runtime, which a work network may block. Do not treat this upgrade as proof of a fresh install.
 
 For Claude, the installer removes the old `aify-comms` tool entry and the launcher adds Streamable
 HTTP per launch. Hermes uses Streamable HTTP for the tools as well. Codex still uses the local stdio
@@ -81,6 +88,12 @@ logged-in agent doing work, and hermes on Linux.
    different processes, PATH and configuration. On Git Bash, use shell paths for shell tools and
    `C:/...` paths for native Node/Python/PowerShell when MSYS argument conversion is disabled.
    Convert a native path with `cygpath -u` before inserting it into Bash's colon-delimited PATH.
+   Check `node --version` there. The separate aify-dashboard package requires Node 24.15 or later
+   where it is built or run; Env's Node 20 minimum does not check that requirement. Read `npm prefix -g`
+   with the same npm the installer will use. Put npm's global bin directory on PATH before installing:
+   `<prefix>/bin` on Linux, WSL and macOS, or `<prefix>` on native Windows. The selected npm must
+   agree with the `aify-env` and Wrapper commands already on PATH. A writable prefix alone does not
+   make its commands reachable or make a different install safe to replace.
 2. Run `bash scripts/install-state.sh --json` from the comms checkout. It reads endpoint, hooks,
    credential presence and app locations, and makes bounded service health queries. It never
    installs anything or starts a daemon. It may call `hermes config path` through the existing
