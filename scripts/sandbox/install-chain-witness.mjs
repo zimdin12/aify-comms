@@ -188,10 +188,10 @@ try {
   const codexSkills = () => exists(b, "~/.codex/skills/aify-comms");
   const unselected = !exists(b, "/tmp/codex.log") && !exists(b, "~/.local/bin/codex-aify") && !codexSkills();
   const engaged = exists(b, "~/.claude/skills/aify-comms/SKILL.md");
-  must("codex assets by hand", sh(b, "cd /src/aify-comms && bash install.sh --assets-only --client codex http://comms:8800 >/tmp/codex-by-hand.txt 2>&1 </dev/null"));
-  const detects = codexSkills();
-  row("path-not-selection", unselected && engaged && detects,
-    `codex unselected: ${unselected ? "nothing" : "SOMETHING"} applied; claude skills ${engaged ? "present" : "ABSENT"}; control: codex skills after a by-hand codex assets run ${detects ? "detected" : "NOT detected"}`);
+  const byHand = sh(b, "cd /src/aify-comms && bash install.sh --assets-only --client codex http://comms:8800 </dev/null");
+  const byHandRefused = byHand.status === 78 && /requires Env to place skills first/.test(byHand.out) && !codexSkills();
+  row("path-not-selection", unselected && engaged && byHandRefused,
+    `codex unselected: ${unselected ? "nothing" : "SOMETHING"} applied; claude skills ${engaged ? "present" : "ABSENT"}; by-hand assets without placement ${byHandRefused ? "refused" : "NOT refused"}`);
 
   // A credential already stored under the default reference survives a refused plain install (C2).
   const e = host("e");

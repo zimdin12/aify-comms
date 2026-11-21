@@ -127,6 +127,11 @@ lookup means the latest version is unknown. Do not invent an update verdict.
   one requires `--standalone --with-hook`. Hermes gets no hook, because it drops `post_tool_call`
   output: the installer removes the one an earlier install added. Read the relevant
   `install.<client>.md` for runtime-specific requirements.
+  The guided chain requires aify-env's skills handoff v1 and a service build that advertises
+  `comms-skills`. Env places the approved package's skills before the Comms assets step. The
+  installer refuses an older handoff before it resolves the service key. Standalone creates
+  missing skill directories and leaves existing ones alone; it reports and preserves anything
+  different, linked or unreadable. Re-running standalone does not upgrade those skill trees.
 - **Environment tier:** follow the reviewed [aify-env checkout](https://github.com/zimdin12/aify-env)
   README and `install.sh`. Register the selected service through the comms client installer first,
   so env can check its registered-service credentials. In the aify-env checkout:
@@ -147,6 +152,24 @@ lookup means the latest version is unknown. Do not invent an update verdict.
 No installer completion message authorizes starting or restarting aify-env. A second instance can
 supersede the first and reap its workers. Get separate approval for host starts/restarts, service
 rebuilds, wrapper relaunches and herdr launches. Identify affected sessions and offer deferral.
+
+## Migrating skills copied by an older installer
+
+The older installer copied the `aify-comms`, `aify-comms-debug`, and `aify-comms-install` directories
+without recording ownership in aify-env. The guided install will not take over an existing tree
+without a matching Env placement record, even if the files are identical. An unchanged tree that Env
+placed can be updated by a guided re-run.
+
+If Env names conflicting trees, **the operator moves each named directory to a backup outside every
+skill search root, then re-runs the guided install for the affected client.** Move the directories;
+do not delete them or edit the placement records. Keep unrelated skills in place. The paths in the
+refusal reflect the selected profile. Default roots for older copies were:
+
+- Claude: `~/.claude/skills/`
+- Codex: `${CODEX_HOME:-~/.codex}/skills/`
+- Hermes: `${HERMES_HOME:-~/.hermes}/skills/autonomous-ai-agents/`
+
+`--standalone` only creates missing directories. It will not replace the conflicting copies.
 
 ## Optional herdr through its own installer
 

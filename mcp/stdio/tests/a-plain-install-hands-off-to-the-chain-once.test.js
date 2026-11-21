@@ -71,7 +71,12 @@ function fakeBins(names, { env = "", aify = "", cmdShim: withCmdShim = true, pre
   for (const name of names) {
     const body = name === "npm"
       ? `if [ "$1" = prefix ]; then [ -n "\${NPM_PREFIX_FAIL:-}" ] && exit 1; [ -n "\${NPM_PREFIX_EMPTY:-}" ] && exit 0; echo "\${NPM_PREFIX:-${toBash(prefix)}}"; exit 0; fi; if [ "$1" = root ]; then [ -n "\${NPM_ROOT_FAIL:-}" ] && exit 1; [ -n "\${NPM_ROOT_EMPTY:-}" ] && exit 0; echo "\${NPM_ROOT:-${toBash(root)}}"; exit 0; fi; echo "npm $*" >> "${toBash(log)}"; ${plant}`
-      : `${name === "node" ? `[ "$1" = -e ] && exec "${toBash(process.execPath)}" "$@"; ` : ""}echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; [ -t 0 ] || echo "${name}-stdin $(cat)" >> "${toBash(log)}"; exit \${FAKE_EXIT:-0}`;
+      : `${name === "node" ? `[ "$1" = -e ] && exec "${toBash(process.execPath)}" "$@";
+        if [ "\${2:-}" = --supports-skills-handoff-v1 ]; then
+          echo "probe $1" >> "${toBash(log)}"
+          [ -z "\${AIFY_API_KEY:-}\${CLAUDE_MCP_API_KEY:-}$(cat)" ] || exit 97
+          exit \${SKILLS_PROBE_EXIT:-0}
+        fi; ` : ""}echo "${name} $*" >> "${toBash(log)}"; echo "${name}-env AIFY_API_KEY=\${AIFY_API_KEY:-} CLAUDE_MCP_API_KEY=\${CLAUDE_MCP_API_KEY:-}" >> "${toBash(log)}"; [ -t 0 ] || echo "${name}-stdin $(cat)" >> "${toBash(log)}"; exit \${FAKE_EXIT:-0}`;
     script(path.join(dir, name), body);
   }
   return { dir, log, module: toBash(module) };
@@ -91,7 +96,8 @@ test("with the chain installed it is entered once, as its module, with the key o
   const bins = fakeBins(["npm", "node"], { env: "chain" });
   const out = handoff(bins, { FAKE_KEY: "s3cret-key", AIFY_API_KEY: "s3cret-key", CLAUDE_MCP_API_KEY: "s3cret-key" });
   assert.equal(out.status, 0);
-  assert.equal(out.lines[0], "resolved ", "the handoff resolves the key itself, asking only (no --generate)");
+  assert.deepEqual(out.lines.slice(0, 2), [`probe ${bins.module}`, "resolved "],
+    "the handoff probes the exact module before asking for the key");
   const entries = out.lines.filter((l) => l.startsWith(`node ${bins.module} `));
   assert.equal(entries.length, 1, out.calls);
   assert.match(entries[0], /--connect aify-comms=http:\/\/comms\.test:8800 --client claude --installer aify-comms=\/src\/install\.sh/);
@@ -141,10 +147,20 @@ test("the key is resolved after every refusal and discovery, generating one only
   const bins = fakeBins(["npm", "node"]);
   const out = handoff(bins, { WITH_API_KEY: "true", FAKE_KEY: "made" });
   assert.equal(out.status, 0, out.stderr);
-  assert.deepEqual(out.lines.slice(0, 2), ["resolved --generate", "npm install -g --no-audit --no-fund github:zimdin12/aify-env"]);
-  const conflict = handoff(fakeBins(["npm", "node"]), { RESOLVE_EXIT: "1" });
+  assert.deepEqual(out.lines.slice(0, 3), ["npm install -g --no-audit --no-fund github:zimdin12/aify-env",
+    `probe ${bins.module}`, "resolved --generate"]);
+  const installed = fakeBins(["npm", "node"], { env: "chain" });
+  const conflict = handoff(installed, { RESOLVE_EXIT: "1" });
   assert.equal(conflict.status, 1, "a key the resolver refuses stops the handoff");
-  assert.ok(!conflict.calls.includes("npm install"), "aify-env was installed for a key the resolver refused");
+  assert.deepEqual(conflict.lines, [`probe ${installed.module}`, "resolved"]);
+});
+
+test("an Env module without skills handoff v1 cannot reach the key resolver or chain", () => {
+  const bins = fakeBins(["npm", "node"], { env: "chain" });
+  const out = handoff(bins, { SKILLS_PROBE_EXIT: "78", WITH_API_KEY: "true" });
+  assert.equal(out.status, 78);
+  assert.match(out.stderr, /does not support skills handoff v1/);
+  assert.deepEqual(out.lines, [`probe ${bins.module}`]);
 });
 
 for (const failure of ["NPM_PREFIX_FAIL", "NPM_PREFIX_EMPTY"]) test(`npm's prefix ${failure} is refused before key resolution`, () => {
@@ -157,11 +173,15 @@ for (const failure of ["NPM_PREFIX_FAIL", "NPM_PREFIX_EMPTY"]) test(`npm's prefi
 test("missing writable user destinations are not created by preflight", () => {
   const prefix = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "handoff-user-")), "new prefix", "nested");
   const bins = fakeBins(["npm", "node"], { prefix, cmdShim: false });
-  const resolver = path.join(bins.dir, "scripts", "api-key-for-install.sh");
-  fs.writeFileSync(resolver, `[ ! -e "${toBash(prefix)}" ] || exit 42\n${fs.readFileSync(resolver, "utf8")}`);
+  const npm = path.join(bins.dir, "npm");
+  const before = fs.readFileSync(npm, "utf8");
+  const observed = before.replace('echo "npm $*" >>', `[ ! -e "${toBash(prefix)}" ] || exit 42; echo "npm $*" >>`);
+  assert.notEqual(observed, before);
+  fs.writeFileSync(npm, observed);
   const out = handoff(bins);
   assert.equal(out.status, 0, out.stderr);
-  assert.equal(out.lines[0], "resolved ", "a writable ancestor permits resolving the key normally");
+  assert.match(out.lines[0], /^npm install /, "preflight did not create the missing prefix");
+  assert.deepEqual(out.lines.slice(1, 3), [`probe ${bins.module}`, "resolved "]);
   assert.ok(fs.existsSync(bins.module), "CONTROL: the subsequent fake npm install creates its own destination");
 });
 
@@ -179,7 +199,8 @@ test("non-root POSIX checks actual npm destinations, not just prefix permissions
       const out = handoff(bins);
       if (field === "prefix-parent") {
         assert.equal(out.status, 0, out.stderr);
-        assert.equal(out.lines[0], "resolved ", "CONTROL: existing writable root and bin directories need no write to their parent");
+        assert.deepEqual(out.lines.slice(0, 2), [`probe ${bins.module}`, "resolved "],
+          "CONTROL: existing writable root and bin directories need no write to their parent");
       } else {
         assert.deepEqual(out.lines, [], "an unwritable destination reached the key resolver or chain");
         assert.equal(out.status, 78, out.stderr);
@@ -235,7 +256,7 @@ test("an aify-env on PATH runs only when it is npm's own bin for the global pack
     assert.equal(chain.status, 0, `CONTROL: npm's own ${aify} beside the chain: ${chain.stderr}`);
     const older = handoff(fakeBins(["npm", "node"], { env: "older", aify }), { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
     assert.equal(older.status, 0, `CONTROL: npm's own ${aify} beside an older package: ${older.stderr}`);
-    assert.match(older.lines[1] ?? "", /^npm install -g .*\/pkg\/aify-env\.tgz$/, `CONTROL: ${aify}: the older package is updated`);
+    assert.match(older.lines[0] ?? "", /^npm install -g .*\/pkg\/aify-env\.tgz$/, `CONTROL: ${aify}: the older package is updated`);
   }
 });
 
@@ -273,9 +294,9 @@ test("an older packaged aify-env is updated from its source, then the chain runs
   const bins = fakeBins(["npm", "node"], { env: "older", aify: "shim" });
   const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
   assert.equal(out.status, 0, out.stderr);
-  assert.deepEqual(out.lines[0], "resolved ", "the key is resolved before anything is installed");
-  assert.match(out.lines[1], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
-  assert.ok(out.lines[2].startsWith(`node ${bins.module} --connect aify-comms=`), out.lines[2]);
+  assert.match(out.lines[0], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
+  assert.deepEqual(out.lines.slice(1, 3), [`probe ${bins.module}`, "resolved "]);
+  assert.ok(out.lines[3].startsWith(`node ${bins.module} --connect aify-comms=`), out.lines[3]);
   assert.ok(!out.calls.includes("aify-env "), "the aify-env command was run; an old one could read an argument as a start");
 });
 
@@ -283,9 +304,9 @@ test("with no aify-env at all it is installed from its source first, then the ch
   const bins = fakeBins(["npm", "node"]);
   const out = handoff(bins, { AIFY_INSTALL_ENV_SOURCE: "/pkg/aify-env.tgz" });
   assert.equal(out.status, 0);
-  assert.deepEqual(out.lines[0], "resolved ", "the key is resolved before anything is installed");
-  assert.match(out.lines[1], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
-  assert.ok(out.lines[2].startsWith(`node ${bins.module} --connect aify-comms=`), out.lines[2]);
+  assert.match(out.lines[0], /^npm install -g .*\/pkg\/aify-env\.tgz$/);
+  assert.deepEqual(out.lines.slice(1, 3), [`probe ${bins.module}`, "resolved "]);
+  assert.ok(out.lines[3].startsWith(`node ${bins.module} --connect aify-comms=`), out.lines[3]);
 });
 
 test("a plain run hands off before the installer resolves, generates or stores any key; the full path does both", () => {

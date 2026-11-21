@@ -100,10 +100,7 @@ if (!repoRoot || !/^[0-9a-f]{40}$/.test(revision || "") || !version || !outFile)
   process.exit(EXIT_USAGE);
 }
 const { source, manifest } = artifactSource(repoRoot, revision);
-// Keep off until the shipped Wrapper pin accepts a package with no executable entries.
-// This is a source-controlled release gate, not a build environment or CLI option.
-const INCLUDE_SKILLS_PACKAGE = false;
-const spec = buildSpecInChild({ version, source, manifest, includeSkillsPackage: INCLUDE_SKILLS_PACKAGE });
+const spec = buildSpecInChild({ version, source, manifest });
 const manifests = source.pending ? {} : { [spec.artifacts[0].id]: manifest };
 const temp = `${outFile}.${process.pid}.tmp`;
 writeFileSync(temp, `${JSON.stringify({ buildSha: revision, spec, manifests }, null, 2)}\n`);

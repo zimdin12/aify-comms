@@ -123,9 +123,9 @@ test("the manifest lists the commit's bytes under mcp/stdio, and the artifact's 
     fs.writeFileSync(path.join(repo, "mcp/stdio/server.js"), "edited after the commit\n");
     fs.writeFileSync(path.join(repo, "mcp/stdio/untracked.js"), "never committed\n");
     const { stamped } = runSpec(repo, head);
-    assert.deepEqual(stamped.spec.artifacts.map(({ id }) => id), ["comms-bridge"],
-      "the current Wrapper pin cannot read a skills-only package");
-    const [artifact] = stamped.spec.artifacts;
+    const [artifact, skills] = stamped.spec.artifacts;
+    assert.deepEqual(skills, { id: "comms-skills", kind: "package", source: artifact.source, entries: [] });
+    assert.deepEqual(Object.keys(stamped.manifests), ["comms-bridge"]);
     const manifest = stamped.manifests["comms-bridge"];
     assert.equal(stamped.buildSha, head);
     assert.deepEqual(artifact.source, { git: { repo: "owner/repo", revision: head } });
@@ -138,17 +138,6 @@ test("the manifest lists the commit's bytes under mcp/stdio, and the artifact's 
   });
 });
 
-test("the skills-only artifact uses the same exact Git revision and has no entries or manifest", () => {
-  const source = { git: { repo: "owner/repo", revision: "a".repeat(40) } };
-  const input = { version: "1.2.3", source, manifest: "bridge manifest\n" };
-  const base = commsServiceSpec(input);
-  const skills = { id: "comms-skills", kind: "package", source, entries: [] };
-  assert.deepEqual(commsServiceSpec({ ...input, includeSkillsPackage: true }),
-    { ...base, artifacts: [...base.artifacts, skills] });
-  assert.deepEqual(commsServiceSpec({ ...input, source: { pending: "no commit" }, includeSkillsPackage: true })
-    .artifacts.map(({ id }) => id), ["comms-bridge"]);
-});
-
 test("a build that cannot bind a commit serves a pending artifact with no hash and no manifest", () => {
   const cases = {
     "no origin remote": { origin: null, revision: "head" },
@@ -159,6 +148,7 @@ test("a build that cannot bind a commit serves a pending artifact with no hash a
     withTempDir((repo) => {
       const head = seedRepo(repo, FILES, origin === undefined ? {} : { origin });
       const { stamped } = runSpec(repo, revision === "head" ? head : revision);
+      assert.equal(stamped.spec.artifacts.length, 1, name);
       const [artifact] = stamped.spec.artifacts;
       assert.equal(typeof artifact.source.pending, "string", name);
       assert.deepEqual(Object.keys(artifact.source), ["pending"], name);

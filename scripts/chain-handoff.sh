@@ -8,8 +8,8 @@
 #
 # PRE-KEY REFUSALS. Options the chain does not carry (`--with-hook`, `--env-endpoint`; install.sh passes them as
 # WITH_HOOK and ENV_ENDPOINT_GIVEN) are refused first, then
-# aify-env's place is settled and npm's write destinations checked. Only then is the key resolved, which can write
-# .env (`--with-api-key` generates one, WITH_API_KEY; an answer to the ask is kept), before anything is installed.
+# aify-env's place and npm's write destinations are checked. The exact Env module must support skills handoff v1
+# before the key resolver runs. A missing module may need an npm install before that capability can be checked.
 #
 # WHERE THE CHAIN COMES FROM. `aify-env install`, run as its module in npm's global aify-env, never through the
 # `aify-env` command: an aify-env too old to know `install` must not be handed an argument it could misread as a
@@ -135,14 +135,20 @@ for destination in "$root" "$bin_root"; do
   fi
 done
 
-[ "${WITH_API_KEY:-false}" = true ] && KEY_MODE=--generate || KEY_MODE=
-KEY="$(bash "$HERE/api-key-for-install.sh" $KEY_MODE)" || exit 1
-
 if [ -z "$CHAIN" ]; then
   echo "Installing aify-env ($SOURCE) into npm global prefix ($prefix) to run the guided-install chain..." >&2
   npm install -g --no-audit --no-fund "$SOURCE" || exit 1
-  CHAIN="$(chain_module)" || { echo "aify-env was installed, but it holds no guided-install chain." >&2; exit 1; }
+  CHAIN="$(chain_module)" || { echo "aify-env was installed, but it holds no guided-install chain." >&2; exit 78; }
 fi
+
+# Probe the exact module that will run. The v1 capability, not a package version string, is the requirement.
+if ! env -u AIFY_API_KEY -u CLAUDE_MCP_API_KEY node "$CHAIN" --supports-skills-handoff-v1 </dev/null >/dev/null 2>&1; then
+  echo 'This aify-env installer does not support skills handoff v1. No service key was resolved.' >&2
+  echo '  Update aify-env at its source, or choose --standalone for client assets only.' >&2
+  exit 78
+fi
+[ "${WITH_API_KEY:-false}" = true ] && KEY_MODE=--generate || KEY_MODE=
+KEY="$(bash "$HERE/api-key-for-install.sh" $KEY_MODE)" || exit 1
 
 args=(--connect "aify-comms=$URL" --client "$CLIENT" --installer "aify-comms=$INSTALLER")
 [ -t 0 ] || args+=(--no-prompt)

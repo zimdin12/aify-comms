@@ -596,8 +596,10 @@ export function skillsInstallVerdict({ missing = [], differing = [], total = 0, 
     ok: false,
     code: "stale",
     detail: `installed skills do NOT match the checkout${where} — ${parts.join("; ")}`,
-    fix: "Re-run `bash install.sh --client <runtime>`, THEN restart the agents — a skill is read at "
-      + "session start, so a running agent keeps the text it already loaded.",
+    fix: "Re-run the guided install with `bash install.sh --client <runtime>`. If Env names conflicting trees, "
+      + "have the operator move each named directory to a backup outside every skill search root, then re-run. "
+      + "Standalone only creates missing trees; it does not update existing trees. "
+      + "After installation succeeds, restart the affected agents to load the new skills.",
   };
 }
 

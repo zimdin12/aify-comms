@@ -149,9 +149,8 @@ class OnlyAValidSpecForThisBuildIsServedTests(_Served):
 
     def test_a_git_package_needs_no_file_set_manifest(self):
         spec = _comms_spec()
-        [bridge] = spec["artifacts"]
-        skills = {"id": "comms-skills", "kind": "package", "source": bridge["source"], "entries": []}
-        spec["artifacts"].append(skills)
+        bridge, skills = spec["artifacts"]
+        self.assertEqual(skills, {"id": "comms-skills", "kind": "package", "source": bridge["source"], "entries": []})
         self.stamp(spec)
         client = self.client()
         response = client.get(SPEC_ROUTE)

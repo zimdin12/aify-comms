@@ -1,13 +1,7 @@
 #!/bin/bash
 # Unified installer for aify-comms on Claude Code, Codex, or Hermes.
-# Pi/OMP (deprecated) and OpenCode (unsupported, unverified) are not installable clients.
-# `--client pi --emit-wrappers <dir>` still RENDERS the pi wrapper, for its tests.
-#
-# Usage:
-#   bash install.sh --client claude
-#   bash install.sh --client codex --standalone --with-hook
-#   bash install.sh --client codex http://localhost:8800 --standalone --with-hook
-#   bash install.sh --client hermes http://localhost:8800
+# aify-env-skills-handoff-v1: comms-skills
+# Run --help for usage. Pi/OpenCode are not installable clients.
 
 set -euo pipefail
 
@@ -31,7 +25,7 @@ CLIENT="claude"
 SERVER_URL=""
 WITH_HOOK=false
 WITH_API_KEY=false
-MODE=""
+MODE=""; SKILLS_PLACED=false
 # Plan 5 (2026-05-25): --prebuild-dry-run exits after running the hermes
 # web_dist prebuild branch (no npm, no wrappers, no key or credential). Used by
 # service/tests/test_install_hermes_prebuild.py to verify the branch's
@@ -100,7 +94,10 @@ while [ $# -gt 0 ]; do
       PREBUILD_DRY_RUN=true
       shift
       ;;
-    --acquire-only|--assets-only|--standalone) MODE="${1#--}"; shift ;;  # guided install S2: scripts/chain-handoff.sh
+    --acquire-only|--assets-only|--standalone)
+      [ -z "$MODE" ] || { echo 'install.sh: choose one install mode' >&2; exit 64; }
+      MODE="${1#--}"; shift ;;
+    --skills-placed-v1) SKILLS_PLACED=true; shift ;;
     --emit-wrappers|--emit-claude-wrappers|--emit-codex-wrappers|--emit-hermes-wrappers|--emit-pi-wrappers)
       EMIT_WRAPPERS_DIR="${2:-}"
       shift 2
@@ -120,6 +117,12 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+case "$MODE:$SKILLS_PLACED" in
+  assets-only:false) echo 'install.sh: --assets-only requires Env to place skills first (--skills-placed-v1).' >&2; exit 78 ;;
+  assets-only:true|*:false) ;;
+  *) echo 'install.sh: --skills-placed-v1 is only for --assets-only.' >&2; exit 64 ;;
+esac
 
 # Default the server URL when none was passed positionally. Without this, a
 # documented invocation like `install.sh --client claude` (no URL) left
@@ -369,22 +372,22 @@ copy_bridge_to_native_dir() {
   echo "  Host bridge version stamp written to $_stamp ($_vshort)."
 }
 
-# EVERY skill in a tree, not the ones somebody listed. Two were named at each call site; a third was
-# added, this reported success without copying it, and the skill that exists to be found when an agent
-# is asked to install was visible only inside the checkout.
-install_skill_tree() {  # $1 = source skills dir, $2 = destination
-  mkdir -p "$2"
-  for _skill in "$1"/*/; do
-    [ -d "$_skill" ] || continue
-    _name="$(basename "$_skill")"
-    rm -rf "$2/$_name" && cp -R "$_skill" "$2/$_name"
-  done
+install_skill_tree() {
+  MSYS_NO_PATHCONV=1 node "$(path_for_node "$SCRIPT_DIR/scripts/install-skill-tree.mjs")" \
+    "$(path_for_node "$1")" "$(path_for_node "$2")"
+}
+
+install_standalone_skills() {
+  case "$CLIENT" in
+    claude) install_skill_tree "$SCRIPT_DIR/.claude/skills" "$HOME/.claude/skills" ;;
+    codex) install_skill_tree "$SCRIPT_DIR/.agents/skills" "${CODEX_HOME:-$HOME/.codex}/skills" ;;
+    hermes) install_skill_tree "$SCRIPT_DIR/.agents/skills" "${HERMES_HOME:-$HOME/.hermes}/skills/autonomous-ai-agents" ;;
+  esac
 }
 
 copy_claude_assets() {
   local commands_dst="$HOME/.claude/commands/aify-comms"
   rm -rf "$commands_dst" && mkdir -p "$commands_dst"  # a command removed here leaves no stale copy
-  install_skill_tree "$SCRIPT_DIR/.claude/skills" "$HOME/.claude/skills"
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
   refresh_plugin_snapshot "$HOME/.claude/plugins/aify-comms" "claude"
 }
@@ -431,18 +434,7 @@ refresh_plugin_snapshot() {
 }
 
 copy_hermes_assets() {
-  # Install the aify-comms usage + debug skills into the Hermes skills tree so
-  # `/aify` surfaces them (parity with claude/codex — previously hermes got NO
-  # skills from install.sh, only the MCP server/plugin). Hermes discovers skills
-  # under <hermes-home>/skills/<category>/<skill>/SKILL.md; we use the
-  # autonomous-ai-agents category (where the hermes-native aify-comms-teamwork
-  # skill also lives) and only replace our own two dirs — never touch others.
-  local hermes_home="${HERMES_HOME:-$HOME/.hermes}"
-  local cat_dir="$hermes_home/skills/autonomous-ai-agents"
-  mkdir -p "$cat_dir"
-  install_skill_tree "$SCRIPT_DIR/.agents/skills" "$cat_dir"
-  echo "  Installed skills to $cat_dir: $(ls "$cat_dir" | tr '\n' ' ')"
-  refresh_plugin_snapshot "$hermes_home/plugins/aify-comms" "hermes"
+  refresh_plugin_snapshot "${HERMES_HOME:-$HOME/.hermes}/plugins/aify-comms" "hermes"
 }
 
 # Substitute the install-time placeholders in a wrappers/*.sh.in template and write the result.
@@ -494,7 +486,7 @@ render_wrapper_template() {
   IFS='|' read -r _aify_strict _aify_session _aify_codex _aify_http <<<"$_AIFY_FRAGMENTS"
   pairs+=("STRICT_EXTRA_MCP_B64=$_aify_strict" "SESSION_MCP_B64=$_aify_session" "SESSION_MCP_CODEX_B64=$_aify_codex" "SESSION_HTTP_B64=$_aify_http")
   # WRAPPER_DIR: where launchers find aify-wrapper's own bin/ and lib/. The pinned copy beside the bridge, the path they always used.
-  pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "WRAPPER_DIR=$AIFY_BRIDGE_DIR/node_modules/aify-wrapper" "NATIVE_BASE=$AIFY_NATIVE_BASE" "SCRIPT_DIR=$SCRIPT_DIR")
+  pairs+=("BRIDGE_DIR=$AIFY_BRIDGE_DIR" "WRAPPER_DIR=$AIFY_BRIDGE_DIR/node_modules/aify-wrapper")
   # Caller-supplied KEY=VALUE extras (hermes: a Windows-converted plugin path, a node-openable bridge dir, a prebuilt TUI
   # bundle), applied AFTER the fixed set so none can shadow one. render.sh stages, renames into place, refuses a leftover placeholder.
   # RENDERED BY THE PINNED PACKAGE'S render.sh, never a second renderer here: this one lacked `shopt -u patsub_replacement`, so on
@@ -1078,12 +1070,6 @@ install_windows_cmd_shim() {
   } > "$shim_path"
 
   [ -n "$EMIT_WRAPPERS_DIR" ] || bash "$SCRIPT_DIR/scripts/add-to-user-path.sh" "$wrapper_dir"
-}
-
-copy_codex_assets() {
-  # The THIRD tree, found by the gate rather than by me: two were converted to the walker and this
-  # one was not, which is the same one-shorter-than-the-directory defect in a place nobody looked.
-  install_skill_tree "$SCRIPT_DIR/.agents/skills" "${CODEX_HOME:-$HOME/.codex}/skills"
 }
 
 _patch_hermes_config_at() {
@@ -1944,13 +1930,11 @@ echo "  Done."
 fi
 
 echo "[2/4] Installing agent guidance..."
-if [ "$CLIENT" = "claude" ]; then
-  copy_claude_assets
-elif [ "$CLIENT" = "codex" ]; then
-  copy_codex_assets
-elif [ "$CLIENT" = "hermes" ]; then
-  copy_hermes_assets
-fi
+[ "$MODE" != standalone ] || install_standalone_skills
+case "$CLIENT" in
+  claude) copy_claude_assets ;;
+  hermes) copy_hermes_assets ;;
+esac
 echo "  Done."
 
 echo "[3/4] Registering MCP server..."

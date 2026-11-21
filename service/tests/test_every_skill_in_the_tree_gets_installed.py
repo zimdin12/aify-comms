@@ -66,11 +66,8 @@ def test_both_trees_are_walked():
         )
 
 
-def test_the_walker_removes_a_stale_copy_before_writing():
-    """A skill is a DIRECTORY, so copying over an old one leaves whatever the new version deleted.
-    A reference file removed upstream would keep being read by every agent on the host."""
+def test_only_standalone_calls_the_skills_writer():
     source = INSTALL_SH.read_text(encoding="utf-8")
-    body = source[source.index("install_skill_tree() {"):]
-    body = body[:body.index("\n}\n")]
-    assert "rm -rf" in body, "the walker copies over a stale skill instead of replacing it"
-    assert "cp -R" in body
+    assert source.count("install_standalone_skills") == 2, "expected one definition and one caller"
+    assert '[ "$MODE" != standalone ] || install_standalone_skills' in source
+    assert "scripts/install-skill-tree.mjs" in source

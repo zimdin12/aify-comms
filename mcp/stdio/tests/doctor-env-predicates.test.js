@@ -267,11 +267,14 @@ test("skills-installed: a differing or missing file goes RED and names it", () =
   assert.match(miss.detail, /SKILL\.md/);
 });
 
-test("skills-installed: the fix says RESTART, not just reinstall", () => {
+test("skills-installed: the fix gives the guided repair, conflict backup and standalone limit", () => {
+  const v = skillsInstallVerdict({ differing: ["x"], total: 1 });
+  assert.match(v.fix, /guided install.*bash install\.sh/i);
+  assert.match(v.fix, /if Env names conflicting trees.*move each named directory to a backup outside every skill search root.*re-run/i);
+  assert.match(v.fix, /standalone.*does not update existing trees/i);
   // A skill is read at session start, so install.sh alone does not make it live. This repo has
   // mistaken "install succeeded" for "the change is running" before.
-  const v = skillsInstallVerdict({ differing: ["x"], total: 1 });
-  assert.match(v.fix, /restart/i);
+  assert.match(v.fix, /after.*succeeds.*restart/i);
 });
 
 let failed = 0;
