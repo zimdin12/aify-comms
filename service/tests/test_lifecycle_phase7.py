@@ -126,26 +126,60 @@ class LifecyclePhase7Tests(FastApiTestCase):
                 await db.close()
         return asyncio.run(_run())
 
+    # Since phase 2 a cold start queues one automatic lifecycle `start` for the machine that defines the agent,
+    # not a legacy spawn request; the environment, runtime and workspace are settled when a host on that
+    # machine claims it and prepares the launch. These read both: the receipt, and the launch it becomes.
+    TERMINAL = {"metadata": {"terminal": True, "pty": True, "terminalRuntimes": ["codex"]}}
+
+    def _starts(self, agent_id):
+        return self.client.get(f"/api/v1/agents/{agent_id}/lifecycle-requests").json()["requests"]
+
+    def _legacy_rows(self, agent_id):
+        return self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,))
+
+    def _assert_one_automatic_start(self, agent_id, machine_id="linux:test-host"):
+        [start] = self._starts(agent_id)
+        self.assertEqual(
+            {key: start.get(key) for key in ("action", "startIntent", "expectedLifetime", "freshContext",
+                                              "machineId", "status")},
+            {"action": "start", "startIntent": "automatic", "expectedLifetime": None, "freshContext": False,
+             "machineId": machine_id, "status": "pending"})
+        self.assertEqual(self._legacy_rows(agent_id), [], "a cold start no longer writes a legacy spawn request")
+        return start
+
+    def _claim_and_prepare(self, start, *, environment_id, bridge_id, machine_id="linux:test-host",
+                           prepare_from=None):
+        """Claim `start` as an automatic-capable host on `environment_id`, then prepare its launch from
+        `prepare_from` (default: the same environment). Returns the launch response."""
+        claimed = self.client.post(f"/api/v1/environments/{environment_id}/lifecycle-requests/claim", json={
+            "bridgeId": bridge_id, "machineId": machine_id, "capabilities": ["automatic-start-v1"]})
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertEqual([r["id"] for r in claimed.json()["requests"]], [start["id"]])
+        env_id, bridge = prepare_from or (environment_id, bridge_id)
+        return self.client.post(f"/api/v1/environments/{env_id}/lifecycle-requests/{start['id']}/launch",
+                                json={"bridgeId": bridge, "machineId": machine_id})
+
     def test_coldstart_creates_queued_spawn_request_for_cold_managed_agent(self):
-        self._heartbeat_environment()
+        self._heartbeat_environment(**self.TERMINAL)
         self._register("worker", runtime="codex", sessionMode="managed")
         define(self, "worker", runtime="codex", workspace="/workspace/project", **HOST)
         self._seed_ended_session("worker")
 
         created = self._coldstart("worker")
-        self.assertTrue(created, "cold-start should report a created spawn request")
+        self.assertTrue(created, "cold-start should report a queued start")
+        start = self._assert_one_automatic_start("worker")
 
-        rows = self._fetchall(
-            "SELECT agent_id, environment_id, runtime, workspace, status, mode FROM spawn_requests WHERE agent_id = ?",
-            ("worker",),
-        )
-        self.assertEqual(len(rows), 1, "exactly one spawn_request created")
-        row = rows[0]
-        self.assertEqual(row["status"], "queued")
-        self.assertEqual(row["environment_id"], "linux:test-host:default")
-        self.assertEqual(row["runtime"], "codex")
-        self.assertEqual(row["workspace"], "/workspace/project")
-        self.assertEqual(row["mode"], "managed-warm")
+        launch = self._claim_and_prepare(start, environment_id="linux:test-host:default", bridge_id="bridge-current")
+        self.assertEqual(launch.status_code, 200, launch.text)
+        launch = launch.json()["launch"]
+        self.assertEqual((launch["runtime"], launch["cwd"]), ("codex", "/workspace/project"))
+        [session] = self._fetchall(
+            "SELECT environment_id, runtime, workspace, mode, status FROM agent_sessions WHERE agent_id = ? "
+            "AND id != 'sess-worker'", ("worker",))
+        self.assertEqual(dict(session), {"environment_id": "linux:test-host:default", "runtime": "codex",
+                                         "workspace": "/workspace/project", "mode": "managed-warm",
+                                         "status": "starting"})
+        self.assertEqual(self._legacy_rows("worker"), [], "nor does preparing its launch")
 
     def test_coldstart_is_idempotent_when_a_claimable_spawn_request_exists(self):
         self._heartbeat_environment()
@@ -156,36 +190,31 @@ class LifecyclePhase7Tests(FastApiTestCase):
         first = self._coldstart("worker")
         second = self._coldstart("worker")
         self.assertTrue(first)
-        self.assertFalse(second, "second cold-start must NOT create a duplicate spawn request")
-        rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed')", ("worker",))
-        self.assertEqual(len(rows), 1)
+        self.assertFalse(second, "second cold-start must NOT queue a duplicate start")
+        self._assert_one_automatic_start("worker")
 
     # ── Phase 2: env auto-bind ────────────────────────────────────────────
     # A managed agent that has never been spawned (no prior agent_sessions
-    # row, no environment binding) must still be cold-startable: pick the
-    # first ONLINE environment that advertises the runtime, bind to it, and
-    # queue a spawn_request. Without this, sending to an `available` managed
-    # codex/hermes/pi agent that was only registered (never run) is rejected
-    # with "cannot start live work now" — the operator-reported sc-fixtureworker bug.
+    # row, no environment binding) must still be cold-startable: an ONLINE
+    # environment on its defining machine that advertises the runtime admits it,
+    # and the start is queued for that machine. Without this, sending to an
+    # `available` managed codex/hermes/pi agent that was only registered (never
+    # run) is rejected with "cannot start live work now" — the operator-reported
+    # sc-fixtureworker bug.
     def test_coldstart_autobinds_first_online_env_when_no_prior_session(self):
-        self._heartbeat_environment()  # advertises codex, online
+        self._heartbeat_environment(**self.TERMINAL)  # advertises codex, online
         self._register("fresh", runtime="codex", sessionMode="managed")
         define(self, "fresh", runtime="codex", **HOST)
         # No _seed_ended_session — this agent has never run.
 
         created = self._coldstart("fresh")
-        self.assertTrue(created, "cold-start should auto-bind an online env and create a spawn request")
-
-        rows = self._fetchall(
-            "SELECT agent_id, environment_id, runtime, status, mode FROM spawn_requests WHERE agent_id = ?",
-            ("fresh",),
-        )
-        self.assertEqual(len(rows), 1, "exactly one spawn_request created")
-        row = rows[0]
-        self.assertEqual(row["status"], "queued")
-        self.assertEqual(row["environment_id"], "linux:test-host:default")
-        self.assertEqual(row["runtime"], "codex")
-        self.assertEqual(row["mode"], "managed-warm")
+        self.assertTrue(created, "cold-start should admit an online env and queue a start")
+        start = self._assert_one_automatic_start("fresh")
+        launch = self._claim_and_prepare(start, environment_id="linux:test-host:default", bridge_id="bridge-current")
+        self.assertEqual(launch.status_code, 200, launch.text)
+        self.assertEqual(launch.json()["launch"]["runtime"], "codex")
+        [session] = self._fetchall("SELECT environment_id, mode FROM agent_sessions WHERE agent_id = ?", ("fresh",))
+        self.assertEqual(dict(session), {"environment_id": "linux:test-host:default", "mode": "managed-warm"})
 
     def test_coldstart_returns_false_when_no_online_env_supports_runtime(self):
         # Env advertises codex only; agent is hermes → no online env supports
@@ -197,27 +226,36 @@ class LifecyclePhase7Tests(FastApiTestCase):
 
         created = self._coldstart("lonely", runtime="hermes")
         self.assertFalse(created, "cold-start must decline when no online env advertises the runtime")
-        rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("lonely",))
-        self.assertEqual(len(rows), 0, "no spawn_request when no env can host the runtime")
+        self.assertEqual(self._starts("lonely"), [], "no start when no env can host the runtime")
+        self.assertEqual(self._legacy_rows("lonely"), [], "and no legacy spawn request")
 
     def test_coldstart_skips_offline_env_and_picks_online_one(self):
-        # Two envs advertise codex: one offline (stale heartbeat), one online.
-        # Auto-bind must skip the offline env and choose the online one. Both are on the machine that
-        # defines the agent, so the machine is not what tells them apart.
+        # Two envs advertise codex: one offline (stale heartbeat), one online. Both are on the machine that
+        # defines the agent, so the queued start names that machine; the offline one cannot prepare its launch
+        # and the online one can.
         stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._heartbeat_environment(id="env-online", bridgeId="bridge-online", machineId="linux:picky")
+        self._heartbeat_environment(id="env-online", bridgeId="bridge-online", machineId="linux:picky", **self.TERMINAL)
         self._register("picky", runtime="codex", sessionMode="managed")
         define(self, "picky", runtime="codex", environment_id="env-online", machine_id="linux:picky",
                bridge_id="bridge-online")
-        self._heartbeat_environment(id="env-offline", bridgeId="bridge-offline", machineId="linux:picky")
+        self._heartbeat_environment(id="env-offline", bridgeId="bridge-offline", machineId="linux:picky", **self.TERMINAL)
         # Force env-offline stale so its effective status degrades to offline.
         self._execute("UPDATE environments SET last_seen = ? WHERE id = ?", (stale, "env-offline"))
 
         created = self._coldstart("picky")
         self.assertTrue(created)
-        rows = self._fetchall("SELECT environment_id FROM spawn_requests WHERE agent_id = ?", ("picky",))
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["environment_id"], "env-online")
+        start = self._assert_one_automatic_start("picky", machine_id="linux:picky")
+        refused = self._claim_and_prepare(start, environment_id="env-online", bridge_id="bridge-online",
+                                          machine_id="linux:picky", prepare_from=("env-offline", "bridge-offline"))
+        self.assertEqual(refused.status_code, 409, refused.text)
+        self.assertEqual(self._fetchall("SELECT id FROM agent_sessions WHERE agent_id = ?", ("picky",)), [],
+                         "the offline environment prepared nothing")
+        launch = self.client.post(f"/api/v1/environments/env-online/lifecycle-requests/{start['id']}/launch",
+                                  json={"bridgeId": "bridge-online", "machineId": "linux:picky"})
+        self.assertEqual(launch.status_code, 200, launch.text)
+        [session] = self._fetchall("SELECT environment_id FROM agent_sessions WHERE agent_id = ?", ("picky",))
+        self.assertEqual(session["environment_id"], "env-online")
+        self.assertEqual(self._legacy_rows("picky"), [])
 
 
 class EnvironmentForgetTombstoneTests(FastApiTestCase):

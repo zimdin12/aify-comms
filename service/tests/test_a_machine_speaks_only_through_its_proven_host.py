@@ -17,7 +17,7 @@ import sqlite3
 from service.api_core.host_proof import HOST_PROOF_HEADER
 from service.api_core.operator_authz import OPERATOR_KEY_HEADER
 from service.tests._base import FastApiTestCase
-from service.tests.defined_agents import cold_start
+from service.tests.defined_agents import legacy_spawn_request
 from service.tests.test_agent_definition_push import A, snapshot_digest, valid
 
 PROOF = {HOST_PROOF_HEADER: "the-real-hosts-proof"}
@@ -91,10 +91,10 @@ class AMachineSpeaksOnlyThroughItsProvenHost(FastApiTestCase):
         """Fenced by the bridge id alone, which `GET /environments` hands any key holder, a forged claim took a
         spawn away from the real host (triage of the external review of 0.8.4)."""
         claim = {"environmentId": A["env"], "bridgeId": A["bridge"]}
-        # Since D8 a legacy spawn request comes only from a message waking a DEFINED agent, so the real host
-        # defines worker-1 (with its proof) and a message wakes it.
+        # Since phase 2 nothing queues a legacy spawn request; one queued before the upgrade, for an agent the
+        # real host defines (with its proof), is still claimed through these routes.
         self.assertEqual(self.push(PROOF, revision=2, agent="worker-1").status_code, 200)
-        self.assertEqual(cold_start(self, "worker-1"), [], "the wake queued a spawn request")
+        legacy_spawn_request(self, "worker-1", environment_id=A["env"])
         for headers, why in (({}, "no proof"), (FORGED, "another proof")):
             with self.subTest(why=why):
                 forged = self.client.post("/api/v1/spawn-requests/claim", headers=headers, json=claim)

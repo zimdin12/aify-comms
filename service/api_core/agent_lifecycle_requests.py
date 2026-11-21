@@ -9,16 +9,20 @@ from fastapi import HTTPException
 from service.api_core.operator_authz import LifecycleProof, lifecycle_actor
 from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core import definition_requests as definitions
+from service.api_core.lifecycle_claim_capabilities import record_claim, supports_automatic_start
 from service.api_core.lifecycle_launch import settle_unstarted
 from service.api_core.agent_remove import remove_agent
-from service.lifecycle_models import ACTION_ADDED_IN, ACTIONS, OPEN_SQL, TERMINAL, UNDECLARED_HOST_ACTIONS
+from service.lifecycle_models import (
+    ACTION_ADDED_IN, ACTIONS, AUTOMATIC_START_INTENT, OPEN_SQL, TERMINAL,
+    UNDECLARED_HOST_ACTIONS,
+)
 
 
 REQUEST_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}')
 
 
 def lifecycle_record(row):
-    return {key: row[column] for key, column in {
+    record = {key: row[column] for key, column in {
         'id':'id', 'agentId':'agent_id', 'machineId':'machine_id', 'storeId':'store_id',
         'expectedIncarnation':'expected_incarnation', 'expectedRevision':'expected_revision',
         'expectedLifetime':'expected_lifetime', 'action':'action', 'requestedBy':'requested_by',
@@ -26,6 +30,9 @@ def lifecycle_record(row):
         'resultIncarnation':'result_incarnation', 'resultRevision':'result_revision',
         'createdAt':'created_at', 'claimedAt':'claimed_at', 'finishedAt':'finished_at'
     }.items()} | {'freshContext': bool(row['fresh_context'])}
+    if row['start_intent']:
+        record['startIntent'] = row['start_intent']
+    return record
 
 
 async def lifecycle_request_by_id(db, request_id):
@@ -54,6 +61,8 @@ async def admit_lifecycle(db, agent_id, body, proof, now, *, brief=''):
         raise HTTPException(403, 'lifecycle proof required')
     if proof.actor != lifecycle_actor(body):
         raise HTTPException(403, 'lifecycle proof does not match caller actor')
+    if 'startIntent' in body:
+        raise HTTPException(422, 'startIntent is reserved for automatic dispatch')
     request_id = body.get('requestId')
     if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
         raise HTTPException(422, 'requestId: 1 to 128 ASCII letters, digits, dot, underscore or hyphen; first character must be alphanumeric')
@@ -86,9 +95,12 @@ async def admit_lifecycle(db, agent_id, body, proof, now, *, brief=''):
     return await lifecycle_request_by_id(db, request_id)
 
 
-async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifetime, fresh_context, intent, now, brief=''):
+async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifetime, fresh_context, intent, now,
+                          brief='', start_intent=''):
     """Insert one request for the definition `held`, after its caller has judged who may ask. 409 while the
     agent has another one open."""
+    if start_intent and not _automatic_cold_start(start_intent, action, expected_lifetime):
+        raise ValueError('automatic intent requires a cold lifecycle start')
     waiting = await (await db.execute("SELECT id FROM agent_lifecycle_requests WHERE agent_id=? AND status IN " + OPEN_SQL, (held['agent_id'],))).fetchone()
     if waiting:
         open_id = waiting['id']
@@ -96,8 +108,8 @@ async def queue_lifecycle(db, request_id, held, *, action, actor, expected_lifet
             raise HTTPException(409, 'agent has an open lifecycle request with an invalid id; ask its owner to inspect the receipt')
         raise HTTPException(409, {'code': 'OPEN_REQUEST', 'openRequestId': open_id,
                                   'message': f'agent has an open lifecycle request {open_id}'})
-    await db.execute('INSERT INTO agent_lifecycle_requests (id,agent_id,machine_id,store_id,expected_incarnation,expected_revision,expected_lifetime,action,requested_by,fresh_context,intent,brief,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        (request_id,held['agent_id'],held['machine_id'],held['store_id'],held['incarnation'],held['revision'],expected_lifetime,action,actor,fresh_context,intent,brief,now))
+    await db.execute('INSERT INTO agent_lifecycle_requests (id,agent_id,machine_id,store_id,expected_incarnation,expected_revision,expected_lifetime,action,requested_by,fresh_context,intent,brief,start_intent,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (request_id,held['agent_id'],held['machine_id'],held['store_id'],held['incarnation'],held['revision'],expected_lifetime,action,actor,fresh_context,intent,brief,start_intent,now))
 
 
 def host_actions(declared):
@@ -116,15 +128,27 @@ def unrunnable_outcome(action):
             f'{ACTION_ADDED_IN.get(action, "a newer aify-env")} does, after the operator next restarts aify-env')
 
 
-async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now, declared_actions=None):
+def _automatic_cold_start(intent, action, expected_lifetime):
+    return intent == AUTOMATIC_START_INTENT and action == 'start' and expected_lifetime is None
+
+
+async def claim_lifecycle_requests(db, environment, bridge_id, machine_id, now, declared_actions=None,
+                                   declared_capabilities=None):
     why = fence_refusal(environment, bridge_id, machine_id)
     if why:
         raise HTTPException(409, f'lifecycle claim refused: {why}')
     runs = host_actions(declared_actions)
+    runs_automatic = supports_automatic_start(declared_capabilities)
+    await record_claim(db, environment, declared_capabilities)
     store = await (await db.execute('SELECT store_id FROM definition_stores WHERE machine_id=?', (machine_id,))).fetchone()
     rows = await (await db.execute("SELECT * FROM agent_lifecycle_requests WHERE machine_id=? AND status IN " + OPEN_SQL + " ORDER BY created_at,id", (machine_id,))).fetchall()
     found = []
     for row in rows:
+        # Unsupported does not mean refused. Leave pending and claimed custody unchanged until
+        # a host that understands automatic intent claims or reclaims the original receipt.
+        if row['start_intent'] and not (runs_automatic and _automatic_cold_start(
+                row['start_intent'], row['action'], row['expected_lifetime'])):
+            continue
         held = await (await db.execute('SELECT * FROM agent_definitions WHERE agent_id=?', (row['agent_id'],))).fetchone()
         why = definitions._undeliverable(row, held, store['store_id'] if store else '')
         if not why and (held['incarnation'], held['revision']) != (row['expected_incarnation'],row['expected_revision']):

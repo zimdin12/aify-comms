@@ -26,6 +26,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service.api_core.active_run_lookup import _get_blocking_active_run
+from service.api_core.lifecycle_claim_capabilities import waiting_reasons
 from service.api_core.records import _serialize_dispatch_run_row
 from service.api_core.routing import domain_router
 from service.db import get_db
@@ -107,12 +108,15 @@ async def list_dispatch_runs(
                     "sourceMessageId": control["source_message_id"],
                     "response": control["response_text"] or "",
                 })
+        waiting = await waiting_reasons(db, (row['target_agent'] for row in rows if row['status'] == 'queued'))
         runs = []
         for row in rows:
             blocked_by = None
             if row["status"] == "queued":
                 blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
             payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
+            if row['status'] == 'queued' and (reason := waiting.get(row['target_agent'])):
+                payload['waitingReason'] = reason
             source_controls = controls_by_run.get(row["id"], [])[:50]
             if source_controls:
                 payload["sourceControls"] = source_controls
@@ -164,17 +168,15 @@ async def get_dispatch_run(run_id: str, request: Request):
             for control in await cc.fetchall()
         ]
         blocked_by = None
-        if row["status"] == "queued":
-            blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
-        return {
-            "run": _serialize_dispatch_run_row(
-                row,
-                blocked_by=blocked_by,
-                include_body=True,
-                include_events=events,
-                include_controls=controls,
-            )
-        }
+        waiting = {}
+        if row['status'] == 'queued':
+            blocked_by = await _get_blocking_active_run(db, row['target_agent'], row['id'])
+            waiting = await waiting_reasons(db, [row['target_agent']])
+        payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by, include_body=True,
+                                             include_events=events, include_controls=controls)
+        if reason := waiting.get(row['target_agent']):
+            payload['waitingReason'] = reason
+        return {'run': payload}
     finally:
         await db.close()
 

@@ -306,18 +306,27 @@ class LegacyRoutesDelegateDefinedAgents(FastApiTestCase):
         self.assertFalse(refused.json()["ok"])
         self.assertIn('no host defines "loose"', refused.json()["message"])
         self.assertEqual(self.sql("SELECT agent_id FROM terminal_sessions"), [])
-        # CONTROL: a defined agent's session, made by its real cold start, recovers through the same console, and the
-        # launch its host reads carries the definition, which is what the host admits a defined start by.
+        # CONTROL: a defined agent's session, made by its real cold start (an automatic lifecycle start its host
+        # claims and prepares), recovers through the same console, and the launch its host reads carries the
+        # definition, which is what the host admits a defined start by.
         self.sql("UPDATE agent_sessions SET status = 'stopped' WHERE id = 'sess-1'")
         publish(self, A["machine"], {"coder": (None, "available")})
         self.assertTrue(self.cold_start([]))
-        [spawn] = self.sql("SELECT id, definition_store_id FROM spawn_requests")
-        self.assertEqual(spawn["definition_store_id"], "s1")
-        self.sql("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_request_id, "
-                 "started_at, last_seen) VALUES ('sess-2', 'coder', ?, 'claude-code', 'managed-warm', 'running', ?, 'now', 'now')",
-                 (A["env"], spawn["id"]))
+        self.assertEqual(self.sql("SELECT id FROM spawn_requests"), [], "a cold start queues no legacy spawn request")
+        [queued] = self.sql("SELECT id, start_intent, store_id FROM agent_lifecycle_requests")
+        self.assertEqual((queued["start_intent"], queued["store_id"]), ("automatic", "s1"))
+        host = {"bridgeId": A["bridge"], "machineId": A["machine"]}
+        claimed = self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/claim",
+                                   json={**host, "capabilities": ["automatic-start-v1"]})
+        self.assertEqual([r["id"] for r in claimed.json()["requests"]], [queued["id"]], claimed.text)
+        prepared = self.client.post(f"/api/v1/environments/{A['env']}/lifecycle-requests/{queued['id']}/launch", json=host)
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        first = prepared.json()["launch"]["terminalId"]
+        self.sql("UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?", (first,))
+        self.sql("UPDATE agent_sessions SET status = 'running', terminal_id = '', terminal_status = '' WHERE terminal_id = ?",
+                 (first,))
         typed("coder")
-        [terminal] = self.sql("SELECT id, agent_id FROM terminal_sessions")
+        [terminal] = self.sql("SELECT id, agent_id FROM terminal_sessions WHERE id != ?", (first,))
         self.assertEqual(terminal["agent_id"], "coder", "control: the defined agent's console starts its worker")
         launch = self.client.get(f"/api/v1/terminals/{terminal['id']}/launch")
         self.assertEqual(launch.status_code, 200, launch.text)

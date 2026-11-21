@@ -69,6 +69,7 @@ export function formatQueuedRun(run = {}) {
   if (run.merged && Number(run.mergedCount || 0) > 1) {
     text += ` buffered ${run.mergedCount} updates`;
   }
+  if (run.waitingReason) return `${text} queued, not yet claimed (${run.waitingReason})`;
   if (run.queuedBehindActiveRun?.runId) {
     text += ` queued behind active run ${run.queuedBehindActiveRun.runId}`;
     if (run.queuedBehindActiveRun.subject) {

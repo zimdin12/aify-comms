@@ -4,16 +4,25 @@ Since D8 an agent no host defines is never started, so a test that needs a manag
 a start defines the agent first, as a host's push would. `define` keeps every definition a test has pushed
 for a machine, because a push is the machine's whole snapshot and one that left an agent out would withdraw it.
 
-`cold_start` is the only producer of a legacy spawn request left: a defined agent woken on the send path.
+`cold_start` wakes a defined agent as a message does. Since phase 2 that queues an automatic lifecycle start,
+so nothing in the product queues a new legacy spawn request. The legacy claim, PATCH and settlement routes stay
+until phase 3 for requests queued before the upgrade; `legacy_spawn_request` seeds one of those, and
+`spawn_defined` defines an agent and seeds one. Neither is evidence about what a send queues now.
 """
 from __future__ import annotations
 
 import asyncio
+import time
+import uuid
 from typing import Any
 
 from service.api_core.vocabulary import RUNTIME_HARNESS
 from service.api_core.definition_snapshot import definition_digest, snapshot_digest
+from service.api_core.definition_start import insert_spawn_request, spec_columns, start_binding
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
+from service.api_core.records import _environment_record_to_dict
+from service.api_core.start_intent import START
+from service.api_core.workspace import _workspace_for_environment
 from service.api_core.settings import _load_settings
 from service.db import get_db
 
@@ -72,15 +81,60 @@ def cold_start(test, agent_id: str, *, runtime: str = "claude-code", requested_b
 
 
 def spawn_defined(test, agent_id: str, *, environment_id: str, machine_id: str, bridge_id: str,
-                  runtime: str = "claude-code", requested_by: str = "dashboard", **fields: Any) -> dict:
-    """Define `agent_id` and cold-start it: the spawn request a test used to get from POST /spawn-requests."""
+                  runtime: str = "claude-code", requested_by: str = "dashboard", start_intent: str = START,
+                  **fields: Any) -> dict:
+    """Define `agent_id` and seed the legacy spawn request a pre-phase-2 cold start queued for it, as the
+    spawn-request list returns it. For tests of the legacy claim, PATCH and settlement routes only."""
     define(test, agent_id, environment_id=environment_id, machine_id=machine_id, bridge_id=bridge_id,
            runtime=runtime, **fields)
     before = {row["id"] for row in _spawn_requests(test, agent_id)}
-    warnings = cold_start(test, agent_id, runtime=runtime, requested_by=requested_by)
+    legacy_spawn_request(test, agent_id, environment_id=environment_id, requested_by=requested_by,
+                         start_intent=start_intent)
     queued = [row for row in _spawn_requests(test, agent_id) if row["id"] not in before]
-    test.assertEqual(len(queued), 1, f"no spawn request was queued for {agent_id}: {warnings}")
+    test.assertEqual(len(queued), 1, f"the legacy fixture queued nothing for {agent_id}")
     return queued[0]
+
+
+def legacy_spawn_request(test, agent_id: str, *, environment_id: str, requested_by: str = "dashboard",
+                         start_intent: str = START, session_handle: str = "") -> str:
+    """Seed the spec and queued spawn request that a cold start wrote before phase 2, for a defined agent on
+    `environment_id`. It writes through the product's guarded insert, so the definition fence still applies.
+    Returns the request id."""
+    async def run():
+        db = await get_db()
+        try:
+            binding = await start_binding(db, agent_id)
+            test.assertIsNotNone(binding, f"the legacy fixture needs {agent_id} defined")
+            row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+            test.assertIsNotNone(row, f"the legacy fixture needs environment {environment_id}")
+            workspace, workspace_root = _workspace_for_environment(
+                _environment_record_to_dict(row), binding.workspace)
+            agent = await (await db.execute("SELECT role, name FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            spec_id = f"spec_legacy_{uuid.uuid4().hex[:12]}"
+            spawn_id = f"spawn_legacy_{uuid.uuid4().hex[:12]}"
+            spec = {"id": spec_id, "agent_id": agent_id, "environment_id": environment_id, "workspace": workspace,
+                    "created_at": now, "updated_at": now, **spec_columns(binding)}
+            await db.execute(f"INSERT INTO spawn_specs ({', '.join(spec)}) VALUES ({', '.join('?' * len(spec))})",
+                             tuple(spec.values()))
+            inserted = await insert_spawn_request(db, {
+                "id": spawn_id, "spawn_spec_id": spec_id, "created_by": requested_by,
+                "environment_id": environment_id, "agent_id": agent_id,
+                "role": str((agent["role"] if agent else "") or binding.role or "coder"),
+                "name": str((agent["name"] if agent else "") or binding.name or agent_id),
+                "runtime": binding.runtime, "workspace": workspace, "workspace_root": workspace_root,
+                "initial_message": "", "priority": "normal", "subject": f"Cold-start for {agent_id}",
+                "mode": "managed-warm", "resume_policy": "native_first", "status": "queued",
+                "session_handle": session_handle, "created_at": now, "updated_at": now,
+                "start_intent": start_intent,
+            }, binding)
+            test.assertTrue(inserted, "the definition fence refused the legacy fixture")
+            await db.commit()
+            return spawn_id
+        finally:
+            await db.close()
+
+    return asyncio.run(run())
 
 
 def _spawn_requests(test, agent_id: str) -> list[dict]:

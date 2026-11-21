@@ -1,6 +1,6 @@
 """D8: a spawn of an id no host defines asks a host to define it, then starts what the host defined.
 
-There is no other way to start a managed agent: an undefined one is refused at `insert_spawn_request`. The
+There is no other way to start a managed agent: cold dispatch refuses an undefined agent. The
 creation is a definition request (`definition_requests.CREATION`), applied by the host's definition store
 only where no file names the id. Its `done` leaves the consequence `spawn pending`, and the spawn is queued
 by whichever comes first to find the definition published here: the host's report or its next push.

@@ -86,6 +86,10 @@ async def comms_run_status(runId: str = Field(description="Dispatch run ID")):
     if blocked.get("runId"):
         subject = f" ({_quote_untrusted_subject(blocked['subject'], 120)})" if blocked.get("subject") else ""
         lines.append(f"Blocked by active run: {blocked['runId']}{subject}")
+    # Why a queued run's start waits, sent only while it does; it names a host-reported machine id, so one line.
+    waiting = run.get("waitingReason")
+    if isinstance(waiting, str) and waiting.strip():
+        lines.append(f"Waiting: {_one_line(waiting, 240)}")
     lines += [f"Thread: {run['externalThreadId']}"] if run.get("externalThreadId") else []
     lines += [f"Turn: {run['externalTurnId']}"] if run.get("externalTurnId") else []
     text = "\n".join(lines) + "\n"

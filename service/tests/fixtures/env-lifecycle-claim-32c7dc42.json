@@ -1,0 +1,21 @@
+{
+  "envCommit": "32c7dc42a89d79fa26ccbfb7cc75efbabf2bcc33",
+  "path": "/api/v1/environments/linux%3Atest-host%3Adefault/lifecycle-requests/claim",
+  "method": "POST",
+  "body": {
+    "bridgeId": "bridge-current",
+    "machineId": "linux:test-host",
+    "actions": [
+      "start",
+      "spawn",
+      "restart",
+      "stop",
+      "kill",
+      "delete",
+      "release"
+    ],
+    "capabilities": [
+      "automatic-start-v1"
+    ]
+  }
+}

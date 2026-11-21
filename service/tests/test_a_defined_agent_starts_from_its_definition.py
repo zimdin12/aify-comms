@@ -1,11 +1,7 @@
-"""A defined agent starts from its definition, at one revision, or not at all (P0 C6, C7; the service half).
+"""A cold start uses the exact host definition; old terminal bindings remain readable.
 
-Every start the service makes writes its spawn request through `insert_spawn_request` (held by
-test_every_start_goes_through_the_guarded_insert.py): the cold start (the agent-level start, a message,
-a channel post, the queued-run backstop, a spec-less restart), the restart or recreate of a session
-with a spec, defined or not, and the direct spawn. Each witness drives a real route and then reads the
-spawn request and its spec, since the host is told what to start by those rows, not by the HTTP answer. The host's check at the process-start
-boundary is aify-env's (P4); what it checks against is the launch's `definition`, witnessed here.
+New cold starts are witnessed through lifecycle claim and launch. Tests of legacy terminal
+readers seed pre-existing spawn records instead of depending on cold dispatch to write them.
 """
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ from service.api_core.definition_start import CHANGED_WHILE_STARTING, start_bind
 from service.api_core.managed_env import _select_online_environment_for_runtime
 from service.db import get_db
 from service.tests._base import FastApiTestCase
-from service.tests.defined_agents import define, undefine
+from service.tests.defined_agents import define, legacy_spawn_request, undefine
 from service.tests.test_agent_definition_push import A, B, invalid, snapshot_digest, valid
 
 RUNTIMES = [{"runtime": runtime, "available": True} for runtime in ("claude-code", "codex", "hermes")]
@@ -48,7 +44,8 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
     def heartbeat(self, host):
         beat = self.client.post("/api/v1/environments/heartbeat", json={
             "id": host["env"], "machineId": host["machine"], "os": "win32", "kind": "win32",
-            "bridgeId": host["bridge"], "cwdRoots": ["/work"], "runtimes": RUNTIMES, "metadata": {}})
+            "bridgeId": host["bridge"], "cwdRoots": ["/work"], "runtimes": RUNTIMES, "metadata": {},
+            "terminal": True, "pty": True})
         self.assertEqual(beat.status_code, 200, beat.text)
 
     def push(self, store, revision, entries, host=A):
@@ -58,12 +55,26 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def start(self, agent_id):
-        """The start that builds a spawn from the definition: a message's cold start. Since D9c the
-        dashboard's start of a DEFINED agent queues a lifecycle request instead
-        (test_legacy_routes_delegate_defined_agents.py), and the host's launch is built from the same
-        definition (test_lifecycle_launch.py)."""
+        """A message's cold start queues automatic intent, distinct from the operator's Start."""
         reasons: list[str] = []
         return ColdStart(self.cold_start(agent_id, reasons), reasons)
+
+    def lifecycle(self, agent_id):
+        response = self.client.get(f'/api/v1/agents/{agent_id}/lifecycle-requests')
+        response.raise_for_status()
+        return response.json()['requests']
+
+    def prepare(self, agent_id, host=A):
+        [receipt] = self.lifecycle(agent_id)
+        self.assertEqual((receipt['action'], receipt['startIntent']), ('start', 'automatic'))
+        self.assertEqual(self.spawns(agent_id), [])
+        prefix = f"/api/v1/environments/{host['env']}/lifecycle-requests"
+        owner = {'bridgeId': host['bridge'], 'machineId': host['machine']}
+        claimed = self.client.post(f'{prefix}/claim', json={**owner, 'capabilities': ['automatic-start-v1']})
+        self.assertEqual([row['id'] for row in claimed.json()['requests']], [receipt['id']], claimed.text)
+        response = self.client.post(f"{prefix}/{receipt['id']}/launch", json=owner)
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()['launch']
 
     def rows(self, sql, params=()):
         conn = sqlite3.connect(str(self._db_path))
@@ -100,7 +111,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         definition goes and its spawn request records none, as an undefined start's did."""
         define(self, agent_id, environment_id=B["env"], machine_id=B["machine"], bridge_id=B["bridge"],
                workspace="/work")
-        self.assertEqual(self.start(agent_id).status_code, 200)
+        legacy_spawn_request(self, agent_id, environment_id=B['env'])
         undefine(self, agent_id)
         self.execute("UPDATE spawn_requests SET definition_store_id = '', definition_incarnation = 0, "
                      "definition_revision = 0 WHERE agent_id = ?", (agent_id,))
@@ -112,15 +123,15 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                          "control: it has never run")
         started = self.start("coder")
         self.assertEqual((started.status_code, started.json().get("spawnRequested")), (200, True), started.text)
-        [spawn] = self.spawns("coder")
-        self.assertEqual(
-            {k: spawn[k] for k in ("environment_id", "role", "name", "runtime", "workspace", "store", "incarnation",
-                                   "revision", "model", "standing_instructions")},
-            {"environment_id": A["env"], "role": "reviewer", "name": "Code Rev", "runtime": "codex",
-             "workspace": "/work/coder", "store": "s1", "incarnation": 1, "revision": 1, "model": "gpt-x",
-             "standing_instructions": "be brief"})
-        self.assertEqual(json.loads(spawn["env_vars"]), {"K": "v"})
-        self.assertEqual(json.loads(spawn["metadata"]), {"runtimeConfig": {"effort": "high"}})
+        launch = self.prepare('coder')
+        self.assertEqual((launch['runtime'], launch['cwd']), ('codex', '/work/coder'))
+        self.assertEqual(launch['definition'], {'storeId': 's1', 'incarnation': 1, 'revision': 1})
+        self.assertEqual({k: launch['env'][k] for k in ('AIFY_MANAGED_MODEL', 'AIFY_MANAGED_EFFORT', 'K')},
+                         {'AIFY_MANAGED_MODEL': 'gpt-x', 'AIFY_MANAGED_EFFORT': 'high', 'K': 'v'})
+        self.assertEqual(self.rows('SELECT role, name FROM agents WHERE id = ?', ('coder',)),
+                         [{'role': 'reviewer', 'name': 'Code Rev'}])
+        self.assertEqual(self.rows('SELECT standing_instructions FROM spawn_specs WHERE agent_id = ?', ('coder',)),
+                         [{'standing_instructions': 'be brief'}])
 
     def test_an_undefined_agent_is_not_started_and_says_how_to_define_it(self):
         """D8: an agent no host defines is never started; before D8 it started recording no definition."""
@@ -134,8 +145,8 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.push("s1", 1, [valid("coder", model="m1")])
         self.push("s1", 2, [valid("coder", revision=2, model="m2")])
         self.assertEqual(self.start("coder").status_code, 200)
-        [spawn] = self.spawns("coder")
-        self.assertEqual((spawn["revision"], spawn["model"]), (2, "m2"))
+        launch = self.prepare('coder')
+        self.assertEqual((launch['definition']['revision'], launch['env']['AIFY_MANAGED_MODEL']), (2, 'm2'))
 
     def test_a_changed_harness_takes_effect_at_the_next_start(self):
         """C5: the effective runtime column describes the running process and is not rewritten by a push;
@@ -145,7 +156,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         [row] = self.rows("SELECT runtime FROM agents WHERE id = 'coder'")
         self.assertEqual(row["runtime"], "claude-code", "control: the effective runtime is unchanged")
         self.assertTrue(self.cold_start("coder", [], runtime=row["runtime"]))
-        self.assertEqual(self.spawns("coder")[0]["runtime"], "codex")
+        self.assertEqual(self.prepare('coder')['runtime'], 'codex')
 
     def test_an_earlier_session_on_another_machine_does_not_move_a_defined_agent(self):
         self.push("s1", 1, [valid("coder")])
@@ -153,7 +164,14 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                      "last_seen) VALUES ('sess-b', 'coder', ?, 'claude-code', '/work', 'stopped', 'now', 'now')",
                      (B["env"],))
         self.assertEqual(self.start("coder").status_code, 200)
-        self.assertEqual(self.spawns("coder")[0]["environment_id"], A["env"])
+        [receipt] = self.lifecycle('coder')
+        self.assertEqual(receipt['machineId'], A['machine'])
+        rejected = self.client.post(f"/api/v1/environments/{B['env']}/lifecycle-requests/claim", json={
+            'machineId': B['machine'], 'bridgeId': B['bridge'], 'capabilities': ['automatic-start-v1']})
+        self.assertEqual(rejected.json()['requests'], [], rejected.text)
+        launch = self.prepare('coder')
+        self.assertEqual(self.rows('SELECT environment_id FROM terminal_sessions WHERE id = ?',
+                                   (launch['terminalId'],)), [{'environment_id': A['env']}])
 
     def test_a_defined_agent_starts_on_the_machine_that_defines_it(self):
         self.push("s1", 1, [valid("coder")])
@@ -172,7 +190,14 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertEqual(asyncio.run(freshest())["id"], B["env"],
                          "control: with no machine to keep to, the freshest environment is B")
         self.assertEqual(self.start("coder").status_code, 200)
-        self.assertEqual(self.spawns("coder")[0]["environment_id"], A["env"])
+        [receipt] = self.lifecycle('coder')
+        self.assertEqual(receipt['machineId'], A['machine'])
+        rejected = self.client.post(f"/api/v1/environments/{B['env']}/lifecycle-requests/claim", json={
+            'machineId': B['machine'], 'bridgeId': B['bridge'], 'capabilities': ['automatic-start-v1']})
+        self.assertEqual(rejected.json()['requests'], [], rejected.text)
+        launch = self.prepare('coder')
+        self.assertEqual(self.rows('SELECT environment_id FROM terminal_sessions WHERE id = ?',
+                                   (launch['terminalId'],)), [{'environment_id': A['env']}])
 
     def test_a_withdrawn_agent_is_not_started_restarted_or_spawned(self):
         self.push("s1", 1, [valid("coder")])
@@ -233,7 +258,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         `environment`. A defined agent is pushed first."""
         if agent_id == "coder":
             self.push("s1", 1, [valid("coder", model=model)])
-            self.assertEqual(self.start(agent_id).status_code, 200)
+            legacy_spawn_request(self, agent_id, environment_id=A['env'])
         else:
             self.started_before_d8(agent_id)
         first = self.spawns(agent_id)[-1]
@@ -276,7 +301,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         """External review of 0.8.4: re-registering rewrote the record's model and effort without the operator
         key, and a new terminal on the running session launched with them, not the definition's."""
         self.push("s1", 1, [valid("coder", model="m1", effort="high")])
-        self.assertEqual(self.start("coder").status_code, 200)
+        legacy_spawn_request(self, 'coder', environment_id=A['env'])
         self.register_undefined("plain")
         self.started_before_d8("plain")
         for agent_id, session, terminal in (("coder", "sess-1", "term-bound"), ("plain", "sess-plain", "term-plain")):
@@ -306,7 +331,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         """`coder` defined (m1/high) and started, its session linked to its request, its own spec link set to
         `spec_link`, then its record rewritten to rogue/low by a re-register."""
         self.push("s1", 1, [valid("coder", model="m1", effort="high")])
-        self.assertEqual(self.start("coder").status_code, 200)
+        legacy_spawn_request(self, 'coder', environment_id=A['env'])
         spawn = self.spawns("coder")[-1]
         self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "
                      "spawn_request_id, session_handle, started_at, last_seen) VALUES ('sess-1', 'coder', ?, "
@@ -346,7 +371,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         runtimeConfig.model and legacy `thinking` are what the launch's readers fall back to, so they must not
         fill the gap either."""
         self.push("s1", 1, [valid("coder")])
-        self.assertEqual(self.start("coder").status_code, 200)
+        legacy_spawn_request(self, 'coder', environment_id=A['env'])
         spawn = self.spawns("coder")[-1]
         self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "
                      "spawn_request_id, session_handle, started_at, last_seen) VALUES ('sess-1', 'coder', ?, "
@@ -394,6 +419,7 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         reasons: list[str] = []
         self.assertFalse(self.cold_start("coder", reasons))
         self.assertEqual(reasons, [f"{dispatch_start.COLDSTART_REFUSED_PREFIX}{CHANGED_WHILE_STARTING}"])
+        self.assertEqual(self.lifecycle('coder'), [], 'a stale binding queues no lifecycle request')
         self.assertEqual(self.rows("SELECT id FROM spawn_requests WHERE agent_id = 'coder'"), [])
         self.assertEqual(self.rows("SELECT id FROM spawn_specs WHERE agent_id = 'coder'"), [])
 

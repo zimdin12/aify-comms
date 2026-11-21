@@ -75,7 +75,8 @@ class SendTimeQueueWitness(_World):
     """B9: a `queueIfBusy` send to a held target is stored and waits, and still ensures its backing.
 
     The world: a defined managed claude whose sessions are all dead, on an online environment, so the eligible
-    action is a cold-start spawn request (test_dispatch_claude_coldstart.py proves that path on its own). The
+    action is a cold start: one automatic lifecycle start (test_dispatch_claude_coldstart.py proves that path on
+    its own). The
     other two terms of the queue decision, an active run and an earlier queued run, are false for every
     specimen and asserted false before the send, so only the turn decides.
 
@@ -151,9 +152,13 @@ class SendTimeQueueWitness(_World):
         self.assertEqual(len(runs), 1, "the send is stored as exactly one run for this recipient")
         self.assertEqual((runs[0]["status"], runs[0]["queue_if_busy"]), ("queued", 1))
         self.assertEqual(len(self.queue_holds), observed + 1, "the launch loop decides the queue once per send")
-        return {"held": self.queue_holds[-1],
-                "spawns": self._rows("SELECT id, runtime, environment_id FROM spawn_requests WHERE agent_id = ?",
-                                     (agent_id,))}
+        return {"held": self.queue_holds[-1], "starts": self._starts(agent_id),
+                "legacy": self._rows("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,))}
+
+    def _starts(self, agent_id: str) -> list[tuple]:
+        """The lifecycle starts queued for `agent_id`: (action, startIntent, machineId, status)."""
+        requests = self.client.get(f"/api/v1/agents/{agent_id}/lifecycle-requests").json()["requests"]
+        return [(r["action"], r.get("startIntent"), r["machineId"], r["status"]) for r in requests]
 
     def _assert_waits(self, agent_id: str, outcome: dict) -> None:
         """Held: the queue observation says so, the run waits queued (`_queue_send`), and backing is ensured."""
@@ -162,8 +167,9 @@ class SendTimeQueueWitness(_World):
 
     def _assert_woken(self, agent_id: str, outcome: dict) -> None:
         self.assertIn(agent_id, self.cold_starts)
-        self.assertEqual([(s["runtime"], s["environment_id"]) for s in outcome["spawns"]], [("claude-code", ENV_ID)],
-                         "the eligible twin must really be woken: one spawn request, on this environment")
+        self.assertEqual(outcome["starts"], [("start", "automatic", MACHINE, "pending")],
+                         "the eligible twin must really be woken: one automatic start, on its defining machine")
+        self.assertEqual(outcome["legacy"], [], "a cold start no longer writes a legacy spawn request")
 
     def test_each_specimen_holds_or_releases_the_queue_as_its_law_says(self):
         for case in HOLD_LAW:
@@ -202,6 +208,8 @@ class SendTimeQueueWitness(_World):
                 self.assertEqual(answer.status_code, 200, answer.text)
                 self.assertTrue(self.queue_holds[-1], "an occupied target holds the queue")
                 self.assertIn(agent, self.cold_starts, "the hold still ensures backing")
+                self.assertEqual(self._starts(agent), [("start", "automatic", MACHINE, "pending")],
+                                 "and the backing it ensures is one automatic start")
                 twin_outcome = self._queue_send(twin, closed)
                 self.assertFalse(twin_outcome["held"])
                 self._assert_woken(twin, twin_outcome)

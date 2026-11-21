@@ -12,7 +12,7 @@ import sqlite3
 import threading
 
 from service.tests._base import FastApiTestCase
-from service.tests.defined_agents import cold_start, undefine
+from service.tests.defined_agents import legacy_spawn_request, undefine
 from service.tests.test_agent_definition_push import A, snapshot_digest, valid
 
 LINUX = {"env": "linux:p3b-host:default", "machine": "linux:p3b-host", "bridge": "bridge-p3b"}
@@ -91,16 +91,17 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
                          "control: an undefined agent's adopt branch writes")
 
     def test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes(self):
-        """Since D8 a spawn request is only ever queued for a defined agent (a message's cold start), so the
-        spawn that reaches running with a stale description is one built from an EARLIER revision: it comes up
-        as the definition now describes, not as its request said. The control is an agent whose spawn was
-        queued while defined and which is undefined by the time it runs, as one in flight across the D8
-        upgrade is: it comes up as its request says."""
+        """A legacy spawn request was only ever queued for a defined agent (a message's cold start, before
+        phase 2), so the spawn that reaches running with a stale description is one built from an EARLIER
+        revision: it comes up as the definition now describes, not as its request said. The control is an
+        agent whose spawn was queued while defined and which is undefined by the time it runs, as one in
+        flight across the D8 upgrade is: it comes up as its request says. Both requests are seeded as queued
+        before the upgrade (`legacy_spawn_request`)."""
         self.define(valid("lead", role="from-request", name="From Request", instructions="from the request"),
                     valid("plain", incarnation=2, role="from-request", name="From Request",
                           instructions="from the request"))
         for agent_id in ("lead", "plain"):
-            self.assertEqual(cold_start(self, agent_id), [], agent_id)
+            legacy_spawn_request(self, agent_id, environment_id=A["env"])
         undefine(self, "plain")
         self.register("lead")
         self.register("plain")

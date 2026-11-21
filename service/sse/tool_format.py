@@ -50,6 +50,8 @@ def format_queued_run(run: dict) -> str:
         return text
     if run.get("merged") and int(run.get("mergedCount") or 0) > 1:
         text += f" buffered {run['mergedCount']} updates"
+    if reason := run.get('waitingReason'):
+        return f'{text} queued, not yet claimed ({reason})'
     behind = run.get("queuedBehindActiveRun") or {}
     if behind.get("runId"):
         text += f" queued behind active run {behind['runId']}"

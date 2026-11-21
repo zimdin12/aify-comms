@@ -165,7 +165,7 @@ export function statusWhyContext(kind, item = {}, rawStatus = item.status || 'un
     if (runTargetAgent(item)) parts.push(`Target: ${runTargetAgent(item)}.`);
     if (item.requestedAt) parts.push(`Requested ${relTime(item.requestedAt)} ago.`);
     if (item.startedAt) parts.push(`Started ${relTime(item.startedAt)} ago.`);
-    const reason = item.error || blockerText(item.blockedByActiveRun);
+    const reason = item.error || blockerText(item.blockedByActiveRun) || waitingText(item.waitingReason);
     if (reason) parts.push(sentence(`Reason: ${reason}`));
   } else if (kind === 'contract') {
     parts.push(`Work Loop item ${item.subject || item.id || 'unknown'} is ${base.label}.`);
@@ -195,6 +195,11 @@ function blockerText(blocker) {
   const status = String(blocker.status || '').trim();
   return id ? `waiting behind run ${id}${status ? ` (${status})` : ''}` : '';
 }
+// Why a queued run is not starting yet, when the service knows (for example, its host's aify-env predates the
+// start the run is waiting on). The service sends it only while that holds; anything but a string is ignored.
+function waitingText(reason) {
+  return typeof reason === 'string' ? reason.trim() : '';
+}
 
 // NO HOST DEFINES IT, so the service refuses every start, restart and reset (definition_start.undefined_refusal,
 // D8). The buttons were offered anyway and answered 409 (2026-10-14 audit, D7). Only an empty state means
@@ -206,7 +211,8 @@ export function undefinedStartRefusal(agent) {
 
 
 export function runStatusContext(run) {
-  const blockerReason = String(blockerText(run?.blockedByActiveRun) || run?.blockedBy || run?.error || '').trim();
+  const blockerReason = String(blockerText(run?.blockedByActiveRun) || run?.blockedBy || run?.error
+    || waitingText(run?.waitingReason) || '').trim();
   return {
     label: run?.status || 'unknown',
     blockerReason,

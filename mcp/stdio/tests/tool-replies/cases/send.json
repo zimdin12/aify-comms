@@ -41,7 +41,8 @@
             {
               "targetAgentId": "agent-b",
               "runId": "run_1",
-              "status": "queued"
+              "status": "queued",
+              "waitingReason": "the start waits for aify-env with automatic-start-v1 on linux:fixture; restart aify-env on 32c7dc42 or later"
             }
           ],
           "notStarted": [
@@ -72,7 +73,7 @@
         }
       }
     ],
-    "text": "Sent. Dispatch: agent-b (run_1) queued, not yet claimed. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.\nSaved in the inbox, not woken: agent-c: offline.\nWoken when it next starts. The reply arrives as a new message that wakes you; until it does you know nothing about its result, so do not report, predict or redo that work.",
+    "text": "Sent. Dispatch: agent-b (run_1) queued, not yet claimed (the start waits for aify-env with automatic-start-v1 on linux:fixture; restart aify-env on 32c7dc42 or later). This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.\nSaved in the inbox, not woken: agent-c: offline.\nWoken when it next starts. The reply arrives as a new message that wakes you; until it does you know nothing about its result, so do not report, predict or redo that work.",
     "isError": false
   },
   {

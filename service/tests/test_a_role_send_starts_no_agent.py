@@ -9,7 +9,7 @@ import asyncio
 from service.clock import now as _now
 from service.db import get_db
 from service.tests._base import FastApiTestCase
-from service.tests.defined_agents import cold_start, define
+from service.tests.defined_agents import define, legacy_spawn_request
 from service.tests.env_records import report, startable
 
 ENV_ID = "linux:test-host:default"
@@ -84,12 +84,20 @@ class ARoleSendStartsNoAgent(FastApiTestCase):
         return response.json()
 
     def _spawns(self, agent):
+        """Legacy spawn requests for `agent`. Since phase 2 nothing a send does writes one; the only ones here are
+        the pre-upgrade fixture `_warm_session_without_a_worker` seeds."""
         return self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent,))
+
+    def _lifecycle_starts(self, agent):
+        """The lifecycle starts queued for `agent`, as (action, startIntent, status): what a cold start queues."""
+        requests = self.client.get(f"/api/v1/agents/{agent}/lifecycle-requests").json()["requests"]
+        return [(r["action"], r.get("startIntent"), r["status"]) for r in requests]
 
     def test_a_role_send_starts_nobody_and_wakes_the_running_holder(self):
         body = self._send(toRole=ROLE)
         self.assertEqual(sorted(body["recipients"]), sorted([IDLE, RUNNING]), "control: the role reached both holders")
-        self.assertEqual(self._spawns(IDLE), [], "a role send cold-started an idle holder")
+        self.assertEqual(self._lifecycle_starts(IDLE), [], "a role send cold-started an idle holder")
+        self.assertEqual(self._spawns(IDLE), [], "nor through a legacy spawn request")
         stored = {hint["targetAgentId"]: hint["reason"] for hint in body["notStarted"]}
         self.assertIn("wakes only agents already running", stored.get(IDLE, ""), body["notStarted"])
         self.assertNotIn(RUNNING, stored, "the running holder must still be woken")
@@ -100,12 +108,16 @@ class ARoleSendStartsNoAgent(FastApiTestCase):
     def test_a_send_to_the_one_idle_agent_still_starts_it(self):
         # CONTROL: the same idle agent addressed by name is cold-started, so the refusal above is the role's doing.
         self._send(to=IDLE)
-        self.assertNotEqual(self._spawns(IDLE), [], "a direct send no longer starts an idle agent")
+        self.assertEqual(self._lifecycle_starts(IDLE), [("start", "automatic", "pending")],
+                         "a direct send no longer starts an idle agent")
+        self.assertEqual(self._spawns(IDLE), [], "a cold start writes no legacy spawn request")
 
     # THE SECOND BIRTH PATH (found in review of e9ed4c25, 2026-10-28). A managed-warm session whose worker has gone gets a
-    # new console from _ensure_managed_pty_for_dispatch, not a spawn request, so refusing only the cold start let a role
-    # send insert a terminal and a pending `start` control. The warm session is produced through the real claim and
-    # running routes, with terminal capability announced only afterwards, as a host does it.
+    # new console from _ensure_managed_pty_for_dispatch, not a cold start, so refusing only the cold start let a role
+    # send insert a terminal and a pending `start` control. The warm session is produced through the real legacy claim
+    # and running routes, with terminal capability announced only afterwards, as a host does it. Its request is seeded
+    # as one queued before the upgrade: a lifecycle launch always comes with its terminal, so only a legacy request
+    # still produces this state, and the routes that bring one up stay until phase 3.
     def _warm_session_without_a_worker(self, runtime):
         def heartbeat(terminal):
             response = self.client.post("/api/v1/environments/heartbeat", json={
@@ -123,9 +135,8 @@ class ARoleSendStartsNoAgent(FastApiTestCase):
         self._execute("UPDATE agents SET runtime = ?, session_mode = 'managed', launch_mode = 'auto' WHERE id = ?",
                       (runtime, IDLE))
         report(self, IDLE, records={IDLE: startable(IDLE)})
-        reasons = cold_start(self, IDLE, runtime=runtime, requested_by="sender")
-        self.assertEqual(len(self._spawns(IDLE)), 1, reasons)
-        spawn = self._spawns(IDLE)[0]["id"]
+        spawn = legacy_spawn_request(self, IDLE, environment_id=ENV_ID, requested_by="sender")
+        self.assertEqual([row["id"] for row in self._spawns(IDLE)], [spawn])
         claim = self.client.post("/api/v1/spawn-requests/claim", json={
             "environmentId": ENV_ID, "bridgeId": "bridge-current", "machineId": "linux:test-host"})
         self.assertEqual(claim.status_code, 200, claim.text)
@@ -150,6 +161,7 @@ class ARoleSendStartsNoAgent(FastApiTestCase):
                 self.assertIn(RUNNING, [run["targetAgentId"] for run in body["dispatchRuns"]], "control: still woken")
                 self.assertEqual(self._starts(), [], "a role send started a console for an idle holder")
                 self.assertEqual(self._fetchall("SELECT id FROM terminal_sessions WHERE agent_id = ?", (IDLE,)), [])
+                self.assertEqual(self._lifecycle_starts(IDLE), [], "nor queued a lifecycle start for it")
 
     def test_a_direct_send_still_recovers_the_missing_console(self):
         # CONTROL: the same state addressed by name gets its console back, so the refusal above is the role's doing.

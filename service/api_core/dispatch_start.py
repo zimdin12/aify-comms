@@ -1,35 +1,8 @@
-"""Making a worker EXIST so a queued dispatch can be claimed: ensure a managed PTY, or cold-start a
-spawn request when there is nothing to launch into.
+"""Queue an automatic lifecycle start when dispatch has no managed backing to reuse.
 
-The subject seed the reviewer confirmed for this slice, and the last of the spawn/pty group. Its
-closure is exactly these three functions — 394 lines — because the two things that used to hold it in
-the carrier were moved out first: workspace resolution (`api_core/workspace.py`) and the
-agent-to-terminal binding (`api_core/terminal_ownership.py`). Every remaining dependency was already a
-leaf. That is what bottom-up buys: by the time the big function moves, there is nothing left to argue
-about.
-
-THE TWO FAILURE MODES THESE EXIST FOR, both reproduced live, both worth keeping in one place:
-
-`_ensure_managed_pty_for_dispatch` takes `for_session_id` because a managed RESTART creates a new
-spawn and a new session, and the new spawn reaches `running` roughly two seconds BEFORE the old
-worker's terminal is torn down. Unscoped, `_active_terminal_for_agent` returns the agent's
-most-recently-seen session with a terminal — at that instant still the OLD one — so this function
-concludes a PTY already exists and creates nothing. The restart then kills that terminal and the
-agent is left with no worker at all.
-
-`_coldstart_spawn_request_for_dispatch` covers the case where a managed agent has NO live
-agent_sessions row: there is nothing to launch into, so the PTY path returns None and the dispatch
-sits queued with nothing that will ever claim it. It creates a spawn_request through the same
-mechanism as `create_spawn_request` so a bridge claims it, registers a session, and the
-PATCH->running eager-spawn brings up the wrapper PTY.
-
-`_coldstart_refusal` records WHY cold-start refused before returning the caller's expected falsey.
-It is 5 lines and it is here because a bare `False` returned for five distinct causes is
-indistinguishable in a log — the refusal reason is the only thing that makes the queued dispatch
-explicable afterwards.
-
-DB ACCESS: `db` is passed in. No connection opened, no commit, no rollback — the caller owns the
-transaction, which is what makes 394 lines of spawn logic movable at all.
+Cold dispatch records the owning definition and why admission refused, if it did. Env decides
+whether it can run the request against its current lifetime and operator hold. The caller owns
+commit and rollback.
 """
 
 from __future__ import annotations
@@ -37,7 +10,6 @@ from __future__ import annotations
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES
 
 import json
-import time
 import uuid
 from typing import Any, Optional
 
@@ -50,12 +22,12 @@ from service.api_core.definition_start import (
     CHANGED_WHILE_STARTING,
     StartRefused,
     undefined_refusal,
-    insert_spawn_request,
-    spec_columns,
+    automatic_resume_handle,
+    spawn_request_guard,
     start_binding,
 )
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
-from service.api_core import lifecycle_delegation, agent_state_mirror as state_mirror
+from service.api_core import agent_lifecycle_requests, lifecycle_delegation, agent_state_mirror as state_mirror
 from service.api_core.managed_env import (
     _has_pending_or_booting_spawn_request,
     _select_online_environment_for_runtime,
@@ -66,11 +38,10 @@ from service.api_core.runtime import (
     _runtime_capability_for_environment,
     _runtime_unlaunchable_reason,
 )
-from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
-from service.api_core.start_intent import START, normalize_start_intent
 from service.api_core.workspace import _workspace_for_environment
 from service.clock import now as _now
+from service.lifecycle_models import AUTOMATIC_START_INTENT
 
 
 def _coldstart_refusal(warnings: Optional[list[str]], reason: str) -> bool:
@@ -114,28 +85,13 @@ async def _coldstart_spawn_request_for_dispatch(
     settings: dict[str, Any],
     requested_by: str,
     warnings: Optional[list[str]] = None,
-    start_intent: str = START,
     refusal: str = "",
 ) -> bool:
-    """Cold-start a managed worker on the send path. A non-empty `refusal` starts nothing and says why.
+    """Queue one cold automatic start, from the host's exact managed definition.
 
-    When a managed agent has no live agent_sessions row, _ensure_managed_pty_for_dispatch
-    cannot build a PTY (it has nothing to launch into) and returns None — the dispatch
-    then sits queued with nothing that will ever claim it (root cause G). This creates a
-    spawn_request through the SAME mechanism as create_spawn_request so a bridge claims it,
-    registers a session, and the PATCH->running eager-spawn brings up the wrapper PTY.
-
-    Idempotent: returns False (creating nothing) when a claimable spawn_request
-    (queued/claimed) already exists for the agent, or when no environment/runtime can be
-    resolved. Returns True when a new spawn_request was inserted.
-
-    G1 (2026-06-03): the inserted spawn_request now carries the agent's current
-    native session_handle so the managed worker RESUMES the existing native session
-    rather than starting fresh (resident->managed no longer loses the thread).
-
-    G3 (2026-06-03): when `warnings` is provided and the bound handle is already
-    owned by a DIFFERENT live agent, an advisory (non-blocking) warning string is
-    appended for the caller to surface.
+    Check current backing first. Retain the existing environment and workspace admission and native
+    handle collision warning; then reserve the start in the dispatch transaction. Env checks its
+    durable operator hold before it prepares a launch. False means no new request was queued.
     """
     if refusal:
         return _coldstart_refusal(warnings, refusal)
@@ -221,7 +177,6 @@ async def _coldstart_spawn_request_for_dispatch(
     offline_seconds = settings.get("environment_offline_seconds", 90)
     environment = None
     fallback_workspace = ""
-    prior_spec = None
 
     # Prefer the agent's prior-session environment when it is still ONLINE and
     # still advertises the runtime — preserves workspace + spawn_spec continuity.
@@ -234,16 +189,10 @@ async def _coldstart_spawn_request_for_dispatch(
             if (
                 str(candidate.get("status") or "").lower() == "online"
                 and _runtime_capability_for_environment(candidate, normalized_runtime)
-                and (binding is None or candidate.get("machineId") == binding.machine_id)
+                and candidate.get("machineId") == binding.machine_id
             ):
                 environment = candidate
                 fallback_workspace = session["workspace"] or ""
-                prior_spec_id = str(session["spawn_spec_id"] or "").strip()
-                if prior_spec_id:
-                    prior_spec = await (await db.execute(
-                        "SELECT * FROM spawn_specs WHERE id = ?", (prior_spec_id,)
-                    )).fetchone()
-
     # Phase 2 auto-bind: a managed agent with NO usable session env (never run,
     # or no env binding at all) gets bound to the freshest ONLINE environment
     # that advertises the runtime so an `available` agent can be woken on first
@@ -262,7 +211,7 @@ async def _coldstart_spawn_request_for_dispatch(
         # A defined agent runs on the machine that defines it, which is where its workspace is.
         environment = await _select_online_environment_for_runtime(
             db, normalized_runtime, offline_seconds=offline_seconds,
-            machine_id=binding.machine_id if binding else None,
+            machine_id=binding.machine_id,
         )
         if environment is None:
             # WHY, when a host has already said why. An environment that advertises the runtime and
@@ -284,27 +233,11 @@ async def _coldstart_spawn_request_for_dispatch(
         return _coldstart_refusal(warnings, "the resolved environment has no id (corrupt row)")
 
     try:
-        workspace, workspace_root = _workspace_for_environment(
-            environment, binding.workspace if binding else None, fallback_workspace)
+        _workspace_for_environment(environment, binding.workspace, fallback_workspace)
     except HTTPException as outside:
         return _coldstart_refusal(warnings, f"its defined workspace cannot be used on {environment_id}: {outside.detail}")
 
-    # G1 (2026-06-03): carry the agent's CURRENT native session handle into the
-    # cold-start spawn_request so the managed worker RESUMES the existing native
-    # session (codex thread / hermes gateway session / claude transcript) instead
-    # of starting a fresh one. Without this the resident->managed switch (which
-    # cold-starts via this helper) silently loses the live native session — the
-    # dedicated restart path already carries session["session_handle"] for the
-    # same reason. Sourced from the agents row (the durable pinned handle), with a
-    # fallback to the prior session row's handle when the agent row has none.
-    agent_row = await (await db.execute(
-        "SELECT session_handle, role, name FROM agents WHERE id = ?", (agent_id,)
-    )).fetchone()
-    coldstart_session_handle = str(
-        (agent_row["session_handle"] if agent_row else "")
-        or (session["session_handle"] if session else "")
-        or ""
-    ).strip()
+    coldstart_session_handle = await automatic_resume_handle(db, agent_id, normalized_runtime, _agent_row)
 
     # G3 (2026-06-03): warn (do NOT block) when the handle we're about to bind is
     # already owned by a DIFFERENT live agent — two live agents must not share one
@@ -323,56 +256,37 @@ async def _coldstart_spawn_request_for_dispatch(
                 "should not share one native session."
             )
 
-    now = _now()
-    spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    # A defined agent's spec is its definition's, with nothing carried from an earlier spec.
-    spec = {
-        "id": spec_id, "agent_id": agent_id, "environment_id": environment_id, "workspace": workspace,
-        "created_at": now, "updated_at": now,
-        **(spec_columns(binding) if binding else _carried_from(prior_spec, normalized_runtime)),
-    }
-    await db.execute(f"INSERT INTO spawn_specs ({', '.join(spec)}) VALUES ({', '.join('?' * len(spec))})",
-                     tuple(spec.values()))
-    inserted = await insert_spawn_request(db, {
-        "id": f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}",
-        "spawn_spec_id": spec_id,
-        "created_by": requested_by or "dispatch-coldstart",
-        "environment_id": environment_id,
-        "agent_id": agent_id,
-        # WHO IT IS, from its own row, which for a defined agent holds its definition's (C5). The running
-        # transition copies the request's role and name into `agents`, so a hardcoded `coder` here turned
-        # a reviewer woken by a message into a coder named after its id.
-        "role": str((agent_row["role"] if agent_row else "") or "coder"),
-        "name": str((agent_row["name"] if agent_row else "") or agent_id),
-        "runtime": normalized_runtime,
-        "workspace": workspace,
-        "workspace_root": workspace_root,
-        "initial_message": "",
-        "priority": "normal",
-        "subject": f"Cold-start for {agent_id}",
-        "mode": "managed-warm",
-        "resume_policy": "native_first",
-        "status": "queued",
-        "session_handle": coldstart_session_handle,
-        "created_at": now,
-        "updated_at": now,
-        "start_intent": normalize_start_intent(start_intent),
-    }, binding)
-    if not inserted:
-        await db.execute("DELETE FROM spawn_specs WHERE id = ?", (spec_id,))
+    return await _queue_automatic_start(db, agent_id, binding, requested_by, warnings)
+
+
+async def _queue_automatic_start(db, agent_id, binding, requested_by, warnings):
+    # Callers normally already wrote in this transaction. If they have not, acquire the write
+    # lock before rechecking the legacy/lifecycle reservation and exact definition.
+    if not db.in_transaction:
+        await db.execute('BEGIN IMMEDIATE')
+        if await _has_pending_or_booting_spawn_request(db, agent_id):
+            return _coldstart_refusal(warnings, 'a start for this agent is ALREADY IN FLIGHT')
+    guard, params = spawn_request_guard(agent_id, binding)
+    held = await (await db.execute(f'SELECT * FROM agent_definitions WHERE agent_id = ? AND {guard}',
+                                  (agent_id, *params))).fetchone()
+    if held is None:
         return _coldstart_refusal(warnings, CHANGED_WHILE_STARTING)
+    actor = requested_by or 'dispatch-coldstart'
+    intent = json.dumps({'agentId': agent_id, 'action': 'start', 'requestedBy': actor,
+                         'expectedLifetime': None, 'freshContext': False,
+                         'startIntent': AUTOMATIC_START_INTENT}, sort_keys=True)
+    try:
+        await agent_lifecycle_requests.queue_lifecycle(
+            db, f'auto-{uuid.uuid4().hex}', held, action='start', actor=actor,
+            expected_lifetime=None, fresh_context=False, intent=intent, now=_now(),
+            start_intent=AUTOMATIC_START_INTENT,
+        )
+    except HTTPException as conflict:
+        if conflict.status_code != 409:
+            raise
+        reason = conflict.detail['message'] if isinstance(conflict.detail, dict) else conflict.detail
+        return _coldstart_refusal(warnings, reason)
     return True
-
-
-def _carried_from(prior_spec, runtime: str) -> dict[str, Any]:
-    """The spec columns an undefined agent's cold start carries from its previous spec, or their empty
-    values when there is none."""
-    defaults = {"model": "", "profile": "", "system_prompt": "", "standing_instructions": "", "env_vars": "{}",
-                "channel_ids": "[]", "budget_policy": "{}", "context_policy": "{}", "restart_policy": "{}",
-                "metadata": "{}"}
-    carried = defaults if prior_spec is None else {
-        column: str(prior_spec[column] or empty) for column, empty in defaults.items()}
-    return {**carried, "runtime": runtime, "mode": "managed-warm"}
 
 
 async def twin_refusal(db, agent_row) -> str:

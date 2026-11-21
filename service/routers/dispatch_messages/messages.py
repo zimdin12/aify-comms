@@ -280,6 +280,8 @@ async def send_message(req: MessageSend, request: Request):
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
             await _apply_channel_routing_to_claude_runs(db, dispatch_runs, settings)
+            from service.api_core.lifecycle_claim_capabilities import mark_waiting_runs
+            warnings.extend(await mark_waiting_runs(db, dispatch_runs))
             # A run queued with nothing that will start it is kept, and the answer says it is held and why (SW5
             # review R3): it is not in notStarted, which would mean no run.
             reasons = await switched_view.held_reasons(db, [r for r, _ in launchable_recipients])

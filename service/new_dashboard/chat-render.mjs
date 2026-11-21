@@ -197,6 +197,7 @@ export function deliveryToastFor(response, to) {
   const notStarted = (response?.notStarted || []).length > 0;
   if (response && response.ok === false) return { tone: 'error', text: `Not delivered to ${to}: ${response.error || 'recipient cannot start live work'}` };
   if (run.steered) return { tone: 'ok', text: `Steered into ${to}'s active turn` };
+  if (run.waitingReason) return { tone: 'warn', text: run.waitingReason };
   if (status === 'queued') return { tone: 'info', text: `Queued behind ${to}'s active work` };
   if (consoleDelivered) return { tone: 'ok', text: `Delivered to ${to}'s console` };
   if (status === 'claimed' || status === 'running' || status === 'delivered') return { tone: 'ok', text: `Woke ${to}` };

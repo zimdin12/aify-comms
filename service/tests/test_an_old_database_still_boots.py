@@ -102,3 +102,33 @@ class AnOldDatabaseStillBootsTests(unittest.TestCase):
             finally:
                 booted.close()
             self.assertIn("brief", columns)
+
+    def test_a_pre_automatic_lifecycle_receipt_stays_ordinary_after_upgrade(self):
+        previous = db_module._db_path
+        self.addCleanup(setattr, db_module, '_db_path', previous)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'old.db'
+            asyncio.run(db_module.init_db(path))
+            with sqlite3.connect(path) as old:
+                old.execute('ALTER TABLE agent_lifecycle_requests DROP COLUMN start_intent')
+                old.execute('''INSERT INTO agent_lifecycle_requests
+                    (id, agent_id, machine_id, store_id, expected_incarnation, expected_revision,
+                     action, requested_by, intent, created_at, status, claimed_at)
+                    VALUES ('old-start','agent','machine','store',1,2,
+                            'start','operator','{}','created','claimed','claimed-at')''')
+                self.assertNotIn('start_intent', {row[1] for row in old.execute(
+                    'PRAGMA table_info(agent_lifecycle_requests)')})
+            old.close()
+
+            for _ in range(2):
+                asyncio.run(db_module.init_db(path))
+
+            from service.api_core.agent_lifecycle_requests import lifecycle_record
+            with sqlite3.connect(path) as booted:
+                booted.row_factory = sqlite3.Row
+                row = booted.execute('SELECT * FROM agent_lifecycle_requests').fetchone()
+                self.assertEqual(row['start_intent'], '')
+                self.assertNotIn('startIntent', lifecycle_record(row))
+                self.assertEqual((row['id'], row['status'], row['claimed_at']),
+                                 ('old-start', 'claimed', 'claimed-at'))
+            booted.close()

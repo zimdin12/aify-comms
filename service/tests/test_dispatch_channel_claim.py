@@ -282,14 +282,8 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         )
 
     def test_wrapper_backed_send_without_managed_session_coldstarts_backing(self):
-        # Phase 2 (2026-05-31): a wrapper-backed managed codex agent with no
-        # live managed session is now LAZY-AUTOSTARTED on send when an ONLINE
-        # env advertises codex — the send cold-starts a spawn_request that a
-        # bridge claims, instead of hard-rejecting. The operator explicitly
-        # wants `available` agents to auto-start on first message. The
-        # no-ORPHAN invariant still holds: any queued dispatch_run must be
-        # backed by a claimable spawn_request (a bridge will spawn the wrapper
-        # and claim it), never left to sit forever with nothing to claim it.
+        # A send to a defined wrapper-backed agent with no live session queues its run and
+        # one automatic start, even when the agent has never had managed backing.
         self._heartbeat_environment("codex")
         response = self.client.post(
             "/api/v1/agents",
@@ -332,18 +326,15 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
                 ("codex-no-backing",),
             ).fetchone()[0]
             spawn_reqs = conn.execute(
-                "SELECT COUNT(*) FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed')",
+                "SELECT COUNT(*) FROM spawn_requests WHERE agent_id = ?",
                 ("codex-no-backing",),
             ).fetchone()[0]
         finally:
             conn.close()
-        # Cold-start created exactly one claimable spawn_request as the backing.
-        self.assertEqual(spawn_reqs, 1, body)
-        # No-orphan invariant: a queued run must be backed by a spawn_request.
-        if queued_runs:
-            self.assertGreaterEqual(
-                spawn_reqs, 1, "queued run must be backed by a spawn_request, not orphaned"
-            )
+        self.assertEqual(queued_runs, 1, body)
+        self.assertEqual(spawn_reqs, 0, body)
+        [start] = self.client.get('/api/v1/agents/codex-no-backing/lifecycle-requests').json()['requests']
+        self.assertEqual((start['action'], start['startIntent'], start['status']), ('start', 'automatic', 'pending'))
 
     def test_standalone_hermes_channel_sidecar_claims_channel(self):
         """Task 1.5b: the NEW standalone per-agent hermes sidecar

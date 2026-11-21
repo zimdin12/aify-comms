@@ -131,6 +131,7 @@ ENVIRONMENT_MIGRATIONS = {
     "launcher_version": "ALTER TABLE environments ADD COLUMN launcher_version TEXT DEFAULT ''",
     "launcher_registry_fingerprint":
         "ALTER TABLE environments ADD COLUMN launcher_registry_fingerprint TEXT DEFAULT ''",
+    "lifecycle_claim": "ALTER TABLE environments ADD COLUMN lifecycle_claim TEXT",
 }
 
 AGENT_SESSION_MIGRATIONS = {
@@ -438,6 +439,7 @@ DEFINITION_REQUEST_MIGRATIONS = {
 # D8: the brief a spawn hands its first attach. The table came in with D9a, before this column.
 LIFECYCLE_REQUEST_MIGRATIONS = {
     "brief": "ALTER TABLE agent_lifecycle_requests ADD COLUMN brief TEXT NOT NULL DEFAULT ''",
+    "start_intent": "ALTER TABLE agent_lifecycle_requests ADD COLUMN start_intent TEXT NOT NULL DEFAULT ''",
 }
 
 

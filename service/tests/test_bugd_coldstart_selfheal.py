@@ -15,8 +15,12 @@ booting worker. Three server-side fixes are pinned here:
    — no duplicate spawn while a worker is mid-boot; an OLD ``running`` orphan
    does NOT block a fresh coldstart.
 3. The queued-run backstop (``_reap_undeliverable_queued_runs``) SELF-HEALS
-   before failing: one ``coldstart_rescue`` event + spawn_request, run stays
+   before failing: one ``coldstart_rescue`` event + a queued start, run stays
    queued for one fresh window; a second pass after the window fails the run.
+
+Since phase 2 the start a cold start queues is an automatic lifecycle request. The
+legacy rows seeded here by ``_seed_spawn_request`` stand for requests queued before
+the upgrade, which the in-flight check still honours until phase 3.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -336,6 +340,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             "SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,)
         )
         self.assertEqual(len(rows), 1, "no duplicate spawn_request may be created")
+        self.assertEqual(self._automatic_starts(agent_id), [], "nor a lifecycle start beside the booting worker")
 
     def test_coldstart_proceeds_when_running_spawn_request_is_old(self):
         # A `running` request older than the 5-min window is a stuck orphan and
@@ -350,16 +355,17 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
 
         created = self._run_coldstart(agent_id)
         self.assertTrue(created, "an old `running` orphan must not suppress the coldstart")
-        rows = self._fetchall(
-            "SELECT id, status FROM spawn_requests WHERE agent_id = ? ORDER BY created_at",
-            (agent_id,),
-        )
-        self.assertEqual(len(rows), 2, "a NEW spawn_request must be created")
-        fresh = self._fetchone(
-            "SELECT status FROM spawn_requests WHERE agent_id = ? AND id != 'spawn_bugd_old'",
-            (agent_id,),
-        )
-        self.assertEqual(fresh["status"], "queued")
+        rows = self._fetchall("SELECT id, status FROM spawn_requests WHERE agent_id = ?", (agent_id,))
+        self.assertEqual([tuple(r) for r in rows], [("spawn_bugd_old", "running")],
+                         "the orphan is left as it was, and no new legacy request is written")
+        self.assertEqual(self._automatic_starts(agent_id), [("start", "automatic", "pending")],
+                         "the new start is one automatic lifecycle start")
+
+    def _automatic_starts(self, agent_id: str) -> list[tuple]:
+        """The lifecycle starts queued for `agent_id`, as (action, startIntent, status). Since phase 2 a cold start
+        queues one of these, not a spawn request."""
+        requests = self.client.get(f"/api/v1/agents/{agent_id}/lifecycle-requests").json()["requests"]
+        return [(r["action"], r.get("startIntent"), r["status"]) for r in requests]
 
     def test_coldstart_still_coalesces_against_queued_spawn_request(self):
         # Pre-existing contract kept intact: a queued/claimed request already
@@ -373,6 +379,7 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
         self.assertFalse(created)
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,))
         self.assertEqual(len(rows), 1)
+        self.assertEqual(self._automatic_starts(agent_id), [], "a queued legacy request coalesces a lifecycle start too")
 
     # ------------------------------------------------------------------
     # Fix 3: queued-run backstop self-heals (one coldstart_rescue), then fails
@@ -399,12 +406,12 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             ("bugd-run-1",),
         )
         self.assertEqual(len(events), 1, "exactly ONE coldstart_rescue event")
-        spawn = self._fetchone(
-            "SELECT status, created_by FROM spawn_requests WHERE agent_id = ?", (agent_id,)
-        )
-        self.assertIsNotNone(spawn, "the rescue must create a spawn_request")
-        self.assertEqual(spawn["status"], "queued")
-        self.assertEqual(spawn["created_by"], "queued-run-backstop")
+        [start] = self.client.get(f"/api/v1/agents/{agent_id}/lifecycle-requests").json()["requests"]
+        self.assertEqual((start["action"], start.get("startIntent"), start["status"], start["requestedBy"]),
+                         ("start", "automatic", "pending", "queued-run-backstop"),
+                         "the rescue must queue one automatic start, attributed to the backstop")
+        self.assertEqual(self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,)), [],
+                         "and no legacy spawn request")
 
         # A second pass INSIDE the granted window is a no-op: the fresh
         # coldstart_rescue event excludes the run from the reaper query.
@@ -417,8 +424,9 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             ("bugd-run-1",),
         )
         self.assertEqual(len(events), 1, "the rescue is one-shot — no second event")
-        spawns = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,))
-        self.assertEqual(len(spawns), 1, "no duplicate spawn_request from a second pass")
+        self.assertEqual(self._automatic_starts(agent_id), [("start", "automatic", "pending")],
+                         "no duplicate start from a second pass")
+        self.assertEqual(self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,)), [])
 
     def test_backstop_fails_run_after_rescue_window_expires(self):
         # The rescue grants ONE fresh window. When the coldstart_rescue event
@@ -441,12 +449,17 @@ class BugDColdstartSelfHealTests(FastApiTestCase):
             "UPDATE dispatch_events SET created_at = ? WHERE run_id = ? AND event_type = 'coldstart_rescue'",
             (_minutes_ago(10), "bugd-run-2"),
         )
-        # The rescue-created spawn_request never got a worker: mark it running
-        # long ago so it neither counts as pending/booting nor blocks anything.
-        self._execute(
-            "UPDATE spawn_requests SET status = 'running', created_at = ?, updated_at = ? WHERE agent_id = ?",
-            (_minutes_ago(10), _minutes_ago(10), agent_id),
-        )
+        # The rescue's start never got a worker: its host claimed it and refused it before any effect, so it
+        # neither counts as in flight nor blocks anything.
+        [start] = self.client.get(f"/api/v1/agents/{agent_id}/lifecycle-requests").json()["requests"]
+        host = {"bridgeId": "bridge-current", "machineId": "linux:test-host"}
+        claimed = self.client.post(f"/api/v1/environments/{ENV_ID}/lifecycle-requests/claim",
+                                   json={**host, "capabilities": ["automatic-start-v1"]})
+        self.assertEqual([r["id"] for r in claimed.json()["requests"]], [start["id"]], claimed.text)
+        refused = self.client.post(f"/api/v1/environments/{ENV_ID}/lifecycle-requests/{start['id']}/result", json={
+            **host, "status": "refused", "outcome": "fixture: no worker", "resultLifetime": None,
+            "finishedAt": _minutes_ago(10)})
+        self.assertEqual(refused.status_code, 200, refused.text)
 
         # Pass 2: already_rescued → no second rescue; the run fails.
         reaped = self._run_backstop_reaper()

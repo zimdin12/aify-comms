@@ -85,7 +85,10 @@ class ASendStartsNoSecondWorkerBesideALiveOne(FastApiTestCase):
         body = response.json()
         self.assertTrue(body["stored"], body)
         self.assertTrue(body["dispatchRuns"], f"the send must dispatch, or a refusal proves nothing: {body}")
-        return [r["id"] for r in self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent,))]
+        self.assertEqual(self._fetchall('SELECT id FROM spawn_requests WHERE agent_id = ?', (agent,)), [])
+        requests = self.client.get(f'/api/v1/agents/{agent}/lifecycle-requests')
+        self.assertEqual(requests.status_code, 200, requests.text)
+        return requests.json()['requests']
 
     def test_a_live_console_with_a_silent_bridge_gets_no_second_worker(self):
         for runtime in RUNTIMES:
@@ -100,4 +103,6 @@ class ASendStartsNoSecondWorkerBesideALiveOne(FastApiTestCase):
         for runtime in RUNTIMES:
             with self.subTest(runtime=runtime):
                 agent = self._seed_live_worker(runtime, terminal_status="stopped")
-                self.assertNotEqual(self._send(agent), [], "with no live worker the send starts one")
+                [request] = self._send(agent)
+                self.assertEqual((request['action'], request['startIntent'], request['status']),
+                                 ('start', 'automatic', 'pending'))

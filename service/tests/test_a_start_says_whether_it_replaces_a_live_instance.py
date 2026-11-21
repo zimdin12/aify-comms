@@ -8,11 +8,10 @@ the history.
 These drive the real routes: the claim and the `running` report bring up the request's terminal the way
 production does, and the launch route hands the intent to the host.
 
-SINCE D8 THE ONLY LEGACY SPAWN REQUEST IS A MESSAGE'S COLD START of a defined agent, and it is a START.
-The spawn route defines the agent instead, and the dashboard's start, restart and recreate of a defined
-agent go to its host's lifecycle queue (test_legacy_routes_delegate_defined_agents.py), so the tests of
-the intent those used to store went with them. A request's intent is still carried to its launch, so
-`_spawn` sets the one a test needs on the request a cold start queued.
+SINCE PHASE 2 NOTHING QUEUES A LEGACY SPAWN REQUEST: a message's cold start of a defined agent queues an
+automatic lifecycle start, whose launch is always a START (`test_an_AUTOMATIC_cold_start_is_a_start`). The
+legacy routes still bring up a request queued before the upgrade and carry its intent to the launch, so
+`_spawn` seeds such a request (`defined_agents.legacy_spawn_request`) with the intent a test needs.
 """
 
 from __future__ import annotations
@@ -61,12 +60,10 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         return asyncio.run(go())
 
     def _spawn(self, agent_id, intent=START):
-        """A defined agent's queued spawn request carrying `intent`. A cold start queues a START; a REPLACE
-        is the intent a dashboard start's request carried before D8, and one queued then still runs."""
-        spawn_id = spawn_defined(self, agent_id, environment_id=self.ENV, machine_id="linux:intent-host",
-                                 bridge_id=self.BRIDGE, workspace="/work")["id"]
-        self._rows("UPDATE spawn_requests SET start_intent = ? WHERE id = ?", (intent, spawn_id))
-        return spawn_id
+        """A defined agent's legacy spawn request carrying `intent`, queued before phase 2. A cold start then
+        queued a START; a REPLACE is the intent a dashboard start's request carried before D8."""
+        return spawn_defined(self, agent_id, environment_id=self.ENV, machine_id="linux:intent-host",
+                             bridge_id=self.BRIDGE, workspace="/work", start_intent=intent)["id"]
 
     def _bring_up(self, spawn_id):
         """Claim the request and report it running, which is what creates its terminal in production."""
@@ -222,17 +219,20 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
 
     def test_an_AUTOMATIC_cold_start_is_a_start(self):
         """The send path and the queued-run backstop cold-start a lane through one helper, and a message
-        waking a lane must never replace a live instance. Its default is what they all get."""
+        waking a lane must never replace a live instance. The helper queues an automatic lifecycle start;
+        the launch the host prepares for it is a START, even after a legacy REPLACE request ran."""
         from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
         from service.api_core.settings import _load_settings
         from service.db import get_db
 
         agent_id = "woken-by-a-message"
         self._bring_up(self._spawn(agent_id, intent=REPLACE))
+        self.assertEqual(self._terminals(agent_id)[0]["start_intent"], REPLACE, "control: the old request replaced")
         self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
         # With its console still live the helper refuses outright (test_a_send_starts_no_second_worker_beside_a_live_one.py),
         # so the intent a cold start carries is read once that worker is gone.
         self._rows("UPDATE terminal_sessions SET status = 'stopped' WHERE agent_id = ?", (agent_id,))
+        legacy_before = self._rows("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,))
 
         async def coldstart():
             db = await get_db()
@@ -244,9 +244,22 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
             finally:
                 await db.close()
 
-        self.assertTrue(asyncio.run(coldstart()), "control: the helper created a request")
-        newest = self._rows("SELECT start_intent FROM spawn_requests WHERE agent_id = ? ORDER BY rowid DESC LIMIT 1", (agent_id,))
-        self.assertEqual(newest, [{"start_intent": START}])
+        self.assertTrue(asyncio.run(coldstart()), "control: the helper queued a start")
+        self.assertEqual(self._rows("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,)), legacy_before,
+                         "a cold start queues no legacy spawn request")
+        [queued] = self.client.get(f"/api/v1/agents/{agent_id}/lifecycle-requests").json()["requests"]
+        self.assertEqual((queued["action"], queued.get("startIntent"), queued["status"]), ("start", "automatic", "pending"))
+        host = {"bridgeId": self.BRIDGE, "machineId": "linux:intent-host"}
+        claimed = self.client.post(f"/api/v1/environments/{self.ENV}/lifecycle-requests/claim",
+                                   json={**host, "capabilities": ["automatic-start-v1"]})
+        self.assertEqual([r["id"] for r in claimed.json()["requests"]], [queued["id"]], claimed.text)
+        prepared = self.client.post(f"/api/v1/environments/{self.ENV}/lifecycle-requests/{queued['id']}/launch", json=host)
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        launch = prepared.json()["launch"]
+        self.assertEqual(launch["env"]["AIFY_START_INTENT"], START)
+        terminal = self._rows("SELECT start_intent FROM terminal_sessions WHERE id = ?", (launch["terminalId"],))
+        self.assertEqual(terminal, [{"start_intent": START}])
+        self.assertEqual(self._launch_intent(launch["terminalId"]), START)
 
 
 class StartIntentValues(FastApiTestCase):

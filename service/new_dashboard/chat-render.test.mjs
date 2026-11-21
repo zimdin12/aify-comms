@@ -123,6 +123,9 @@ test("renderAnalyticsPanelHtml tolerates byPeer arriving as a non-array", () => 
 test("deliveryToastFor maps the send response to the truthful ladder", () => {
   assert.equal(deliveryToastFor({ runs: [{ steered: true }] }, "x").text, "Steered into x's active turn");
   assert.equal(deliveryToastFor({ runs: [{ status: "queued" }] }, "x").tone, "info");
+  const waitingReason = 'the start waits for aify-env with automatic-start-v1';
+  assert.deepEqual(deliveryToastFor({ dispatchRuns: [{ status: 'queued', waitingReason }] }, 'x'),
+    { tone: 'warn', text: waitingReason });
   assert.equal(deliveryToastFor({ consoleDeliveries: [{}], runs: [] }, "x").text, "Delivered to x's console");
   assert.equal(deliveryToastFor({ runs: [{ status: "running" }] }, "x").text, "Woke x");
   assert.equal(deliveryToastFor({ runs: [], notStarted: [{}] }, "x").tone, "warn");

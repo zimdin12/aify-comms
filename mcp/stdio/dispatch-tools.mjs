@@ -117,6 +117,9 @@ export function registerDispatchTools(server, z) {
             (run.startedAt ? `Started: ${run.startedAt}\n` : "") +
             (run.finishedAt ? `Finished: ${run.finishedAt}\n` : "") +
             (run.blockedByActiveRun?.runId ? `Blocked by active run: ${run.blockedByActiveRun.runId}${run.blockedByActiveRun.subject ? ` (${quoteUntrustedSubject(run.blockedByActiveRun.subject, 120)})` : ""}\n` : "") +
+            // Why a queued run's start waits, sent by the service only while it does. It names a host's machine id,
+            // which that host reported, so it is folded onto one clipped line.
+            (typeof run.waitingReason === "string" && run.waitingReason.trim() ? `Waiting: ${oneLine(run.waitingReason, 240)}\n` : "") +
             (run.externalThreadId ? `Thread: ${run.externalThreadId}\n` : "") +
             (run.externalTurnId ? `Turn: ${run.externalTurnId}\n` : "") +
             (run.summary ? `\nSummary:\n${fence(run.summary)}\n` : "") +

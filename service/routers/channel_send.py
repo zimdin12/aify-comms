@@ -170,6 +170,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 )
 
         dispatch_runs = []
+        warnings = []
         if should_trigger and dispatch_recipients:
             dispatch_runs = await _create_dispatch_runs(
                 db,
@@ -191,6 +192,8 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
             await _coldstart_cold_channel_members(db, req, launchable_recipients)
+            from service.api_core.lifecycle_claim_capabilities import mark_waiting_runs
+            warnings = await mark_waiting_runs(db, dispatch_runs)
 
         recipient_info = {}
         for recipient_id in recipients:
@@ -231,6 +234,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
             "recipientStatus": recipient_info,
             "dispatchRuns": dispatch_runs,
             "notStarted": not_started,
+            **({"warnings": warnings} if warnings else {}),
         }
     finally:
         await db.close()

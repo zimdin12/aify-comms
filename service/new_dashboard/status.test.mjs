@@ -155,6 +155,19 @@ test("the blocker the service actually sends, a run record, reads as words, not 
   assert.match(statusWhyContext('run', { id: 'run_1', status: 'queued', blockedByActiveRun: record }).why, /waiting behind run run_9/);
 });
 
+test("a queued run says why its start waits, only when the service sends a reason", () => {
+  const waiting = 'the start waits for aify-env with automatic-start-v1 on linux:fixture; restart aify-env on 32c7dc42 or later';
+  const run = { id: 'run_1', status: 'queued', waitingReason: waiting };
+  assert.equal(runStatusContext(run).blockerReason, waiting);
+  assert.deepEqual(runStatusContext(run).badges, [], 'a queued run is waiting, not badged blocked');
+  assert.match(statusWhyContext('run', run).why, /Reason: the start waits for aify-env with automatic-start-v1 on linux:fixture/);
+  // CONTROL: the same run without the field says nothing about aify-env, and a non-string is ignored.
+  for (const quiet of [{ id: 'run_1', status: 'queued' }, { id: 'run_1', status: 'queued', waitingReason: { x: 1 } }]) {
+    assert.doesNotMatch(statusWhyContext('run', quiet).why, /Reason|aify-env|\[object Object\]/);
+    assert.equal(runStatusContext(quiet).blockerReason, '');
+  }
+});
+
 test("runStatusContext reads every spelling of a blocker and never returns undefined", () => {
   assert.equal(runStatusContext({ status: 'blocked', blockedBy: 'x' }).blockerReason, 'x');
   assert.equal(runStatusContext({ status: 'blocked', error: 'y' }).blockerReason, 'y');

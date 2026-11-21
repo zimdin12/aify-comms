@@ -141,6 +141,36 @@
     "isError": false
   },
   {
+    "name": "a queued run whose start waits for a capable aify-env",
+    "tool": "comms_run_status",
+    "args": {
+      "runId": "run 3"
+    },
+    "routes": {
+      "GET /dispatch/runs/run%203": {
+        "body": {
+          "run": {
+            "id": "run 3",
+            "targetAgentId": "agent-b",
+            "status": "queued",
+            "subject": "s",
+            "requestedAt": "t0",
+            "waitingReason": "the start waits for aify-env with automatic-start-v1 on linux:fixture;\n  restart aify-env on 32c7dc42 or later"
+          }
+        }
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/dispatch/runs/run%203",
+        "body": null
+      }
+    ],
+    "text": "run 3 -> agent-b\nStatus: queued\nReply: reply not required\nRuntime: unknown\nSubject: \"s\"\nRequested: t0\nWaiting: the start waits for aify-env with automatic-start-v1 on linux:fixture; restart aify-env on 32c7dc42 or later\n",
+    "isError": false
+  },
+  {
     "name": "a run whose reply was sent",
     "tool": "comms_run_status",
     "args": {

@@ -94,6 +94,17 @@ async def start_binding(db, agent_id: str) -> Optional[StartBinding]:
     return binding_for(agent_id, definition, agent)
 
 
+async def automatic_resume_handle(db, agent_id: str, runtime: str, agent) -> str:
+    """A compatible pinned handle wins; otherwise use this agent's last compatible session."""
+    if agent is not None and agent['runtime'] == runtime:
+        if pinned := str(agent['session_handle'] or '').strip():
+            return pinned
+    prior = await (await db.execute(
+        'SELECT session_handle FROM agent_sessions WHERE agent_id=? AND runtime=? '
+        'ORDER BY last_seen DESC, rowid DESC LIMIT 1', (agent_id, runtime))).fetchone()
+    return str(prior['session_handle'] or '').strip() if prior else ''
+
+
 async def start_refusal(db, agent_id: str) -> str:
     """Why `agent_id` may not be started now, or "" when its definition allows it (D8, C6, C7)."""
     try:

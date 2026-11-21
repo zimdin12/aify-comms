@@ -3,8 +3,8 @@ import json
 import uuid
 from fastapi import HTTPException
 from service.api_core.definition_snapshot import fence_refusal
-from service.lifecycle_models import LAUNCHING_ACTIONS, TERMINAL
-from service.api_core.definition_start import binding_for, spec_columns, StartRefused
+from service.lifecycle_models import AUTOMATIC_START_INTENT, LAUNCHING_ACTIONS, TERMINAL
+from service.api_core.definition_start import automatic_resume_handle, binding_for, spec_columns, StartRefused
 from service.api_core.capabilities import _default_console_argv, _environment_supports_terminal
 from service.api_core.workspace import _workspace_for_environment
 from service.api_core.records import _environment_record_to_dict, herdr_space_of
@@ -64,6 +64,14 @@ async def _insert(db, table, values):
     await db.execute(f"INSERT INTO {table} ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
 
 
+async def _native_resume_handle(db, request, runtime, agent):
+    if request['fresh_context']:
+        return ''
+    if request['start_intent'] == AUTOMATIC_START_INTENT:
+        return await automatic_resume_handle(db, request['agent_id'], runtime, agent or None)
+    return str(agent.get('session_handle') or '') if agent.get('runtime') == runtime else ''
+
+
 async def prepare_launch(db, environment, request_id, body, now):
     request, binding, agent = await _admitted(db, environment, request_id, body)
     settings = await _load_settings(db)
@@ -76,7 +84,7 @@ async def prepare_launch(db, environment, request_id, body, now):
             raise HTTPException(409, 'prepared launch belongs to another environment or bridge')
         return json.loads(old['launch_json'])
     workspace, _ = _workspace_for_environment(env, binding.workspace)
-    handle = '' if request['fresh_context'] or agent.get('runtime') != binding.runtime else str(agent.get('session_handle') or '')
+    handle = await _native_resume_handle(db, request, binding.runtime, agent)
     if binding.runtime == 'pi' and not handle.strip():
         raise HTTPException(409, 'pi launch requires an actual native session handle')
     session_id, terminal_id, spec_id = ('life_session_' + uuid.uuid4().hex, 'life_term_' + uuid.uuid4().hex, 'life_spec_' + uuid.uuid4().hex)

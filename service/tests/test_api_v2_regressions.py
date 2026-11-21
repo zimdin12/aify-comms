@@ -85,7 +85,7 @@ from service.routers.api_v2 import router
 
 from service.tests import env_records
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
-from service.tests.defined_agents import cold_start, define, publish, spawn_defined, undefine
+from service.tests.defined_agents import define, legacy_spawn_request, publish, spawn_defined, undefine
 from service.api_core.events import _append_terminal_control
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _iso_add_seconds, _iso_from_ms
@@ -297,12 +297,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
 
-        spawn = self._fetchone(
-            "SELECT agent_id, status FROM spawn_requests WHERE agent_id = ?",
-            ("cold-worker",),
-        )
-        self.assertIsNotNone(spawn, "channel send to a cold managed member must create a spawn_request")
-        self.assertEqual(spawn["status"], "queued")
+        [receipt] = self.client.get('/api/v1/agents/cold-worker/lifecycle-requests').json()['requests']
+        self.assertEqual((receipt['action'], receipt['startIntent'], receipt['status'], receipt['requestedBy']),
+                         ('start', 'automatic', 'pending', 'alice'))
+        self.assertEqual(self._fetchall('SELECT id FROM spawn_requests WHERE agent_id = ?', ('cold-worker',)), [])
         run = self._fetchone(
             "SELECT target_agent, status FROM dispatch_runs WHERE target_agent = ?",
             ("cold-worker",),
@@ -1709,13 +1707,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             "UPDATE spawn_requests SET updated_at = '2000-01-01T00:00:00Z' WHERE agent_id = ? AND status = 'running'",
             (agent_id,))
 
-    def _respawn(self, agent_id: str, runtime: str = "codex") -> str:
-        """The id of a defined agent's next cold start, queued once its running worker is no longer in flight."""
+    def _pending_legacy_recovery(self, agent_id: str) -> str:
+        """A recovery queued before cold dispatch moved to lifecycle; the old claim and PATCH still own it."""
         self._outlive_the_in_flight_window(agent_id)
-        warnings = cold_start(self, agent_id, runtime=runtime)
-        queued = self._fetchone("SELECT id FROM spawn_requests WHERE agent_id = ? AND status = 'queued'", (agent_id,))
-        self.assertIsNotNone(queued, warnings)
-        return queued["id"]
+        return legacy_spawn_request(self, agent_id, environment_id='linux:test-host:default')
 
     def _create_running_session(
         self,
@@ -5460,7 +5455,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # The worker is recovering, and the agent's next start (since D8 a defined agent's cold start; the
         # session restart that used to make it goes to the host's lifecycle queue) brings up its successor.
         self._execute("UPDATE agent_sessions SET status = 'recovering' WHERE id = ?", (old_session_id,))
-        recover_spawn_id = self._respawn("recover-fixtureworker")
+        recover_spawn_id = self._pending_legacy_recovery("recover-fixtureworker")
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -6659,7 +6654,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         session_id = running.json()["spawnRequest"]["sessionId"]
 
         # A successor spawn is claimed (since D8 a defined agent's cold start makes it) ...
-        pending_spawn_id = self._respawn("cancel-recover-fixtureworker")
+        pending_spawn_id = self._pending_legacy_recovery("cancel-recover-fixtureworker")
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
             json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
@@ -9912,6 +9907,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         assert_stored_unwoken(self, sent, "disabled-codex")
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("disabled-codex",))
         self.assertEqual(len(rows), 0, "a disabled agent must NOT be cold-started")
+        self.assertEqual(self.client.get('/api/v1/agents/disabled-codex/lifecycle-requests').json()['requests'], [])
 
     def test_resume_reenables_disabled_agent_for_coldstart(self):
         # Phase 3: disabling is operator-reversible. After Resume the agent is
@@ -9940,7 +9936,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"resumed agent must accept work; got {sent}",
         )
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("toggle-codex",))
-        self.assertEqual(len(rows), 1, "resumed agent auto-starts via cold-start")
+        self.assertEqual(rows, [], 'a resumed agent does not use the legacy queue')
+        [receipt] = self.client.get('/api/v1/agents/toggle-codex/lifecycle-requests').json()['requests']
+        self.assertEqual((receipt['action'], receipt['startIntent'], receipt['status']),
+                         ('start', 'automatic', 'pending'))
 
     def test_orphaned_managed_runs_closed_after_stale_window(self):
         # Operator-reported (2026-05-22): managed hermes-test dispatch
@@ -11959,13 +11958,9 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_coldstart_spawn_request_carries_the_stored_session_handle_or_none(self):
-        # G1 (2026-06-03): the resident->managed cold-start must RESUME the
-        # agent's existing native session, not start fresh. The inserted
-        # spawn_request must carry the agent's stored session_handle so the
-        # managed worker resumes the codex thread / claude transcript / hermes
-        # session instead of losing it. An agent with NO stored handle yields an
-        # empty handle (the worker starts a fresh session — nothing to resume).
+    def test_a_cold_codex_launch_carries_the_stored_native_handle_or_none(self):
+        # G1: a cold start must resume the existing Codex thread when one is pinned.
+        # The host prepares it through lifecycle launch; without a handle the worker starts fresh.
         self._online_codex_env_for_coldstart()
         for agent_id, stored_handle in (("g1-fixtureworker", "codex-thread-g1"), ("g1-fresh", "")):
             with self.subTest(stored_handle=stored_handle):
@@ -11976,16 +11971,19 @@ class ApiV2RegressionTests(FastApiTestCase):
                     self._execute("UPDATE agents SET session_handle = ? WHERE id = ?", (stored_handle, agent_id))
 
                 created = self._run_coldstart(agent_id)
-                self.assertTrue(created, "a coldstart spawn_request must be created when an online env hosts the runtime")
-
-                row = self._fetchone(
-                    "SELECT session_handle, resume_policy FROM spawn_requests WHERE agent_id = ? AND status = 'queued'",
-                    (agent_id,),
-                )
-                self.assertIsNotNone(row, "expected a queued coldstart spawn_request")
-                self.assertEqual((row["session_handle"] or ""), stored_handle)
-                if stored_handle:
-                    self.assertEqual(row["resume_policy"], "native_first")
+                self.assertTrue(created, 'an online host admits the automatic start')
+                self.assertEqual(self._fetchall('SELECT id FROM spawn_requests WHERE agent_id = ?', (agent_id,)), [])
+                [receipt] = self.client.get(f'/api/v1/agents/{agent_id}/lifecycle-requests').json()['requests']
+                prefix = '/api/v1/environments/env_g1/lifecycle-requests'
+                host = {'bridgeId': 'bridge-g1', 'machineId': 'linux:g1'}
+                claimed = self.client.post(f'{prefix}/claim', json={**host, 'capabilities': ['automatic-start-v1']})
+                claimed.raise_for_status()
+                self.assertIn(receipt['id'], {r['id'] for r in claimed.json()['requests']})
+                response = self.client.post(f"{prefix}/{receipt['id']}/launch", json=host)
+                self.assertEqual(response.status_code, 200, response.text)
+                launch = response.json()['launch']
+                self.assertEqual(launch['sessionHandle'], stored_handle)
+                self.assertEqual(launch['env']['AIFY_SESSION_HANDLE'], stored_handle)
 
     # ── Phase 3 item 1: case (a) joins LIVE terminal_sessions, not the denorm ──
 

@@ -25,6 +25,8 @@ OPEN_STATUSES = ('pending', 'claimed')
 OPEN_SQL = "(" + ", ".join(f"'{status}'" for status in OPEN_STATUSES) + ")"
 #: A lifecycle request's settled statuses: the host reported it, and the result is immutable.
 TERMINAL = ('done', 'refused', 'failed')
+AUTOMATIC_START_INTENT = 'automatic'
+AUTOMATIC_START_CAPABILITY = 'automatic-start-v1'
 
 
 class LifecycleSubmit(BaseModel):
@@ -34,12 +36,14 @@ class LifecycleSubmit(BaseModel):
     expectedLifetime: Any = None
     expectedRevision: Any = None
     freshContext: Any = None
+    startIntent: Any = None
 
 
 class LifecycleClaim(BaseModel):
     bridgeId: Any = None
     machineId: Any = None
     actions: Any = None
+    capabilities: Any = None
 
 
 class LifecycleAttachment(LifecycleClaim):

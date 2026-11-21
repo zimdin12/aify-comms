@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS environments (
     bridge_version TEXT DEFAULT '',
     launcher_version TEXT DEFAULT '',
     launcher_registry_fingerprint TEXT DEFAULT '',
+    lifecycle_claim TEXT,
     cwd_roots TEXT DEFAULT '[]',
     runtimes TEXT DEFAULT '[]',
     status TEXT DEFAULT 'online',
@@ -556,6 +557,7 @@ CREATE TABLE IF NOT EXISTS agent_lifecycle_requests (
     action TEXT NOT NULL,
     requested_by TEXT NOT NULL,
     fresh_context INTEGER NOT NULL DEFAULT 0,
+    start_intent TEXT NOT NULL DEFAULT '',
     intent TEXT NOT NULL,
     -- D8: a spawn's first message, {"subject","body","priority"} as JSON, delivered once its worker attaches; '' for none.
     brief TEXT NOT NULL DEFAULT '',
