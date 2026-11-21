@@ -14,11 +14,11 @@ v0.6.1 made the `aify-comms` command a verifier, and v0.6.3 deleted the environm
 one gate clause still open is where the verifier lives; see
 [TARGET_ARCHITECTURE.md](../../TARGET_ARCHITECTURE.md), "What is left".
 
-**Does it all connect?** [CONNECTION_TRACE.md](../../CONNECTION_TRACE.md) — every link between the
+**Does it all connect?** [CONNECTION_TRACE.md](../../archive/CONNECTION_TRACE.md) — every link between the
 three repos and what proves it, including the one verified against the running service.
 
 **Prior art in this repo, read before starting any phase:**
-[MULTI_SERVICE_STACK_TRACE.md](../../MULTI_SERVICE_STACK_TRACE.md) (what already works and what
+[MULTI_SERVICE_STACK_TRACE.md](../../archive/MULTI_SERVICE_STACK_TRACE.md) (what already works and what
 blocks a second service) and [AIFY_ENV_BOUNDARY.md](../../AIFY_ENV_BOUNDARY.md) (what moves, what
 stays, the derived allowlist, and why doctor asks rather than inspects).
 

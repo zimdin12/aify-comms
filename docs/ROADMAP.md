@@ -15,7 +15,7 @@ integration item, not an existing GitHub issue. The [approval record](roadmap/20
 binds all six owners to the same roadmap and issue-map bytes; contributing a slice is
 not final approval. No issue label or comment saying “Applied” is proof of delivered code.
 
-The [previous roadmap](history/ROADMAP-before-STACK-2026-11-04-R1.md) is retained
+The [previous roadmap](archive/ROADMAP-before-STACK-2026-11-04-R1.md) is retained
 byte-for-byte. Its old tag targets are not a new release queue. Unfinished commitments
 are carried below; older untriaged goals remain discoverable, not silently deleted.
 

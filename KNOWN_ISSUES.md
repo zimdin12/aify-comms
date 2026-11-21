@@ -2,7 +2,7 @@
 
 What is open now: known limitations, deferred work, and things to watch. Complements
 [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Resolved
-and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
+and superseded entries are in [docs/archive/KNOWN_ISSUES-archive.md](docs/archive/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-10-13.
 
 - Deferred self-restart PID metadata: a late completed START can still write its reported process_id after an observed exit, although it no longer revives terminal status; source-traced, not live-attributed.

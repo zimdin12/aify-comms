@@ -5,7 +5,7 @@ Claude Code, Codex, Hermes and other MCP-connected coding agents. This file load
 Code session **working on this repo**, so every byte here is paid on every turn: it keeps what changes
 a decision and points at the rest. Usage docs for someone installing aify-comms live in
 [README.md](README.md). The dated history this file used to carry is in
-`docs/history/CLAUDE-history.md`.
+`docs/archive/CLAUDE-history.md`.
 
 ## Primary entry points
 
@@ -21,7 +21,7 @@ a decision and points at the rest. Usage docs for someone installing aify-comms 
   container / host / `~/.aify`, the commands on PATH, where each doctor lives. Anything disagreeing
   with it is the thing that is wrong.
 - [DECISIONS.md](DECISIONS.md) — why the non-obvious choices were made. Its superseded entries are in
-  `docs/history/`.
+  `docs/archive/`.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — what is open now.
 - `.claude/skills/aify-comms/SKILL.md` — the agent-facing usage skill; its `references/operations.md`
   holds the status table and the multi-instance matrix.
@@ -68,9 +68,8 @@ What you edited decides how it reaches the running system:
   (`test_skill_mirror_parity.py`).
 - The container is `aify-comms-service` on the `aify-comms-network` network. `.env` is gitignored and
   holds secrets; never commit it.
-- **The service must stay single-worker.** aify-env owns agent state; Comms mirrors and serves it.
-  The mirror, queues, wakeups, and other [process-local state](docs/ARCHITECTURE.md#where-state-lives-and-the-constraint-that-follows)
-  are shared within one uvicorn worker, not across workers. Debug status with `comms_agent_info` or the dashboard.
+- **Run one uvicorn worker.** aify-env owns agent state; Comms mirrors it. See the
+  [process-local state inventory](docs/ARCHITECTURE.md#where-state-lives-and-the-constraint-that-follows).
 
 ## Versioning
 

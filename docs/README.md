@@ -37,48 +37,11 @@ the file is listed as UNCLASSIFIED rather than guessed at.
 | [`TEAMWORK_STRATEGY.md`](TEAMWORK_STRATEGY.md) | How a multi-agent team is meant to work here. |
 | [`UNINSTALL.md`](UNINSTALL.md) | Removing it cleanly. |
 | [`CODEX_CATCHUP.md`](CODEX_CATCHUP.md) | What Codex needs to drop its local comms process, deferred from 0.9.11 until Claude and hermes are proven on it. |
-| [`ROADMAP.md`](ROADMAP.md) | The stack roadmap across all six repositories: goals, groups and the gates between them. [`roadmap/`](roadmap/) holds its issue map, the owners' approvals, issues opened since, and the checklist for [working an issue](roadmap/WORKING-AN-ISSUE.md). Earlier roadmaps are in `history/`. |
+| [`ROADMAP.md`](ROADMAP.md) | The stack roadmap across all six repositories: goals, groups and the gates between them. [`roadmap/`](roadmap/) holds its issue map, the owners' approvals, issues opened since, and the checklist for [working an issue](roadmap/WORKING-AN-ISSUE.md). Earlier roadmaps are in the finished-work archive. |
 
-## Finished work — kept as evidence, not as instruction
+## Finished work
 
-These describe decisions already made and work already done. They are accurate about their own
-moment and are not a description of how the system behaves now. Read one when you want to know **why**
-something is the way it is, never to find out **what** it currently does.
-
-**Moved history** — [`history/`](history/) holds the dated narrative moved out of the root documents,
-so those stay current: [`history/CLAUDE-history.md`](history/CLAUDE-history.md) (from `CLAUDE.md`),
-[`history/DECISIONS-archive.md`](history/DECISIONS-archive.md) (superseded `DECISIONS.md` entries)
-and [`history/KNOWN_ISSUES-archive.md`](history/KNOWN_ISSUES-archive.md) (resolved `KNOWN_ISSUES.md`
-entries).
-
-**Release specs and plans** — `V0.2_ROADMAP`, `V0.2_SPEC`, `V0.2_PLAN`, `V0.3_SPEC`, `V0.5_SLICE1`, `V0.5_SLICE2`,
-`V0.5_SLICE3`, `V0.6_PLAN`, `V054_REMAINING_FIVE_PACKET`, `PHASE8_STATUS` (spawn delegation to
-aify-env; reduced to a banner, full text at tag `v0.6.22`).
-
-**Review rounds and ledgers** — `V0_7_WEAK_POINTS`, `V0_7_UNDEPLOYED`, `V0_7_REVIEW_DOSSIER`,
-`V063_ACCEPTANCE_LEDGER`, `FINDINGS_LEDGER_2026-08`, `PHASE3_DASHBOARD_LEDGER`,
-`PHASE4_BUGHUNT_LEDGER`, `PHASE5_END_TO_END_STATUS`, `OVERSIZED_SCOPE_BLIND_SPOT`.
-
-**Point-in-time traces** — `CONNECTION_TRACE` (dated in its own title), `MULTI_SERVICE_STACK_TRACE`.
-
-**Decomposition proof packets** — each proved one file could be split safely. The splits landed; the
-packets are the working, not the result. Named individually so a new one cannot hide behind a
-wildcard:
-`APP_JS_APIBASE_PACKET`, `APP_JS_STATE_MODULE_PACKET`, `JS_BRIDGE_AGENT_STATE_PACKET`,
-`JS_CHANNEL_READ_WRITE_SPLIT_PACKET`, `JS_COMMS_REGISTER_PACKET`, `JS_DECOMPOSITION_PROOF_PACKET`,
-`JS_DELIVERY_LOOP_SEAM_PACKET`, `JS_DETECTOR_TEARDOWN_PACKET`, `JS_DISPATCH_LOOP_SEAM_PACKET`,
-`JS_HERMES_HOST_MINI_PACKET`, `JS_PI_SESSION_PACKET`, `JS_SERVER_JS_PROOF_PACKET`,
-`JS_SERVER_REMAINDER_PACKET`, `JS_SERVER_URL_PACKET`, `JS_SPAWN_TRIGGERED_AGENT_PACKET`,
-`STATUS_CACHE_COMPONENT_PACKET`.
-
-**Dashboard programme** — `DASHBOARD_ARCHITECTURE_PLAN`, `DASHBOARD_REBUILD_PLAN`,
-`DASHBOARD_OVERHAUL_ROUND2`, `DASHBOARD_PARITY_COMPLETION`, `DASHBOARD_8801_PARITY`,
-`DASHBOARD_8801_UX`, `DASHBOARD_8801_BUTTON_AUDIT_2026-06-18`, `DASHBOARD_CRITIQUE_2026-08-19`,
-`DASHBOARD_SPEC`, `WEB_APP_DESIGN`.
-
-**Earliest planning** — `PLAN_REVIEW`, `PRODUCT_BRIEF`, `IMPLEMENTATION_ROADMAP`, `ARCHITECTURE_PLAN`,
-`FIRST_CODING_AGENT_TASK`, `RUNTIME_DELIVERY_TARGET` (superseded by `TARGET_ARCHITECTURE.md`),
-`DASHBOARD_REVIEW`.
+[Finished work](archive/README.md) is evidence, not current instruction. Default dashboard file search leaves that directory out.
 
 ## Unclassified — the signals disagree, so read the file
 
@@ -98,6 +61,6 @@ rather than read on demand and are governed by a size ratchet.
 
 ## Keeping this honest
 
-A file added to `docs/` and not listed here fails `service/tests/test_every_doc_is_in_the_index.py`.
+A Markdown file added directly to `docs/` or `docs/archive/` must be named by that folder's index. See `service/tests/test_every_doc_is_in_the_index.py`.
 The gate checks only that each file is named; whether it sits in the right section is a reading. If
 a section here disagrees with the file it names, the file wins and this index is the thing to fix.

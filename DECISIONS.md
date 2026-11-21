@@ -3,7 +3,7 @@
 What is decided now, and why. If you are wondering *why* the service behaves a certain way, this file
 beats guessing from the code; where the two disagree, the code is right and this file is the thing to
 fix. Superseded entries and dated fix batches are in
-[docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
+[docs/archive/DECISIONS-archive.md](docs/archive/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
 **Stack ownership:** [Approved component roles](docs/audit-2026-11/ROLES.md) records why the repos
@@ -169,11 +169,7 @@ Asked in session 651b895f as dashboard questions Q1, Q3 and Q4 (posted 2026-10-1
 
 ## The status switch: the C8 evidence bar, and one machine per defined agent (Steven, 2026-10-19)
 
-- **C8 is "mixed"** (superseded 2026-10-20: a sandbox gate replaces the comparison, above). He allowed "mixed or full"; mixed was the recommendation, so it is the bar. Per-disagreement evidence (the why: agent, both answers, raw inputs, versions) is built
-  for the decisions that hold or hand over real messages: the word, live counts, promotion, readiness, busy,
-  queue and claim. Reminder and stranded switch on counts plus his sign-off on a sample. In his words: "do not
-  spend too much time on this. but reasonable amount to get proof and work proof based". All of it is temporary
-  and is deleted with the shadow in 0.9.9.
+- **C8 uses the sandbox gate above.** The [earlier comparison proposal](docs/archive/DECISIONS-archive.md#mixed-c8-evidence) is archived.
 - **Q6, yes: a defined agent's Edit form offers only environments on its own machine.** The service already
   refuses another machine's environment for an agent an aify-env defines. Moving an agent between machines is
   remove there, define here; no move feature.
@@ -200,9 +196,7 @@ declared address), auth and input errors, and a conflicting nonce. An external s
 and its notice says it is not relayed to its declared address. A same-nonce replay reports `wakeOutcome:
 "unknown"` and wakes nothing. The dashboard sends once and shows the notice.
 
-SUPERSEDED: my 2026-10-14/16 reading of his "safe place where all messages get saved" as a dashboard-side
-re-send without the wake. The reviewer had preferred an explicit "Save without waking" choice; he chose
-neither and moved the rule into the service.
+The [earlier dashboard-side resend proposal](docs/archive/DECISIONS-archive.md#dashboard-side-resend) is archived.
 
 **Typed text is cleared only once it is known to be stored.** A refusal the service answered (its `ok:false`
 envelope or a 4xx) is a definite no. A timeout, a lost connection or a 5xx may have landed after the commit, so
@@ -395,7 +389,7 @@ code paths, such as `virtual-terminal-input-is-pi-only.test.js`, stay enabled.
 
 Pi's design record (a persistent `omp --mode rpc` child per agent streamed as a virtual terminal, a watchdog
 mutex because OMP has no multiplexing, heal-once for a dead session) is in
-[docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md).
+[docs/archive/DECISIONS-archive.md](docs/archive/DECISIONS-archive.md).
 
 ## Settings are declared once, in the service, and saving one changes only that one (2026-09-19)
 
@@ -716,17 +710,7 @@ all eight other files.
 
 ## Status is proof-based: no time-decay, no engine flag (2026-06-18)
 
-**SUPERSEDED (0.9.8 switch; `derive()` deleted in 0.9.9 S3b, its tables dropped in S3c).** The word is aify-env's, served by the operational view. The text follows as history.
-
-The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry now in the archive:
-
-**The vocabulary is whatever `VALID_STATUSES` in `service/status_engine.py` declares, and one table says what each state means and what to do about it: "Status Meanings" in [`.claude/skills/aify-comms/references/operations.md`](.claude/skills/aify-comms/references/operations.md).** The 2026-06-18 rewrite set six (`working` / `online` / `available` / `blocked` / `offline` / `stopped`); `shell`, `misconfigured` and `starting` were added since. The two time-decay states were DROPPED. `idle` (an `online` worker gone quiet past a minute threshold) is gone — a long-quiet live agent simply stays `online`, which operators already rely on as "ready for queued work". `stale` (resident-only, bridge lease past ~150s) is gone — a resident whose bridge heartbeat lapsed or that has no usable wake handle (`*-missing-handle`) now reads `offline`. *Why:* both labels ASSUMED a state from elapsed wall-clock time rather than proving it, which is exactly the class of inaccuracy operators kept reporting ("shows idle but it's working", "shows working but it's done").
-
-**The `*-aify` wrapper is the source of truth; aify-comms reflects it and only ADDS what the wrapper can't know.** The wrapper signals turn-start → `working`, turn-end → `online`, awaiting-input → `blocked`, and beats a liveness heartbeat every ~30s. aify-comms reflects those verbatim and adds only: `offline` (heartbeat gone), `available` (managed, env reachable, no live worker — boots one on send), `stopped` (operator hard-disable). `offline` ≠ `stopped` is kept deliberately: offline is "we lost the signal", stopped is "operator disabled it".
-
-**No minute thresholds. Two liveness windows (managed vs resident), honestly.** `idle_minutes` (5) and `offline_minutes` (30) were removed from settings. Liveness uses TWO windows, intentionally split by path: **`agent_liveness_seconds` (default 90 = 3× the uniform 30s heartbeat)** governs the MANAGED offline gate (a missing heartbeat reads `offline`) and the live-state cache refresh horizon; **`resident_lease_seconds` (default 150)** governs RESIDENT bridge freshness (`_resident_bridge_is_fresh`) — a resident counts as live until its bridge lease lapses at 150s. The longer resident window is deliberate: idle residents don't beat as often as a managed worker's continuous loop, so a tighter window would flap them `offline`. `offline` is also instant on a clean wrapper disconnect (`resident-lost`), so both windows are only the fallback for an unclean drop. The `TURN_BUSY_BACKSTOP_SECONDS` in-turn ceiling is KEPT — it is the dropped-turn-end safety net (a gateway-less resident hermes has no end signal), not a time-decay state.
-
-**`derive()` is the sole authority; the `status_engine` flag was removed.** The dual-engine machinery (`status_engine: old|new`) and the legacy per-request `agent_turn_state`/`turn_busy`-window cascade are gone. `service/status_engine.py` `derive()` over `agent_status_state` is the one served derivation. *Why no fallback flag now (the 2026-06-04 entry kept one):* the event-driven engine has been the live default and validated since the 2026-06-17 flip; carrying a dead second engine was cruft that made the system harder to reason about, which was itself part of the problem being fixed.
+aify-env owns agent state; see the [operational view](docs/ARCHITECTURE.md#where-state-lives-and-the-constraint-that-follows) and the [retired derivation](docs/archive/DECISIONS-archive.md#legacy-status-derivation).
 
 ## 2026-07-31 — The agent status vocabulary has ONE owner per language, bound by a test
 
@@ -840,35 +824,7 @@ turn-end still self-heals at the single long ceiling. The reasoning is also in t
 
 ## Delivery gates read raw `turn_busy`, bounded by one ceiling that status shares (2026-07-26, revised 2026-08-30)
 
-**SUPERSEDED (0.9.8 switch; the code deleted in 0.9.9 S3b).** Delivery holds on aify-env's published `busy`, and comms keeps no turn clock (`operational_view.claim_decision`, DECISIONS: "comms never times turns"). The gate, the ceiling and both constants below are gone; the text follows as history.
-
-The two delivery gates, the send-time queue decision in `send_message` and the turn-busy gate in
-`/dispatch/claim`, read the RAW `agent_turn_state.turn_busy` flag, not derived status and not a short
-freshness window: an explicit queue must mean exactly "after this turn", and re-deriving it through
-status is what made `queueIfBusy` sends land mid-turn (task #236). One helper owns the read,
-`_turn_busy_holds_delivery` in `service/api_core/claim_gating.py`.
-
-**The flag needs a ceiling, because nothing guarantees it is cleared.** The dead-bridge sweep
-deliberately skips hook-owned turns (`turn_bridge_id` of `''` or `user-prompt-submit`) and turns whose
-bridge is alive, so a killed harness or a missed `Stop` latches the flag. Unbounded, such an agent
-reads idle while delivery holds, and a target without `steer` goes deaf to every dispatch.
-
-**The ceiling is one rule**, `turn_is_still_live` in `service/api_core/turn_liveness_policy.py`, which
-the delivery gate and the status `in_turn` clamp both call with the same two constants:
-
-- A turn whose `turn_bridge_id` names a live, heartbeating bridge of this agent is a renewable lease:
-  a re-stamp extends it for as long as the re-stamps keep coming. Until v0.7.5 it was also capped at 4 h
-  from its start; the operator ruled that out ("agents can work for really long time, why even have a
-  cap"), so a long real task is no longer read as finished by the clock.
-- Any other turn (the hook marker, an empty owner, a bridge that is gone or stale) is measured from
-  `turn_started_at`, which only the not-busy to busy transition writes, against
-  `TURN_BUSY_BACKSTOP_SECONDS` (30 min).
-
-The anchor is the lesson of 2026-08-30: a managed hermes whose `pre_llm_call` hook re-stamps before
-every model call held every queued dispatch for 38 minutes, because the old ceiling was measured from
-the column that hook kept moving. `TURN_BUSY_STALE_SECONDS` (120 s) is no delivery window; its only
-reader is `_turn_busy_state` in `service/api_core/turn_state.py`. `test_turn_busy_delivery_ceiling.py`
-pins the gate.
+Delivery holds on aify-env's published `busy`. Comms never times turns. See the [retired timing rule](docs/archive/DECISIONS-archive.md#legacy-turn-busy-ceiling).
 
 ## Managed-hermes turn-start is scoped to dispatched turns; post-turn background gateway "running" is NOT a turn (2026-07-10)
 
@@ -976,9 +932,7 @@ A retry is a replay only when it is the same message: since `33b26d24` a reused 
 
 ## A delivered reply run whose turn died is failed by reconcile (2026-07-10)
 
-**SUPERSEDED 2026-09-26 (v0.7.4, operator ruling): state, not time.** The 45-minute window below failed real long work: it counted from the request and spared only a turn marked busy on that exact run, so a message steered into another run's turn, or a turn whose busy flag the 30-minute backstop cleared, was failed while the agent worked. `_fail_stranded_delivered_reply_runs` now fails a reply-owed run only when the agent has no live claimer (`_agent_has_live_claimer`) or its turn was interrupted, after `queued_run_backstop_seconds`; `stranded_reply_fail_minutes` is gone. A live agent whose turn ended without a reply is left to the Work Loop reminders, which a live agent can answer. The 2026-07-10 text follows as history.
-
-**A delivered require_reply run whose worker turn DIED is FAILED by reconcile, not left `delivered` forever (2026-07-10).** A managed hermes turn that dies to a model-429, a mid-turn interrupt, or a stall never sends its reply and never emits a clean turn-end — so the turn-end→auto-mirror close (`managed_reply_capture_fallback`, default on) never fires and the run sits `delivered, require_reply=1, result_message_id=''` indefinitely. Downstream that reads as "the agent is idle / ignoring the contract" (manager live repro: architect's 3 runs all model-429'd before any work; tester's turn interrupted mid-work — his comms_sends that COMPLETED did land, confirmed server-side, so it's a dead-turn accounting gap, not a delivery drop). `_fail_stranded_delivered_reply_runs` (60s reconcile, before `_sweep_unmirrored_failed_handoffs`) FAILS such a run past `stranded_reply_fail_minutes` (default 45, well beyond the 10/20/30 reminder cycle) with a clear cause; the existing failed-handoff sweep then mirrors the failure to the sender. *Keyed on STALENESS, not `turn_busy`* — deliberately, because the hermes turn-status flaps, so a turn_busy-gated close would be unreliable; a 45-min-old still-`delivered` run is dead regardless. *Safety invariants a future edit must keep:* skip a run the agent is CURRENTLY working (`turn_busy=1 AND turn_run_id == this run`), re-check `status='delivered'` in the UPDATE so a concurrent reply wins, and treat `stranded_reply_fail_minutes=0` as off. This closes the accounting; it does NOT fix the upstream hermes turn deaths (429/interrupt) — those are model/runtime-side.
+Reconcile uses delivery evidence rather than a 45-minute timeout. A live agent can answer Work Loop reminders. See the [prior timeout scheme](docs/archive/DECISIONS-archive.md#legacy-stranded-reply-timeout).
 
 ## A channel `require_reply` reply must be sent in the same turn (2026-06-02)
 
@@ -1237,7 +1191,7 @@ Hindsight: when channel-routed dispatches sit queued forever, time `curl --max-t
   not the one in the visible TUI, so the work runs where the operator cannot see it; that was judged
   better than failing every dispatch until a manual reset.
 
-The full reasoning for each point is in [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md).
+The full reasoning for each point is in [docs/archive/DECISIONS-archive.md](docs/archive/DECISIONS-archive.md).
 
 ## Worker-death cleanup is keyed on terminal STATE, not on a death EVENT (2026-08-07)
 
@@ -1408,7 +1362,7 @@ raises the bar from "type an English word" to
 boundary against an agent with filesystem access: `.env` is readable on the host, and the dashboard
 page carries the key to the browser. Anyone reading this should not treat it as one. From 2026-09-24
 to 2026-09-27 the service generated one when `.env` set none; it no longer does, and an empty
-`OPERATOR_KEY` turns the gate off (see the SUPERSEDED note under "A key per other machine" below).
+`OPERATOR_KEY` turns the gate off (see [Operator key is opt-in](#operator-key-is-opt-in)).
 
 **The honest summary:** authorization is *auditable and non-trivial* rather than *absent*. It is not
 authentication. The deployment's real perimeter is that the host is the operator's own machine.
@@ -1452,37 +1406,9 @@ now names the machine to send it to. Relaying needs this service to hold the oth
 key, which is a peers feature. An external message with `trigger` wakes a local agent exactly as a
 local sender's does, which is the point of it.
 
-**SUPERSEDED 2026-09-27 (v0.7.5, operator ruling: "it should be off by default. api key is that
-trust surface, external ones are basically blocked from doing serious actions").** Nothing is
-generated any more and the `operator-key` volume is gone. With `OPERATOR_KEY` unset there is no
-operator gate: an operator claim that reached the three override endpoints was let in by the API key,
-and an external key never reaches them. The dashboard marks itself with `X-Aify-Operator: dashboard`,
-which keeps its send-as-agent from counting as the agent being present. Setting `OPERATOR_KEY` turns the
-gate on as described below, and since the review of 0.7.6 it also covers a message sent as `dashboard`
-or `operator` on the three sending routes, which agents read as the operator's own. The 2026-09-24 text follows as history.
+### Operator key is opt-in
 
-**An operator key that exists without being asked for.** `OPERATOR_KEY` was never set by anything;
-`.env.example` asked for `openssl rand -hex 32` by hand. So on most hosts the dashboard's delete
-controls refused, and the service could not tell the operator sending **as** an agent from the agent.
-When `.env` sets none, the service now generates one at startup into a small dedicated volume
-(`operator-key` at `/keys/operator.key`, mode 0600). A fixed default was rejected because a secret
-written in a public repo proves nothing. The dashboard container mounts that volume **read-only** and
-injects the same key, and never creates one. The key has its own volume rather than the data volume so
-the dashboard is not handed the database to read one file. Only the service writes it: it writes aside
-and renames into place, and it replaces a file that is empty or too short to be a key. An adversarial
-review found the first version could leave an empty file that disabled operator privilege silently
-and for good. Any write failure is logged and leaves the key unset; it never stops the service.
-`.env` still wins.
-
-With a key always present, **a send carrying a valid operator key no longer counts as the agent being
-present** (`_touch_agent(..., present=False)`). Sending as an agent from the dashboard's identity
-picker had been hiding real absences from the away briefing, which was the open item left by PR #19.
-The limit is unchanged: anything that can load the dashboard page can read the key, so it separates
-the dashboard from the bridges, not from a determined local agent. **One real change on a host with no
-`API_KEY`**: operator privilege used to be off there unless someone set the key by hand, and it is now
-on for anyone who can load the dashboard. That is small beside what such a host already allows
-(anyone who reaches the port can type into consoles), but it is a change. Setting `API_KEY` is still
-the answer to "who may reach this at all".
+The service does not generate an operator key. With `OPERATOR_KEY` unset, the API key is the trust boundary and external keys cannot use operator overrides. The dashboard identifies itself with `X-Aify-Operator: dashboard`. See the [current operator-key rule](#2026-10-11--the-operator-key-locks-what-cannot-be-undone-not-every-lifecycle-action-09) and the [prior automatic generation](docs/archive/DECISIONS-archive.md#legacy-automatic-operator-key).
 
 ## 2026-10-11 — The operator key locks what cannot be undone, not every lifecycle action (0.9)
 

@@ -22,7 +22,7 @@ by: a `queued` run is not overdue (`_contract_state`), and `comms_run_interrupt`
 
 ## The v0.2 backlog note that opened this file
 
-> **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](../../docs/V0.2_PLAN.md)** with their traces attached — including a behaviour change awaiting an operator decision (managed codex auto-approves all command/file approvals). The compaction item there is superseded: the service answers no compaction dialog. This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](../../docs/V0.2_SPEC.md)**.
+> **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](V0.2_PLAN.md)** with their traces attached — including a behaviour change awaiting an operator decision (managed codex auto-approves all command/file approvals). The compaction item there is superseded: the service answers no compaction dialog. This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](V0.2_SPEC.md)**.
 
 ## A hard kill of the host tier leaves every gateway host running, and the only reaper died with it (2026-09-05)
 

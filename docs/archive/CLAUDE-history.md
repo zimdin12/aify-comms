@@ -41,7 +41,7 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
   needs a literal `true`, so an absent, false or unreachable aify-env leaves the bridge doing it. The
   bridge keeps `label` and `cwdRoots` (aify-env sends neither, by design) and its own `bridgeId` /
   `bridgeVersion` / `bridgeStartedAt`, which supersession is arbitrated on. Read
-  [docs/PHASE8_STATUS.md](../../docs/PHASE8_STATUS.md) before touching spawn or terminals; its last section
+  [docs/PHASE8_STATUS.md](PHASE8_STATUS.md) before touching spawn or terminals; its last section
   records the three defects the first real spawn exposed, all of which sat on the joins between
   components that each reported healthy. `aify-comms doctor`'s `spawn-delegation` says where spawns
   run and whether aify-env is answering.

@@ -498,7 +498,7 @@ Severity: P1 misleads into a wrong action · P2 real but bounded · P3 polish. E
   - KNOWN_ISSUES.md 126,061 bytes / 745 lines, ~40% live.
   - Debug skill references ~198 KB.
 - proposal:
-  - **DECISIONS.md.** Keep 5-367, 578-850 (selectively) and 1310-1654 after the D10/D11/D27/D28 fixes. Move 369-575 (superseded status and managed-hermes batches), 850-1070 (bridge-era entries) and 1072-1308 (dated "Plan 1-6"/pass entries) to `docs/history/DECISIONS-archive.md`. Refile the paragraphs sitting under the wrong heading (:1527 inside the API-key entry, :1296 under 2026-06-07, :409-417 July items inside 2026-06-03).
+  - **DECISIONS.md.** Keep 5-367, 578-850 (selectively) and 1310-1654 after the D10/D11/D27/D28 fixes. Move 369-575 (superseded status and managed-hermes batches), 850-1070 (bridge-era entries) and 1072-1308 (dated "Plan 1-6"/pass entries) to `docs/archive/DECISIONS-archive.md`. Refile the paragraphs sitting under the wrong heading (:1527 inside the API-key entry, :1296 under 2026-06-07, :409-417 July items inside 2026-06-03).
   - **KNOWN_ISSUES.md.** Keep 7-235 and 268-313, plus one condensed "Open backlog" drawn from 441-585 (`/ready` refreshing `turn_updated_at`, 429 not retried at `aify-service-endpoint.mjs:291`, dispatch-run ownership on PATCH, codex hook fragility), and 699-701. Cut 246-266, 351-439, 450-463 and 587-697 ("Resolved …" sections), and 315-349 down to 5 lines. Add entries for D10 and D25.
   - **Debug skill.**
     - `status-model.md:57-126`: the `status_engine=new` history. Keep only "`turn_busy` (delivery gate) and `in_turn` (status) are decoupled on purpose".

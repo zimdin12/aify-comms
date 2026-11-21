@@ -7,7 +7,7 @@ separate repos, service-owned plugins and host-owned screen evidence, see the
 [approved component roles](audit-2026-11/ROLES.md). The design history below does not establish that a
 migration is complete.
 
-Companion to [MULTI_SERVICE_STACK_TRACE.md](MULTI_SERVICE_STACK_TRACE.md), which established that
+Companion to [MULTI_SERVICE_STACK_TRACE.md](archive/MULTI_SERVICE_STACK_TRACE.md), which established that
 per-service endpoints already work and that the real blocker is spawning living inside aify-comms.
 This is the answer to that blocker.
 

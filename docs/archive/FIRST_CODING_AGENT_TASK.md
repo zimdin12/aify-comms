@@ -1,6 +1,6 @@
 # First Coding Agent Task
 
-Historical note: this task has been completed and is retained only to explain how the environment registry work started. Do not use it as the current implementation target. Current work should follow [AGENTS.md](../AGENTS.md), [DASHBOARD_REVIEW.md](DASHBOARD_REVIEW.md), [BRIDGE_SETUP.md](BRIDGE_SETUP.md), and the regression suite.
+Historical note: this task has been completed and is retained only to explain how the environment registry work started. Do not use it as the current implementation target. Current work should follow [AGENTS.md](../../AGENTS.md), [DASHBOARD_REVIEW.md](DASHBOARD_REVIEW.md), [BRIDGE_SETUP.md](../BRIDGE_SETUP.md), and the regression suite.
 
 ## Role
 
@@ -8,13 +8,13 @@ You are the first implementation agent for the dashboard/control-plane lifecycle
 
 ## Objective
 
-Implement Slice 1 from [IMPLEMENTATION_ROADMAP.md](history/IMPLEMENTATION_ROADMAP.md): environment registry.
+Implement Slice 1 from [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md): environment registry.
 
 Do not rewrite messaging, dispatch, or the dashboard broadly. Add the smallest useful environment layer that future spawn work can build on.
 
 Read these before editing:
 
-- [SESSION_MODEL.md](SESSION_MODEL.md)
+- [SESSION_MODEL.md](../SESSION_MODEL.md)
 - [WEB_APP_DESIGN.md](WEB_APP_DESIGN.md)
 - [DASHBOARD_SPEC.md](DASHBOARD_SPEC.md)
 

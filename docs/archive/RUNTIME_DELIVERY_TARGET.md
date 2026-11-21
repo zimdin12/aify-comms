@@ -9,7 +9,7 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 > **Current-model note (2026-06-03):** this is a target/design reference and a
 > few specifics have since moved on. Hermes delivery is now the visible-TUI
 > gateway-host model with a native-session-id scheme (see
-> [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)): managed and resident both run
+> [HERMES_INTEGRATION.md](../HERMES_INTEGRATION.md)): managed and resident both run
 > a hidden per-agent gateway host plus a `hermes-managed-host.js` delivery loop
 > that submits into the visible TUI's real session — it is not raw wrapper-PTY
 > injection. Status is event-driven (turn-start → `working`, turn-end → `online`)

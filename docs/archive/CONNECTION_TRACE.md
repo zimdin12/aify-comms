@@ -89,7 +89,7 @@ met.
 
 When this was traced, spawning still lived in aify-comms. It no longer does: aify-env's `aify-comms`
 plugin claims spawn requests and terminal controls over this service's HTTP API, and runs the
-launcher as a file with structured `argv` (recorded in [DECISIONS.md](../DECISIONS.md)). The tests
+launcher as a file with structured `argv` (recorded in [DECISIONS.md](../../DECISIONS.md)). The tests
 that hold that seam are named in CLAUDE.md under "Cross-repo tests".
 
 ## Re-running this

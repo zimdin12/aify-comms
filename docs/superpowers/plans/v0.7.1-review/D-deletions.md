@@ -93,7 +93,7 @@ from more than zero to zero.
 - `mcp/stdio/tests/no-unwatched-oversized-file.test.js:91,148` cite the deleted
   `test_install_keeps_the_delegation_the_host_chose.py` and `scripts/installed-delegation.sh`.
 - `mcp/stdio/hermes-gateway.mjs:243` justifies a "DO NOT REMOVE" lever with "See KNOWN_ISSUES.md
-  and DECISIONS.md". Both 4403 entries now exist only in `docs/history/` (`d0ab8d66`).
+  and DECISIONS.md". Both 4403 entries now exist only in `docs/archive/` (`d0ab8d66`).
 - `service/new_dashboard/index-controls-are-named.test.mjs:39` calls the codex console input "recorded in
   KNOWN_ISSUES.md". It was resolved (`5b9dafee`) and archived.
 - `DECISIONS.md:175` counts `AIFY_TERMINAL_CONTROL_POLL_MS` 800 ms as current fleet load. The poll

@@ -3,7 +3,7 @@
 **What this file is.** How aify-comms is built, for someone (human or agent) about to change it.
 [DECISIONS.md](../DECISIONS.md) holds the *why* for individual non-obvious choices,
 [CLAUDE.md](../CLAUDE.md) the working rules for editing the repo, and
-[KNOWN_ISSUES.md](../KNOWN_ISSUES.md) what is known-broken. [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md)
+[KNOWN_ISSUES.md](../KNOWN_ISSUES.md) what is known-broken. [ARCHITECTURE_PLAN.md](archive/ARCHITECTURE_PLAN.md)
 is a proposal from before the service existed; where it disagrees with this file, this file and the
 code win.
 

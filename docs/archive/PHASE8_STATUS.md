@@ -10,7 +10,7 @@ look for that behaviour there.
 
 The one contract from this work still in force is that a launch travels as structured `argv` beside
 the command string, because aify-env runs a launcher file by path and never a shell string. It is
-recorded in [DECISIONS.md](../DECISIONS.md).
+recorded in [DECISIONS.md](../../DECISIONS.md).
 
 **The full text** (the flag design, the delegation seam, and the three defects the first real spawn
 exposed) is in git at tag `v0.6.22`:

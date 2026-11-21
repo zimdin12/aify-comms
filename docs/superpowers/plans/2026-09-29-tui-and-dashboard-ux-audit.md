@@ -144,6 +144,6 @@ limit. `lib/tui.mjs` is 974 lines, 26 under the gate.
 - Whether `j`/`k` become text in the start picker, as they already are in the process finder. Search
   needs them.
 - Whether dated incident history moves out of code comments. It is 36-57% of lines in several large
-  modules (about half of `tui.mjs`), and moving it to DECISIONS or `docs/history/` would free room
+  modules (about half of `tui.mjs`), and moving it to DECISIONS or `docs/archive/` would free room
   under the 1000-line gate without splitting anything.
 - Whether several consoles side by side (22) and mobile (19) matter.
