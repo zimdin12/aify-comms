@@ -34,6 +34,7 @@ from typing import Any, NamedTuple
 
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
+from service.api_core.delivery_policy import LEGACY_DELIVERY, delivery_profile
 from service.api_core.live_process_probes import (
     _has_live_channel_sidecar,
     _has_live_terminal_session,
@@ -46,10 +47,11 @@ from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 
 
-_CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
-_CHANNEL_FLAG_GATED_RUNTIMES = {"hermes"}
-_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes"}
-_CHANNEL_SIDECAR_DELIVERY_RUNTIMES = {"claude-code", "hermes"}
+# Compatibility views for the consumers that route, claim, and reconcile channel work.
+_CHANNEL_MANAGED_RUNTIMES = {runtime for runtime, profile in LEGACY_DELIVERY.items() if profile.channel == "always"}
+_CHANNEL_FLAG_GATED_RUNTIMES = {runtime for runtime, profile in LEGACY_DELIVERY.items() if profile.channel == "flag"}
+_CHANNEL_CLAIM_RUNTIMES = {runtime for runtime, profile in LEGACY_DELIVERY.items() if profile.channel_claim}
+_CHANNEL_SIDECAR_DELIVERY_RUNTIMES = {runtime for runtime, profile in LEGACY_DELIVERY.items() if profile.sidecar}
 
 
 class _WorkerLiveness(NamedTuple):
@@ -92,9 +94,7 @@ def _channel_managed_eligible(runtime: str, runtime_config: Any) -> bool:
     'managed' path. See the route decision in _agent_execution_mode.
     """
     runtime_n = _normalize_runtime(runtime or "")
-    if runtime_n in _CHANNEL_MANAGED_RUNTIMES or runtime_n in _CHANNEL_FLAG_GATED_RUNTIMES:
-        return _channel_flag_enabled(runtime_config)
-    return False
+    return delivery_profile(runtime_n).channel_enabled(runtime_config)
 
 
 def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
@@ -331,7 +331,7 @@ async def _worker_liveness_for(
     elif (
         not has_live_worker
         and agent_session_mode == "managed"
-        and runtime_for_delivery == "codex"
+        and delivery_profile(runtime_for_delivery).wrapper_child
     ):
         # FIX B3 (2026-06-03): a managed CODEX run hosted by a wrapper-backed
         # worker proves liveness with a fresh, non-superseded

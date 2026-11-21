@@ -25,14 +25,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_runtime
+from service.api_core.delivery_policy import wake_mode
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 from service.api_core.settings import _load_settings
-from service.api_core.capabilities import (
-    _has_codex_live_app_server,
-    _has_hermes_gateway_url,
-    _row_capabilities,
-)
 from service.api_core.serialization import _json_loads_or
 from service.api_core.workspace import add_fix, launch_host, outside_launch_roots
 from service.clock import iso_to_epoch as _iso_to_epoch
@@ -145,42 +141,7 @@ _LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cl
 
 
 def _agent_wake_mode(row) -> str:
-    runtime = _normalize_runtime((row["runtime"] if row else "") or "generic")
-    session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
-    session_handle = str((row["session_handle"] if row else "") or "").strip()
-    capabilities = _row_capabilities(row) if row else []
-    runtime_config = _json_loads_or(row["runtime_config"], {}) if row else {}
-
-    if _normalize_launch_mode(row["launch_mode"]) == "none":
-        return "disabled"
-    if session_mode == "managed" and "managed-run" in capabilities:
-        return "managed-worker"
-    if session_mode == "resident" and runtime == "claude-code" and "resident-run" in capabilities:
-        return "claude-live"
-    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle and _has_codex_live_app_server(runtime_config):
-        return "codex-live"
-    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
-        return "codex-thread-resume"
-    # Plan 4 Task 17: resident hermes uses gateway path (hermes-live) — the
-    # bridge captures gatewayUrl via discoverSessionId after hermes-aify starts,
-    # so resident hermes wake-mode is always gateway-channel. The legacy
-    # hermes-session-resume mode (spawn fresh hermes with provider config) is
-    # dead code post Plan 4 Task 7; gateway is the single source.
-    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and _has_hermes_gateway_url(runtime_config):
-        return "hermes-live"
-    if session_mode == "resident" and runtime in {"opencode", "pi"}:
-        return "presence-only"
-    if session_mode == "resident" and runtime == "codex" and not session_handle:
-        return "codex-missing-handle"
-    if session_mode == "resident" and runtime == "hermes" and not _has_hermes_gateway_url(runtime_config):
-        return "hermes-missing-handle"
-    if session_mode == "resident" and runtime == "opencode" and not session_handle:
-        return "opencode-missing-handle"
-    if session_mode == "resident" and runtime == "pi" and not session_handle:
-        return "pi-missing-handle"
-    if session_mode == "resident" and runtime == "claude-code":
-        return "claude-needs-channel"
-    return "message-only"
+    return wake_mode(row)
 
 
 async def _agent_liveness(db, agent_id: str, *, agent_row=None) -> dict[str, bool]:
