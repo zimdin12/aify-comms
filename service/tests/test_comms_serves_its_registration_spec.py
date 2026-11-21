@@ -147,6 +147,19 @@ class OnlyAValidSpecForThisBuildIsServedTests(_Served):
                 self.assertEqual(response.status_code, 503)
                 self.assertIn("another build", response.json()["error"])
 
+    def test_a_git_package_needs_no_file_set_manifest(self):
+        spec = _comms_spec()
+        [bridge] = spec["artifacts"]
+        skills = {"id": "comms-skills", "kind": "package", "source": bridge["source"], "entries": []}
+        spec["artifacts"].append(skills)
+        self.stamp(spec)
+        client = self.client()
+        response = client.get(SPEC_ROUTE)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["artifacts"], [bridge, skills])
+        missing = f"{SPEC_ROUTE}/artifacts/comms-skills.manifest"
+        self.assertEqual(client.get(missing, headers={"x-api-key": KEY}).status_code, 404)
+
     def test_no_stamped_spec_is_refused(self):
         self.assertEqual(self.client().get(SPEC_ROUTE).status_code, 503)
 

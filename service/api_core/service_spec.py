@@ -51,12 +51,12 @@ def spec_problems(spec) -> list[str]:
 
 
 def manifest_problems(spec: dict, manifests) -> list[str]:
-    """Every bound artifact's manifest is stamped, and hashes to exactly the artifact's `sha256`."""
+    """A bound file-set needs a hashed manifest. A Git package is pinned by its revision."""
     if not isinstance(manifests, dict):
         return ["manifests is not an object"]
     problems = []
     for artifact in spec.get("artifacts") or []:
-        if "pending" in (artifact.get("source") or {}):
+        if artifact.get("kind") == "package" or "pending" in (artifact.get("source") or {}):
             continue
         text = manifests.get(artifact.get("id"))
         if not isinstance(text, str):

@@ -54,19 +54,23 @@ export function renderStdioMcp(installRoot) {
  * or `{pending: reason}` with no hash and no manifest when the build could not bind one. The artifact's
  * `sha256` is the hash of exactly the manifest bytes the service serves.
  */
-export function commsServiceSpec({ version, source, manifest }) {
+export function commsServiceSpec({ version, source, manifest, includeSkillsPackage = false }) {
   const artifact = { id: ARTIFACT_ID, kind: "file-set", source };
   if (!source.pending) {
     artifact.sha256 = sha256(Buffer.from(manifest, "utf8"));
     artifact.manifest = { path: `/.well-known/aify-service/artifacts/${ARTIFACT_ID}.manifest` };
   }
   artifact.entries = COMMS_MCP_SERVERS.map(({ entry }) => entry);
+  const artifacts = [artifact];
+  if (includeSkillsPackage === true && !source.pending && source.git) {
+    artifacts.push({ id: "comms-skills", kind: "package", source, entries: [] });
+  }
   return {
     specVersion: SPEC_VERSION,
     name: SERVICE_NAME,
     version,
     fixed: fixedFields(),
-    artifacts: [artifact],
+    artifacts,
     mcp: COMMS_MCP_SERVERS.map(({ name, entry }) => ({ name, artifact: ARTIFACT_ID, entry })),
     secrets: [{ field: "credentialRef", required: true, probe: "api" }],
     verify: {

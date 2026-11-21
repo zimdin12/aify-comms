@@ -1,0 +1,7 @@
+{
+  "name": "aify-comms-skills",
+  "version": "0.0.0",
+  "private": true,
+  "files": [".agents/skills"],
+  "aifySkills": {"directory": ".agents/skills"}
+}

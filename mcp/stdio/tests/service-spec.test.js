@@ -123,6 +123,8 @@ test("the manifest lists the commit's bytes under mcp/stdio, and the artifact's 
     fs.writeFileSync(path.join(repo, "mcp/stdio/server.js"), "edited after the commit\n");
     fs.writeFileSync(path.join(repo, "mcp/stdio/untracked.js"), "never committed\n");
     const { stamped } = runSpec(repo, head);
+    assert.deepEqual(stamped.spec.artifacts.map(({ id }) => id), ["comms-bridge"],
+      "the current Wrapper pin cannot read a skills-only package");
     const [artifact] = stamped.spec.artifacts;
     const manifest = stamped.manifests["comms-bridge"];
     assert.equal(stamped.buildSha, head);
@@ -134,6 +136,17 @@ test("the manifest lists the commit's bytes under mcp/stdio, and the artifact's 
     assert.notEqual(manifest, expectedManifest({ ...FILES, "mcp/stdio/server.js": "edited after the commit\n" }),
       "control: the working-tree edit would change the manifest");
   });
+});
+
+test("the skills-only artifact uses the same exact Git revision and has no entries or manifest", () => {
+  const source = { git: { repo: "owner/repo", revision: "a".repeat(40) } };
+  const input = { version: "1.2.3", source, manifest: "bridge manifest\n" };
+  const base = commsServiceSpec(input);
+  const skills = { id: "comms-skills", kind: "package", source, entries: [] };
+  assert.deepEqual(commsServiceSpec({ ...input, includeSkillsPackage: true }),
+    { ...base, artifacts: [...base.artifacts, skills] });
+  assert.deepEqual(commsServiceSpec({ ...input, source: { pending: "no commit" }, includeSkillsPackage: true })
+    .artifacts.map(({ id }) => id), ["comms-bridge"]);
 });
 
 test("a build that cannot bind a commit serves a pending artifact with no hash and no manifest", () => {
