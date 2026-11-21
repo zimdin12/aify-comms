@@ -195,6 +195,23 @@ class RetentionAndDeletionTests(FastApiTestCase):
         self._rotate()
         self.assertEqual(self._message_ids(), [])
 
+    def test_manual_rotation_reads_the_same_saved_window_that_settings_serves(self):
+        self._seed_message("ten-days-old", age_days=10)
+        self._seed_message("one-day-old", age_days=1)
+        for days, expired, remaining in (
+            (40, 0, ["ten-days-old", "one-day-old"]),
+            (3, 1, ["one-day-old"]),
+        ):
+            with self.subTest(days=days):
+                self._settings(message_retention_days=days, message_cap_per_agent=0)
+                settings = self.client.get("/api/v1/settings")
+                self.assertEqual(settings.status_code, 200, settings.text)
+                self.assertEqual(settings.json()["message_retention_days"], days)
+                rotated = self._rotate()
+                self.assertEqual(rotated.status_code, 200, rotated.text)
+                self.assertEqual(rotated.json()["stats"]["expired_messages"], expired)
+                self.assertEqual(self._message_ids(), remaining)
+
     def test_rotation_with_both_limits_at_zero_deletes_NOTHING_and_says_why(self):
         self._settings(message_retention_days=0, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=99)

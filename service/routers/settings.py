@@ -23,7 +23,7 @@ from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
 from service.api_core.harness_defaults import defaulted_runtimes, defaults_for
 from service.api_core.model_effort import with_effort
-from service.api_core.settings import _invalidate_settings_cache, _load_settings
+from service.api_core.settings import _invalidate_settings_cache, _load_settings, read_settings
 from service.api_core.settings_spec import GROUPS, SETTINGS, SettingError, validate_update
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -94,11 +94,7 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> int:
 # behind a 200, which the dashboard reported as "Saved".
 @router.get("/settings")
 async def get_settings(request: Request):
-    db = await get_db()
-    try:
-        return await _load_settings(db)
-    finally:
-        await db.close()
+    return await read_settings()
 
 
 @router.get("/settings/schema")

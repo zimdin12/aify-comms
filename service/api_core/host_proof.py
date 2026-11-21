@@ -24,6 +24,8 @@ import hmac
 from dataclasses import dataclass
 from typing import Iterable
 
+from fastapi import HTTPException, Request
+
 from service.api_core.serialization import _normalize_machine_id
 
 #: The header aify-env sends; its comms plugin's `api.mjs` names the same one.
@@ -71,6 +73,20 @@ async def judge_host_proof(db, machine_ids: Iterable[str], presented: str) -> Ho
                 f"that machine's aify-env after its ~/.aify/host-secret was replaced, an operator resets it: "
                 f"POST /host-proofs/{machine_id}/reset")
     return HostProofVerdict("", tuple(unenrolled))
+
+
+async def _environment(db, environment_id: str):
+    row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+    return dict(row) if row else None
+
+
+async def _proven_host(db, environment: dict | None, machine_id: str, request: Request) -> None:
+    """Refuse (403) a claim or report not from the machine's own host (external review of 0.8.1, HIGH 2)."""
+    proof = await judge_host_proof(db, [(environment or {}).get("machine_id", ""), machine_id],
+                                   presented_proof(request))
+    if proof.refusal:
+        await db.rollback()
+        raise HTTPException(403, proof.refusal)
 
 
 async def enroll_host_proof(db, verdict: HostProofVerdict, presented: str, now: str) -> None:

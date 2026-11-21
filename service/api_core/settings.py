@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 from service.api_core.settings_spec import BY_KEY, defaults
+from service.db import get_db
 
 
 #: Derived from the declarations in `settings_spec.py`, which carry each setting's type, bounds and
@@ -68,6 +69,15 @@ async def _load_settings(db):
     _SETTINGS_CACHE["value"] = dict(settings)
     _SETTINGS_CACHE["at"] = time.monotonic()
     return settings
+
+
+async def read_settings() -> dict[str, Any]:
+    """Read settings for callers that do not already own a database connection."""
+    db = await get_db()
+    try:
+        return await _load_settings(db)
+    finally:
+        await db.close()
 
 
 # Moved here in v0.5.2c: the invalidator belongs with the cache it invalidates. It had been

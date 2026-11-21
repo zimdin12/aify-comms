@@ -94,6 +94,21 @@ class AnAgentsModelIsReadWhenAsked(FastApiTestCase):
         self.assertFalse(forged["accepted"])
         self.assertEqual(actual["model"], "real")
 
+    def test_claim_distinguishes_missing_proof_from_an_empty_proved_host(self):
+        headers = {"X-Aify-Host-Proof": "fixture-host-proof"}
+        self.client.post(f"{API}/environments/heartbeat", headers=headers, json={
+            "id": A["env"], "machineId": A["machine"], "os": "win32", "kind": "win32",
+            "bridgeId": A["bridge"], "cwdRoots": ["/work"], "runtimes": [], "metadata": {},
+        }).raise_for_status()
+        path = f"{API}/environments/{A['env']}/model-reads/claim"
+        request = {"bridgeId": A["bridge"], "machineId": A["machine"], "waitMs": 0}
+        denied = self.client.post(path, json=request)
+        self.assertEqual(denied.status_code, 403, denied.text)
+        self.assertIn("presents none", denied.json()["detail"])
+        accepted = self.client.post(path, headers=headers, json=request)
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertEqual(accepted.json(), {"ok": True, "reads": []})
+
     def test_a_held_claim_whose_host_proof_stops_holding_hands_out_nothing(self):
         # Review 0.9.1 F3: proof was checked once before the claim was held, so a claim begun proofless while the host was
         # unenrolled dequeued the read that arrived after the host enrolled.

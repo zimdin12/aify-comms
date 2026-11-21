@@ -6,9 +6,8 @@ trims, on request and hourly from the sweep. Naming that plainly is the point of
 previously two unremarkable handlers among a hundred, and the next person reading a route list
 should not have to infer which ones destroy data.
 
-`rotate` calls the settings HANDLER (`get_settings`) rather than the loader, which is a smell — but
-rewriting it would change the call subject and its request/DB lifecycle, so it follows the handler to
-its owner instead. Structural moves do not get to fix smells in passing.
+`rotate` reads the effective settings through the same helper as GET /settings. That read closes
+its connection before rotation opens its write connection.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from service.db import get_db
 # FastAPI demotes the body to a query param and the endpoint 422s. On a DESTRUCTIVE route that
 # would mean the scope of what gets deleted is read from the wrong place.
 from service.models import ClearRequest
-from service.routers.settings import get_settings
+from service.api_core.settings import read_settings
 from service.api_core.agent_removal import _remove_agent_record
 from service.reconcilers.message_rotation import RotationPolicy, rotate_messages
 
@@ -129,7 +128,7 @@ async def clear_data(req: ClearRequest, request: Request):
 @router.post("/rotate")
 async def rotate(request: Request):
     """Run rotation now. The sweep also runs it hourly; see service/reconcilers/message_rotation.py."""
-    policy = RotationPolicy.from_settings(await get_settings(request))
+    policy = RotationPolicy.from_settings(await read_settings())
     if not policy.active:
         return {"ok": False, "reason": "Rotation is off: both message limits are 0"}
     db = await get_db()

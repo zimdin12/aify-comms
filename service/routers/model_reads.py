@@ -6,10 +6,10 @@ from pydantic import BaseModel
 
 from service import longpoll
 from service.api_core import model_reads
+from service.api_core.host_proof import _environment, _proven_host
 from service.api_core.routing import domain_router
 from service.clock import now
 from service.db import get_db
-from service.routers.definition_requests import _environment, _proven_host
 
 router = domain_router()
 
