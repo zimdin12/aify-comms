@@ -37,6 +37,7 @@ the file is listed as UNCLASSIFIED rather than guessed at.
 | [`TEAMWORK_STRATEGY.md`](TEAMWORK_STRATEGY.md) | How a multi-agent team is meant to work here. |
 | [`UNINSTALL.md`](UNINSTALL.md) | Removing it cleanly. |
 | [`CODEX_CATCHUP.md`](CODEX_CATCHUP.md) | What Codex needs to drop its local comms process, deferred from 0.9.11 until Claude and hermes are proven on it. |
+| [`OVERSIZED_SCOPE_BLIND_SPOT.md`](OVERSIZED_SCOPE_BLIND_SPOT.md) | An open ruling: two of the largest files sit outside the 1000-line gate. `mcp/stdio/tests/no-unwatched-oversized-file.test.js` holds them at measured ceilings until it is made. |
 | [`ROADMAP.md`](ROADMAP.md) | The stack roadmap across all six repositories: goals, groups and the gates between them. [`roadmap/`](roadmap/) holds its issue map, the owners' approvals, issues opened since, and the checklist for [working an issue](roadmap/WORKING-AN-ISSUE.md). Earlier roadmaps are in the finished-work archive. |
 
 ## Finished work
