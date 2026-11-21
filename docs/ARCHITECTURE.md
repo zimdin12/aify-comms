@@ -88,13 +88,30 @@ behaviour in a module with one subject and import it.**
 
 ### Where state lives, and the constraint that follows
 
-Derived agent status is a **process-global in-memory dict**, `_LIVE_STATE_CACHE`, owned by
-`service/reconcilers/status_cache.py`. There is no status table; debug status with
-`comms_agent_info` or the dashboard.
+**aify-env owns agent state and whether an agent is busy.** Comms accepts host publications into
+`agent_state_publishers` and `agent_state_rows` in SQLite, then updates the in-process mirror.
+On startup, saved rows restore last-known state; they are not fresh until the publisher sends a
+complete snapshot. The operational view combines that mirror with Comms' own delivery facts.
+`_LIVE_STATE_CACHE` caches the resulting view for service reads; it does not decide turn state.
+Use `comms_agent_info` or the dashboard to inspect the served view.
 
-**Therefore the service must stay single-worker uvicorn.** One process, one event loop. Adding
-`--workers 2` does not degrade status; it makes each worker confidently report a different answer.
-Moving the cache to a shared store is the prerequisite, not a follow-up.
+**Run one uvicorn worker, with one event loop.** Sharing SQLite does not share these objects:
+
+| Process-local state | What uses it |
+|---|---|
+| `mirror` in `service/api_core/agent_state_mirror.py` | Publication ingest updates it; the operational view reads it for agent status and dispatch eligibility. |
+| `_LIVE_STATE_CACHE` in `service/reconcilers/status_cache.py` | Status refresh writes it; agent and session views read it. |
+| `MODEL_READS` in `service/api_core/model_reads.py` | The model endpoint waits for the host to claim and answer the same pending read. |
+| `_waiters` in `service/longpoll.py` | Held claims register here; committed work wakes the local futures. |
+| `CHANGE_FEED` in `service/change_feed.py` and `app.state.ws_manager` | Service changes invalidate dashboard views; WebSocket fan-out reaches clients connected to this process. |
+| `TERMINAL_OUTPUT_WRITES` in `service/terminal_write_queue.py` | Terminal output appends and console flushes share the same queue and sequence state. |
+| `_LIVE_SCREENS` in `service/terminal_snapshot.py` | Terminal output advances the screen that console snapshot reads render. |
+| `_USAGE_CACHE` and `_CONSUMPTION_ROWS` in `service/usage_cache.py`; `_POOL_CACHE` in `service/usage_pools.py` | Usage reports and pool readings feed the quota and consumption views shown by the dashboard and `comms_usage`. |
+| `_RELAY` in `service/ntfy.py` | Operator notifications share one relay and its deduplication window when enabled. |
+
+A second worker can miss updates, leave waiters asleep, or process terminal output independently.
+Before adding workers, give producers and readers a shared state or coordination mechanism for
+these paths. Moving only the status cache, or pinning only the dashboard connection, is not enough.
 
 ---
 
@@ -181,6 +198,7 @@ Each row is a rule you can break without any obvious symptom, followed by what w
 | No module imports a name nothing reaches | `service/tests/test_no_dead_imports.py` |
 | Every reconciler has a production caller | `service/tests/test_no_reconciler_is_dead_code.py` |
 | Container runtime must not import host-side bridge code | `service/tests/test_service_runtime_boundary.py` |
+| Shipped service launch configurations must not request more than one uvicorn worker | `service/tests/test_single_uvicorn_worker.py` |
 | One version, declared in the root `VERSION` file; `scripts/bump-version.sh` writes the four copies that must agree | `service/tests/test_version_single_source.py`, `mcp/stdio/tests/version-consistency.test.js` |
 | Every registered `comms_*` tool is documented, and every documented one exists | `mcp/stdio/tests/skill-consistency.test.js` |
 | The two skill trees are byte-identical | `service/tests/test_skill_mirror_parity.py` |

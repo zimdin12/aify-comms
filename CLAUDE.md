@@ -68,9 +68,9 @@ What you edited decides how it reaches the running system:
   (`test_skill_mirror_parity.py`).
 - The container is `aify-comms-service` on the `aify-comms-network` network. `.env` is gitignored and
   holds secrets; never commit it.
-- **The service must stay single-worker.** The live-status cache is a process-global in-memory dict
-  (`_LIVE_STATE_CACHE`, owned by `service/reconcilers/status_cache.py`). A second uvicorn worker would
-  split it. Debug status with `comms_agent_info` or the dashboard.
+- **The service must stay single-worker.** aify-env owns agent state; Comms mirrors and serves it.
+  The mirror, queues, wakeups, and other [process-local state](docs/ARCHITECTURE.md#where-state-lives-and-the-constraint-that-follows)
+  are shared within one uvicorn worker, not across workers. Debug status with `comms_agent_info` or the dashboard.
 
 ## Versioning
 

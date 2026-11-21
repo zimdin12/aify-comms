@@ -505,13 +505,11 @@ The recurring `database is locked` 503s are RESOLVED (commit `97a497a`, verified
 
 **The root cause was that the live-status cache was a SQLite table written on the hot READ path.** `agent_live_state` held *derived* agent status — a pure cache, recomputed from scratch on restart — yet it was refresh-WRITTEN on every dashboard poll. With a connection-per-request, single-writer SQLite, those constant status-refresh writes were the write storm that produced the lock contention; worse, the constant status READS kept the WAL from ever checkpointing, so it bloated to 41–83MB → slow commits → more lock windows. It was a cache masquerading as durable state, on the busiest path in the service.
 
-**The fix: the live-status cache now lives in a process-global in-memory dict (`_LIVE_STATE_CACHE` in `service/reconcilers/status_cache.py`).** Reads serve from memory — ZERO DB writes on the hot read path, so a read can NEVER take SQLite's write lock — and with the read-path writes gone the WAL checkpoints normally and stays small (~5MB). The `agent_live_state` table, vestigial from then on, was dropped in 0.7.0.
+**The 2026-06-18 fix moved cache refreshes off the write path.** The process-global `_LIVE_STATE_CACHE` replaced the hot-path SQLite cache, and the WAL settled at roughly 5 MB. The vestigial `agent_live_state` cache table was dropped in 0.7.0. Commit `581341d` also added read fallbacks for transient locks.
 
-**SINGLE-WORKER IS NOW A HARD REQUIREMENT.** The cache is PROCESS-GLOBAL and is only correct because the service runs as exactly ONE uvicorn process / one event loop. (The `aify-comms-dashboard-next` container only PROXIES to it — it never opens the DB.) If the service is EVER scaled to multiple workers, this in-memory cache MUST move to a shared store (Redis) or use sticky routing; otherwise different workers would serve divergent status. Do not add `--workers > 1` / multiple uvicorn processes without first relocating the cache.
+**Current ownership:** Since 0.9.8, aify-env publishes agent state. Comms saves accepted publications for recovery, mirrors them in memory, and caches its operational view. Restored publications are last-known evidence, not fresh host state.
 
-**Trade-off: the cache is lost on restart — accepted, because the startup reconcile warms it before serving.** A cold process recomputes the live state on boot, so a restart re-derives rather than reads stale rows.
-
-**Belt-and-suspenders (commit `581341d`): the read endpoints degrade gracefully under a transient lock.** `GET /agents`, `GET /agents/{id}`, and `GET /sessions` catch a transient `database is locked` and serve the cached data instead of returning a 503.
+**The single-worker requirement still holds.** The service now shares more process-local state than this cache. See [the current inventory and worker constraint](docs/ARCHITECTURE.md#where-state-lives-and-the-constraint-that-follows) before changing the launch configuration.
 
 ## Read GET endpoints must not run repair-WRITES on the poll path (2026-06-29)
 

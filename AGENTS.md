@@ -141,11 +141,10 @@ table in [.claude/skills/aify-comms/references/operations.md](.claude/skills/aif
 ("Status Meanings"); `VALID_STATUSES` in `service/status_vocabulary.py` is the code's list. Status is
 proof-based and never time-decayed.
 
-Since the 0.9.8 switch the word is aify-env's: each host's aify-env publishes a record per agent,
-and the operational view (`service/api_core/operational_view.py`) serves it, adding only an
-operator stop, a proven-absent wake handle, `unknown` when a publisher is not fresh, and `working`
-while a run comms delivered is running. comms keeps no turn state and times no turn. The served
-status reads from the in-memory `_LIVE_STATE_CACHE`; see CLAUDE.md's single-worker constraint.
+Since the 0.9.8 switch, aify-env owns agent state and turn busy. Comms mirrors the host publications
+and serves an operational view with its own dispatch facts. It checks report freshness, not turn
+age. `_LIVE_STATE_CACHE` caches the served view. See the
+[single-worker constraint](docs/ARCHITECTURE.md#where-state-lives-and-the-constraint-that-follows).
 How the word is decided, and what to check when it is wrong:
 `.claude/skills/aify-comms-debug/references/status-model.md`.
 
